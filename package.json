@@ -1,0 +1,26 @@
+{
+  "name": "betpals",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5175",
+    "server": "node server/server.js",
+    "build": "vite build",
+    "start": "node server/server.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.1"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4",
+    "ws": "^8.19.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

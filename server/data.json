@@ -1,0 +1,83 @@
+{
+  "adminPin": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
+  "events": [
+    {
+      "id": "a2dc4993b1189c61",
+      "name": "Golf Masters 2026",
+      "date": "2026-03-20",
+      "status": "finished",
+      "shareCode": "84AD52",
+      "payoutPercent": 100,
+      "minBet": 50,
+      "maxBet": 5000,
+      "players": [
+        {
+          "id": "9278e92244ed18f9",
+          "name": "Anna"
+        },
+        {
+          "id": "dd6eff044a4fdec7",
+          "name": "Johan"
+        },
+        {
+          "id": "0678985cbc91da85",
+          "name": "Erik"
+        }
+      ],
+      "bets": [
+        {
+          "id": "a42f6dbf7ed33393",
+          "bettorName": "Marcus",
+          "playerId": "9278e92244ed18f9",
+          "amount": 100,
+          "timestamp": "2026-03-20T18:35:24.341Z"
+        },
+        {
+          "id": "f26317708c12921e",
+          "bettorName": "Lisa",
+          "playerId": "dd6eff044a4fdec7",
+          "amount": 200,
+          "timestamp": "2026-03-20T18:35:45.797Z"
+        },
+        {
+          "id": "59948669815b3aa0",
+          "bettorName": "Kalle",
+          "playerId": "9278e92244ed18f9",
+          "amount": 150,
+          "timestamp": "2026-03-20T18:35:57.064Z"
+        }
+      ],
+      "winnerId": "9278e92244ed18f9"
+    },
+    {
+      "id": "bfd23b76ee3f26ec",
+      "name": "Malta Betting 1",
+      "date": "2026-03-20",
+      "status": "open",
+      "shareCode": "72D304",
+      "payoutPercent": 100,
+      "minBet": 10,
+      "maxBet": 1000,
+      "players": [
+        {
+          "id": "bc6f230b012cec62",
+          "name": "Anton"
+        },
+        {
+          "id": "282d9884a0a9e04a",
+          "name": "Erik"
+        },
+        {
+          "id": "0dd68a30b4c77d97",
+          "name": "johan"
+        },
+        {
+          "id": "5fb8f466da971a4b",
+          "name": "magnus"
+        }
+      ],
+      "bets": [],
+      "winnerId": null
+    }
+  ]
+}

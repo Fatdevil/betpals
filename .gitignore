@@ -1,0 +1,5 @@
+node_modules/
+dist/
+server/betpals.db
+.env
+*.log
