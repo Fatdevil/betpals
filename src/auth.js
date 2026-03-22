@@ -17,7 +17,9 @@ export function storeUser(user) {
     id: user.id,
     nickname: user.nickname,
     avatar: user.avatar,
-    swishNumber: user.swishNumber || null
+    avatarUrl: user.avatarUrl || null,
+    email: user.email || null,
+    googleLinked: user.googleLinked || false
   }));
 }
 

@@ -1,5 +1,6 @@
 // ── SQLite Database Layer ─────────────────────────────
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -22,12 +23,28 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
-    nickname TEXT UNIQUE NOT NULL,
+    nickname TEXT NOT NULL,
     token TEXT UNIQUE NOT NULL,
+    google_id TEXT UNIQUE,
+    email TEXT,
+    avatar_url TEXT,
     avatar_emoji TEXT DEFAULT '🎲',
-    swish_number TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS event_photos (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    thumbnail_url TEXT,
+    caption TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_photos_event ON event_photos(event_id);
 
   CREATE TABLE IF NOT EXISTS tournaments (
     id TEXT PRIMARY KEY,
@@ -128,10 +145,17 @@ const stmts = {
   getUserById: db.prepare('SELECT * FROM users WHERE id = ?'),
   getUserByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
   getUserByNickname: db.prepare('SELECT * FROM users WHERE nickname = ?'),
+  getUserByGoogleId: db.prepare('SELECT * FROM users WHERE google_id = ?'),
   getAllUsers: db.prepare('SELECT * FROM users ORDER BY created_at DESC'),
   insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji) VALUES (?, ?, ?, ?)'),
+  insertGoogleUser: db.prepare('INSERT INTO users (id, nickname, token, google_id, email, avatar_url) VALUES (?, ?, ?, ?, ?, ?)'),
+  updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
-  updateUserSwish: db.prepare('UPDATE users SET swish_number = ? WHERE id = ?'),
+
+  // Photos
+  getPhotosByEvent: db.prepare('SELECT p.*, u.nickname as uploader_name, u.avatar_url as uploader_avatar FROM event_photos p JOIN users u ON p.user_id = u.id WHERE p.event_id = ? ORDER BY p.created_at DESC'),
+  insertPhoto: db.prepare('INSERT INTO event_photos (id, event_id, user_id, url, thumbnail_url, caption) VALUES (?, ?, ?, ?, ?, ?)'),
+  deletePhoto: db.prepare('DELETE FROM event_photos WHERE id = ? AND user_id = ?'),
 
   // Tournaments
   insertTournament: db.prepare('INSERT INTO tournaments (id, name, share_code, creator_id) VALUES (?, ?, ?, ?)'),
@@ -301,6 +325,17 @@ export function createUser(id, nickname, token, avatarEmoji) {
   stmts.insertUser.run(id, nickname, token, avatarEmoji);
 }
 
+export function findOrCreateGoogleUser(googleId, email, name, avatarUrl, token) {
+  const existing = stmts.getUserByGoogleId.get(googleId);
+  if (existing) {
+    stmts.updateUserGoogle.run(email, avatarUrl, name, googleId);
+    return { ...existing, email, avatar_url: avatarUrl, nickname: name };
+  }
+  const id = crypto.randomUUID();
+  stmts.insertGoogleUser.run(id, name, token, googleId, email, avatarUrl);
+  return { id, nickname: name, token, google_id: googleId, email, avatar_url: avatarUrl };
+}
+
 export function getUserByToken(token) {
   return stmts.getUserByToken.get(token);
 }
@@ -317,12 +352,21 @@ export function updateUserAvatar(userId, emoji) {
   stmts.updateUserAvatar.run(emoji, userId);
 }
 
-export function updateUserSwish(userId, swishNumber) {
-  stmts.updateUserSwish.run(swishNumber || null, userId);
-}
-
 export function getUserBets(userId) {
   return stmts.getBetsByUser.all(userId);
+}
+
+// ── Photos ───────────────────────────────────────────
+export function getPhotosByEvent(eventId) {
+  return stmts.getPhotosByEvent.all(eventId);
+}
+
+export function addPhoto(id, eventId, userId, url, thumbnailUrl, caption) {
+  stmts.insertPhoto.run(id, eventId, userId, url, thumbnailUrl || null, caption || null);
+}
+
+export function deletePhoto(photoId, userId) {
+  stmts.deletePhoto.run(photoId, userId);
 }
 
 export function getLeaderboard() {

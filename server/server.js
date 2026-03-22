@@ -6,13 +6,17 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
+import { OAuth2Client } from 'google-auth-library';
 import * as db from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Serve frontend in production
 const distPath = path.join(__dirname, '..', 'dist');
@@ -93,6 +97,11 @@ function verifyEventAdmin(req, event) {
   return false;
 }
 
+// ── Config ──────────────────────────────────────────
+app.get('/api/config', (req, res) => {
+  res.json({ googleClientId: GOOGLE_CLIENT_ID });
+});
+
 // ── Admin PIN ────────────────────────────────────────
 app.post('/api/admin/setup', (req, res) => {
   const { pin } = req.body;
@@ -142,7 +151,7 @@ app.post('/api/users/login', (req, res) => {
     return res.status(404).json({ error: 'Ingen användare med det namnet. Registrera dig först!' });
   }
   // Return token for the user (simple system — no passwords)
-  res.json({ id: user.id, nickname: user.nickname, token: user.token, avatar: user.avatar_emoji, swishNumber: user.swish_number });
+  res.json({ id: user.id, nickname: user.nickname, token: user.token, avatar: user.avatar_emoji, avatarUrl: user.avatar_url, email: user.email });
 });
 
 app.get('/api/users/me', (req, res) => {
@@ -150,7 +159,7 @@ app.get('/api/users/me', (req, res) => {
   if (!token) return res.status(401).json({ error: 'Ej inloggad' });
   const user = db.getUserByToken(token);
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
-  res.json({ id: user.id, nickname: user.nickname, avatar: user.avatar_emoji, swishNumber: user.swish_number });
+  res.json({ id: user.id, nickname: user.nickname, avatar: user.avatar_emoji, avatarUrl: user.avatar_url, email: user.email });
 });
 
 app.get('/api/users/me/bets', (req, res) => {
@@ -184,16 +193,117 @@ app.put('/api/users/me/avatar', (req, res) => {
   res.json({ ok: true, avatar: emoji });
 });
 
-app.put('/api/users/me/swish', (req, res) => {
-  const token = req.headers['x-user-token'];
-  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
-  const user = db.getUserByToken(token);
-  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+// ── Google Auth ──────────────────────────────────────
+app.post('/api/auth/google', async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) return res.status(400).json({ error: 'Missing credential' });
+  if (!GOOGLE_CLIENT_ID) return res.status(500).json({ error: 'Google auth not configured' });
 
-  const { swishNumber } = req.body;
-  const cleaned = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null;
-  db.updateUserSwish(user.id, cleaned);
-  res.json({ ok: true, swishNumber: cleaned });
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, name, picture } = payload;
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const user = db.findOrCreateGoogleUser(googleId, email, name, picture, token);
+
+    res.json({
+      id: user.id,
+      nickname: user.nickname,
+      token: user.token,
+      avatar: user.avatar_emoji || '🎲',
+      avatarUrl: user.avatar_url,
+      email: user.email,
+      googleLinked: true
+    });
+  } catch (err) {
+    console.error('Google auth error:', err.message);
+    res.status(401).json({ error: 'Invalid Google token' });
+  }
+});
+
+// ── Photos ───────────────────────────────────────────
+app.get('/api/events/:code/photos', (req, res) => {
+  const event = db.getEventByCode(req.params.code);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const photos = db.getPhotosByEvent(event.id);
+  res.json(photos.map(p => ({
+    id: p.id,
+    url: p.url,
+    thumbnailUrl: p.thumbnail_url,
+    caption: p.caption,
+    uploaderName: p.uploader_name,
+    uploaderAvatar: p.uploader_avatar,
+    createdAt: p.created_at
+  })));
+});
+
+app.post('/api/events/:code/photos', async (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Login required' });
+
+  const event = db.getEventByCode(req.params.code);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+
+  const { imageData, caption } = req.body;
+  if (!imageData) return res.status(400).json({ error: 'No image data' });
+
+  try {
+    // Upload to Cloudinary
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.status(500).json({ error: 'Photo storage not configured' });
+    }
+
+    const timestamp = Math.round(Date.now() / 1000);
+    const folder = `betpals/${event.share_code}`;
+    const signStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+    const signature = crypto.createHash('sha1').update(signStr).digest('hex');
+
+    const formData = new URLSearchParams();
+    formData.append('file', imageData);
+    formData.append('folder', folder);
+    formData.append('timestamp', timestamp);
+    formData.append('api_key', apiKey);
+    formData.append('signature', signature);
+
+    const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!cloudRes.ok) throw new Error('Cloudinary upload failed');
+    const cloudData = await cloudRes.json();
+
+    const photoId = generateId();
+    const url = cloudData.secure_url;
+    const thumbUrl = url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+
+    db.addPhoto(photoId, event.id, user.id, url, thumbUrl, caption);
+
+    broadcastToEvent(event.share_code, {
+      type: 'photo_added',
+      photo: { id: photoId, url, thumbnailUrl: thumbUrl, caption, uploaderName: user.nickname }
+    });
+
+    res.json({ id: photoId, url, thumbnailUrl: thumbUrl });
+  } catch (err) {
+    console.error('Photo upload error:', err.message);
+    res.status(500).json({ error: 'Photo upload failed' });
+  }
+});
+
+app.delete('/api/events/:code/photos/:photoId', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Login required' });
+  db.deletePhoto(req.params.photoId, user.id);
+  res.json({ ok: true });
 });
 
 app.get('/api/users/me/stats', (req, res) => {

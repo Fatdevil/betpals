@@ -124,7 +124,9 @@ export const sv = {
     chooseAvatar: 'Välj avatar',
     winsInRow: 'vinster i rad',
     lossesInRow: 'förluster i rad',
-    language: 'Språk'
+    language: 'Språk',
+    googleHint: 'Snabb och säker inloggning med Google',
+    orDivider: 'eller'
   },
   leaderboard: {
     title: '🏆 Topplista',

@@ -1,8 +1,20 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, getMyBets, getMyStats, updateAvatar } from '../api.js';
+import { registerUser, loginUser, googleLogin, getMyBets, getMyStats, updateAvatar } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass } from '../utils.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
+
+// Google callback — exposed globally
+window.handleGoogleLogin = async (response) => {
+  try {
+    const user = await googleLogin(response.credential);
+    storeUser(user);
+    showToast(`Welcome, ${user.nickname}! 🎉`, 'success');
+    renderProfile();
+  } catch (err) {
+    showToast(err.message || 'Google login failed', 'error');
+  }
+};
 
 const AVATAR_OPTIONS = ['🎲','🎯','🏆','⚡','🔥','🎰','💎','🃏','🎱','🏌️','🎳','🏀','⚽','🎸','🦊','🐺','🦅','🐉','🌟','👑'];
 
@@ -34,7 +46,14 @@ function renderAuthScreen(content) {
         <p class="page-subtitle">${t('profile.loginLink')}</p>
       </div>
 
-      <div class="card" id="auth-card">
+      <div class="card">
+        <div class="text-center">
+          <div id="google-signin-btn" style="display: flex; justify-content: center; margin-bottom: var(--space-md);"></div>
+          <p class="text-muted" style="font-size: 0.75rem;">${t('profile.googleHint') || 'Secure login with Google'}</p>
+        </div>
+
+        <div class="auth-divider"><span>${t('profile.orDivider') || 'or'}</span></div>
+
         <div class="auth-tabs">
           <button class="auth-tab active" data-tab="register" id="tab-register">${t('profile.register')}</button>
           <button class="auth-tab" data-tab="login" id="tab-login">${t('profile.loginBtn')}</button>
@@ -68,6 +87,20 @@ function renderAuthScreen(content) {
       </div>
     </div>
   `;
+
+  // Initialize Google Sign-In button
+  setTimeout(() => {
+    if (typeof google !== 'undefined' && google.accounts) {
+      google.accounts.id.initialize({
+        client_id: window.GOOGLE_CLIENT_ID || '',
+        callback: window.handleGoogleLogin
+      });
+      google.accounts.id.renderButton(
+        document.getElementById('google-signin-btn'),
+        { theme: 'filled_black', size: 'large', shape: 'pill', width: 280, text: 'signin_with' }
+      );
+    }
+  }, 300);
 
   // Tab switching
   document.querySelectorAll('.auth-tab').forEach(tab => {
@@ -147,9 +180,12 @@ function renderProfileContent(content, user, bets, stats) {
 
       <!-- User Card -->
       <div class="card text-center" style="padding: var(--space-xl);">
-        <div class="profile-avatar" id="profile-avatar">${user.avatar || '🎲'}</div>
+        ${user.avatarUrl 
+          ? `<img src="${user.avatarUrl}" alt="${user.nickname}" class="profile-avatar-img" />`
+          : `<div class="profile-avatar" id="profile-avatar">${user.avatar || '🎲'}</div>`}
         <div class="profile-nickname">${user.nickname}</div>
-        <div class="text-muted" style="font-size: 0.8rem;">${t('profile.memberSince')} idag</div>
+        ${user.email ? `<div class="text-muted" style="font-size: 0.75rem;">${user.email}</div>` : ''}
+        ${user.googleLinked ? `<div style="font-size: 0.65rem; color: var(--green); margin-top: 4px;">✓ Google</div>` : ''}
       </div>
 
       <!-- Language Switcher -->

@@ -111,12 +111,12 @@ export const registerUser = (nickname, avatarEmoji) =>
   request('/users/register', { method: 'POST', body: { nickname, avatarEmoji } });
 export const loginUser = (nickname) =>
   request('/users/login', { method: 'POST', body: { nickname } });
+export const googleLogin = (credential) =>
+  request('/auth/google', { method: 'POST', body: { credential } });
 export const getMe = () => request('/users/me');
 export const getMyBets = () => request('/users/me/bets');
 export const updateAvatar = (emoji) =>
   request('/users/me/avatar', { method: 'PUT', body: { emoji } });
-export const updateSwish = (swishNumber) =>
-  request('/users/me/swish', { method: 'PUT', body: { swishNumber } });
 
 // ── Leaderboard ──────────────────────────────────────
 export const getLeaderboard = () => request('/leaderboard');
@@ -137,3 +137,10 @@ export const getTournamentQR = (code, baseUrl) => {
 
 // ── User Stats ───────────────────────────────────────
 export const getMyStats = () => request('/users/me/stats');
+
+// ── Photos ───────────────────────────────────────────
+export const getEventPhotos = (code) => request(`/events/${code}/photos`);
+export const uploadEventPhoto = (code, imageData, caption) =>
+  request(`/events/${code}/photos`, { method: 'POST', body: { imageData, caption } });
+export const deleteEventPhoto = (code, photoId) =>
+  request(`/events/${code}/photos/${photoId}`, { method: 'DELETE' });

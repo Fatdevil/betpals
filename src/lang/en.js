@@ -124,7 +124,9 @@ export const en = {
     chooseAvatar: 'Choose avatar',
     winsInRow: 'wins in a row',
     lossesInRow: 'losses in a row',
-    language: 'Language'
+    language: 'Language',
+    googleHint: 'Fast, secure login with Google',
+    orDivider: 'or'
   },
   leaderboard: {
     title: '🏆 Leaderboard',

@@ -9,6 +9,12 @@ import { renderLeaderboard } from './pages/leaderboard.js';
 import { renderTournament } from './pages/tournament.js';
 import { initAds } from './components/ads.js';
 
+// Google Auth — fetched from server config
+window.GOOGLE_CLIENT_ID = '';
+fetch('/api/config').then(r => r.json()).then(c => {
+  window.GOOGLE_CLIENT_ID = c.googleClientId || '';
+}).catch(() => {});
+
 let currentPage = 'home';
 let currentParams = {};
 
