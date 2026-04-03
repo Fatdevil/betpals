@@ -188,15 +188,16 @@ function renderProfileContent(content, user, bets, stats) {
         ${user.googleLinked ? `<div style="font-size: 0.65rem; color: var(--green); margin-top: 4px;">✓ Google</div>` : ''}
       </div>
 
-      <!-- Language Switcher -->
+      <!-- Language Switcher (pill toggle) -->
       <div class="card mt-md">
-        <div class="flex-between" style="align-items: center;">
-          <div>
-            <div style="font-weight: 600; font-size: 0.9rem;">🌍 ${t('profile.language')}</div>
-          </div>
-          <select class="form-input" id="lang-select" style="width: auto; min-width: 140px;">
-            ${langs.map(l => `<option value="${l.code}" ${l.code === currentLang ? 'selected' : ''}>${l.label}</option>`).join('')}
-          </select>
+        <div style="font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-sm);">🌍 ${t('profile.language')}</div>
+        <div class="lang-pills" style="display: flex; gap: var(--space-sm);">
+          ${langs.map(l => `
+            <button class="btn ${l.code === currentLang ? 'btn-primary' : 'btn-secondary'} lang-pill" 
+                    data-lang="${l.code}" style="flex: 1; font-size: 0.8rem;">
+              ${l.code === 'sv' ? '🇸🇪' : '🇬🇧'} ${l.label.toUpperCase()}
+            </button>
+          `).join('')}
         </div>
       </div>
 
@@ -296,10 +297,12 @@ function renderProfileContent(content, user, bets, stats) {
     renderProfile();
   });
 
-  // Language switcher
-  document.getElementById('lang-select').addEventListener('change', (e) => {
-    setLang(e.target.value);
-    renderProfile(); // Re-render with new language
+  // Language switcher (pill buttons)
+  document.querySelectorAll('.lang-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setLang(btn.dataset.lang);
+      renderProfile();
+    });
   });
 
   // Click bet to go to event
