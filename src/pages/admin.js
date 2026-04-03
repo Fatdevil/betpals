@@ -483,7 +483,8 @@ async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) 
 async function showFinishModal(eventId, loggedIn, hasPinSession, user) {
   try {
     const events = await api.getEvents();
-    const ev = events.find(e => e.id === eventId);
+    const ev = events.find(e => e.id === Number(eventId));
+    if (!ev) { showToast('Event hittades inte', 'error'); return; }
     const event = await api.getEvent(ev.shareCode);
 
     showModal('🏆 Välj vinnare', `
