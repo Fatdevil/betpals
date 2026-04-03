@@ -8,8 +8,8 @@ export async function renderLeaderboard() {
   content.innerHTML = `
     <div class="animate-in">
       <div class="page-header">
-        <h1 class="page-title">🏆 Topplista</h1>
-        <p class="page-subtitle">Vem är den bästa bettaren?</p>
+        <h1 class="page-title">${t('leaderboard.title')}</h1>
+        <p class="page-subtitle">${t('leaderboard.subtitle')}</p>
       </div>
       <div class="skeleton skeleton-card"></div>
       <div class="skeleton skeleton-card"></div>
@@ -47,8 +47,8 @@ function renderLeaderboardContent(content, leaders) {
   content.innerHTML = `
     <div class="animate-in">
       <div class="page-header">
-        <h1 class="page-title">🏆 Topplista</h1>
-        <p class="page-subtitle">Vem är den bästa bettaren?</p>
+        <h1 class="page-title">${t('leaderboard.title')}</h1>
+        <p class="page-subtitle">${t('leaderboard.subtitle')}</p>
       </div>
 
       <!-- Podium -->
