@@ -43,6 +43,16 @@ export async function renderHome() {
                 ${tr.status === 'active' ? t('common.active') : '✅ ' + t('common.finished')}
               </span>
             </div>
+            ${tr.banners && tr.banners.length > 0 ? `
+              <div class="sponsor-carousel mt-sm">
+                ${tr.banners.map(b => `
+                  <div class="sponsor-slide">
+                    <img src="${b.imageData}" alt="${b.label || 'Sponsor'}" class="sponsor-img" />
+                    ${b.label ? `<div class="sponsor-label">${b.label}</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
           </div>
         `).join('')}
       `;

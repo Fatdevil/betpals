@@ -104,6 +104,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id);
   CREATE INDEX IF NOT EXISTS idx_events_share_code ON events(share_code);
   CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
+
+  CREATE TABLE IF NOT EXISTS tournament_banners (
+    id TEXT PRIMARY KEY,
+    tournament_id TEXT NOT NULL,
+    image_data TEXT NOT NULL,
+    link_url TEXT,
+    label TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_banners_tournament ON tournament_banners(tournament_id);
 `);
 
 // ── Migrations (safe to run repeatedly) ──────────────
@@ -172,6 +184,11 @@ const stmts = {
   getAllTournaments: db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC'),
   getEventsByTournament: db.prepare('SELECT * FROM events WHERE tournament_id = ? ORDER BY created_at ASC'),
   updateTournamentStatus: db.prepare('UPDATE tournaments SET status = ? WHERE id = ?'),
+
+  // Tournament Banners
+  getBannersByTournament: db.prepare('SELECT * FROM tournament_banners WHERE tournament_id = ? ORDER BY sort_order ASC, created_at ASC'),
+  insertBanner: db.prepare('INSERT INTO tournament_banners (id, tournament_id, image_data, link_url, label, sort_order) VALUES (?, ?, ?, ?, ?, ?)'),
+  deleteBanner: db.prepare('DELETE FROM tournament_banners WHERE id = ? AND tournament_id = ?'),
 };
 
 // ── Public API ───────────────────────────────────────
@@ -437,6 +454,21 @@ export function getLeaderboard() {
 
 export { db };
 
+// ── Tournament Banners ──────────────────────────────
+export function addBanner(id, tournamentId, imageData, linkUrl, label, sortOrder = 0) {
+  stmts.insertBanner.run(id, tournamentId, imageData, linkUrl, label, sortOrder);
+}
+
+export function removeBanner(bannerId, tournamentId) {
+  stmts.deleteBanner.run(bannerId, tournamentId);
+}
+
+export function getBanners(tournamentId) {
+  return stmts.getBannersByTournament.all(tournamentId).map(b => ({
+    id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label
+  }));
+}
+
 // ── Tournaments ─────────────────────────────────────
 export function createTournament(id, name, shareCode, creatorId) {
   stmts.insertTournament.run(id, name, shareCode, creatorId);
@@ -456,6 +488,7 @@ export function getAllTournaments() {
     const rounds = stmts.getEventsByTournament.all(t.id);
     const mainRounds = rounds.filter(r => !r.is_side_bet);
     const finishedRounds = mainRounds.filter(r => r.status === 'finished');
+    const banners = stmts.getBannersByTournament.all(t.id);
     return {
       id: t.id,
       name: t.name,
@@ -464,7 +497,9 @@ export function getAllTournaments() {
       creatorId: t.creator_id,
       createdAt: t.created_at,
       roundCount: mainRounds.length,
-      finishedCount: finishedRounds.length
+      finishedCount: finishedRounds.length,
+      bannerCount: banners.length,
+      banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label }))
     };
   });
 }
@@ -507,6 +542,8 @@ export function getFullTournament(idOrCode) {
   const allPlayers = new Set();
   rounds.forEach(r => r.players.forEach(p => allPlayers.add(p.name)));
 
+  const banners = stmts.getBannersByTournament.all(tournament.id);
+
   return {
     id: tournament.id,
     name: tournament.name,
@@ -517,6 +554,7 @@ export function getFullTournament(idOrCode) {
     rounds,
     sideBets,
     players: [...allPlayers],
+    banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label })),
     settlement: getTournamentNetSettlement(tournament.id)
   };
 }

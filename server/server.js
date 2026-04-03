@@ -750,6 +750,43 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Tournament Banners ───────────────────────────────
+app.post('/api/tournaments/:id/banners', (req, res) => {
+  const tournament = db.getTournamentById(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const user = getUserFromToken(req);
+  const isCreator = user && tournament.creator_id === user.id;
+  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet' });
+  }
+
+  const { imageData, linkUrl, label } = req.body;
+  if (!imageData) return res.status(400).json({ error: 'Bild krävs' });
+
+  const id = generateId();
+  const banners = db.getBanners(tournament.id);
+  db.addBanner(id, tournament.id, imageData, linkUrl || null, label || null, banners.length);
+
+  res.json({ ok: true, banner: { id, imageData, linkUrl, label } });
+});
+
+app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
+  const tournament = db.getTournamentById(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const user = getUserFromToken(req);
+  const isCreator = user && tournament.creator_id === user.id;
+  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet' });
+  }
+
+  db.removeBanner(req.params.bannerId, tournament.id);
+  res.json({ ok: true });
+});
+
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';
 const indexHtml = path.join(distPath, 'index.html');

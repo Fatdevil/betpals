@@ -602,6 +602,111 @@ select.form-input option {
   font-weight: 700;
 }
 
+/* ── Sponsor Carousel ──────────────────────────────── */
+.sponsor-carousel {
+  display: flex;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-xs) 0;
+  scrollbar-width: none;
+}
+
+.sponsor-carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.sponsor-slide {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 300px;
+  min-width: 200px;
+  scroll-snap-align: center;
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid rgba(255, 229, 0, 0.15);
+  background: linear-gradient(135deg, rgba(255, 229, 0, 0.03), rgba(255, 255, 255, 0.02));
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.sponsor-slide:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255, 229, 0, 0.08);
+}
+
+.sponsor-slide a {
+  display: block;
+}
+
+.sponsor-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+}
+
+.sponsor-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--space-xs) var(--space-sm);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.sponsor-delete-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
+  font-size: 0.65rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.sponsor-slide:hover .sponsor-delete-btn {
+  opacity: 1;
+}
+
+.sponsor-delete-btn:hover {
+  background: rgba(255, 60, 60, 0.8);
+}
+
+.sponsor-upload-area {
+  border: 2px dashed rgba(255, 229, 0, 0.25);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(255, 229, 0, 0.02);
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sponsor-upload-area:hover {
+  border-color: var(--accent);
+  background: rgba(255, 229, 0, 0.05);
+}
+
 .badge-open {
   background: var(--green-glow);
   color: var(--green);

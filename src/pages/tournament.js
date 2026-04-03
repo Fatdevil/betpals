@@ -1,4 +1,4 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner } from '../api.js';
 import { formatCurrency, showToast } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -112,6 +112,31 @@ function renderTournamentContent(content, t) {
         </div>
       ` : ''}
 
+      <!-- Sponsor Banners -->
+      ${(t.banners && t.banners.length > 0) || isCreator ? `
+        <div class="section-header mt-md">
+          <h2 class="section-title">⭐ Sponsorer</h2>
+        </div>
+        ${t.banners && t.banners.length > 0 ? `
+          <div class="sponsor-carousel">
+            ${t.banners.map(b => `
+              <div class="sponsor-slide">
+                ${b.linkUrl ? `<a href="${b.linkUrl}" target="_blank" rel="noopener">` : ''}
+                  <img src="${b.imageData}" alt="${b.label || 'Sponsor'}" class="sponsor-img" />
+                ${b.linkUrl ? '</a>' : ''}
+                ${b.label ? `<div class="sponsor-label">${b.label}</div>` : ''}
+                ${isCreator ? `<button class="sponsor-delete-btn" data-banner-id="${b.id}" title="Ta bort">✕</button>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        ${isCreator ? `
+          <button class="btn btn-secondary btn-sm mt-sm" id="add-banner-btn" style="width: 100%;">
+            📸 Lägg till sponsor
+          </button>
+        ` : ''}
+      ` : ''}
+
       <!-- Action Buttons -->
       ${isCreator && t.status === 'active' ? `
         <div class="flex gap-sm mt-md">
@@ -196,6 +221,102 @@ function renderTournamentContent(content, t) {
   document.querySelectorAll('.round-link').forEach(el => {
     el.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'event', code: el.dataset.code } }));
+    });
+  });
+
+  // Banner upload
+  document.getElementById('add-banner-btn')?.addEventListener('click', () => {
+    showModal('📸 Lägg till sponsor', `
+      <form id="banner-form">
+        <div class="form-group">
+          <label class="form-label">Sponsorbild</label>
+          <div class="sponsor-upload-area" id="banner-drop-area">
+            <div id="banner-preview-container" style="display:none;">
+              <img id="banner-preview-img" class="sponsor-img" style="max-height: 200px;" />
+            </div>
+            <div id="banner-upload-placeholder">
+              <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📸</div>
+              <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att välja bild</div>
+            </div>
+            <input type="file" accept="image/*" id="banner-file-input" style="display: none;" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Etikett (valfri)</label>
+          <input type="text" class="form-input" id="banner-label" placeholder="t.ex. Huvudsponsor" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Länk (valfri)</label>
+          <input type="text" class="form-input" id="banner-link" placeholder="https://..." />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="banner-submit-btn">Ladda upp 📸</button>
+      </form>
+    `);
+
+    let selectedImageData = null;
+    const dropArea = document.getElementById('banner-drop-area');
+    const fileInput = document.getElementById('banner-file-input');
+    const previewContainer = document.getElementById('banner-preview-container');
+    const previewImg = document.getElementById('banner-preview-img');
+    const placeholder = document.getElementById('banner-upload-placeholder');
+
+    dropArea?.addEventListener('click', () => fileInput.click());
+
+    const handleFile = (file) => {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        selectedImageData = ev.target.result;
+        previewImg.src = selectedImageData;
+        previewContainer.style.display = 'block';
+        placeholder.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    };
+
+    fileInput?.addEventListener('change', (ev) => handleFile(ev.target.files[0]));
+
+    document.getElementById('banner-form')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (!selectedImageData) { showToast('Välj en bild först', 'error'); return; }
+
+      const submitBtn = document.getElementById('banner-submit-btn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Laddar upp...';
+
+      try {
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await addTournamentBanner(t.id, {
+          imageData: selectedImageData,
+          label: document.getElementById('banner-label').value.trim() || null,
+          linkUrl: document.getElementById('banner-link').value.trim() || null,
+          pin
+        });
+        closeModal();
+        showToast('Sponsor tillagd! ⭐', 'success');
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated);
+      } catch (err) {
+        showToast(err.message, 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Ladda upp 📸';
+      }
+    });
+  });
+
+  // Delete banners
+  document.querySelectorAll('.sponsor-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Ta bort denna sponsor?')) return;
+      try {
+        await deleteTournamentBanner(t.id, btn.dataset.bannerId);
+        showToast('Sponsor borttagen', 'success');
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     });
   });
 

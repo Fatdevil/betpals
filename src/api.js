@@ -136,6 +136,10 @@ export const getTournamentQR = (code, baseUrl) => {
   const params = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : '';
   return request('/tournaments/' + code + '/qr' + params);
 };
+export const addTournamentBanner = (id, data) =>
+  request('/tournaments/' + id + '/banners', { method: 'POST', body: data });
+export const deleteTournamentBanner = (id, bannerId) =>
+  request('/tournaments/' + id + '/banners/' + bannerId, { method: 'DELETE' });
 
 // ── User Stats ───────────────────────────────────────
 export const getMyStats = () => request('/users/me/stats');
