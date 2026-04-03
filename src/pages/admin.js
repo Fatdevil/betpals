@@ -217,7 +217,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           ` : ''}
           ${ev.status === 'locked' ? `
             <button class="btn btn-sm btn-secondary admin-reopen-btn" data-id="${ev.id}">🔓 Öppna</button>
-            <button class="btn btn-sm btn-success admin-finish-btn" data-id="${ev.id}">🏆 Avsluta</button>
+            <button class="btn btn-sm btn-success admin-finish-btn" data-id="${ev.id}" data-code="${ev.shareCode}">🏆 Avsluta</button>
           ` : ''}
           ${ev.status === 'open' ? `
             <button class="btn btn-sm btn-secondary admin-bets-btn" data-id="${ev.id}" data-code="${ev.shareCode}">📋 Bets</button>
@@ -253,7 +253,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
     });
 
     list.querySelectorAll('.admin-finish-btn').forEach(btn => {
-      btn.addEventListener('click', () => showFinishModal(btn.dataset.id, loggedIn, hasPinSession, user));
+      btn.addEventListener('click', () => showFinishModal(btn.dataset.id, btn.dataset.code, loggedIn, hasPinSession, user));
     });
 
     list.querySelectorAll('.admin-delete-btn').forEach(btn => {
@@ -480,12 +480,9 @@ async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) 
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-async function showFinishModal(eventId, loggedIn, hasPinSession, user) {
+async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user) {
   try {
-    const events = await api.getEvents();
-    const ev = events.find(e => e.id === Number(eventId));
-    if (!ev) { showToast('Event hittades inte', 'error'); return; }
-    const event = await api.getEvent(ev.shareCode);
+    const event = await api.getEvent(shareCode);
 
     showModal('🏆 Välj vinnare', `
       <p class="text-secondary mb-lg">Vem vann <strong>${event.name}</strong>?</p>
