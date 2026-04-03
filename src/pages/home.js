@@ -8,7 +8,9 @@ export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
     <div class="page-header animate-in" style="padding-top: var(--space-sm);">
-      <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
+      <div class="home-logo-wrap">
+        <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
+      </div>
       <p class="page-subtitle">${t('home.subtitle')}</p>
     </div>
     <div id="tournaments-list"></div>

@@ -327,12 +327,20 @@ body::before {
 }
 
 /* Malta Betting banner logo on home page */
+.home-logo-wrap {
+  display: block;
+  max-width: 280px;
+  width: 100%;
+  margin: 0 auto var(--space-sm);
+  overflow: hidden;
+  border-radius: 0;
+}
+
 .home-logo-banner {
   display: block;
-  max-width: 240px;
   width: 100%;
   height: auto;
-  margin: 0 auto var(--space-sm);
+  margin-top: -6%;
   filter: drop-shadow(0 4px 20px rgba(255, 229, 0, 0.15));
 }
 
