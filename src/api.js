@@ -128,6 +128,8 @@ export const createTournament = (data) =>
   request('/tournaments', { method: 'POST', body: data });
 export const addTournamentRound = (id, data) =>
   request('/tournaments/' + id + '/rounds', { method: 'POST', body: data });
+export const createSideBet = (id, data) =>
+  request('/tournaments/' + id + '/sidebets', { method: 'POST', body: data });
 export const settleTournament = (id) =>
   request('/tournaments/' + id + '/settle', { method: 'POST', body: {} });
 export const getTournamentQR = (code, baseUrl) => {

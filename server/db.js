@@ -69,6 +69,9 @@ db.exec(`
     creator_id TEXT,
     swish_number TEXT,
     tournament_id TEXT,
+    is_side_bet INTEGER NOT NULL DEFAULT 0,
+    linked_round_id TEXT,
+    bet_mode TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE SET NULL
@@ -103,6 +106,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
 `);
 
+// ── Migrations (safe to run repeatedly) ──────────────
+try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
+
 // ── Prepared Statements ──────────────────────────────
 const stmts = {
   // Settings
@@ -114,8 +122,8 @@ const stmts = {
   getEventById: db.prepare('SELECT * FROM events WHERE id = ?'),
   getEventByCode: db.prepare('SELECT * FROM events WHERE share_code = ?'),
   insertEvent: db.prepare(`
-    INSERT INTO events (id, name, date, status, share_code, payout_percent, min_bet, max_bet, creator_id, swish_number, tournament_id)
-    VALUES (@id, @name, @date, @status, @shareCode, @payoutPercent, @minBet, @maxBet, @creatorId, @swishNumber, @tournamentId)
+    INSERT INTO events (id, name, date, status, share_code, payout_percent, min_bet, max_bet, creator_id, swish_number, tournament_id, is_side_bet, linked_round_id, bet_mode)
+    VALUES (@id, @name, @date, @status, @shareCode, @payoutPercent, @minBet, @maxBet, @creatorId, @swishNumber, @tournamentId, @isSideBet, @linkedRoundId, @betMode)
   `),
   updateEventStatus: db.prepare('UPDATE events SET status = ? WHERE id = ?'),
   updateEventWinner: db.prepare('UPDATE events SET status = ?, winner_id = ? WHERE id = ?'),
@@ -446,7 +454,8 @@ export function getAllTournaments() {
   const tournaments = stmts.getAllTournaments.all();
   return tournaments.map(t => {
     const rounds = stmts.getEventsByTournament.all(t.id);
-    const finishedRounds = rounds.filter(r => r.status === 'finished');
+    const mainRounds = rounds.filter(r => !r.is_side_bet);
+    const finishedRounds = mainRounds.filter(r => r.status === 'finished');
     return {
       id: t.id,
       name: t.name,
@@ -454,7 +463,7 @@ export function getAllTournaments() {
       status: t.status,
       creatorId: t.creator_id,
       createdAt: t.created_at,
-      roundCount: rounds.length,
+      roundCount: mainRounds.length,
       finishedCount: finishedRounds.length
     };
   });
@@ -466,7 +475,7 @@ export function getFullTournament(idOrCode) {
   if (!tournament) return null;
 
   const rawRounds = stmts.getEventsByTournament.all(tournament.id);
-  const rounds = rawRounds.map(e => {
+  const mapEvent = (e) => {
     const players = stmts.getPlayersByEvent.all(e.id);
     const totalPool = stmts.getTotalPool.get(e.id).total;
     const betCount = stmts.getBetCount.get(e.id).count;
@@ -481,9 +490,18 @@ export function getFullTournament(idOrCode) {
       winnerName: winnerPlayer?.name || null,
       players: players.map(p => ({ id: p.id, name: p.name })),
       totalPool,
-      betCount
+      betCount,
+      isSideBet: !!e.is_side_bet,
+      linkedRoundId: e.linked_round_id,
+      betMode: e.bet_mode || 'open',
+      minBet: e.min_bet,
+      maxBet: e.max_bet
     };
-  });
+  };
+
+  const allEvents = rawRounds.map(mapEvent);
+  const rounds = allEvents.filter(e => !e.isSideBet);
+  const sideBets = allEvents.filter(e => e.isSideBet);
 
   // Collect all unique player names across rounds
   const allPlayers = new Set();
@@ -497,6 +515,7 @@ export function getFullTournament(idOrCode) {
     creatorId: tournament.creator_id,
     createdAt: tournament.created_at,
     rounds,
+    sideBets,
     players: [...allPlayers],
     settlement: getTournamentNetSettlement(tournament.id)
   };

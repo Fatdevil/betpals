@@ -588,6 +588,20 @@ select.form-input option {
   letter-spacing: 0.05em;
 }
 
+.bet-mode-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.bet-mode-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
 .badge-open {
   background: var(--green-glow);
   color: var(--green);

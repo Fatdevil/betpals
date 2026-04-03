@@ -629,7 +629,10 @@ app.post('/api/tournaments', (req, res) => {
     maxBet: Number(req.body.maxBet) || 10000,
     creatorId: user ? user.id : null,
     swishNumber: null,
-    tournamentId: id
+    tournamentId: id,
+    isSideBet: 0,
+    linkedRoundId: null,
+    betMode: 'open'
   };
 
   const playerData = (players || []).map(p => ({ id: generateId(), name: p }));
@@ -672,11 +675,62 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
     maxBet: Number(req.body.maxBet) || lastRound?.maxBet || 10000,
     creatorId: user ? user.id : null,
     swishNumber: null,
-    tournamentId: tournament.id
+    tournamentId: tournament.id,
+    isSideBet: 0,
+    linkedRoundId: null,
+    betMode: 'open'
   };
 
   const playerData = playerNames.map(name => ({ id: generateId(), name }));
   db.createEvent(eventData, playerData);
+
+  res.json(db.getFullTournament(tournament.id));
+});
+
+// Side bets
+app.post('/api/tournaments/:id/sidebets', (req, res) => {
+  const tournament = db.getTournamentById(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const user = getUserFromToken(req);
+  const isCreator = user && tournament.creator_id === user.id;
+  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet' });
+  }
+
+  const { name, players, linkedRoundId, betMode, betAmount } = req.body;
+  if (!name) return res.status(400).json({ error: 'Namn krävs' });
+  if (!players || players.length < 2) return res.status(400).json({ error: 'Minst 2 spelare' });
+
+  const eventId = generateId();
+  const eventData = {
+    id: eventId,
+    name: name.trim(),
+    date: new Date().toISOString().split('T')[0],
+    status: betMode === 'self' ? 'locked' : 'open',
+    shareCode: generateShareCode(),
+    payoutPercent: 100,
+    minBet: Number(betAmount) || 100,
+    maxBet: Number(betAmount) || 10000,
+    creatorId: user ? user.id : null,
+    swishNumber: null,
+    tournamentId: tournament.id,
+    isSideBet: 1,
+    linkedRoundId: linkedRoundId || null,
+    betMode: betMode || 'open'
+  };
+
+  const playerData = players.map(p => ({ id: generateId(), name: p }));
+  db.createEvent(eventData, playerData);
+
+  // For 'self' mode: auto-create bets — each player bets on themselves
+  if (betMode === 'self' && betAmount) {
+    const createdPlayers = db.getFullEvent(eventId).players;
+    for (const p of createdPlayers) {
+      db.addBet(generateId(), eventId, p.name, p.id, Number(betAmount), null);
+    }
+  }
 
   res.json(db.getFullTournament(tournament.id));
 });
