@@ -333,7 +333,6 @@ body::before {
   width: 100%;
   height: auto;
   margin: 0 auto var(--space-sm);
-  border-radius: var(--radius-md);
   filter: drop-shadow(0 4px 20px rgba(255, 229, 0, 0.15));
 }
 
