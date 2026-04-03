@@ -1,11 +1,11 @@
 {
-  "name": "BetPals",
-  "short_name": "BetPals",
-  "description": "Social bettingapp för kompisgäng — skapa event, lägg odds och betta!",
+  "name": "Malta Betting",
+  "short_name": "Malta Betting",
+  "description": "Social betting app — create events, set odds, and bet with friends!",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#07070e",
-  "theme_color": "#ffd700",
+  "background_color": "#0a0a0f",
+  "theme_color": "#FFE500",
   "orientation": "portrait",
   "icons": [
     {

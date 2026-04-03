@@ -31,7 +31,7 @@ export function renderNavbar(activePage) {
       <div class="top-header-left">
         ${renderBell()}
       </div>
-      <span class="top-header-logo">BETPALS</span>
+      <span class="top-header-logo">MALTA BETTING</span>
       <div class="top-header-right"></div>
     </div>
     <div class="navbar">

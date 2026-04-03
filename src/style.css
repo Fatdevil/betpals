@@ -326,6 +326,17 @@ body::before {
   margin-bottom: var(--space-xl);
 }
 
+/* Malta Betting banner logo on home page */
+.home-logo-banner {
+  display: block;
+  max-width: 240px;
+  width: 100%;
+  height: auto;
+  margin: 0 auto var(--space-sm);
+  border-radius: var(--radius-md);
+  filter: drop-shadow(0 4px 20px rgba(255, 229, 0, 0.15));
+}
+
 .page-title {
   font-family: var(--font-heading);
   font-weight: 800;

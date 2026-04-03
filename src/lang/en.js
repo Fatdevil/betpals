@@ -27,7 +27,7 @@ export const en = {
     account: 'Account'
   },
   home: {
-    title: 'BetPals',
+    title: 'Malta Betting',
     subtitle: 'Challenge your friends!',
     tournaments: 'Tournaments',
     events: 'Single Events',

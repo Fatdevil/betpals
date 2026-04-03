@@ -27,7 +27,7 @@ export const sv = {
     account: 'Konto'
   },
   home: {
-    title: 'BetPals',
+    title: 'Malta Betting',
     subtitle: 'Utmana dina vänner!',
     tournaments: 'Turneringar',
     events: 'Fristående event',

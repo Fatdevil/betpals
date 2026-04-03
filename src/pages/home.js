@@ -7,8 +7,8 @@ import { t } from '../i18n.js';
 export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
-    <div class="page-header animate-in">
-      <h1 class="page-title">🎯 ${t('home.title')}</h1>
+    <div class="page-header animate-in" style="padding-top: var(--space-sm);">
+      <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
       <p class="page-subtitle">${t('home.subtitle')}</p>
     </div>
     <div id="tournaments-list"></div>
