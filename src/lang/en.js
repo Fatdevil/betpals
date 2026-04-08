@@ -28,7 +28,7 @@ export const en = {
   },
   home: {
     title: 'Malta Betting',
-    subtitle: '✦ Where Legends Are Made ✦',
+    subtitle: '✦ BE PART OF GREATNESS ✦',
     tournaments: 'Tournaments',
     events: 'Single Events',
     noEvents: 'No events yet. Create one in admin!',
