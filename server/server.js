@@ -12,8 +12,8 @@ import * as db from './db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
@@ -215,7 +215,11 @@ app.put('/api/users/me/avatar', async (req, res) => {
         body: formData
       });
 
-      if (!cloudRes.ok) throw new Error('Cloudinary upload failed');
+      if (!cloudRes.ok) {
+        const errText = await cloudRes.text();
+        console.error('Cloudinary Error Data:', errText);
+        throw new Error('Cloudinary fel: ' + errText);
+      }
       const cloudData = await cloudRes.json();
       // Use Cloudinary transformation for a perfect square avatar thumbnail natively
       url = cloudData.secure_url.replace('/upload/', '/upload/w_200,h_200,c_fill,g_face/');
@@ -321,7 +325,11 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
         body: formData
       });
 
-      if (!cloudRes.ok) throw new Error('Cloudinary upload failed');
+      if (!cloudRes.ok) {
+        const errText = await cloudRes.text();
+        console.error('Cloudinary Error Data (Feed):', errText);
+        throw new Error('Cloudinary fel: ' + errText);
+      }
       const cloudData = await cloudRes.json();
       url = cloudData.secure_url;
       thumbUrl = url.replace('/upload/', '/upload/w_400,h_400,c_fill/');
