@@ -28,7 +28,7 @@ export const sv = {
   },
   home: {
     title: 'Malta Betting',
-    subtitle: '✦ Där Legender Skapas ✦',
+    subtitle: '✦ Where Legends Are Made ✦',
     tournaments: 'Turneringar',
     events: 'Fristående event',
     noEvents: 'Inga event ännu. Skapa ett i admin!',
