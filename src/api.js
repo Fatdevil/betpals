@@ -138,8 +138,8 @@ export const getTournamentQR = (code, baseUrl) => {
 };
 export const addTournamentBanner = (id, data) =>
   request('/tournaments/' + id + '/banners', { method: 'POST', body: data });
-export const deleteTournamentBanner = (id, bannerId) =>
-  request('/tournaments/' + id + '/banners/' + bannerId, { method: 'DELETE' });
+export const deleteTournamentBanner = (id, bannerId, data) =>
+  request('/tournaments/' + id + '/banners/' + bannerId, { method: 'DELETE', body: data });
 
 // ── User Stats ───────────────────────────────────────
 export const getMyStats = () => request('/users/me/stats');

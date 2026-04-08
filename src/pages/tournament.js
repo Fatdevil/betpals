@@ -310,7 +310,8 @@ function renderTournamentContent(content, t) {
       ev.stopPropagation();
       if (!confirm('Ta bort denna sponsor?')) return;
       try {
-        await deleteTournamentBanner(t.id, btn.dataset.bannerId);
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await deleteTournamentBanner(t.id, btn.dataset.bannerId, { pin });
         showToast('Sponsor borttagen', 'success');
         const updated = await getTournament(t.shareCode);
         renderTournamentContent(content, updated);
