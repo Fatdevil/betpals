@@ -1,4 +1,4 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike } from '../api.js';
 import { formatCurrency, showToast } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -14,14 +14,18 @@ export async function renderTournament(params = {}) {
   content.innerHTML = '<div class="text-center text-muted mt-lg">Laddar turnering...</div>';
 
   try {
-    const t = await getTournament(code);
-    renderTournamentContent(content, t);
+    const [t, photos] = await Promise.all([
+      getTournament(code),
+      getTournamentPhotos(code).catch(e => { console.error('Failed to load photos', e); return []; }) // pass ID/code, actually ID is preferred but API is code? No wait, API is /tournaments/:id/photos. But the route in backend is /api/tournaments/:id/photos and we only have code here. Let's see... getTournament returns the full tournament including its ID.
+    ]);
+    const p = await getTournamentPhotos(t.id).catch(e => []);
+    renderTournamentContent(content, t, p);
   } catch (err) {
     content.innerHTML = '<div class="text-center text-red mt-lg">' + err.message + '</div>';
   }
 }
 
-function renderTournamentContent(content, t) {
+function renderTournamentContent(content, t, photos = []) {
   const user = getStoredUser();
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
   const isCreator = (user && t.creatorId === user.id) || hasPinSession;
@@ -214,6 +218,38 @@ function renderTournamentContent(content, t) {
           ` : ''}
         </div>
       ` : ''}
+
+      <!-- Live Photo Feed -->
+      <div class="section-header mt-lg" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 class="section-title">📸 Live-flöde</h2>
+        ${user ? `<button class="btn btn-sm btn-primary" id="add-photo-btn">Dela bild</button>` : ''}
+      </div>
+      <div class="photo-feed" id="tournament-photo-feed" style="display: flex; flex-direction: column; gap: var(--space-md);">
+        ${photos.length === 0 ? '<p class="text-muted text-center" style="font-size: 0.85rem;">Inga bilder ännu. Bli den första att dela!</p>' : ''}
+        ${photos.map(p => `
+          <div class="photo-card card animate-in">
+            <div class="photo-header flex-between mb-sm" style="align-items: center;">
+              <div class="flex" style="align-items: center; gap: 8px;">
+                <div class="avatar-circle" style="width: 28px; height: 28px; font-size: 0.9rem;">${p.uploaderAvatar || '🎲'}</div>
+                <div>
+                  <div style="font-weight: 700; font-size: 0.85rem;">${p.uploaderName}</div>
+                  <div class="text-muted" style="font-size: 0.7rem;">${new Date(p.createdAt).toLocaleString('sv-SE', {day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit'})}</div>
+                </div>
+              </div>
+              ${(user && p.userId === user.id) || isCreator ? `<button class="btn-icon text-red delete-photo-btn" data-id="${p.id}" style="font-size: 0.8rem; background: rgba(255,0,0,0.1); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">✕</button>` : ''}
+            </div>
+            <img src="${p.url}" class="photo-img" style="width: 100%; border-radius: var(--radius-sm); margin-bottom: var(--space-xs); object-fit: cover; max-height: 500px;" loading="lazy" />
+            ${p.caption ? `<div class="photo-caption text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">${p.caption}</div>` : ''}
+            <div class="photo-actions mt-xs">
+              <button class="btn-icon like-btn ${p.userLiked ? 'liked' : ''}" data-id="${p.id}" ${!user ? 'disabled style="opacity: 0.5;" title="Logga in för att gilla"' : ''} style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; background: ${p.userLiked ? 'rgba(255, 60, 60, 0.15)' : 'rgba(255,255,255,0.05)'}; transition: all 0.2s ease;">
+                <span class="heart-icon" style="font-size: 1.1rem; filter: ${p.userLiked ? 'drop-shadow(0 0 4px rgba(255, 60, 60, 0.5))' : 'none'};">${p.userLiked ? '❤️' : '🤍'}</span> 
+                <span class="like-count text-secondary" style="font-size: 0.85rem; font-weight: 600;">${p.likeCount > 0 ? p.likeCount : 'Gilla'}</span>
+              </button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
     </div>
   `;
 
@@ -221,6 +257,165 @@ function renderTournamentContent(content, t) {
   document.querySelectorAll('.round-link').forEach(el => {
     el.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'event', code: el.dataset.code } }));
+    });
+  });
+
+  // Client-side image compression
+  const compressImage = async (file, maxWidth = 1000, quality = 0.8) => {
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type.startsWith('image/')) return reject(new Error('Välj en giltig bildfil'));
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => reject(new Error('Kunde inte läsa in bilden'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('Kunde inte läsa filen'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Photo Upload
+  document.getElementById('add-photo-btn')?.addEventListener('click', () => {
+    showModal('📸 Dela en bild', `
+      <form id="photo-form">
+        <div class="form-group">
+          <label class="form-label">Bild</label>
+          <div class="sponsor-upload-area" id="photo-drop-area" style="min-height: 200px;">
+            <div id="photo-preview-container" style="display:none; width: 100%;">
+              <img id="photo-preview-img" style="max-width: 100%; max-height: 300px; border-radius: var(--radius-sm); object-fit: contain;" />
+            </div>
+            <div id="photo-upload-placeholder">
+              <div style="font-size: 2.5rem; margin-bottom: var(--space-xs);">📷</div>
+              <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
+            </div>
+            <input type="file" accept="image/*" id="photo-file-input" style="display: none;" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Bildtext (valfri)</label>
+          <textarea class="form-input" id="photo-caption" placeholder="Vad händer på bilden?" rows="2"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="photo-submit-btn">Dela! 🚀</button>
+      </form>
+    `);
+
+    let selectedImageBase64 = null;
+    const dropArea = document.getElementById('photo-drop-area');
+    const fileInput = document.getElementById('photo-file-input');
+    const previewContainer = document.getElementById('photo-preview-container');
+    const previewImg = document.getElementById('photo-preview-img');
+    const placeholder = document.getElementById('photo-upload-placeholder');
+    const submitBtn = document.getElementById('photo-submit-btn');
+
+    dropArea?.addEventListener('click', () => fileInput.click());
+
+    fileInput?.addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Komprimerar bild... ⏳';
+      try {
+        selectedImageBase64 = await compressImage(file, 1000, 0.8);
+        previewImg.src = selectedImageBase64;
+        previewContainer.style.display = 'block';
+        placeholder.style.display = 'none';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Dela! 🚀';
+      } catch (err) {
+        showToast(err.message, 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Dela! 🚀';
+      }
+    });
+
+    document.getElementById('photo-form')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (!selectedImageBase64) { return showToast('Välj en bild först!', 'error'); }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Laddar upp till molnet... ☁️';
+
+      try {
+        await uploadTournamentPhoto(t.id, {
+          imageData: selectedImageBase64,
+          caption: document.getElementById('photo-caption').value.trim() || null
+        });
+        closeModal();
+        showToast('Bild delad! 📸', 'success');
+        renderTournament({ code }); // Reload to show new photo
+      } catch (err) {
+        showToast(err.message, 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Försök igen';
+      }
+    });
+  });
+
+  // Like photos
+  document.querySelectorAll('.like-btn').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const photoId = btn.dataset.id;
+      // Optimistic UI update
+      const isLiked = btn.classList.contains('liked');
+      const countEl = btn.querySelector('.like-count');
+      const heartEl = btn.querySelector('.heart-icon');
+      let currentCount = parseInt(countEl.textContent, 10) || 0;
+      
+      if (isLiked) {
+        btn.classList.remove('liked');
+        heartEl.textContent = '🤍';
+        heartEl.style.filter = 'none';
+        btn.style.background = 'rgba(255,255,255,0.05)';
+        currentCount = Math.max(0, currentCount - 1);
+      } else {
+        btn.classList.add('liked');
+        heartEl.textContent = '❤️';
+        heartEl.style.filter = 'drop-shadow(0 0 4px rgba(255, 60, 60, 0.5))';
+        btn.style.background = 'rgba(255, 60, 60, 0.15)';
+        currentCount += 1;
+      }
+      countEl.textContent = currentCount > 0 ? currentCount : 'Gilla';
+
+      try {
+        await togglePhotoLike(t.id, photoId);
+      } catch (err) {
+        // Revert on error
+        showToast('Kunde inte gilla: ' + err.message, 'error');
+        renderTournament({ code }); 
+      }
+    });
+  });
+
+  // Delete photos
+  document.querySelectorAll('.delete-photo-btn').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Radera bilden permanent?')) return;
+      try {
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await deleteTournamentPhoto(t.id, btn.dataset.id, { pin });
+        showToast('Bild borttagen', 'success');
+        renderTournament({ code });
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     });
   });
 

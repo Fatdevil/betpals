@@ -32,19 +32,28 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS event_photos (
+  CREATE TABLE IF NOT EXISTS tournament_photos (
     id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
+    tournament_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     url TEXT NOT NULL,
     thumbnail_url TEXT,
     caption TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  CREATE INDEX IF NOT EXISTS idx_photos_event ON event_photos(event_id);
+  CREATE INDEX IF NOT EXISTS idx_photos_tournament ON tournament_photos(tournament_id);
+
+  CREATE TABLE IF NOT EXISTS tournament_photo_likes (
+    photo_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (photo_id, user_id),
+    FOREIGN KEY (photo_id) REFERENCES tournament_photos(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 
   CREATE TABLE IF NOT EXISTS tournaments (
     id TEXT PRIMARY KEY,
@@ -172,10 +181,28 @@ const stmts = {
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
 
-  // Photos
-  getPhotosByEvent: db.prepare('SELECT p.*, u.nickname as uploader_name, u.avatar_url as uploader_avatar FROM event_photos p JOIN users u ON p.user_id = u.id WHERE p.event_id = ? ORDER BY p.created_at DESC'),
-  insertPhoto: db.prepare('INSERT INTO event_photos (id, event_id, user_id, url, thumbnail_url, caption) VALUES (?, ?, ?, ?, ?, ?)'),
-  deletePhoto: db.prepare('DELETE FROM event_photos WHERE id = ? AND user_id = ?'),
+  // Tournament Photos
+  getPhotosByTournament: db.prepare(`
+    SELECT p.*, 
+           u.nickname as uploader_name, 
+           u.avatar_url as uploader_avatar,
+           (SELECT COUNT(*) FROM tournament_photo_likes l WHERE l.photo_id = p.id) as like_count
+    FROM tournament_photos p 
+    JOIN users u ON p.user_id = u.id 
+    WHERE p.tournament_id = ? 
+    ORDER BY p.created_at DESC
+  `),
+  getPhotoLikesByUser: db.prepare(`
+    SELECT photo_id 
+    FROM tournament_photo_likes 
+    WHERE user_id = ? AND photo_id IN (
+      SELECT id FROM tournament_photos WHERE tournament_id = ?
+    )
+  `),
+  insertPhoto: db.prepare('INSERT INTO tournament_photos (id, tournament_id, user_id, url, thumbnail_url, caption) VALUES (?, ?, ?, ?, ?, ?)'),
+  deletePhoto: db.prepare('DELETE FROM tournament_photos WHERE id = ?'),
+  insertPhotoLike: db.prepare('INSERT OR IGNORE INTO tournament_photo_likes (photo_id, user_id) VALUES (?, ?)'),
+  deletePhotoLike: db.prepare('DELETE FROM tournament_photo_likes WHERE photo_id = ? AND user_id = ?'),
 
   // Tournaments
   insertTournament: db.prepare('INSERT INTO tournaments (id, name, share_code, creator_id) VALUES (?, ?, ?, ?)'),
@@ -381,17 +408,33 @@ export function getUserBets(userId) {
   return stmts.getBetsByUser.all(userId);
 }
 
-// ── Photos ───────────────────────────────────────────
-export function getPhotosByEvent(eventId) {
-  return stmts.getPhotosByEvent.all(eventId);
+// ── Tournament Photos ─────────────────────────────────
+export function getPhotosByTournament(tournamentId, userId) {
+  const photos = stmts.getPhotosByTournament.all(tournamentId);
+  if (!userId) return photos.map(p => ({ ...p, user_liked: false }));
+  
+  const userLikes = new Set(stmts.getPhotoLikesByUser.all(userId, tournamentId).map(l => l.photo_id));
+  return photos.map(p => ({
+    ...p,
+    user_liked: userLikes.has(p.id)
+  }));
 }
 
-export function addPhoto(id, eventId, userId, url, thumbnailUrl, caption) {
-  stmts.insertPhoto.run(id, eventId, userId, url, thumbnailUrl || null, caption || null);
+export function addTournamentPhoto(id, tournamentId, userId, url, thumbnailUrl, caption) {
+  stmts.insertPhoto.run(id, tournamentId, userId, url, thumbnailUrl || null, caption || null);
 }
 
-export function deletePhoto(photoId, userId) {
-  stmts.deletePhoto.run(photoId, userId);
+export function deleteTournamentPhoto(photoId) {
+  stmts.deletePhoto.run(photoId);
+}
+
+export function togglePhotoLike(photoId, userId) {
+  const info = stmts.deletePhotoLike.run(photoId, userId);
+  if (info.changes === 0) {
+    stmts.insertPhotoLike.run(photoId, userId);
+    return true; // Liked
+  }
+  return false; // Unliked
 }
 
 export function getLeaderboard() {

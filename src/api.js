@@ -141,6 +141,16 @@ export const addTournamentBanner = (id, data) =>
 export const deleteTournamentBanner = (id, bannerId, data) =>
   request('/tournaments/' + id + '/banners/' + bannerId, { method: 'DELETE', body: data });
 
+// ── Tournament Photos ────────────────────────────────
+export const getTournamentPhotos = (id) => request('/tournaments/' + id + '/photos');
+export const uploadTournamentPhoto = (id, data) =>
+  request('/tournaments/' + id + '/photos', { method: 'POST', body: data });
+export const deleteTournamentPhoto = (id, photoId, data) =>
+  request('/tournaments/' + id + '/photos/' + photoId, { method: 'DELETE', body: data });
+export const togglePhotoLike = (id, photoId) =>
+  request('/tournaments/' + id + '/photos/' + photoId + '/like', { method: 'POST', body: {} });
+
+
 // ── User Stats ───────────────────────────────────────
 export const getMyStats = () => request('/users/me/stats');
 

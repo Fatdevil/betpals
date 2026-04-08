@@ -225,11 +225,13 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-// ── Photos ───────────────────────────────────────────
-app.get('/api/events/:code/photos', (req, res) => {
-  const event = db.getEventByCode(req.params.code);
-  if (!event) return res.status(404).json({ error: 'Event not found' });
-  const photos = db.getPhotosByEvent(event.id);
+// ── Tournament Photos ─────────────────────────────────
+app.get('/api/tournaments/:id/photos', (req, res) => {
+  const tournament = db.getTournamentById(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+  const user = getUserFromToken(req); // Optional for fetching likes
+  
+  const photos = db.getPhotosByTournament(tournament.id, user ? user.id : null);
   res.json(photos.map(p => ({
     id: p.id,
     url: p.url,
@@ -237,73 +239,102 @@ app.get('/api/events/:code/photos', (req, res) => {
     caption: p.caption,
     uploaderName: p.uploader_name,
     uploaderAvatar: p.uploader_avatar,
-    createdAt: p.created_at
+    createdAt: p.created_at,
+    likeCount: p.like_count || 0,
+    userLiked: !!p.user_liked
   })));
 });
 
-app.post('/api/events/:code/photos', async (req, res) => {
+app.post('/api/tournaments/:id/photos', async (req, res) => {
   const user = getUserFromToken(req);
-  if (!user) return res.status(401).json({ error: 'Login required' });
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs för att ladda upp bilder' });
 
-  const event = db.getEventByCode(req.params.code);
-  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const tournament = db.getTournamentById(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const { imageData, caption } = req.body;
-  if (!imageData) return res.status(400).json({ error: 'No image data' });
+  if (!imageData) return res.status(400).json({ error: 'Ingen bild skickades' });
 
   try {
-    // Upload to Cloudinary
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    
+    let url = '';
+    let thumbUrl = '';
 
-    if (!cloudName || !apiKey || !apiSecret) {
-      return res.status(500).json({ error: 'Photo storage not configured' });
+    // If Cloudinary is configured, use it. Otherwise, fallback to base64 inline (not recommended for prod, but good for test).
+    if (cloudName && apiKey && apiSecret) {
+      const timestamp = Math.round(Date.now() / 1000);
+      const folder = `betpals/tournaments/${tournament.share_code}`;
+      const signStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+      const signature = crypto.createHash('sha1').update(signStr).digest('hex');
+
+      const formData = new URLSearchParams();
+      formData.append('file', imageData);
+      formData.append('folder', folder);
+      formData.append('timestamp', timestamp);
+      formData.append('api_key', apiKey);
+      formData.append('signature', signature);
+
+      const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!cloudRes.ok) throw new Error('Cloudinary upload failed');
+      const cloudData = await cloudRes.json();
+      url = cloudData.secure_url;
+      thumbUrl = url.replace('/upload/', '/upload/w_400,h_400,c_fill/');
+    } else {
+      // Fallback: Just save the raw Base64 string directly
+      url = imageData;
+      thumbUrl = imageData; // no thumbnailing for base64 fallback
     }
 
-    const timestamp = Math.round(Date.now() / 1000);
-    const folder = `betpals/${event.share_code}`;
-    const signStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
-    const signature = crypto.createHash('sha1').update(signStr).digest('hex');
-
-    const formData = new URLSearchParams();
-    formData.append('file', imageData);
-    formData.append('folder', folder);
-    formData.append('timestamp', timestamp);
-    formData.append('api_key', apiKey);
-    formData.append('signature', signature);
-
-    const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-      method: 'POST',
-      body: formData
-    });
-
-    if (!cloudRes.ok) throw new Error('Cloudinary upload failed');
-    const cloudData = await cloudRes.json();
-
     const photoId = generateId();
-    const url = cloudData.secure_url;
-    const thumbUrl = url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+    db.addTournamentPhoto(photoId, tournament.id, user.id, url, thumbUrl, caption);
 
-    db.addPhoto(photoId, event.id, user.id, url, thumbUrl, caption);
-
-    broadcastToEvent(event.share_code, {
-      type: 'photo_added',
-      photo: { id: photoId, url, thumbnailUrl: thumbUrl, caption, uploaderName: user.nickname }
-    });
-
-    res.json({ id: photoId, url, thumbnailUrl: thumbUrl });
+    res.json({ id: photoId, url, thumbnailUrl: thumbUrl, caption, uploaderName: user.nickname });
   } catch (err) {
     console.error('Photo upload error:', err.message);
-    res.status(500).json({ error: 'Photo upload failed' });
+    res.status(500).json({ error: 'Uppladdningen misslyckades' });
   }
 });
 
-app.delete('/api/events/:code/photos/:photoId', (req, res) => {
+app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   const user = getUserFromToken(req);
-  if (!user) return res.status(401).json({ error: 'Login required' });
-  db.deletePhoto(req.params.photoId, user.id);
+  const tournament = db.getTournamentById(req.params.id);
+  
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+  
+  // Verify ownership or super admin
+  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  const isCreator = tournament.creator_id === user.id;
+  
+  // Actually, we must check if the user is the one who uploaded the photo, or if they are admin.
+  // We'll let `deleteTournamentPhoto` just delete it by db logic for the user if not admin.
+  // But wait, the DB delete photo statement just takes photoId.
+  // We should do a fast check:
+  const photos = db.getPhotosByTournament(tournament.id);
+  const photo = photos.find(p => p.id === req.params.photoId);
+  if (!photo) return res.status(404).json({ error: 'Bilden hittades inte' });
+  
+  if (photo.user_id !== user.id && !isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet att ta bort denna bild' });
+  }
+  
+  db.deleteTournamentPhoto(req.params.photoId);
   res.json({ ok: true });
+});
+
+app.post('/api/tournaments/:id/photos/:photoId/like', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs för att gilla bilder' });
+  
+  const liked = db.togglePhotoLike(req.params.photoId, user.id);
+  res.json({ liked });
 });
 
 app.get('/api/users/me/stats', (req, res) => {
