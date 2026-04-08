@@ -16,7 +16,7 @@ window.handleGoogleLogin = async (response) => {
   }
 };
 
-const AVATAR_OPTIONS = ['🎲','🎯','🏆','⚡','🔥','🎰','💎','🃏','🎱','🏌️','🎳','🏀','⚽','🎸','🦊','🐺','🦅','🐉','🌟','👑'];
+// Default avatar logic will be handled gracefully by server.
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -60,13 +60,9 @@ function renderAuthScreen(content) {
         </div>
 
         <form id="register-form" class="mt-md">
-          <div class="form-group">
-            <label class="form-label">${t('profile.chooseAvatar')}</label>
-            <div class="avatar-grid" id="avatar-grid">
-              ${AVATAR_OPTIONS.map((e, i) => `
-                <button type="button" class="avatar-option ${i === 0 ? 'selected' : ''}" data-emoji="${e}">${e}</button>
-              `).join('')}
-            </div>
+          <div class="form-group text-center mb-md">
+            <div class="profile-avatar mb-xs" style="margin: 0 auto; width: 64px; height: 64px; font-size: 2rem;">👤</div>
+            <div class="text-muted" style="font-size: 0.75rem;">${t('profile.nickname')}</div>
           </div>
           <div class="form-group">
             <label class="form-label">${t('profile.nickname')}</label>
@@ -112,21 +108,12 @@ function renderAuthScreen(content) {
     });
   });
 
-  // Avatar selection
-  document.querySelectorAll('.avatar-option').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-    });
-  });
-
   // Register
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nickname = document.getElementById('reg-nickname').value.trim();
-    const emoji = document.querySelector('.avatar-option.selected')?.dataset.emoji || '🎲';
     try {
-      const user = await registerUser(nickname, emoji);
+      const user = await registerUser(nickname, '👤');
       storeUser(user);
       showToast(`Welcome, ${user.nickname}! 🎉`, 'success');
       renderProfile();
@@ -179,11 +166,16 @@ function renderProfileContent(content, user, bets, stats) {
       </div>
 
       <!-- User Card -->
-      <div class="card text-center" style="padding: var(--space-xl);">
-        ${user.avatarUrl 
-          ? `<img src="${user.avatarUrl}" alt="${user.nickname}" class="profile-avatar-img" />`
-          : `<div class="profile-avatar" id="profile-avatar">${user.avatar || '🎲'}</div>`}
-        <div class="profile-nickname">${user.nickname}</div>
+      <div class="card text-center" style="padding: var(--space-xl); position: relative;">
+        <div class="avatar-upload-wrapper" id="profile-picture-btn" style="cursor: pointer; display: inline-block; position: relative;">
+          ${user.avatarUrl 
+            ? `<img src="${user.avatarUrl}" alt="${user.nickname}" class="profile-avatar-img" />`
+            : `<div class="profile-avatar" id="profile-avatar" style="width: 80px; height: 80px; font-size: 2.5rem; margin: 0 auto;">${user.avatar || '👤'}</div>`}
+          <div class="avatar-edit-badge" style="position: absolute; bottom: 0; right: 0; background: var(--accent); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">📷</div>
+        </div>
+        <input type="file" id="profile-picture-input" accept="image/*" style="display: none;" />
+        
+        <div class="profile-nickname mt-sm">${user.nickname}</div>
         ${user.email ? `<div class="text-muted" style="font-size: 0.75rem;">${user.email}</div>` : ''}
         ${user.googleLinked ? `<div style="font-size: 0.65rem; color: var(--green); margin-top: 4px;">✓ Google</div>` : ''}
       </div>
@@ -293,8 +285,68 @@ function renderProfileContent(content, user, bets, stats) {
   // Logout
   document.getElementById('logout-btn').addEventListener('click', () => {
     clearUser();
-    showToast(t('profile.logout') + '!', 'info');
     renderProfile();
+  });
+
+  // Client-side image compression
+  const compressImage = async (file, maxWidth = 800, quality = 0.8) => {
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type.startsWith('image/')) return reject(new Error('Välj en giltig bildfil'));
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          // Crop to square if desired, or just compress. We'll let Cloudinary handle the cropping.
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => reject(new Error('Kunde inte läsa in bilden'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('Kunde inte läsa filen'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Avatar Upload Interaction
+  const avatarBtn = document.getElementById('profile-picture-btn');
+  const avatarInput = document.getElementById('profile-picture-input');
+
+  avatarBtn?.addEventListener('click', () => {
+    avatarInput.click();
+  });
+
+  avatarInput?.addEventListener('change', async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+
+    showToast('Komprimerar bild... ⏳', 'info');
+    try {
+      const base64Image = await compressImage(file, 800, 0.8);
+      showToast('Laddar upp profilbild... ☁️', 'info');
+      
+      const res = await updateAvatar(base64Image);
+      
+      // Update local storage user gracefully
+      const u = getStoredUser();
+      u.avatarUrl = res.avatarUrl;
+      storeUser(u);
+      
+      showToast('Profilbild var uppdaterad! 📸', 'success');
+      renderProfile(); 
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   });
 
   // Language switcher (pill buttons)

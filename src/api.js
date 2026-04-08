@@ -115,8 +115,8 @@ export const googleLogin = (credential) =>
   request('/auth/google', { method: 'POST', body: { credential } });
 export const getMe = () => request('/users/me');
 export const getMyBets = () => request('/users/me/bets');
-export const updateAvatar = (emoji) =>
-  request('/users/me/avatar', { method: 'PUT', body: { emoji } });
+export const updateAvatar = (imageData) =>
+  request('/users/me/avatar', { method: 'PUT', body: { imageData } });
 
 // ── Leaderboard ──────────────────────────────────────
 export const getLeaderboard = () => request('/leaderboard');

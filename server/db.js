@@ -180,6 +180,7 @@ const stmts = {
   insertGoogleUser: db.prepare('INSERT INTO users (id, nickname, token, google_id, email, avatar_url) VALUES (?, ?, ?, ?, ?, ?)'),
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
+  updateUserAvatarUrl: db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?'),
 
   // Tournament Photos
   getPhotosByTournament: db.prepare(`
@@ -402,6 +403,10 @@ export function getUserByNickname(nickname) {
 
 export function updateUserAvatar(userId, emoji) {
   stmts.updateUserAvatar.run(emoji, userId);
+}
+
+export function updateUserAvatarUrl(userId, url) {
+  stmts.updateUserAvatarUrl.run(url, userId);
 }
 
 export function getUserBets(userId) {

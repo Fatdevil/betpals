@@ -137,7 +137,7 @@ app.post('/api/users/register', (req, res) => {
 
   const id = generateId();
   const token = crypto.randomBytes(32).toString('hex');
-  const emoji = avatarEmoji || ['🎲','🎯','🏆','⚡','🔥','🎰','💎','🃏','🎱','🏌️'][Math.floor(Math.random() * 10)];
+  const emoji = avatarEmoji || '👤';
 
   db.createUser(id, nickname.trim(), token, emoji);
 
@@ -181,16 +181,55 @@ app.get('/api/users/me/bets', (req, res) => {
   })));
 });
 
-app.put('/api/users/me/avatar', (req, res) => {
+app.put('/api/users/me/avatar', async (req, res) => {
   const token = req.headers['x-user-token'];
   if (!token) return res.status(401).json({ error: 'Ej inloggad' });
   const user = db.getUserByToken(token);
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
 
-  const { emoji } = req.body;
-  if (!emoji) return res.status(400).json({ error: 'Emoji krävs' });
-  db.updateUserAvatar(user.id, emoji);
-  res.json({ ok: true, avatar: emoji });
+  const { imageData } = req.body;
+  if (!imageData) return res.status(400).json({ error: 'Bilddata saknas' });
+
+  try {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    
+    let url = '';
+
+    if (cloudName && apiKey && apiSecret) {
+      const timestamp = Math.round(Date.now() / 1000);
+      const folder = `betpals/avatars`;
+      const signStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+      const signature = crypto.createHash('sha1').update(signStr).digest('hex');
+
+      const formData = new URLSearchParams();
+      formData.append('file', imageData);
+      formData.append('folder', folder);
+      formData.append('timestamp', timestamp);
+      formData.append('api_key', apiKey);
+      formData.append('signature', signature);
+
+      const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!cloudRes.ok) throw new Error('Cloudinary upload failed');
+      const cloudData = await cloudRes.json();
+      // Use Cloudinary transformation for a perfect square avatar thumbnail natively
+      url = cloudData.secure_url.replace('/upload/', '/upload/w_200,h_200,c_fill,g_face/');
+    } else {
+      // Fallback
+      url = imageData;
+    }
+
+    db.updateUserAvatarUrl(user.id, url);
+    res.json({ ok: true, avatarUrl: url });
+  } catch (err) {
+    console.error('Avatar upload error:', err.message);
+    res.status(500).json({ error: 'Kunde inte uppdatera profilbilden' });
+  }
 });
 
 // ── Google Auth ──────────────────────────────────────
