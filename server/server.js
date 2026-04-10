@@ -425,7 +425,10 @@ app.post('/api/events', (req, res) => {
     maxBet: Number(maxBet) || 10000,
     creatorId: user ? user.id : null,
     swishNumber: swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null,
-    tournamentId: tournamentId || null
+    tournamentId: tournamentId || null,
+    isSideBet: 0,
+    linkedRoundId: null,
+    betMode: 'open'
   };
 
   const playerData = (players || []).map(p => ({ id: generateId(), name: p }));
