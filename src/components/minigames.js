@@ -526,18 +526,15 @@ function openWheelModal() {
         <div id="wheel-tags-wrap" class="wheel-tags-wrap" style="justify-content: flex-start; margin-bottom: 8px;"></div>
 
         <!-- Input & Add Controls -->
-        <div class="flex gap-xs" style="margin-bottom: 6px;">
+        <div class="flex gap-xs" style="margin-bottom: 8px;">
           <input type="text" id="wheel-new-item-input" class="form-input" placeholder="${t('arcade.wheelInputPlaceholder')}" maxlength="20" style="padding: 6px 10px; font-size: 0.85rem; flex: 1;" />
-          <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap;">
+          <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
             ${t('arcade.wheelAddBtn')}
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" id="wheel-toggle-friends-btn" style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap; background: rgba(255,215,0,0.1); border-color: rgba(255,215,0,0.3); color: var(--gold);">
-            ${t('arcade.wheelFriendsBtn')}
           </button>
         </div>
 
-        <!-- Friends Picker Drawer (Collapsible) -->
-        <div id="wheel-friends-drawer" style="display: none; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,215,0,0.2); border-radius: var(--radius-sm); padding: 8px; margin-top: 6px;">
+        <!-- Friends Quick-Picker (Directly visible) -->
+        <div id="wheel-friends-drawer" style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,215,0,0.2); border-radius: var(--radius-sm); padding: 8px 10px;">
           <div class="flex-between mb-xs" style="align-items: center;">
             <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">${t('arcade.wheelFriendsDrawerTitle')}</span>
             <button type="button" class="btn btn-ghost btn-xs" id="wheel-add-all-friends-btn" style="font-size: 0.7rem; padding: 2px 6px; color: var(--gold);">
@@ -545,7 +542,7 @@ function openWheelModal() {
             </button>
           </div>
           <div id="wheel-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 110px; overflow-y: auto;">
-            <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Loading friends...' : 'Laddar vänner...'}</span>
+            <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Loading your friends... 👥' : 'Laddar dina vänner... 👥'}</span>
           </div>
         </div>
       </div>
@@ -561,17 +558,24 @@ function openWheelModal() {
   const itemInput = document.getElementById('wheel-new-item-input');
   const addBtn = document.getElementById('wheel-add-item-btn');
   const clearBtn = document.getElementById('wheel-clear-btn');
-  const friendsBtn = document.getElementById('wheel-toggle-friends-btn');
   const friendsDrawer = document.getElementById('wheel-friends-drawer');
   const friendsList = document.getElementById('wheel-friends-list');
   const addAllFriendsBtn = document.getElementById('wheel-add-all-friends-btn');
   const presetsContainer = document.getElementById('wheel-presets-container');
 
-  // Pre-load friends in background
+  // Load friends immediately and auto-populate the wheel
   getFriends().then(friends => {
     userFriends = friends || [];
+    if (userFriends.length > 0 && activePresetKey === 'beer') {
+      const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
+      items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
+      renderTags();
+      drawWheel();
+    }
+    renderFriendsList();
   }).catch(() => {
     userFriends = [];
+    renderFriendsList();
   });
 
   // Draw wheel on canvas
@@ -652,7 +656,7 @@ function openWheelModal() {
         items.splice(idx, 1);
         renderTags();
         drawWheel();
-        if (showFriendsPicker) renderFriendsList();
+        if (userFriends) renderFriendsList();
       });
     });
   }
@@ -668,14 +672,21 @@ function openWheelModal() {
     items.push(name);
     renderTags();
     drawWheel();
+    if (userFriends) renderFriendsList();
     itemInput.value = '';
     itemInput.focus();
   }
 
-  // Render friends list inside drawer
+  // Render friends list directly inside picker
   function renderFriendsList() {
     if (!userFriends || userFriends.length === 0) {
-      friendsList.innerHTML = `<span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'No friends added yet. Add friends on your profile page!' : 'Inga vänner tillagda än. Lägg till vänner på din profilsida!'}</span>`;
+      friendsList.innerHTML = `
+        <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0; width: 100%;">
+          ${isEn 
+            ? '👥 No friends added yet. Add friends on your Profile page to pick them with 1 click!' 
+            : '👥 Inga vänner tillagda än. Lägg till vänner på din Profilsida för att välja dem med 1 klick!'}
+        </div>
+      `;
       return;
     }
 
@@ -712,25 +723,6 @@ function openWheelModal() {
     });
   }
 
-  // Load friends and open drawer
-  async function toggleFriendsDrawer() {
-    showFriendsPicker = !showFriendsPicker;
-    friendsDrawer.style.display = showFriendsPicker ? 'block' : 'none';
-    if (showFriendsPicker) {
-      if (userFriends === null) {
-        try {
-          userFriends = await getFriends();
-        } catch {
-          userFriends = [];
-        }
-      }
-      renderFriendsList();
-    }
-  }
-
-  // Event Listeners
-  friendsBtn?.addEventListener('click', toggleFriendsDrawer);
-
   addAllFriendsBtn?.addEventListener('click', () => {
     if (!userFriends || userFriends.length === 0) return;
     let addedCount = 0;
@@ -756,7 +748,7 @@ function openWheelModal() {
     items = [];
     renderTags();
     drawWheel();
-    if (showFriendsPicker) renderFriendsList();
+    if (userFriends) renderFriendsList();
     banner.textContent = t('arcade.wheelEmpty');
     banner.style.color = 'var(--text-muted)';
   });
@@ -781,14 +773,13 @@ function openWheelModal() {
       if (PRESETS[presetKey]) {
         items = [...PRESETS[presetKey].items];
         // If beer preset and user has friends, populate with real friends if available
-        if (presetKey === 'beer' && userFriends && userFriends.length >= 2) {
-          items = userFriends.slice(0, 8).map(f => `${f.nickname || f.realName} 🍻`);
+        if (presetKey === 'beer' && userFriends && userFriends.length > 0) {
           const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
-          if (!items.some(i => i.includes('Du') || i.includes('You'))) items.push(youLabel);
+          items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
         }
         renderTags();
         drawWheel();
-        if (showFriendsPicker) renderFriendsList();
+        if (userFriends) renderFriendsList();
 
         if (presetKey === 'beer') {
           banner.textContent = isEn ? 'Who buys the next beer? 🍻' : 'Vem bjuder på nästa bärs? 🍻';
