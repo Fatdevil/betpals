@@ -337,6 +337,26 @@ body::before {
   filter: none;
 }
 
+.nav-chip-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+  transition: all 0.25s var(--ease-out);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+.nav-item:not(.active) .nav-chip-icon {
+  opacity: 0.7;
+  filter: grayscale(0.25) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
+}
+
+.nav-item.active .nav-chip-icon {
+  opacity: 1;
+  transform: scale(1.12);
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
+}
+
 /* ── Page Content ─────────────────────────────────── */
 #page-content {
   flex: 1;
