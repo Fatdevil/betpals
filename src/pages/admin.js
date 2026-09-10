@@ -352,10 +352,30 @@ function showCreateEventModal() {
       <div class="form-group">
         <div class="flex-between mb-xs">
           <label class="form-label" style="margin: 0;">${t('admin.playersEnterHint')}</label>
-          <button type="button" class="btn btn-sm btn-secondary" id="ce-preset-yesno" style="font-size: 0.7rem; padding: 2px 8px;">
-            👍 Ja / 👎 Nej
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-sm btn-accent" id="ce-pick-friends" style="font-size: 0.7rem; padding: 2px 8px;">
+              👥 Välj från vänner
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" id="ce-preset-yesno" style="font-size: 0.7rem; padding: 2px 8px;">
+              👍 Ja / 👎 Nej
+            </button>
+          </div>
+        </div>
+
+        <!-- Inline Friends Picker Drawer -->
+        <div id="ce-friends-drawer" style="display: none; margin-bottom: var(--space-sm); padding: var(--space-sm); background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md);">
+          <div class="flex-between mb-xs" style="align-items: center;">
+            <span style="font-size: 0.8rem; font-weight: 600;">👥 Välj vänner</span>
+            <button type="button" class="btn btn-sm" id="ce-friends-close" style="padding: 1px 6px; font-size: 0.7rem;">✕</button>
+          </div>
+          <div id="ce-friends-list" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-sm);">
+            <div class="text-muted" style="font-size: 0.75rem;">Laddar vänner...</div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm btn-block" id="ce-friends-add-btn" style="font-size: 0.75rem;">
+            + Lägg till valda vänner
           </button>
         </div>
+
         <div class="flex gap-xs" style="align-items: center;">
           <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" style="flex: 1;" />
           <button type="button" class="btn btn-secondary" id="ce-player-avatar-btn" style="padding: 0 10px; font-size: 1.1rem;" title="Bifoga bild till deltagare">📷</button>
@@ -445,6 +465,75 @@ function showCreateEventModal() {
     players.push({ name: 'Ja', imageUrl: null }, { name: 'Nej', imageUrl: null });
     updateTags();
     document.getElementById('ce-name')?.focus();
+  });
+
+  // Friends drawer handlers
+  const friendsDrawer = document.getElementById('ce-friends-drawer');
+  const friendsList = document.getElementById('ce-friends-list');
+
+  document.getElementById('ce-pick-friends')?.addEventListener('click', async () => {
+    if (friendsDrawer.style.display === 'block') {
+      friendsDrawer.style.display = 'none';
+      return;
+    }
+    friendsDrawer.style.display = 'block';
+    friendsList.innerHTML = `<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>`;
+
+    try {
+      const friends = await api.getFriends();
+      if (!friends || friends.length === 0) {
+        friendsList.innerHTML = `
+          <div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">
+            Du har inga vänner tillagda än. Gå till din profilsida för att lägga till vänner! 👥
+          </div>
+        `;
+        return;
+      }
+
+      friendsList.innerHTML = friends.map(f => {
+        const isAlreadyAdded = players.some(p => (typeof p === 'string' ? p : p.name).toLowerCase() === f.nickname.toLowerCase());
+        return `
+          <label class="flex-between" style="padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); align-items: center; cursor: ${isAlreadyAdded ? 'default' : 'pointer'}; opacity: ${isAlreadyAdded ? 0.5 : 1}; margin-bottom: 2px;">
+            <div class="flex gap-xs" style="align-items: center; min-width: 0;">
+              ${f.avatarUrl ? `
+                <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover;" />
+              ` : `
+                <span style="font-size: 0.9rem;">${escapeHtml(f.avatar || '👤')}</span>
+              `}
+              <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
+              </span>
+            </div>
+            <input type="checkbox" class="ce-friend-cb" data-nickname="${escapeHtml(f.nickname)}" data-avatar="${f.avatarUrl || ''}" ${isAlreadyAdded ? 'disabled checked' : ''} />
+          </label>
+        `;
+      }).join('');
+    } catch (err) {
+      friendsList.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem; padding: 8px;">${escapeHtml(err.message)}</div>`;
+    }
+  });
+
+  document.getElementById('ce-friends-close')?.addEventListener('click', () => {
+    friendsDrawer.style.display = 'none';
+  });
+
+  document.getElementById('ce-friends-add-btn')?.addEventListener('click', () => {
+    const checked = friendsDrawer.querySelectorAll('.ce-friend-cb:checked:not([disabled])');
+    let addedCount = 0;
+    checked.forEach(cb => {
+      const nick = cb.dataset.nickname;
+      const avatar = cb.dataset.avatar || null;
+      if (!players.some(p => (typeof p === 'string' ? p : p.name).toLowerCase() === nick.toLowerCase())) {
+        players.push({ name: nick, imageUrl: avatar });
+        addedCount++;
+      }
+    });
+
+    if (addedCount > 0) {
+      updateTags();
+      showToast(`Lade till ${addedCount} vän${addedCount > 1 ? 'ner' : ''}! 👥`, 'success');
+    }
+    friendsDrawer.style.display = 'none';
   });
 
   function addCurrentPlayer() {
@@ -937,7 +1026,27 @@ function showCreateTournamentModal() {
         <input type="text" class="form-input" id="tournament-name" placeholder="${t('admin.tournamentNamePlaceholder')}" required />
       </div>
       <div class="form-group">
-        <label class="form-label">${t('admin.tournamentPlayers')}</label>
+        <div class="flex-between mb-xs">
+          <label class="form-label" style="margin: 0;">${t('admin.tournamentPlayers')}</label>
+          <button type="button" class="btn btn-sm btn-accent" id="tournament-pick-friends" style="font-size: 0.7rem; padding: 2px 8px;">
+            👥 Välj från vänner
+          </button>
+        </div>
+
+        <!-- Inline Friends Picker Drawer for Tournament -->
+        <div id="tournament-friends-drawer" style="display: none; margin-bottom: var(--space-sm); padding: var(--space-sm); background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md);">
+          <div class="flex-between mb-xs" style="align-items: center;">
+            <span style="font-size: 0.8rem; font-weight: 600;">👥 Välj vänner</span>
+            <button type="button" class="btn btn-sm" id="tournament-friends-close" style="padding: 1px 6px; font-size: 0.7rem;">✕</button>
+          </div>
+          <div id="tournament-friends-list" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-sm);">
+            <div class="text-muted" style="font-size: 0.75rem;">Laddar vänner...</div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm btn-block" id="tournament-friends-add-btn" style="font-size: 0.75rem;">
+            + Lägg till valda vänner
+          </button>
+        </div>
+
         <div class="flex gap-sm">
           <input type="text" class="form-input" id="tournament-player-input" placeholder="${t('admin.tournamentPlayerPlaceholder')}" style="flex: 1;" />
           <button type="button" class="btn btn-sm btn-secondary" id="tournament-add-player-btn">+</button>
@@ -947,6 +1056,73 @@ function showCreateTournamentModal() {
       <button type="submit" class="btn btn-primary btn-block">${t('admin.submitCreateTournament')}</button>
     </form>
   `);
+
+  const tFriendsDrawer = document.getElementById('tournament-friends-drawer');
+  const tFriendsList = document.getElementById('tournament-friends-list');
+
+  document.getElementById('tournament-pick-friends')?.addEventListener('click', async () => {
+    if (tFriendsDrawer.style.display === 'block') {
+      tFriendsDrawer.style.display = 'none';
+      return;
+    }
+    tFriendsDrawer.style.display = 'block';
+    tFriendsList.innerHTML = `<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>`;
+
+    try {
+      const friends = await api.getFriends();
+      if (!friends || friends.length === 0) {
+        tFriendsList.innerHTML = `
+          <div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">
+            Du har inga vänner tillagda än. Gå till din profilsida för att lägga till vänner! 👥
+          </div>
+        `;
+        return;
+      }
+
+      tFriendsList.innerHTML = friends.map(f => {
+        const isAlreadyAdded = players.some(p => p.toLowerCase() === f.nickname.toLowerCase());
+        return `
+          <label class="flex-between" style="padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); align-items: center; cursor: ${isAlreadyAdded ? 'default' : 'pointer'}; opacity: ${isAlreadyAdded ? 0.5 : 1}; margin-bottom: 2px;">
+            <div class="flex gap-xs" style="align-items: center; min-width: 0;">
+              ${f.avatarUrl ? `
+                <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover;" />
+              ` : `
+                <span style="font-size: 0.9rem;">${escapeHtml(f.avatar || '👤')}</span>
+              `}
+              <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
+              </span>
+            </div>
+            <input type="checkbox" class="t-friend-cb" data-nickname="${escapeHtml(f.nickname)}" ${isAlreadyAdded ? 'disabled checked' : ''} />
+          </label>
+        `;
+      }).join('');
+    } catch (err) {
+      tFriendsList.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem; padding: 8px;">${escapeHtml(err.message)}</div>`;
+    }
+  });
+
+  document.getElementById('tournament-friends-close')?.addEventListener('click', () => {
+    tFriendsDrawer.style.display = 'none';
+  });
+
+  document.getElementById('tournament-friends-add-btn')?.addEventListener('click', () => {
+    const checked = tFriendsDrawer.querySelectorAll('.t-friend-cb:checked:not([disabled])');
+    let addedCount = 0;
+    checked.forEach(cb => {
+      const nick = cb.dataset.nickname;
+      if (!players.some(p => p.toLowerCase() === nick.toLowerCase())) {
+        players.push(nick);
+        addedCount++;
+      }
+    });
+
+    if (addedCount > 0) {
+      renderPlayers();
+      showToast(`Lade till ${addedCount} deltagare från vänner! 👥`, 'success');
+    }
+    tFriendsDrawer.style.display = 'none';
+  });
 
   function renderPlayers() {
     const list = document.getElementById('tournament-player-list');

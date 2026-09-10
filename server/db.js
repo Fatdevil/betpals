@@ -171,6 +171,21 @@ try {
     CREATE INDEX IF NOT EXISTS idx_receipts_tournament ON tournament_settlement_receipts(tournament_id);
   `);
 } catch {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS friends (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      friend_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (friend_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(user_id, friend_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
+    CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id);
+  `);
+} catch {}
 
 // ── Prepared Statements ──────────────
 const stmts = {
@@ -293,6 +308,24 @@ const stmts = {
   deleteTournamentBanners: db.prepare('DELETE FROM tournament_banners WHERE tournament_id = ?'),
   deleteTournamentPhotosByTournament: db.prepare('DELETE FROM tournament_photos WHERE tournament_id = ?'),
   deleteTournament: db.prepare('DELETE FROM tournaments WHERE id = ?'),
+
+  // Friends
+  getFriends: db.prepare(`
+    SELECT u.id, u.nickname, u.real_name, u.avatar_emoji, u.avatar_url, u.swish_number, f.created_at as friendship_date
+    FROM friends f
+    JOIN users u ON f.friend_id = u.id
+    WHERE f.user_id = ?
+    ORDER BY u.nickname ASC
+  `),
+  insertFriend: db.prepare('INSERT OR IGNORE INTO friends (id, user_id, friend_id) VALUES (?, ?, ?)'),
+  deleteFriend: db.prepare('DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)'),
+  searchUsers: db.prepare(`
+    SELECT id, nickname, real_name, avatar_emoji, avatar_url, swish_number
+    FROM users
+    WHERE id != ? AND (nickname LIKE ? OR real_name LIKE ?)
+    ORDER BY nickname ASC
+    LIMIT 15
+  `),
 };
 
 // ── Public API ───────────────────────────────────────
@@ -1025,3 +1058,47 @@ export function getUserStats(userId) {
     streakType: streakType || 'none'
   };
 }
+
+// ── Friends API ───────────────────────────────────────
+export function getFriends(userId) {
+  const list = stmts.getFriends.all(userId);
+  return list.map(f => {
+    const stats = getUserStats(f.id);
+    return {
+      id: f.id,
+      nickname: f.nickname,
+      realName: f.real_name,
+      avatarEmoji: f.avatar_emoji,
+      avatarUrl: f.avatar_url,
+      swishNumber: f.swish_number,
+      streak: stats.streak || 0,
+      streakType: stats.streakType || 'none',
+      wins: stats.wins || 0,
+      totalBets: stats.totalBets || 0,
+      friendshipDate: f.friendship_date
+    };
+  });
+}
+
+export function addFriend(userId, friendId) {
+  if (!userId || !friendId || userId === friendId) return false;
+  const id1 = crypto.randomUUID();
+  const id2 = crypto.randomUUID();
+  // Mutual friendship
+  stmts.insertFriend.run(id1, userId, friendId);
+  stmts.insertFriend.run(id2, friendId, userId);
+  return true;
+}
+
+export function removeFriend(userId, friendId) {
+  if (!userId || !friendId) return false;
+  stmts.deleteFriend.run(userId, friendId, friendId, userId);
+  return true;
+}
+
+export function searchUsers(query, excludeUserId) {
+  if (!query || String(query).trim().length < 1) return [];
+  const clean = `%${String(query).trim()}%`;
+  return stmts.searchUsers.all(excludeUserId || '', clean, clean);
+}
+

@@ -639,6 +639,62 @@ app.get('/api/users/me/stats', (req, res) => {
   res.json(db.getUserStats(user.id));
 });
 
+// ── Friends ──────────────────────────────────────────
+app.get('/api/friends', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+  res.json(db.getFriends(user.id));
+});
+
+app.post('/api/friends', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+
+  const { friendId, nickname } = req.body || {};
+  let target = null;
+  if (friendId) {
+    target = db.getUserById(friendId);
+  } else if (nickname) {
+    target = db.getUserByNicknameOrSwish(String(nickname).trim());
+  }
+
+  if (!target) {
+    return res.status(404).json({ error: 'Kunde inte hitta användaren' });
+  }
+
+  if (target.id === user.id) {
+    return res.status(400).json({ error: 'Du kan inte lägga till dig själv som vän' });
+  }
+
+  db.addFriend(user.id, target.id);
+  res.json({
+    ok: true,
+    message: `${target.nickname} har lagts till som vän! 👥`,
+    friend: {
+      id: target.id,
+      nickname: target.nickname,
+      realName: target.real_name,
+      avatarEmoji: target.avatar_emoji,
+      avatarUrl: target.avatar_url
+    }
+  });
+});
+
+app.delete('/api/friends/:friendId', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+
+  db.removeFriend(user.id, req.params.friendId);
+  res.json({ ok: true, message: 'Vän borttagen' });
+});
+
+app.get('/api/users/search', (req, res) => {
+  const user = getUserFromToken(req);
+  const query = req.query.q || '';
+  const results = db.searchUsers(query, user ? user.id : '');
+  res.json(results);
+});
+
 // ── Leaderboard ──────────────────────────────────────
 app.get('/api/leaderboard', (req, res) => {
   res.json(db.getLeaderboard());

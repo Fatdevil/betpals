@@ -134,6 +134,12 @@ export const updateAvatar = (imageData) =>
 export const updateSwish = (swishNumber) =>
   request('/users/me/swish', { method: 'PUT', body: { swishNumber } });
 
+// ── Friends ──────────────────────────────────────────
+export const getFriends = () => request('/friends');
+export const addFriend = (data) => request('/friends', { method: 'POST', body: typeof data === 'string' ? { nickname: data } : data });
+export const removeFriend = (friendId) => request(`/friends/${friendId}`, { method: 'DELETE' });
+export const searchUsers = (q) => request(`/users/search?q=${encodeURIComponent(q || '')}`);
+
 // ── WebAuthn / FaceID / TouchID ──────────────────────
 export const webauthnRegisterOptions = () =>
   request('/auth/webauthn/register-options', { method: 'POST' });

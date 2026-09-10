@@ -1,7 +1,8 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials } from '../api.js';
+import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
+import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
 
@@ -17,12 +18,13 @@ export async function renderProfile() {
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
-    const [bets, stats, creds] = await Promise.all([
+    const [bets, stats, creds, friends] = await Promise.all([
       getMyBets(),
       getMyStats(),
-      getMyCredentials().catch(() => ({ hasBiometric: false }))
+      getMyCredentials().catch(() => ({ hasBiometric: false })),
+      getFriends().catch(() => [])
     ]);
-    renderProfileContent(content, user, bets, stats, creds);
+    renderProfileContent(content, user, bets, stats, creds, friends);
   } catch (err) {
     clearUser();
     renderAuthScreen(content);
@@ -143,6 +145,7 @@ function renderAuthScreen(content) {
         showToast('Verifierar FaceID / TouchID... 📸', 'info');
         const user = await loginWithBiometrics();
         storeUser(user);
+        await checkPendingFriendInvite();
         showToast(`Välkommen tillbaka, ${user.nickname}! 👋`, 'success');
         renderProfile();
       } catch (err) {
@@ -171,6 +174,7 @@ function renderAuthScreen(content) {
     try {
       const user = await registerUser({ name, nickname, swishNumber, pin, avatarEmoji: '👤' });
       storeUser(user);
+      await checkPendingFriendInvite();
       showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
       renderProfile();
     } catch (err) {
@@ -199,6 +203,7 @@ function renderAuthScreen(content) {
       }
 
       storeUser(res);
+      await checkPendingFriendInvite();
       showToast(`Välkommen tillbaka, ${res.nickname}! 👋`, 'success');
       renderProfile();
     } catch (err) {
@@ -207,6 +212,19 @@ function renderAuthScreen(content) {
       btn.textContent = t('profile.loginBtn');
     }
   });
+}
+
+async function checkPendingFriendInvite() {
+  const pending = sessionStorage.getItem('pending_friend_invite');
+  if (pending) {
+    try {
+      await addFriend({ nickname: pending });
+      showToast(`Du och @${pending} är nu vänner! 👥🎉`, 'success');
+    } catch {
+      // ignore
+    }
+    sessionStorage.removeItem('pending_friend_invite');
+  }
 }
 
 function showPinResetUI(identifier, nickname) {
@@ -274,7 +292,7 @@ function showPinResetUI(identifier, nickname) {
   });
 }
 
-function renderProfileContent(content, user, bets, stats, creds) {
+function renderProfileContent(content, user, bets, stats, creds, friends = []) {
   const totalBet = bets.reduce((s, b) => s + b.amount, 0);
   const wonBets = bets.filter(b => b.won);
   const lostBets = bets.filter(b => b.eventStatus === 'finished' && !b.won);
@@ -320,6 +338,65 @@ function renderProfileContent(content, user, bets, stats, creds) {
           <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.8rem; font-weight: 600;">@${escapeHtml(user.nickname)}</span>
           ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 ${escapeHtml(user.swishNumber)}</span>` : ''}
         </div>
+      </div>
+
+      <!-- Friends Card -->
+      <div class="card mt-md" id="friends-card">
+        <div class="flex-between mb-sm" style="align-items: center;">
+          <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 6px;">
+            <span>👥</span> <span>Mina Vänner</span>
+            <span class="badge badge-accent" style="font-size: 0.7rem; padding: 2px 6px;">${friends.length}</span>
+          </div>
+          <div class="flex gap-xs">
+            <button class="btn btn-sm btn-primary" id="btn-add-friend" style="font-size: 0.75rem; padding: 4px 10px;">
+              + Lägg till
+            </button>
+            <button class="btn btn-sm btn-secondary" id="btn-share-friend-link" style="font-size: 0.75rem; padding: 4px 10px;" title="Dela din personliga vänlänk">
+              🔗 Bjud in
+            </button>
+          </div>
+        </div>
+
+        ${friends.length === 0 ? `
+          <div class="text-center text-muted" style="padding: var(--space-md) 0; font-size: 0.85rem;">
+            <div style="font-size: 2rem; margin-bottom: 6px;">🤝</div>
+            <div style="font-weight: 600; margin-bottom: 4px;">Inga vänner tillagda än</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); max-width: 320px; margin: 0 auto;">
+              Lägg till polarna med deras @smeknamn eller dela din inbjudningslänk för att snabbt välja dem som deltagare i spel & turneringar!
+            </div>
+          </div>
+        ` : `
+          <div class="friends-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: var(--space-xs);">
+            ${friends.map(f => `
+              <div class="friend-item flex-between" style="padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); align-items: center;">
+                <div class="flex gap-sm" style="align-items: center; min-width: 0;">
+                  ${f.avatarUrl ? `
+                    <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-glass); flex-shrink: 0;" />
+                  ` : `
+                    <div style="width: 38px; height: 38px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; border: 1px solid var(--border-glass); flex-shrink: 0;">
+                      ${escapeHtml(f.avatar || '👤')}
+                    </div>
+                  `}
+                  <div style="min-width: 0;">
+                    <div style="font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                      ${escapeHtml(f.realName || f.nickname)}
+                    </div>
+                    <div class="text-muted" style="font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
+                      <span class="text-gold" style="font-weight: 500;">@${escapeHtml(f.nickname)}</span>
+                      ${f.streak > 0 ? `<span style="font-size: 0.7rem;">${f.streakType === 'win' ? '🔥' : '❄️'} ${f.streak}</span>` : ''}
+                      ${f.wins > 0 ? `<span style="font-size: 0.7rem;">🏆 ${f.wins} vinst${f.wins > 1 ? 'er' : ''}</span>` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div style="flex-shrink: 0; margin-left: 8px;">
+                  <button class="btn btn-sm remove-friend-btn" data-id="${f.id}" data-name="${escapeHtml(f.nickname)}" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--border-glass);" title="Ta bort vän">
+                    ✕
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
       </div>
 
       <!-- Biometric & Security Shortcuts -->
@@ -640,5 +717,154 @@ function renderProfileContent(content, user, bets, stats, creds) {
     item.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'event', code: item.dataset.code } }));
     });
+  });
+
+  // Friends: Add friend modal
+  document.getElementById('btn-add-friend')?.addEventListener('click', () => {
+    showAddFriendModal(friends);
+  });
+
+  // Friends: Share friend invite link
+  document.getElementById('btn-share-friend-link')?.addEventListener('click', async () => {
+    const inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(user.nickname)}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(inviteUrl);
+        showToast('Kopierade din personliga inbjudningslänk till urklipp! 📋', 'success');
+      } else {
+        prompt('Kopiera din vänlänk:', inviteUrl);
+      }
+    } catch {
+      prompt('Kopiera din vänlänk:', inviteUrl);
+    }
+  });
+
+  // Friends: Remove friend
+  document.querySelectorAll('.remove-friend-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const friendId = btn.dataset.id;
+      const friendName = btn.dataset.name;
+      if (!confirm(`Vill du ta bort @${friendName} från dina vänner?`)) return;
+      try {
+        await removeFriend(friendId);
+        showToast(`Tog bort @${friendName} från vänner`, 'info');
+        renderProfile();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+}
+
+function showAddFriendModal(currentFriends = []) {
+  const friendIdSet = new Set(currentFriends.map(f => f.id));
+
+  showModal('👥 Lägg till vän', `
+    <div>
+      <div class="form-group">
+        <label class="form-label" style="font-size: 0.8rem;">Sök användare (@smeknamn eller namn)</label>
+        <input type="search" class="form-input" id="friend-search-input" placeholder="T.ex. Johan eller @johand..." autofocus />
+      </div>
+      <div id="friend-search-results" style="min-height: 80px; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+        <div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">
+          Skriv minst 2 tecken för att söka efter vänner
+        </div>
+      </div>
+    </div>
+  `);
+
+  const searchInput = document.getElementById('friend-search-input');
+  const resultsDiv = document.getElementById('friend-search-results');
+  let debounceTimer = null;
+
+  async function performSearch() {
+    const q = searchInput.value.trim();
+    if (q.length < 2) {
+      resultsDiv.innerHTML = `
+        <div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">
+          Skriv minst 2 tecken för att söka efter vänner
+        </div>
+      `;
+      return;
+    }
+
+    resultsDiv.innerHTML = `<div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">Söker... 🔍</div>`;
+
+    try {
+      const users = await searchUsers(q);
+      if (users.length === 0) {
+        resultsDiv.innerHTML = `
+          <div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">
+            Inga användare hittades som matchar "${escapeHtml(q)}"
+          </div>
+        `;
+        return;
+      }
+
+      resultsDiv.innerHTML = users.map(u => {
+        const isAlreadyFriend = friendIdSet.has(u.id);
+        return `
+          <div class="flex-between" style="padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); align-items: center;">
+            <div class="flex gap-sm" style="align-items: center; min-width: 0;">
+              ${u.avatarUrl ? `
+                <img src="${u.avatarUrl}" alt="${escapeHtml(u.nickname)}" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0;" />
+              ` : `
+                <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+                  ${escapeHtml(u.avatar || '👤')}
+                </div>
+              `}
+              <div style="min-width: 0;">
+                <div style="font-weight: 600; font-size: 0.85rem;">${escapeHtml(u.realName || u.nickname)}</div>
+                <div class="text-muted" style="font-size: 0.75rem; color: var(--gold);">@${escapeHtml(u.nickname)}</div>
+              </div>
+            </div>
+            <div style="flex-shrink: 0; margin-left: 8px;">
+              ${isAlreadyFriend ? `
+                <span class="badge badge-success" style="font-size: 0.7rem;">Redan vän ✓</span>
+              ` : `
+                <button class="btn btn-sm btn-accent add-friend-action-btn" data-id="${u.id}" data-nickname="${escapeHtml(u.nickname)}" style="font-size: 0.75rem; padding: 3px 10px;">
+                  + Lägg till
+                </button>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      resultsDiv.querySelectorAll('.add-friend-action-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const fid = btn.dataset.id;
+          const fnick = btn.dataset.nickname;
+          btn.disabled = true;
+          btn.textContent = 'Lägger till...';
+          try {
+            await addFriend({ friendId: fid });
+            showToast(`Lade till @${fnick} som vän! 🎉`, 'success');
+            friendIdSet.add(fid);
+            btn.parentElement.innerHTML = `<span class="badge badge-success" style="font-size: 0.7rem;">Redan vän ✓</span>`;
+            // Refresh main profile in background so when closed, friends are updated
+            const [b, s, c, updatedFriends] = await Promise.all([
+              getMyBets(),
+              getMyStats(),
+              getMyCredentials().catch(() => ({ hasBiometric: false })),
+              getFriends().catch(() => [])
+            ]);
+            const u = getStoredUser();
+            renderProfileContent(document.getElementById('page-content'), u, b, s, c, updatedFriends);
+          } catch (err) {
+            showToast(err.message, 'error');
+            btn.disabled = false;
+            btn.textContent = '+ Lägg till';
+          }
+        });
+      });
+    } catch (err) {
+      resultsDiv.innerHTML = `<div class="text-center text-red" style="font-size: 0.8rem; padding: 20px 0;">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  searchInput?.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(performSearch, 300);
   });
 }
