@@ -20,7 +20,7 @@ export const sv = {
     confirm: 'Bekräfta'
   },
   nav: {
-    home: 'Hem',
+    home: 'Betting',
     leaderboard: 'Notan',
     join: 'Gå med',
     admin: 'Admin',

@@ -20,7 +20,7 @@ export const en = {
     confirm: 'Confirm'
   },
   nav: {
-    home: 'Home',
+    home: 'Betting',
     leaderboard: 'The Tab',
     join: 'Join',
     admin: 'Admin',
