@@ -67,47 +67,71 @@ function setChips(amount) {
   window.dispatchEvent(new CustomEvent('chips-updated', { detail: { chips: amount } }));
 }
 
-// ── 1. Roller HTML ──────────────────────────────────────
+// ── 1. Roller Ticker HTML ───────────────────────────────
 export function renderMinigamesRoller() {
+  const games = [
+    {
+      id: 'coin-flip',
+      name: t('arcade.coinFlip'),
+      tag: t('arcade.coinFlipTag'),
+      title: t('arcade.coinFlipTitle'),
+      iconHtml: `<img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />`
+    },
+    {
+      id: 'slots',
+      name: t('arcade.slots'),
+      tag: t('arcade.slotsTag'),
+      title: t('arcade.slotsTitle'),
+      iconHtml: `🎰`
+    },
+    {
+      id: 'wheel',
+      name: t('arcade.wheel'),
+      tag: t('arcade.wheelTag'),
+      title: t('arcade.wheelTitle'),
+      iconHtml: `🎡`
+    },
+    {
+      id: 'dice',
+      name: t('arcade.dice'),
+      tag: t('arcade.diceTag'),
+      title: t('arcade.diceTitle'),
+      iconHtml: `🎲`
+    }
+  ];
+
+  const renderCard = (g) => `
+    <div class="minigame-card" data-game="${g.id}" title="${g.title}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+        ${g.iconHtml}
+      </div>
+      <div class="minigame-card-name">${g.name}</div>
+      <div class="minigame-card-tag">${g.tag}</div>
+    </div>
+  `;
+
+  // Repeat twice per group so the loop is smooth and wide on any screen
+  const groupCards = [...games, ...games].map(renderCard).join('');
+
   return `
     <div class="minigames-section animate-in">
       <div class="minigames-header">
         <div class="minigames-title">
+          <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 4px;"></span>
           <span>🎰</span> <span>${t('arcade.title')}</span>
         </div>
         <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
           ${t('arcade.tagline')}
         </span>
       </div>
-      <div class="minigames-roller" id="minigames-roller">
-        <!-- Game 1: Singla Slant / Coin Flip -->
-        <div class="minigame-card" id="card-coin-flip" title="${t('arcade.coinFlipTitle')}">
-          <div class="minigame-card-icon" style="display: flex; align-items: center; justify-content: center;">
-            <img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />
+      <div class="minigames-ticker-container" id="minigames-ticker">
+        <div class="minigames-ticker-track">
+          <div class="minigames-ticker-group">
+            ${groupCards}
           </div>
-          <div class="minigame-card-name">${t('arcade.coinFlip')}</div>
-          <div class="minigame-card-tag">${t('arcade.coinFlipTag')}</div>
-        </div>
-
-        <!-- Game 2: Slots 777 -->
-        <div class="minigame-card" id="card-slots" title="${t('arcade.slotsTitle')}">
-          <div class="minigame-card-icon">🎰</div>
-          <div class="minigame-card-name">${t('arcade.slots')}</div>
-          <div class="minigame-card-tag">${t('arcade.slotsTag')}</div>
-        </div>
-
-        <!-- Game 3: Lyckohjul / Wheel of Fortune -->
-        <div class="minigame-card" id="card-wheel" title="${t('arcade.wheelTitle')}">
-          <div class="minigame-card-icon">🎡</div>
-          <div class="minigame-card-name">${t('arcade.wheel')}</div>
-          <div class="minigame-card-tag">${t('arcade.wheelTag')}</div>
-        </div>
-
-        <!-- Game 4: Tärningsduell / Dice Duel -->
-        <div class="minigame-card" id="card-dice" title="${t('arcade.diceTitle')}">
-          <div class="minigame-card-icon">🎲</div>
-          <div class="minigame-card-name">${t('arcade.dice')}</div>
-          <div class="minigame-card-tag">${t('arcade.diceTag')}</div>
+          <div class="minigames-ticker-group" aria-hidden="true">
+            ${groupCards}
+          </div>
         </div>
       </div>
     </div>
@@ -116,10 +140,30 @@ export function renderMinigamesRoller() {
 
 // ── 2. Event Listeners for Roller ───────────────────────
 export function attachMinigamesListeners() {
-  document.getElementById('card-coin-flip')?.addEventListener('click', openCoinFlipModal);
-  document.getElementById('card-slots')?.addEventListener('click', openSlotsModal);
-  document.getElementById('card-wheel')?.addEventListener('click', openWheelModal);
-  document.getElementById('card-dice')?.addEventListener('click', openDiceModal);
+  const ticker = document.getElementById('minigames-ticker');
+  if (!ticker) return;
+
+  // Touch handlers to pause smoothly when touched on mobile
+  ticker.addEventListener('touchstart', () => {
+    ticker.classList.add('paused');
+  }, { passive: true });
+
+  ticker.addEventListener('touchend', () => {
+    setTimeout(() => {
+      ticker.classList.remove('paused');
+    }, 1200);
+  }, { passive: true });
+
+  // Delegated click handler on the ticker cards
+  ticker.addEventListener('click', (e) => {
+    const card = e.target.closest('.minigame-card');
+    if (!card) return;
+    const game = card.getAttribute('data-game');
+    if (game === 'coin-flip') openCoinFlipModal();
+    else if (game === 'slots') openSlotsModal();
+    else if (game === 'wheel') openWheelModal();
+    else if (game === 'dice') openDiceModal();
+  });
 }
 
 // ────────────────────────────────────────────────────────
