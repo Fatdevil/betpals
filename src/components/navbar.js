@@ -1,7 +1,7 @@
 // ── Components: Navbar ───────────────────────────────
 import { isLoggedIn, getStoredUser } from '../auth.js';
 import { renderBell, initBellListeners } from './notifications.js';
-import { t } from '../i18n.js';
+import { t, getLang, setLang } from '../i18n.js';
 
 // SVG outline icons (stroke-based, no fill)
 const icons = {
@@ -15,16 +15,23 @@ const icons = {
 export function renderNavbar(activePage) {
   const user = getStoredUser();
   const loggedIn = isLoggedIn();
+  const currentLang = getLang();
 
   const items = [
     { id: 'home', icon: icons.home, label: t('nav.home') },
     { id: 'leaderboard', icon: icons.leaderboard, label: t('nav.leaderboard') },
     { id: 'join', icon: icons.join, label: t('nav.join') },
-    { id: 'profile', icon: icons.profile, label: loggedIn ? user?.nickname?.slice(0, 6) : t('nav.account') },
+    { id: 'profile', icon: icons.profile, label: loggedIn ? (user?.nickname?.slice(0, 7) || t('nav.account')) : t('nav.account') },
     { id: 'admin', icon: icons.admin, label: t('nav.admin') }
   ];
 
-  setTimeout(() => initBellListeners(), 0);
+  setTimeout(() => {
+    initBellListeners();
+    document.getElementById('lang-toggle-btn')?.addEventListener('click', () => {
+      const next = getLang() === 'sv' ? 'en' : 'sv';
+      setLang(next);
+    });
+  }, 0);
 
   return `
     <div class="top-header">
@@ -32,7 +39,11 @@ export function renderNavbar(activePage) {
         ${renderBell()}
       </div>
       <span class="top-header-logo">MALTA BETTING</span>
-      <div class="top-header-right"></div>
+      <div class="top-header-right">
+        <button class="lang-toggle-btn" id="lang-toggle-btn" title="${currentLang === 'sv' ? 'Switch to English' : 'Byt till svenska'}">
+          ${currentLang === 'sv' ? '🇸🇪 SV' : '🇬🇧 EN'}
+        </button>
+      </div>
     </div>
     <div class="navbar">
       ${items.map(item => `

@@ -99,6 +99,11 @@ function init() {
     navigate(e.detail.page, e.detail);
   });
 
+  // Handle language switch
+  window.addEventListener('lang-changed', () => {
+    renderApp();
+  });
+
   initAds();
   renderApp();
 }

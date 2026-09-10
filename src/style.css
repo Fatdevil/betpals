@@ -143,6 +143,30 @@ body::before {
 .top-header-left { left: var(--space-md); }
 .top-header-right { right: var(--space-md); }
 
+.lang-toggle-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s var(--ease-out);
+}
+
+.lang-toggle-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
 /* ── Bottom Navigation (SWING_AI pill style) ──────── */
 .navbar {
   position: fixed;
