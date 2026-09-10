@@ -4,6 +4,7 @@ import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, 
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
+import { t } from '../i18n.js';
 
 let adminPin = null;
 
@@ -41,23 +42,23 @@ function renderAdminChoice(content) {
   content.innerHTML = `
     <div class="animate-in">
       <div class="page-header text-center">
-        <h1 class="page-title">⚙️ Admin</h1>
-        <p class="page-subtitle">Hantera dina event</p>
+        <h1 class="page-title">⚙️ ${t('admin.title')}</h1>
+        <p class="page-subtitle">${t('admin.subtitleUser')}</p>
       </div>
 
       <div class="card text-center" style="padding: var(--space-xl);">
         <div style="font-size: 2.5rem; margin-bottom: var(--space-md);">👤</div>
-        <h3 style="margin-bottom: var(--space-sm);">Logga in för att skapa event</h3>
+        <h3 style="margin-bottom: var(--space-sm);">${t('admin.loginPromptTitle')}</h3>
         <p class="text-muted mb-md" style="font-size: 0.85rem;">
-          Skapa ett konto eller logga in — du blir automatiskt admin för dina event.
+          ${t('admin.loginPromptDesc')}
         </p>
-        <button class="btn btn-primary btn-block" id="go-profile-btn">Gå till Konto →</button>
+        <button class="btn btn-primary btn-block" id="go-profile-btn">${t('admin.goToAccount')}</button>
       </div>
 
-      <div class="text-center mt-md text-muted" style="font-size: 0.8rem;">— eller —</div>
+      <div class="text-center mt-md text-muted" style="font-size: 0.8rem;">${t('admin.orDivider')}</div>
 
       <div class="card mt-md">
-        <h3 class="text-center mb-md" style="font-size: 0.9rem;">🔐 Superadmin (PIN)</h3>
+        <h3 class="text-center mb-md" style="font-size: 0.9rem;">${t('admin.superadminPin')}</h3>
         <form id="enter-pin-form">
           <div class="pin-input-group">
             <input type="tel" class="pin-digit" maxlength="1" data-pin="0" inputmode="numeric" />
@@ -65,7 +66,7 @@ function renderAdminChoice(content) {
             <input type="tel" class="pin-digit" maxlength="1" data-pin="2" inputmode="numeric" />
             <input type="tel" class="pin-digit" maxlength="1" data-pin="3" inputmode="numeric" />
           </div>
-          <button type="submit" class="btn btn-secondary btn-block btn-sm">Logga in som superadmin</button>
+          <button type="submit" class="btn btn-secondary btn-block btn-sm">${t('admin.loginSuperadmin')}</button>
         </form>
       </div>
     </div>
@@ -79,14 +80,14 @@ function renderAdminChoice(content) {
   document.getElementById('enter-pin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const pin = collectPin();
-    if (pin.length !== 4) { showToast('Ange 4 siffror', 'error'); return; }
+    if (pin.length !== 4) { showToast(t('admin.toastEnterDigits'), 'error'); return; }
     try {
       const status = await api.adminStatus();
       if (!status.hasPin) {
         // First time — set up PIN
         await api.adminSetup(pin);
         savePin(pin);
-        showToast('Superadmin-PIN skapad!', 'success');
+        showToast(t('admin.toastPinCreated'), 'success');
         renderAdmin();
       } else {
         const result = await api.adminVerify(pin);
@@ -94,7 +95,7 @@ function renderAdminChoice(content) {
           savePin(pin);
           renderAdmin();
         } else {
-          showToast('Fel PIN', 'error');
+          showToast(t('admin.toastWrongPin'), 'error');
         }
       }
     } catch (err) { showToast(err.message, 'error'); }
@@ -108,29 +109,29 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
     <div class="animate-in">
       <div class="page-header">
         <div class="flex-between">
-          <h1 class="page-title">⚙️ Admin</h1>
+          <h1 class="page-title">⚙️ ${t('admin.title')}</h1>
           <div class="flex gap-sm">
             ${loggedIn ? `<span class="badge badge-success" style="font-size: 0.7rem;">👤 ${user?.nickname || ''}</span>` : ''}
             ${hasPinSession ? `<span class="badge badge-info" style="font-size: 0.7rem;">🔐 Superadmin</span>` : ''}
-            ${hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-logout-btn">Logga ut PIN</button>` : ''}
+            ${hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-logout-btn">${t('admin.logoutPin')}</button>` : ''}
           </div>
         </div>
-        <p class="page-subtitle">${loggedIn ? 'Skapa och hantera dina event' : 'Hantera alla event (superadmin)'}</p>
+        <p class="page-subtitle">${loggedIn ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
       </div>
 
       <div class="flex gap-sm mb-lg">
         <button class="btn btn-primary" id="create-event-btn" style="flex: 1;">
-          ➕ Nytt event
+          ${t('admin.newEvent')}
         </button>
         <button class="btn btn-accent" id="create-tournament-btn" style="flex: 1;">
-          🏆 Ny turnering
+          ${t('admin.newTournament')}
         </button>
       </div>
 
       <div id="admin-tournaments-list"></div>
 
       <div id="admin-events-list">
-        <div class="text-center text-muted">Laddar...</div>
+        <div class="text-center text-muted">${t('common.loading')}</div>
       </div>
     </div>
   `;
@@ -139,14 +140,14 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
     document.getElementById('admin-logout-btn')?.addEventListener('click', () => {
       sessionStorage.removeItem('betpals_pin');
       adminPin = null;
-      showToast('Superadmin utloggad', 'info');
+      showToast(t('admin.toastSuperLoggedOut'), 'info');
       renderAdmin();
     });
   }
 
   document.getElementById('create-event-btn').addEventListener('click', () => {
     if (!loggedIn && !hasPinSession) {
-      showToast('Logga in eller ange superadmin-PIN', 'error');
+      showToast(t('admin.toastAuthReq'), 'error');
       return;
     }
     showCreateEventModal();
@@ -154,7 +155,7 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
 
   document.getElementById('create-tournament-btn').addEventListener('click', () => {
     if (!loggedIn && !hasPinSession) {
-      showToast('Logga in eller ange superadmin-PIN', 'error');
+      showToast(t('admin.toastAuthReq'), 'error');
       return;
     }
     showCreateTournamentModal();
@@ -183,14 +184,14 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">📋</div>
-          <p class="empty-state-text">Du har inga event ännu. Skapa ditt första!</p>
+          <p class="empty-state-text">${t('admin.noEvents')}</p>
         </div>`;
       return;
     } else if (events.length === 0) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">📋</div>
-          <p class="empty-state-text">Inga event ännu.</p>
+          <p class="empty-state-text">${t('admin.noEventsSuper')}</p>
         </div>`;
       return;
     }
@@ -201,28 +202,28 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           <div>
             <h3 style="font-family: var(--font-heading); font-weight: 700;">${ev.name}</h3>
             <p class="text-secondary" style="font-size: 0.8rem;">
-              ${formatDate(ev.date)} · Kod: <span class="text-gold">${ev.shareCode}</span>
+              ${formatDate(ev.date)} · ${t('admin.code')}: <span class="text-gold">${ev.shareCode}</span>
             </p>
           </div>
           <span class="badge ${statusBadgeClass(ev.status)}">${statusLabel(ev.status)}</span>
         </div>
         <div class="flex-between" style="font-size: 0.85rem;">
-          <span>${ev.playerCount} spelare · ${ev.betCount} bets · ${formatCurrency(ev.totalPool)}</span>
+          <span>${ev.playerCount} ${t('admin.participants')} · ${ev.betCount} ${t('admin.betsCount')} · ${formatCurrency(ev.totalPool)}</span>
         </div>
         <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
-          <button class="btn btn-sm btn-secondary admin-view-btn" data-code="${ev.shareCode}">👁 Visa</button>
-          <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${ev.name}">👤 Spelare</button>
+          <button class="btn btn-sm btn-secondary admin-view-btn" data-code="${ev.shareCode}">${t('admin.btnView')}</button>
+          <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${ev.name}">${t('admin.btnPlayers')}</button>
           ${ev.status === 'open' ? `
-            <button class="btn btn-sm btn-secondary admin-lock-btn" data-id="${ev.id}">🔒 Lås</button>
+            <button class="btn btn-sm btn-secondary admin-lock-btn" data-id="${ev.id}">${t('admin.btnLock')}</button>
           ` : ''}
           ${ev.status === 'locked' ? `
-            <button class="btn btn-sm btn-secondary admin-reopen-btn" data-id="${ev.id}">🔓 Öppna</button>
-            <button class="btn btn-sm btn-success admin-finish-btn" data-id="${ev.id}" data-code="${ev.shareCode}">🏆 Avsluta</button>
+            <button class="btn btn-sm btn-secondary admin-reopen-btn" data-id="${ev.id}">${t('admin.btnUnlock')}</button>
+            <button class="btn btn-sm btn-success admin-finish-btn" data-id="${ev.id}" data-code="${ev.shareCode}">${t('admin.btnFinish')}</button>
           ` : ''}
           ${ev.status === 'open' ? `
-            <button class="btn btn-sm btn-secondary admin-bets-btn" data-id="${ev.id}" data-code="${ev.shareCode}">📋 Bets</button>
+            <button class="btn btn-sm btn-secondary admin-bets-btn" data-id="${ev.id}" data-code="${ev.shareCode}">${t('admin.btnBets')}</button>
           ` : ''}
-          <button class="btn btn-sm btn-danger admin-delete-btn" data-id="${ev.id}" data-name="${ev.name}">🗑</button>
+          <button class="btn btn-sm btn-danger admin-delete-btn" data-id="${ev.id}" data-name="${ev.name}" title="${t('admin.btnDelete')}">🗑</button>
         </div>
       </div>
     `).join('');
@@ -236,7 +237,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
       btn.addEventListener('click', async () => {
         try {
           await api.lockEvent(btn.dataset.id, getPin());
-          showToast('Event låst! Inga fler bets kan läggas.', 'info');
+          showToast(t('admin.toastEventLocked'), 'info');
           loadAdminEvents(loggedIn, hasPinSession, user);
         } catch (err) { showToast(err.message, 'error'); }
       });
@@ -246,7 +247,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
       btn.addEventListener('click', async () => {
         try {
           await api.reopenEvent(btn.dataset.id, getPin());
-          showToast('Event öppnat igen!', 'success');
+          showToast(t('admin.toastEventOpened'), 'success');
           loadAdminEvents(loggedIn, hasPinSession, user);
         } catch (err) { showToast(err.message, 'error'); }
       });
@@ -258,18 +259,18 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
 
     list.querySelectorAll('.admin-delete-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        showModal('Radera event', `
-          <p class="mb-lg">Är du säker på att du vill radera <strong>${btn.dataset.name}</strong>? Alla bets försvinner.</p>
+        showModal(t('admin.deleteModalTitle'), `
+          <p class="mb-lg">${t('admin.deleteModalConfirm')} <strong>${btn.dataset.name}</strong>? ${t('admin.deleteModalWarning')}</p>
           <div class="flex gap-sm">
-            <button class="btn btn-danger btn-block" id="confirm-delete-btn">Radera</button>
-            <button class="btn btn-secondary btn-block" id="cancel-delete-btn">Avbryt</button>
+            <button class="btn btn-danger btn-block" id="confirm-delete-btn">${t('admin.confirmDelete')}</button>
+            <button class="btn btn-secondary btn-block" id="cancel-delete-btn">${t('admin.cancel')}</button>
           </div>
         `);
         document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
           try {
             await api.deleteEvent(btn.dataset.id, getPin());
             closeModal();
-            showToast('Event raderat', 'info');
+            showToast(t('admin.toastEventDeleted'), 'info');
             loadAdminEvents(loggedIn, hasPinSession, user);
           } catch (err) { showToast(err.message, 'error'); }
         });
@@ -292,38 +293,38 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
 }
 
 function showCreateEventModal() {
-  showModal('➕ Skapa nytt event', `
+  showModal(t('admin.createEventTitle'), `
     <form id="create-event-form">
       <div class="form-group">
-        <label class="form-label">Eventnamn</label>
-        <input type="text" class="form-input" id="ce-name" placeholder="T.ex. Golf Masters 2026" required />
+        <label class="form-label">${t('admin.eventName')}</label>
+        <input type="text" class="form-input" id="ce-name" placeholder="${t('admin.eventNamePlaceholder')}" required />
       </div>
       <div class="form-group">
-        <label class="form-label">Datum</label>
+        <label class="form-label">${t('admin.date')}</label>
         <input type="date" class="form-input" id="ce-date" />
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Min insats (kr)</label>
+          <label class="form-label">${t('admin.minStake')}</label>
           <input type="number" class="form-input" id="ce-min" value="10" min="1" />
         </div>
         <div class="form-group">
-          <label class="form-label">Max insats (kr)</label>
+          <label class="form-label">${t('admin.maxStake')}</label>
           <input type="number" class="form-input" id="ce-max" value="1000" min="1" />
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Utbetalning (%)</label>
+        <label class="form-label">${t('admin.payoutPercent')}</label>
         <input type="range" id="ce-payout" min="10" max="100" value="100"
                style="width:100%; accent-color: var(--gold);" />
         <div class="text-center text-gold font-heading font-bold mt-sm" id="ce-payout-display">100%</div>
       </div>
       <div class="form-group">
-        <label class="form-label">Spelare (tryck Enter för att lägga till)</label>
-        <input type="text" class="form-input" id="ce-player-input" placeholder="Spelarnamn" />
+        <label class="form-label">${t('admin.playersEnterHint')}</label>
+        <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" />
         <div class="player-tags mt-sm" id="ce-player-tags"></div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block mt-md">Skapa event 🚀</button>
+      <button type="submit" class="btn btn-primary btn-block mt-md">${t('admin.submitCreateEvent')}</button>
     </form>
   `);
 
@@ -365,7 +366,7 @@ function showCreateEventModal() {
         players
       });
       closeModal();
-      showToast(`Event "${event.name}" skapat! Kod: ${event.shareCode}`, 'success');
+      showToast(`${t('admin.toastEventCreated')} ${t('admin.code')}: ${event.shareCode}`, 'success');
       renderAdmin();
     } catch (err) { showToast(err.message, 'error'); }
   });
@@ -389,12 +390,12 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
   try {
     const event = await api.getEvent(eventId);
 
-    showModal(`👤 Spelare — ${eventName}`, `
+    showModal(`${t('admin.managePlayersTitle')} — ${eventName}`, `
       <div class="form-group">
-        <label class="form-label">Lägg till spelare</label>
+        <label class="form-label">${t('admin.addPlayerLabel')}</label>
         <div class="flex gap-sm">
-          <input type="text" class="form-input" id="add-player-input" placeholder="Spelarnamn" style="flex:1;" />
-          <button class="btn btn-primary btn-sm" id="add-player-btn">Lägg till</button>
+          <input type="text" class="form-input" id="add-player-input" placeholder="${t('admin.addPlayerPlaceholder')}" style="flex:1;" />
+          <button class="btn btn-primary btn-sm" id="add-player-btn">${t('admin.btnAdd')}</button>
         </div>
       </div>
       <div id="player-list-modal">
@@ -403,7 +404,7 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
             <span class="bet-item-name">${p.name}</span>
             <button class="btn btn-sm btn-danger remove-player-modal" data-id="${p.id}">&times;</button>
           </div>
-        `).join('') || '<p class="text-muted text-center">Inga spelare</p>'}
+        `).join('') || `<p class="text-muted text-center">${t('admin.noPlayersYet')}</p>`}
       </div>
     `);
 
@@ -412,7 +413,7 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
       if (!name) return;
       try {
         await api.addPlayer(eventId, name, getPin());
-        showToast(`${name} tillagd!`, 'success');
+        showToast(`${name} ${t('admin.toastPlayerAdded')}`, 'success');
         closeModal();
         showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user);
         loadAdminEvents(loggedIn, hasPinSession, user);
@@ -430,7 +431,7 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
       btn.addEventListener('click', async () => {
         try {
           await api.removePlayer(eventId, btn.dataset.id, getPin());
-          showToast('Spelare borttagen', 'info');
+          showToast(t('admin.toastPlayerRemoved'), 'info');
           closeModal();
           showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user);
           loadAdminEvents(loggedIn, hasPinSession, user);
@@ -445,7 +446,7 @@ async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) 
   try {
     const event = await api.getEvent(shareCode);
 
-    showModal(`📋 Alla bets — ${event.name}`, `
+    showModal(`${t('admin.manageBetsTitle')} — ${event.name}`, `
       <div class="bet-list" id="bets-list-modal">
         ${event.bets.length > 0 ? event.bets.map(b => {
           const player = event.players.find(p => p.id === b.playerId);
@@ -457,11 +458,11 @@ async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) 
               </div>
               <div class="flex gap-sm" style="align-items: center;">
                 <span class="bet-item-amount">${formatCurrency(b.amount)}</span>
-                <button class="btn-sm bet-item-delete delete-bet-modal" data-bet-id="${b.id}" title="Radera">🗑</button>
+                <button class="btn-sm bet-item-delete delete-bet-modal" data-bet-id="${b.id}" title="${t('admin.btnDelete')}">🗑</button>
               </div>
             </div>
           `;
-        }).join('') : '<p class="text-muted text-center">Inga bets ännu</p>'}
+        }).join('') : `<p class="text-muted text-center">${t('admin.noBetsYet')}</p>`}
       </div>
     `);
 
@@ -469,7 +470,7 @@ async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) 
       btn.addEventListener('click', async () => {
         try {
           await api.deleteBet(eventId, btn.dataset.betId, getPin());
-          showToast('Bet raderad', 'info');
+          showToast(t('admin.toastBetDeleted'), 'info');
           closeModal();
           showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user);
           loadAdminEvents(loggedIn, hasPinSession, user);
@@ -484,13 +485,13 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
   try {
     const event = await api.getEvent(shareCode);
 
-    showModal('🏆 Välj vinnare', `
-      <p class="text-secondary mb-lg">Vem vann <strong>${event.name}</strong>?</p>
+    showModal(t('admin.finishTitle'), `
+      <p class="text-secondary mb-lg">${t('admin.whoWonPrompt')} <strong>${event.name}</strong>?</p>
       <div class="bet-list" id="winner-list">
         ${event.players.map(p => `
           <button class="bet-item card-clickable winner-select-btn" data-id="${p.id}" style="width:100%; border:none; cursor:pointer;">
             <span class="bet-item-name">${p.name}</span>
-            <span class="text-gold">Välj →</span>
+            <span class="text-gold">${t('admin.selectWinnerBtn')}</span>
           </button>
         `).join('')}
       </div>
@@ -502,7 +503,7 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
           const result = await api.finishEvent(eventId, btn.dataset.id, getPin());
           closeModal();
           launchConfetti();
-          showToast(`🏆 ${result.winner} vann! Odds: ${result.odds}x`, 'success');
+          showToast(`🏆 ${result.winner} ${t('admin.toastWinnerDeclared')} Odds: ${result.odds}x`, 'success');
           loadAdminEvents(loggedIn, hasPinSession, user);
         } catch (err) { showToast(err.message, 'error'); }
       });
@@ -558,19 +559,19 @@ async function loadAdminTournaments(loggedIn, hasPinSession, user) {
 
     list.innerHTML = `
       <div class="section-header">
-        <h2 class="section-title">🏆 Turneringar</h2>
+        <h2 class="section-title">${t('admin.tournamentsTitle')}</h2>
       </div>
-      ${filtered.map(t => `
-        <div class="card card-clickable tournament-link mb-sm" data-code="${t.shareCode}">
+      ${filtered.map(tr => `
+        <div class="card card-clickable tournament-link mb-sm" data-code="${tr.shareCode}">
           <div class="flex-between">
             <div>
-              <h3 style="font-family: var(--font-heading); font-weight: 700;">${t.name}</h3>
+              <h3 style="font-family: var(--font-heading); font-weight: 700;">${tr.name}</h3>
               <p class="text-secondary" style="font-size: 0.8rem;">
-                ${t.finishedCount}/${t.roundCount} ronder klara · Kod: <span class="text-gold">${t.shareCode}</span>
+                ${tr.finishedCount}/${tr.roundCount} ${t('admin.roundsFinished')} · ${t('admin.code')}: <span class="text-gold">${tr.shareCode}</span>
               </p>
             </div>
-            <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}" style="font-size: 0.7rem;">
-              ${t.status === 'active' ? 'Pågår' : '✅ Avräknad'}
+            <span class="badge ${tr.status === 'active' ? 'badge-accent' : 'badge-success'}" style="font-size: 0.7rem;">
+              ${tr.status === 'active' ? t('common.active') : '✅ ' + t('common.settled')}
             </span>
           </div>
         </div>
@@ -588,21 +589,21 @@ async function loadAdminTournaments(loggedIn, hasPinSession, user) {
 function showCreateTournamentModal() {
   let players = [];
   
-  showModal('🏆 Ny turnering', `
+  showModal(t('admin.createTournamentTitle'), `
     <form id="create-tournament-form">
       <div class="form-group">
-        <label class="form-label">Turneringsnamn</label>
-        <input type="text" class="form-input" id="tournament-name" placeholder="t.ex. Golfhelgen 2026" required />
+        <label class="form-label">${t('admin.tournamentName')}</label>
+        <input type="text" class="form-input" id="tournament-name" placeholder="${t('admin.tournamentNamePlaceholder')}" required />
       </div>
       <div class="form-group">
-        <label class="form-label">Spelare / Lag</label>
+        <label class="form-label">${t('admin.tournamentPlayers')}</label>
         <div class="flex gap-sm">
-          <input type="text" class="form-input" id="tournament-player-input" placeholder="Lägg till spelare" style="flex: 1;" />
+          <input type="text" class="form-input" id="tournament-player-input" placeholder="${t('admin.tournamentPlayerPlaceholder')}" style="flex: 1;" />
           <button type="button" class="btn btn-sm btn-secondary" id="tournament-add-player-btn">+</button>
         </div>
         <div id="tournament-player-list" class="mt-sm"></div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block">Skapa turnering 🏆</button>
+      <button type="submit" class="btn btn-primary btn-block">${t('admin.submitCreateTournament')}</button>
     </form>
   `);
 
@@ -643,7 +644,7 @@ function showCreateTournamentModal() {
     e.preventDefault();
     const name = document.getElementById('tournament-name').value.trim();
     if (players.length < 2) {
-      showToast('Lägg till minst 2 spelare', 'error');
+      showToast(t('admin.toastMinTwoPlayers'), 'error');
       return;
     }
 
@@ -651,7 +652,7 @@ function showCreateTournamentModal() {
       const pin = getPin();
       const result = await api.createTournament({ name, players, pin });
       closeModal();
-      showToast('Turnering skapad! 🏆', 'success');
+      showToast(t('admin.toastTournamentCreated'), 'success');
       navigate('tournament', { code: result.shareCode });
     } catch (err) { showToast(err.message, 'error'); }
   });
