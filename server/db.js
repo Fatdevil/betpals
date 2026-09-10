@@ -160,8 +160,8 @@ const stmts = {
 
   // Events
   insertEvent: db.prepare(`
-    INSERT INTO events (id, name, date, min_bet, max_bet, payout_percent, share_code, creator_id, is_side_bet, linked_round_id, bet_mode)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO events (id, name, date, status, min_bet, max_bet, payout_percent, share_code, creator_id, swish_number, tournament_id, is_side_bet, linked_round_id, bet_mode)
+    VALUES (@id, @name, @date, COALESCE(@status, 'open'), @minBet, @maxBet, @payoutPercent, @shareCode, @creatorId, @swishNumber, @tournamentId, @isSideBet, @linkedRoundId, @betMode)
   `),
   getEventById: db.prepare('SELECT * FROM events WHERE id = ?'),
   getEventByCode: db.prepare('SELECT * FROM events WHERE share_code = ?'),
@@ -169,12 +169,14 @@ const stmts = {
   getOpenEvents: db.prepare('SELECT * FROM events WHERE status = \'open\' ORDER BY created_at DESC'),
   updateEventStatus: db.prepare('UPDATE events SET status = ? WHERE id = ?'),
   updateEventWinner: db.prepare('UPDATE events SET winner_id = ?, status = \'finished\' WHERE id = ?'),
+  resetEvent: db.prepare('UPDATE events SET status = ?, winner_id = NULL WHERE id = ?'),
   deleteEvent: db.prepare('DELETE FROM events WHERE id = ?'),
 
   // Players
   insertPlayer: db.prepare('INSERT INTO players (id, event_id, name) VALUES (?, ?, ?)'),
   getPlayersByEvent: db.prepare('SELECT * FROM players WHERE event_id = ?'),
   getPlayerById: db.prepare('SELECT * FROM players WHERE id = ?'),
+  getPlayerCount: db.prepare('SELECT COUNT(*) as count FROM players WHERE event_id = ?'),
   deletePlayer: db.prepare('DELETE FROM players WHERE id = ? AND event_id = ?'),
 
   // Bets
@@ -188,7 +190,10 @@ const stmts = {
     WHERE b.user_id = ?
     ORDER BY b.timestamp DESC
   `),
+  getTotalPool: db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM bets WHERE event_id = ?'),
   getTotalPoolByEvent: db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM bets WHERE event_id = ?'),
+  getBetCount: db.prepare('SELECT COUNT(*) as count FROM bets WHERE event_id = ?'),
+  getPlayerPool: db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM bets WHERE event_id = ? AND player_id = ?'),
   getBetsByPlayer: db.prepare('SELECT * FROM bets WHERE event_id = ? AND player_id = ?'),
   deleteBet: db.prepare('DELETE FROM bets WHERE id = ? AND event_id = ?'),
   deleteBetsByPlayer: db.prepare('DELETE FROM bets WHERE event_id = ? AND player_id = ?'),
@@ -323,6 +328,10 @@ export function getFullEvent(idOrCode) {
     winnerId: event.winner_id,
     creatorId: event.creator_id,
     swishNumber: event.swish_number,
+    tournamentId: event.tournament_id,
+    isSideBet: !!event.is_side_bet,
+    linkedRoundId: event.linked_round_id,
+    betMode: event.bet_mode || 'open',
     players,
     bets: bets.map(b => ({
       id: b.id,
@@ -391,7 +400,7 @@ export function reopenEvent(eventId) {
 }
 
 export function finishEvent(eventId, winnerId) {
-  stmts.updateEventWinner.run('finished', winnerId, eventId);
+  stmts.updateEventWinner.run(winnerId, eventId);
 }
 
 export function deleteEvent(eventId) {
@@ -408,6 +417,10 @@ export function getEventByCode(code) {
 
 export function playerExists(playerId) {
   return !!stmts.getPlayerById.get(playerId);
+}
+
+export function getPlayerById(playerId) {
+  return stmts.getPlayerById.get(playerId);
 }
 
 // ── Users ────────────────────────────────────────────

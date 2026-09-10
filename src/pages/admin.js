@@ -343,16 +343,20 @@ function showCreateEventModal() {
   const playerInput = document.getElementById('ce-player-input');
   const playerTags = document.getElementById('ce-player-tags');
 
+  function updateTags() {
+    renderPlayerTags(players, playerTags, (idx) => {
+      players.splice(idx, 1);
+      updateTags();
+    });
+  }
+
   playerInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const name = playerInput.value.trim();
       if (name && !players.includes(name)) {
         players.push(name);
-        renderPlayerTags(players, playerTags, (idx) => {
-          players.splice(idx, 1);
-          renderPlayerTags(players, playerTags, null);
-        });
+        updateTags();
       }
       playerInput.value = '';
     }
@@ -360,20 +364,57 @@ function showCreateEventModal() {
 
   document.getElementById('create-event-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const pendingName = playerInput.value.trim();
+    if (pendingName && !players.includes(pendingName)) {
+      players.push(pendingName);
+      updateTags();
+      playerInput.value = '';
+    }
+
+    const name = document.getElementById('ce-name').value.trim();
+    if (!name || name.length < 2) {
+      showToast('Ett giltigt matchnamn krävs (minst 2 tecken)', 'error');
+      return;
+    }
+
+    if (players.length < 2) {
+      showToast(t('admin.toastMinTwoPlayers') || 'Minst 2 deltagare krävs', 'error');
+      return;
+    }
+
+    const minBet = Number(document.getElementById('ce-min').value) || 10;
+    const maxBet = Number(document.getElementById('ce-max').value) || 1000;
+    if (minBet > maxBet) {
+      showToast('Lägsta insats kan inte vara högre än högsta insats', 'error');
+      return;
+    }
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Skapar...';
+    }
+
     try {
       const event = await api.createEvent({
         pin: getPin(),
-        name: document.getElementById('ce-name').value.trim(),
+        name,
         date: document.getElementById('ce-date').value,
-        minBet: Number(document.getElementById('ce-min').value),
-        maxBet: Number(document.getElementById('ce-max').value),
+        minBet,
+        maxBet,
         payoutPercent: Number(payoutSlider.value),
         players
       });
       closeModal();
       showToast(`${t('admin.toastEventCreated')} ${t('admin.code')}: ${event.shareCode}`, 'success');
       renderAdmin();
-    } catch (err) { showToast(err.message, 'error'); }
+    } catch (err) {
+      showToast(err.message, 'error');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = t('admin.submitCreateEvent');
+      }
+    }
   });
 }
 
@@ -613,13 +654,15 @@ function showCreateTournamentModal() {
   `);
 
   function renderPlayers() {
-    document.getElementById('tournament-player-list').innerHTML = players.map((p, i) => `
+    const list = document.getElementById('tournament-player-list');
+    if (!list) return;
+    list.innerHTML = players.map((p, i) => `
       <div class="flex-between" style="padding: var(--space-xs) 0; font-size: 0.85rem;">
         <span>${p}</span>
         <button type="button" class="btn btn-sm" style="padding: 2px 8px; font-size: 0.7rem;" data-remove="${i}">✕</button>
       </div>
     `).join('');
-    document.querySelectorAll('[data-remove]').forEach(btn => {
+    list.querySelectorAll('[data-remove]').forEach(btn => {
       btn.addEventListener('click', () => {
         players.splice(Number(btn.dataset.remove), 1);
         renderPlayers();
@@ -647,10 +690,31 @@ function showCreateTournamentModal() {
 
   document.getElementById('create-tournament-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const pInput = document.getElementById('tournament-player-input');
+    if (pInput && pInput.value.trim()) {
+      const pName = pInput.value.trim();
+      if (!players.includes(pName)) {
+        players.push(pName);
+        renderPlayers();
+      }
+      pInput.value = '';
+    }
+
     const name = document.getElementById('tournament-name').value.trim();
+    if (!name || name.length < 2) {
+      showToast('Ett turneringsnamn krävs (minst 2 tecken)', 'error');
+      return;
+    }
+
     if (players.length < 2) {
       showToast(t('admin.toastMinTwoPlayers'), 'error');
       return;
+    }
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Skapar...';
     }
 
     try {
@@ -659,7 +723,13 @@ function showCreateTournamentModal() {
       closeModal();
       showToast(t('admin.toastTournamentCreated'), 'success');
       navigate('tournament', { code: result.shareCode });
-    } catch (err) { showToast(err.message, 'error'); }
+    } catch (err) {
+      showToast(err.message, 'error');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = t('admin.submitCreateTournament');
+      }
+    }
   });
 }
 

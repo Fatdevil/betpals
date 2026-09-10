@@ -691,6 +691,15 @@ function showSideBetModal(t, content) {
   // Submit
   document.getElementById('sidebet-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const pInput = document.getElementById('sidebet-player-input');
+    if (pInput && pInput.value.trim()) {
+      const pName = pInput.value.trim();
+      if (!players.includes(pName)) {
+        players.push(pName);
+      }
+      pInput.value = '';
+    }
+
     const name = document.getElementById('sidebet-name').value.trim();
     const linkedRoundId = document.getElementById('sidebet-round').value || null;
     const betAmount = Number(document.getElementById('sidebet-amount').value) || 100;
@@ -698,6 +707,12 @@ function showSideBetModal(t, content) {
     if (players.length < 2) {
       showToast('Minst 2 spelare krävs', 'error');
       return;
+    }
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Skapar...';
     }
 
     try {
@@ -715,6 +730,10 @@ function showSideBetModal(t, content) {
       renderTournamentContent(content, updated);
     } catch (err) {
       showToast(err.message, 'error');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Skapa sido-spel 🎯';
+      }
     }
   });
 }

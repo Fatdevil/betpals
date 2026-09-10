@@ -628,28 +628,46 @@ app.post('/api/events', (req, res) => {
   const user = getUserFromToken(req);
   const hasPin = pin && verifyPin(pin);
   if (!user && !hasPin) {
-    return res.status(403).json({ error: 'Logga in eller ange admin-PIN för att skapa event' });
+    return res.status(403).json({ error: 'Logga in eller ange admin-PIN för att skapa match' });
   }
-  if (!name) return res.status(400).json({ error: 'Namn krävs' });
+
+  const finalName = (name || '').trim();
+  if (!finalName || finalName.length < 2) {
+    return res.status(400).json({ error: 'Ett matchnamn krävs (minst 2 tecken)' });
+  }
+
+  // Clean and deduplicate players
+  const cleanPlayers = [...new Set((players || [])
+    .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
+    .filter(Boolean))];
+
+  if (cleanPlayers.length < 2) {
+    return res.status(400).json({ error: 'Minst 2 deltagare krävs för att skapa en match' });
+  }
+
+  const min = Math.max(1, Number(minBet) || 10);
+  const max = Math.max(min, Number(maxBet) || 10000);
+  const payout = payoutPercent !== undefined ? Math.min(100, Math.max(0, Number(payoutPercent))) : 100;
+  const swish = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
   const eventData = {
     id: generateId(),
-    name,
+    name: finalName,
     date: date || new Date().toISOString().split('T')[0],
     status: 'open',
     shareCode: generateShareCode(),
-    payoutPercent: Math.min(100, Math.max(0, Number(payoutPercent) || 100)),
-    minBet: Number(minBet) || 10,
-    maxBet: Number(maxBet) || 10000,
+    payoutPercent: payout,
+    minBet: min,
+    maxBet: max,
     creatorId: user ? user.id : null,
-    swishNumber: swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null,
+    swishNumber: swish,
     tournamentId: tournamentId || null,
     isSideBet: 0,
     linkedRoundId: null,
     betMode: 'open'
   };
 
-  const playerData = (players || []).map(p => ({ id: generateId(), name: p }));
+  const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
 
   const full = db.getFullEvent(eventData.id);
@@ -708,13 +726,20 @@ app.post('/api/events/:id/players', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
-  if (!name) return res.status(400).json({ error: 'Spelarnamn krävs' });
+  
+  const cleanName = (name || '').trim();
+  if (!cleanName) return res.status(400).json({ error: 'Spelarnamn krävs' });
+
+  const existingPlayers = db.getPlayersByEvent(event.id);
+  if (existingPlayers.some(p => p.name.toLowerCase() === cleanName.toLowerCase())) {
+    return res.status(400).json({ error: 'En spelare med detta namn finns redan i matchen' });
+  }
 
   const playerId = generateId();
-  db.addPlayer(req.params.id, playerId, name);
+  db.addPlayer(req.params.id, playerId, cleanName);
 
   broadcastToEvent(event.share_code, { type: 'player_added', eventCode: event.share_code });
-  res.json({ id: playerId, name });
+  res.json({ id: playerId, name: cleanName });
 });
 
 app.delete('/api/events/:id/players/:playerId', (req, res) => {
@@ -722,6 +747,11 @@ app.delete('/api/events/:id/players/:playerId', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  const player = db.getPlayerById(req.params.playerId);
+  if (!player || player.event_id !== event.id) {
+    return res.status(404).json({ error: 'Spelaren hittades inte i denna match' });
+  }
 
   db.removePlayer(req.params.id, req.params.playerId);
   broadcastToEvent(event.share_code, { type: 'player_removed', eventCode: event.share_code });
@@ -768,17 +798,18 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
   }
 
   // Name protection: check if bettorName belongs to a registered user
-  const registeredUser = db.getUserByNickname(bettorName.trim());
+  const cleanBettor = (bettorName || '').trim();
+  const registeredUser = db.getUserByNickname(cleanBettor);
   if (registeredUser) {
     if (!loggedInUser || loggedInUser.id !== registeredUser.id) {
       return res.status(403).json({
-        error: `🛑 Bettarnamnet "${bettorName.trim()}" tillhör en registrerad profil. Logga in för att lägga bets som ${bettorName.trim()}!`
+        error: `🛑 Bettarnamnet "${cleanBettor}" tillhör en registrerad profil. Logga in för att lägga bets som ${cleanBettor}!`
       });
     }
   }
 
   const betId = generateId();
-  db.addBet(betId, event.id, bettorName, playerId, betAmount, userId);
+  db.addBet(betId, event.id, cleanBettor, playerId, betAmount, userId);
 
   // Broadcast updated odds + bet notification
   const updated = db.getFullEvent(event.shareCode);
@@ -792,13 +823,20 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
     // Notification data
     notification: {
       type: 'bet_placed',
-      bettor: bettorName,
+      bettor: cleanBettor,
       player: playerName,
       amount: betAmount
     }
   });
 
-  res.json({ id: betId, bettorName, playerId, amount: betAmount });
+  if (event.tournamentId) {
+    const t = db.getTournamentById(event.tournamentId);
+    if (t) {
+      broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+    }
+  }
+
+  res.json({ id: betId, bettorName: cleanBettor, playerId, amount: betAmount });
 });
 
 app.post('/api/events/:id/bets/:betId/paid', (req, res) => {
@@ -846,6 +884,12 @@ app.post('/api/events/:id/lock', (req, res) => {
 
   db.lockEvent(req.params.id);
   broadcastToEvent(event.share_code, { type: 'event_locked', eventCode: event.share_code });
+
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
+
   res.json({ ok: true, status: 'locked' });
 });
 
@@ -857,6 +901,12 @@ app.post('/api/events/:id/reopen', (req, res) => {
 
   db.reopenEvent(req.params.id);
   broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code });
+
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
+
   res.json({ ok: true, status: 'open' });
 });
 
@@ -865,7 +915,11 @@ app.post('/api/events/:id/finish', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
-  if (!db.playerExists(winnerId)) return res.status(400).json({ error: 'Ogiltig vinnare' });
+
+  const winnerPlayer = db.getPlayerById(winnerId);
+  if (!winnerPlayer || winnerPlayer.event_id !== event.id) {
+    return res.status(400).json({ error: 'Ogiltig vinnare för denna match' });
+  }
 
   db.finishEvent(req.params.id, winnerId);
 
@@ -884,13 +938,16 @@ app.post('/api/events/:id/finish', (req, res) => {
     profit: +(b.amount * odds - b.amount).toFixed(2)
   }));
 
-  const winnerPlayer = full.players.find(p => p.id === winnerId);
-
   broadcastToEvent(event.share_code, {
     type: 'event_finished',
     eventCode: event.share_code,
     winner: winnerPlayer?.name
   });
+
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
 
   res.json({
     ok: true,
@@ -925,11 +982,26 @@ app.post('/api/tournaments', (req, res) => {
   }
 
   const { name, players } = req.body;
-  if (!name) return res.status(400).json({ error: 'Namn krävs' });
+  const finalName = (name || '').trim();
+  if (!finalName || finalName.length < 2) {
+    return res.status(400).json({ error: 'Ett turneringsnamn krävs (minst 2 tecken)' });
+  }
+
+  const cleanPlayers = [...new Set((players || [])
+    .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
+    .filter(Boolean))];
+
+  if (cleanPlayers.length < 2) {
+    return res.status(400).json({ error: 'Minst 2 deltagare krävs för att skapa en turnering' });
+  }
+
+  const min = Math.max(1, Number(req.body.minBet) || 10);
+  const max = Math.max(min, Number(req.body.maxBet) || 10000);
+  const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
   const id = generateId();
   const shareCode = generateShareCode();
-  db.createTournament(id, name.trim(), shareCode, user ? user.id : null);
+  db.createTournament(id, finalName, shareCode, user ? user.id : null);
 
   // Create first round automatically
   const eventData = {
@@ -939,17 +1011,17 @@ app.post('/api/tournaments', (req, res) => {
     status: 'open',
     shareCode: generateShareCode(),
     payoutPercent: 100,
-    minBet: Number(req.body.minBet) || 10,
-    maxBet: Number(req.body.maxBet) || 10000,
+    minBet: min,
+    maxBet: max,
     creatorId: user ? user.id : null,
-    swishNumber: null,
+    swishNumber: swish,
     tournamentId: id,
     isSideBet: 0,
     linkedRoundId: null,
     betMode: 'open'
   };
 
-  const playerData = (players || []).map(p => ({ id: generateId(), name: p }));
+  const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
 
   res.json(db.getFullTournament(id));
@@ -972,30 +1044,44 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
-  // Get players from latest round to reuse
+  // Get players from latest round to reuse or from request body
   const full = db.getFullTournament(tournament.id);
   const roundNumber = full.rounds.length + 1;
   const lastRound = full.rounds[full.rounds.length - 1];
-  const playerNames = lastRound ? lastRound.players.map(p => p.name) : (req.body.players || []);
+  const requestedPlayers = req.body.players && req.body.players.length > 0
+    ? req.body.players
+    : (lastRound ? lastRound.players.map(p => p.name) : []);
+
+  const cleanPlayers = [...new Set(requestedPlayers
+    .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
+    .filter(Boolean))];
+
+  if (cleanPlayers.length < 2) {
+    return res.status(400).json({ error: 'Minst 2 deltagare krävs för en ny rond' });
+  }
+
+  const min = Math.max(1, Number(req.body.minBet) || lastRound?.minBet || 10);
+  const max = Math.max(min, Number(req.body.maxBet) || lastRound?.maxBet || 10000);
+  const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (lastRound?.swishNumber || user?.swish_number || null);
 
   const eventData = {
     id: generateId(),
-    name: req.body.name || 'Rond ' + roundNumber,
+    name: (req.body.name || '').trim() || ('Rond ' + roundNumber),
     date: new Date().toISOString().split('T')[0],
     status: 'open',
     shareCode: generateShareCode(),
     payoutPercent: 100,
-    minBet: Number(req.body.minBet) || lastRound?.minBet || 10,
-    maxBet: Number(req.body.maxBet) || lastRound?.maxBet || 10000,
+    minBet: min,
+    maxBet: max,
     creatorId: user ? user.id : null,
-    swishNumber: null,
+    swishNumber: swish,
     tournamentId: tournament.id,
     isSideBet: 0,
     linkedRoundId: null,
     betMode: 'open'
   };
 
-  const playerData = playerNames.map(name => ({ id: generateId(), name }));
+  const playerData = cleanPlayers.map(name => ({ id: generateId(), name }));
   db.createEvent(eventData, playerData);
 
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
@@ -1016,35 +1102,49 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   }
 
   const { name, players, linkedRoundId, betMode, betAmount } = req.body;
-  if (!name) return res.status(400).json({ error: 'Namn krävs' });
-  if (!players || players.length < 2) return res.status(400).json({ error: 'Minst 2 spelare' });
+  const finalName = (name || '').trim();
+  if (!finalName || finalName.length < 2) {
+    return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
+  }
+
+  const cleanPlayers = [...new Set((players || [])
+    .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
+    .filter(Boolean))];
+
+  if (cleanPlayers.length < 2) {
+    return res.status(400).json({ error: 'Minst 2 deltagare krävs för ett sido-spel' });
+  }
+
+  const amount = Math.max(1, Number(betAmount) || 100);
+  const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
   const eventId = generateId();
   const eventData = {
     id: eventId,
-    name: name.trim(),
+    name: finalName,
     date: new Date().toISOString().split('T')[0],
     status: betMode === 'self' ? 'locked' : 'open',
     shareCode: generateShareCode(),
     payoutPercent: 100,
-    minBet: Number(betAmount) || 100,
-    maxBet: Number(betAmount) || 10000,
+    minBet: amount,
+    maxBet: amount,
     creatorId: user ? user.id : null,
-    swishNumber: null,
+    swishNumber: swish,
     tournamentId: tournament.id,
     isSideBet: 1,
     linkedRoundId: linkedRoundId || null,
     betMode: betMode || 'open'
   };
 
-  const playerData = players.map(p => ({ id: generateId(), name: p }));
+  const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
 
   // For 'self' mode: auto-create bets — each player bets on themselves
-  if (betMode === 'self' && betAmount) {
+  if (betMode === 'self') {
     const createdPlayers = db.getFullEvent(eventId).players;
     for (const p of createdPlayers) {
-      db.addBet(generateId(), eventId, p.name, p.id, Number(betAmount), null);
+      const bettorUser = db.getUserByNickname(p.name);
+      db.addBet(generateId(), eventId, p.name, p.id, amount, bettorUser ? bettorUser.id : null);
     }
   }
 
@@ -1065,6 +1165,7 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
   }
 
   db.settleTournament(req.params.id);
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
   res.json({ ok: true });
 });
 
