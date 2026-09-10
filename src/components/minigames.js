@@ -106,13 +106,13 @@ export function renderMinigamesRoller() {
       name: t('arcade.dice'),
       tag: t('arcade.diceTag'),
       title: t('arcade.diceTitle'),
-      iconHtml: `🎲`
+      iconHtml: `<img src="/dice-gold.png" alt="${t('arcade.dice')}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -1242,7 +1242,8 @@ function openDiceModal(initialDuel = null) {
     `;
   }
 
-  const modal = showModal(t('arcade.diceTitle'), buildModalHtml(), () => {
+  const diceTitleHtml = `<img src="/dice-gold.png" alt="Dice" style="width: 22px; height: 22px; vertical-align: -3px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.diceTitle').replace('🎲', '').trim()}`;
+  const modal = showModal(diceTitleHtml, buildModalHtml(), () => {
     if (duelWs) {
       try { duelWs.close(); } catch (e) {}
     }
@@ -1815,7 +1816,8 @@ function showIncomingDuelModal(duel) {
   const isEn = getLang() === 'en';
   playTone(587.33, 'sine', 0.25, 0.15); // D5 chime
 
-  showModal(t('arcade.diceTitle'), `
+  const diceTitleHtml = `<img src="/dice-gold.png" alt="Dice" style="width: 22px; height: 22px; vertical-align: -3px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.diceTitle').replace('🎲', '').trim()}`;
+  showModal(diceTitleHtml, `
     <div class="text-center" style="padding: 10px 0;">
       <div style="font-size: 2.8rem; margin-bottom: 8px;">⚔️</div>
       <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.15rem;">
