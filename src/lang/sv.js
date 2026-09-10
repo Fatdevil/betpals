@@ -28,7 +28,7 @@ export const sv = {
   },
   home: {
     title: 'Malta Betting',
-    subtitle: '✦ THE SOCIAL BETTING CLUB ✦',
+    subtitle: '✦ BE PART OF GREATNESS ✦',
     tournaments: 'Turneringar',
     events: 'Matcher & Spel',
     noEvents: 'Inga aktiva spel just nu. Skapa en match!',
