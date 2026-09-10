@@ -298,6 +298,31 @@
   border-color: var(--gold);
 }
 
+.wheel-preset-pill.custom-preset {
+  border-color: rgba(255, 215, 0, 0.4);
+}
+
+.wheel-preset-del {
+  margin-left: 5px;
+  font-size: 0.68rem;
+  opacity: 0.6;
+  border-radius: 50%;
+  padding: 0 4px;
+  display: inline-block;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.wheel-preset-pill:hover .wheel-preset-del {
+  opacity: 0.9;
+}
+
+.wheel-preset-del:hover {
+  opacity: 1 !important;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+}
+
 .wheel-tags-wrap {
   display: flex;
   flex-wrap: wrap;

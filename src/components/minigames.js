@@ -452,46 +452,109 @@ function openWheelModal() {
 
   const PRESETS = {
     beer: {
-      name: isEn ? '🍻 Beer Round' : '🍻 Vem bjuder på ölen?',
+      name: isEn ? 'Beer Round' : 'Vem bjuder på ölen?',
+      prompt: isEn ? 'Who buys the next beer? 🍻' : 'Vem bjuder på nästa bärs? 🍻',
       items: isEn 
         ? ['Alex 🍻', 'Sam 🍺', 'Chris 🍻', 'You 🎯']
         : ['Johan 🍻', 'Sara 🍺', 'Erik 🍻', 'Du 🎯']
     },
     party: {
-      name: isEn ? '🎉 Party Challenges' : '🎉 Festutmaningar',
+      name: isEn ? 'Party Challenges' : 'Festutmaningar',
+      prompt: isEn ? 'Spin to draw a challenge! 🎉' : 'Snurra för att dra en utmaning! 🎉',
       items: isEn
         ? ['Drink 1🍺', 'Double 2x💰', 'Give 2🎯', 'Bust!💀', 'JACKPOT👑', 'Sing🎤', 'Master🌟', 'Spin again🔄']
         : ['Drick 1🍺', 'Dubbla 2x💰', 'Ge bort 2🎯', 'Nollad!💀', 'JACKPOT👑', 'Sjung🎤', 'Mästare🌟', 'Snurra igen🔄']
     },
     food: {
-      name: isEn ? '🍕 Food Choice' : '🍕 Vad äter vi?',
+      name: isEn ? 'Food Choice' : 'Vad äter vi?',
+      prompt: isEn ? "What's for food today? 🍕" : 'Vad blir det för käk idag? 🍕',
       items: isEn
         ? ['Pizza 🍕', 'Burger 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
         : ['Pizza 🍕', 'Burgare 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
     },
     choice: {
-      name: isEn ? '🪙 Yes / No' : '🪙 Ja eller Nej?',
+      name: isEn ? 'Yes or No' : 'Ja eller Nej?',
+      prompt: isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙',
       items: isEn
         ? ['YES! 🟢', 'NO! 🔴']
         : ['JA! 🟢', 'NEJ! 🔴']
     }
   };
 
-  let activePresetKey = 'beer';
-  let items = [...PRESETS.beer.items];
+  function getSavedWheels() {
+    try {
+      const raw = localStorage.getItem('betpals_saved_wheels');
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function setSavedWheels(arr) {
+    try {
+      localStorage.setItem('betpals_saved_wheels', JSON.stringify(arr));
+    } catch (e) {}
+  }
+
+  function getLastWheel() {
+    try {
+      const raw = localStorage.getItem('betpals_last_wheel');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveLastWheel(topic, itemsList, presetKey) {
+    try {
+      localStorage.setItem('betpals_last_wheel', JSON.stringify({
+        topic: topic || '',
+        items: itemsList || [],
+        presetKey: presetKey || 'custom'
+      }));
+    } catch (e) {}
+  }
+
+  const lastWheel = getLastWheel();
+  let activePresetKey = lastWheel?.presetKey || 'beer';
+  let currentTopic = lastWheel?.topic !== undefined ? lastWheel.topic : (isEn ? 'Beer Round' : 'Vem bjuder på ölen?');
+  let items = (lastWheel && Array.isArray(lastWheel.items) && lastWheel.items.length >= 2)
+    ? [...lastWheel.items]
+    : (PRESETS[activePresetKey] ? [...PRESETS[activePresetKey].items] : [...PRESETS.beer.items]);
+
   let currentRotation = 0;
   let isSpinning = false;
   let userFriends = null;
-  let showFriendsPicker = false;
+
+  function getPromptText() {
+    if (activePresetKey === 'beer') return t('arcade.wheelPromptBeer');
+    if (activePresetKey === 'party') return isEn ? 'Spin to draw a challenge! 🎉' : 'Snurra för att dra en utmaning! 🎉';
+    if (activePresetKey === 'food') return isEn ? "What's for food today? 🍕" : 'Vad blir det för käk idag? 🍕';
+    if (activePresetKey === 'choice') return isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙';
+    if (currentTopic) return `${t('arcade.wheelDecidePrompt')} ${currentTopic}! 🎯`;
+    return t('arcade.wheelPromptBeer');
+  }
 
   showModal(t('arcade.wheelTitle'), `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Preset pills -->
-      <div class="wheel-preset-pills" id="wheel-presets-container">
-        <button type="button" class="wheel-preset-pill active" data-preset="beer">${isEn ? '🍻 Beer Round' : '🍻 Ölrunda'}</button>
-        <button type="button" class="wheel-preset-pill" data-preset="party">${isEn ? '🎉 Party Games' : '🎉 Festspel'}</button>
-        <button type="button" class="wheel-preset-pill" data-preset="food">${isEn ? '🍕 Food Choice' : '🍕 Matval'}</button>
-        <button type="button" class="wheel-preset-pill" data-preset="choice">${isEn ? '🪙 Yes / No' : '🪙 Ja / Nej'}</button>
+      <div class="wheel-preset-pills" id="wheel-presets-container"></div>
+
+      <!-- Topic Input & Save Button -->
+      <div class="flex gap-xs" style="margin-bottom: 8px; align-items: center;">
+        <div style="position: relative; flex: 1;">
+          <input type="text" id="wheel-topic-input" class="form-input" 
+            placeholder="${t('arcade.wheelTopicPlaceholder')}" 
+            value="${escapeHtml(currentTopic)}"
+            maxlength="32" 
+            style="padding: 7px 10px 7px 30px; font-size: 0.84rem; width: 100%; border-radius: var(--radius-sm);" />
+          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.85rem; pointer-events: none; opacity: 0.75;">🎯</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="wheel-save-preset-btn" 
+          title="${t('arcade.wheelSaveBtn')}" 
+          style="padding: 7px 12px; font-size: 0.8rem; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+          💾 <span>${isEn ? 'Save' : 'Spara'}</span>
+        </button>
       </div>
 
       <!-- Wheel Canvas & Pointer -->
@@ -503,7 +566,7 @@ function openWheelModal() {
 
       <!-- Result Banner -->
       <div id="wheel-result-banner" class="mb-sm mt-xs" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
-        ${t('arcade.wheelPromptBeer')}
+        ${escapeHtml(getPromptText())}
       </div>
 
       <!-- Spin button -->
@@ -555,6 +618,8 @@ function openWheelModal() {
   const spinBtn = document.getElementById('btn-spin-wheel');
   const tagsWrap = document.getElementById('wheel-tags-wrap');
   const countSpan = document.getElementById('wheel-items-count');
+  const topicInput = document.getElementById('wheel-topic-input');
+  const savePresetBtn = document.getElementById('wheel-save-preset-btn');
   const itemInput = document.getElementById('wheel-new-item-input');
   const addBtn = document.getElementById('wheel-add-item-btn');
   const clearBtn = document.getElementById('wheel-clear-btn');
@@ -563,19 +628,150 @@ function openWheelModal() {
   const addAllFriendsBtn = document.getElementById('wheel-add-all-friends-btn');
   const presetsContainer = document.getElementById('wheel-presets-container');
 
-  // Load friends immediately and auto-populate the wheel
+  // Render preset pills (built-in + saved custom wheels)
+  function renderPresetPills() {
+    const savedWheels = getSavedWheels();
+    const builtIns = [
+      { key: 'beer', label: isEn ? '🍻 Beer Round' : '🍻 Ölrunda' },
+      { key: 'party', label: isEn ? '🎉 Party Games' : '🎉 Festspel' },
+      { key: 'food', label: isEn ? '🍕 Food Choice' : '🍕 Matval' },
+      { key: 'choice', label: isEn ? '🪙 Yes / No' : '🪙 Ja / Nej' }
+    ];
+
+    let html = builtIns.map(p => `
+      <button type="button" class="wheel-preset-pill ${activePresetKey === p.key ? 'active' : ''}" data-preset="${p.key}">
+        ${p.label}
+      </button>
+    `).join('');
+
+    if (savedWheels.length > 0) {
+      html += savedWheels.map(w => `
+        <button type="button" class="wheel-preset-pill custom-preset ${activePresetKey === w.id ? 'active' : ''}" data-preset="${w.id}" title="${escapeHtml(w.title)}">
+          ⭐ ${escapeHtml(w.title.length > 14 ? w.title.slice(0, 13) + '…' : w.title)}
+          <span class="wheel-preset-del" data-del-id="${w.id}" title="${isEn ? 'Delete' : 'Ta bort'}">✕</span>
+        </button>
+      `).join('');
+    }
+
+    presetsContainer.innerHTML = html;
+
+    // Attach click handlers to preset pills
+    presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(pill => {
+      pill.addEventListener('click', (e) => {
+        // If delete button was clicked on a custom pill
+        if (e.target.classList.contains('wheel-preset-del')) {
+          e.stopPropagation();
+          const delId = e.target.getAttribute('data-del-id');
+          const updated = getSavedWheels().filter(w => w.id !== delId);
+          setSavedWheels(updated);
+          showToast(t('arcade.wheelDeletedToast'), 'info');
+          if (activePresetKey === delId) {
+            activePresetKey = 'beer';
+            items = [...PRESETS.beer.items];
+            currentTopic = isEn ? 'Beer Round' : 'Vem bjuder på ölen?';
+            topicInput.value = currentTopic;
+            renderTags();
+            drawWheel();
+            banner.textContent = getPromptText();
+            banner.style.color = 'var(--gold)';
+            saveLastWheel(currentTopic, items, activePresetKey);
+          }
+          renderPresetPills();
+          return;
+        }
+
+        if (isSpinning) return;
+        const presetKey = pill.getAttribute('data-preset');
+        activePresetKey = presetKey;
+
+        if (PRESETS[presetKey]) {
+          items = [...PRESETS[presetKey].items];
+          currentTopic = PRESETS[presetKey].name;
+          topicInput.value = currentTopic;
+          // If beer preset and user has friends, populate with friends
+          if (presetKey === 'beer' && userFriends && userFriends.length > 0) {
+            const youLabel = isEn ? 'Du 🎯' : 'Du 🎯';
+            items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
+          }
+        } else {
+          // Custom saved wheel
+          const saved = getSavedWheels().find(w => w.id === presetKey);
+          if (saved) {
+            items = [...saved.items];
+            currentTopic = saved.title;
+            topicInput.value = currentTopic;
+          }
+        }
+
+        saveLastWheel(currentTopic, items, activePresetKey);
+        renderPresetPills();
+        renderTags();
+        drawWheel();
+        if (userFriends) renderFriendsList();
+        banner.textContent = getPromptText();
+        banner.style.color = 'var(--gold)';
+      });
+    });
+  }
+
+  // Load friends and auto-populate if on default beer preset
   getFriends().then(friends => {
     userFriends = friends || [];
-    if (userFriends.length > 0 && activePresetKey === 'beer') {
-      const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
+    if (userFriends.length > 0 && activePresetKey === 'beer' && (!lastWheel || !lastWheel.items || lastWheel.items.length === 0)) {
+      const youLabel = isEn ? 'Du 🎯' : 'Du 🎯';
       items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
       renderTags();
       drawWheel();
+      saveLastWheel(currentTopic, items, activePresetKey);
     }
     renderFriendsList();
   }).catch(() => {
     userFriends = [];
     renderFriendsList();
+  });
+
+  // Topic input typing handler
+  topicInput?.addEventListener('input', () => {
+    currentTopic = topicInput.value.trim();
+    saveLastWheel(currentTopic, items, activePresetKey);
+    banner.textContent = getPromptText();
+    banner.style.color = 'var(--gold)';
+  });
+
+  // Save Wheel preset button
+  savePresetBtn?.addEventListener('click', () => {
+    if (isSpinning) return;
+    const title = (topicInput.value || '').trim() || (isEn ? 'Custom Wheel' : 'Mitt hjul');
+    if (items.length < 2) {
+      showToast(t('arcade.wheelMinWarning'), 'warning');
+      return;
+    }
+
+    const currentSaved = getSavedWheels();
+    const existingIdx = currentSaved.findIndex(w => w.title.toLowerCase() === title.toLowerCase());
+    const wheelId = existingIdx >= 0 ? currentSaved[existingIdx].id : 'custom_' + Date.now();
+    const newWheel = {
+      id: wheelId,
+      title: title,
+      items: [...items],
+      updatedAt: Date.now()
+    };
+
+    if (existingIdx >= 0) {
+      currentSaved[existingIdx] = newWheel;
+    } else {
+      currentSaved.unshift(newWheel);
+      if (currentSaved.length > 10) currentSaved.pop(); // keep up to 10 custom wheels
+    }
+
+    setSavedWheels(currentSaved);
+    activePresetKey = wheelId;
+    currentTopic = title;
+    saveLastWheel(currentTopic, items, activePresetKey);
+    showToast(`${t('arcade.wheelSavedToast')} (${title})`, 'success');
+    renderPresetPills();
+    banner.textContent = getPromptText();
+    banner.style.color = 'var(--gold)';
   });
 
   // Draw wheel on canvas
@@ -654,6 +850,7 @@ function openWheelModal() {
         if (isSpinning) return;
         const idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
         items.splice(idx, 1);
+        saveLastWheel(currentTopic, items, activePresetKey);
         renderTags();
         drawWheel();
         if (userFriends) renderFriendsList();
@@ -670,6 +867,7 @@ function openWheelModal() {
       return;
     }
     items.push(name);
+    saveLastWheel(currentTopic, items, activePresetKey);
     renderTags();
     drawWheel();
     if (userFriends) renderFriendsList();
@@ -716,6 +914,7 @@ function openWheelModal() {
           }
           items.push(`${friendName} 🍻`);
         }
+        saveLastWheel(currentTopic, items, activePresetKey);
         renderTags();
         drawWheel();
         renderFriendsList();
@@ -737,6 +936,7 @@ function openWheelModal() {
       }
     });
     if (addedCount > 0) {
+      saveLastWheel(currentTopic, items, activePresetKey);
       renderTags();
       drawWheel();
       renderFriendsList();
@@ -746,6 +946,7 @@ function openWheelModal() {
   clearBtn?.addEventListener('click', () => {
     if (isSpinning) return;
     items = [];
+    saveLastWheel(currentTopic, items, activePresetKey);
     renderTags();
     drawWheel();
     if (userFriends) renderFriendsList();
@@ -761,41 +962,8 @@ function openWheelModal() {
     }
   });
 
-  // Preset pills switcher
-  presetsContainer?.querySelectorAll('.wheel-preset-pill').forEach(pill => {
-    pill.addEventListener('click', () => {
-      if (isSpinning) return;
-      presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(p => p.classList.remove('active'));
-      pill.classList.add('active');
-      const presetKey = pill.getAttribute('data-preset');
-      activePresetKey = presetKey;
-
-      if (PRESETS[presetKey]) {
-        items = [...PRESETS[presetKey].items];
-        // If beer preset and user has friends, populate with real friends if available
-        if (presetKey === 'beer' && userFriends && userFriends.length > 0) {
-          const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
-          items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
-        }
-        renderTags();
-        drawWheel();
-        if (userFriends) renderFriendsList();
-
-        if (presetKey === 'beer') {
-          banner.textContent = isEn ? 'Who buys the next beer? 🍻' : 'Vem bjuder på nästa bärs? 🍻';
-        } else if (presetKey === 'party') {
-          banner.textContent = isEn ? 'Press Spin Wheel!' : 'Tryck på Snurra Hjulet!';
-        } else if (presetKey === 'food') {
-          banner.textContent = isEn ? "What's for food today? 🍕" : 'Vad blir det för käk idag? 🍕';
-        } else if (presetKey === 'choice') {
-          banner.textContent = isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙';
-        }
-        banner.style.color = 'var(--gold)';
-      }
-    });
-  });
-
-  // Initial render
+  // Initial renders
+  renderPresetPills();
   renderTags();
   drawWheel();
 
@@ -838,12 +1006,29 @@ function openWheelModal() {
       spinBtn.disabled = false;
 
       const winner = items[winningIndex];
+      const cleanName = winner.replace(/[🍻🍺🍕🎯🪙]/g, '').trim();
+      const topicLower = (currentTopic || '').toLowerCase();
 
-      if (activePresetKey === 'beer' || winner.includes('🍻') || winner.includes('🍺')) {
-        const cleanName = winner.replace(/[🍻🍺]/g, '').trim();
+      if (activePresetKey === 'beer' || (!currentTopic && (winner.includes('🍻') || winner.includes('🍺')))) {
         banner.innerHTML = isEn
           ? `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> buys the next round! 🍻`
           : `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> bjuder på nästa runda! 🍻`;
+        playWinSound();
+        launchConfetti();
+      } else if (currentTopic && (activePresetKey.startsWith('custom_') || !PRESETS[activePresetKey])) {
+        // Custom wheel result!
+        let verb = isEn ? 'takes' : 'tar';
+        let emoji = '🎯';
+        if (topicLower.includes('bjuder') || topicLower.includes('middag') || topicLower.includes('middan') || topicLower.includes('lunch') || topicLower.includes('fika') || topicLower.includes('notan') || topicLower.includes('drink') || topicLower.includes('öl') || topicLower.includes('bärs')) {
+          verb = isEn ? 'buys' : 'bjuder på';
+          emoji = (topicLower.includes('öl') || topicLower.includes('bärs')) ? '🍻' : '🍽️';
+        } else if (topicLower.includes('diska') || topicLower.includes('disken') || topicLower.includes('städ') || topicLower.includes('tvätt')) {
+          verb = isEn ? 'handles' : 'fixar';
+          emoji = '🧹';
+        }
+        banner.innerHTML = isEn
+          ? `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> ${verb} ${escapeHtml(currentTopic)}! ${emoji}`
+          : `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> ${verb} ${escapeHtml(currentTopic)}! ${emoji}`;
         playWinSound();
         launchConfetti();
       } else if (winner.includes('JACKPOT') || winner.includes('Dubbla') || winner.includes('Double')) {
