@@ -191,3 +191,14 @@ export const togglePhotoLike = (id, photoId) =>
 
 // ── User Stats ───────────────────────────────────────
 export const getMyStats = () => request('/users/me/stats');
+
+// ── Minigame Duels & Swish settlements ────────────────
+export const createDuel = (data) => request('/duels', { method: 'POST', body: data });
+export const getPendingDuels = () => request('/duels/pending');
+export const getDuelSettlements = () => request('/duels/settlements');
+export const getDuelHistory = () => request('/duels/history');
+export const getDuel = (id) => request('/duels/' + id);
+export const respondDuel = (id, accept) => request('/duels/' + id + '/respond', { method: 'POST', body: { accept } });
+export const submitDuelRoll = (id, data) => request('/duels/' + id + '/roll', { method: 'POST', body: data });
+export const settleDuel = (id) => request('/duels/' + id + '/settle', { method: 'POST', body: {} });
+export const settleDuelsWithFriend = (friendId) => request('/duels/settle-with/' + friendId, { method: 'POST', body: {} });

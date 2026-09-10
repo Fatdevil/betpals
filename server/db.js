@@ -187,6 +187,31 @@ try {
   `);
 } catch {}
 
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS minigame_duels (
+      id TEXT PRIMARY KEY,
+      game_type TEXT NOT NULL,
+      creator_id TEXT NOT NULL,
+      opponent_id TEXT,
+      stake_amount REAL DEFAULT 1,
+      mode TEXT DEFAULT 'online',
+      status TEXT NOT NULL,
+      creator_score INTEGER,
+      opponent_score INTEGER,
+      winner_id TEXT,
+      is_settled INTEGER DEFAULT 0,
+      settled_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (opponent_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_duels_creator ON minigame_duels(creator_id);
+    CREATE INDEX IF NOT EXISTS idx_duels_opponent ON minigame_duels(opponent_id);
+    CREATE INDEX IF NOT EXISTS idx_duels_status ON minigame_duels(status);
+  `);
+} catch {}
+
 // ── Prepared Statements ──────────────
 const stmts = {
   // Settings
@@ -329,6 +354,71 @@ const stmts = {
     )
     ORDER BY nickname ASC
     LIMIT 15
+  `),
+
+  // Minigame Duels
+  insertDuel: db.prepare(`
+    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status)
+    VALUES (@id, @game_type, @creator_id, @opponent_id, @stake_amount, @mode, @status)
+  `),
+  getDuelById: db.prepare(`
+    SELECT d.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url, c.swish_number as creator_swish,
+           o.nickname as opponent_nickname, o.real_name as opponent_real_name, o.avatar_emoji as opponent_avatar_emoji, o.avatar_url as opponent_avatar_url, o.swish_number as opponent_swish
+    FROM minigame_duels d
+    LEFT JOIN users c ON d.creator_id = c.id
+    LEFT JOIN users o ON d.opponent_id = o.id
+    WHERE d.id = ?
+  `),
+  updateDuelStatus: db.prepare('UPDATE minigame_duels SET status = ? WHERE id = ?'),
+  updateDuelResult: db.prepare(`
+    UPDATE minigame_duels
+    SET creator_score = @creator_score,
+        opponent_score = @opponent_score,
+        winner_id = @winner_id,
+        status = @status
+    WHERE id = @id
+  `),
+  getPendingDuelsForUser: db.prepare(`
+    SELECT d.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url, c.swish_number as creator_swish
+    FROM minigame_duels d
+    JOIN users c ON d.creator_id = c.id
+    WHERE d.opponent_id = ? AND d.status = 'pending'
+    ORDER BY d.created_at DESC
+  `),
+  getUserDuels: db.prepare(`
+    SELECT d.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url, c.swish_number as creator_swish,
+           o.nickname as opponent_nickname, o.real_name as opponent_real_name, o.avatar_emoji as opponent_avatar_emoji, o.avatar_url as opponent_avatar_url, o.swish_number as opponent_swish
+    FROM minigame_duels d
+    LEFT JOIN users c ON d.creator_id = c.id
+    LEFT JOIN users o ON d.opponent_id = o.id
+    WHERE (d.creator_id = ? OR d.opponent_id = ?)
+    ORDER BY d.created_at DESC
+    LIMIT 40
+  `),
+  getUnsettledDuelsForUser: db.prepare(`
+    SELECT d.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.swish_number as creator_swish, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url,
+           o.nickname as opponent_nickname, o.real_name as opponent_real_name, o.swish_number as opponent_swish, o.avatar_emoji as opponent_avatar_emoji, o.avatar_url as opponent_avatar_url
+    FROM minigame_duels d
+    LEFT JOIN users c ON d.creator_id = c.id
+    LEFT JOIN users o ON d.opponent_id = o.id
+    WHERE (d.creator_id = ? OR d.opponent_id = ?)
+      AND d.status = 'completed'
+      AND d.stake_amount > 0
+      AND d.is_settled = 0
+      AND d.winner_id != 'tie'
+    ORDER BY d.created_at DESC
+  `),
+  settleDuel: db.prepare(`UPDATE minigame_duels SET is_settled = 1, settled_at = datetime('now') WHERE id = ?`),
+  settleDuelsBetweenUsers: db.prepare(`
+    UPDATE minigame_duels
+    SET is_settled = 1, settled_at = datetime('now')
+    WHERE ((creator_id = ? AND opponent_id = ?) OR (creator_id = ? AND opponent_id = ?))
+      AND status = 'completed'
+      AND is_settled = 0
   `),
 };
 
@@ -1113,5 +1203,120 @@ export function searchUsers(query, excludeUserId) {
     avatarEmoji: u.avatar_emoji,
     avatarUrl: u.avatar_url
   }));
+}
+
+// ── Minigame Duels API ─────────────────────────────────
+export function createDuel({ gameType, creatorId, opponentId, stakeAmount, mode }) {
+  const id = crypto.randomUUID();
+  const status = mode === 'table' ? 'active' : (opponentId ? 'pending' : 'active');
+  stmts.insertDuel.run({
+    id,
+    game_type: gameType || 'dice',
+    creator_id: creatorId,
+    opponent_id: opponentId || null,
+    stake_amount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1,
+    mode: mode || 'online',
+    status
+  });
+  return getDuelById(id);
+}
+
+export function getDuelById(id) {
+  return stmts.getDuelById.get(id);
+}
+
+export function respondDuel(id, opponentId, accept) {
+  const duel = stmts.getDuelById.get(id);
+  if (!duel) return null;
+  if (duel.opponent_id !== opponentId) return null;
+  if (duel.status !== 'pending') return duel;
+
+  const newStatus = accept ? 'active' : 'declined';
+  stmts.updateDuelStatus.run(newStatus, id);
+  return stmts.getDuelById.get(id);
+}
+
+export function submitDuelResult({ duelId, creatorScore, opponentScore, winnerId }) {
+  stmts.updateDuelResult.run({
+    id: duelId,
+    creator_score: creatorScore ?? null,
+    opponent_score: opponentScore ?? null,
+    winner_id: winnerId ?? null,
+    status: 'completed'
+  });
+  return stmts.getDuelById.get(duelId);
+}
+
+export function getPendingDuelsForUser(userId) {
+  if (!userId) return [];
+  return stmts.getPendingDuelsForUser.all(userId);
+}
+
+export function getUserDuels(userId) {
+  if (!userId) return [];
+  return stmts.getUserDuels.all(userId, userId);
+}
+
+export function getDuelSettlementSummary(userId) {
+  if (!userId) return { friends: [], totalNet: 0 };
+  const unsettles = stmts.getUnsettledDuelsForUser.all(userId, userId);
+
+  const friendsMap = new Map();
+
+  for (const d of unsettles) {
+    const isCreator = d.creator_id === userId;
+    const friendId = isCreator ? d.opponent_id : d.creator_id;
+    if (!friendId) continue;
+
+    const friendName = isCreator ? (d.opponent_real_name || d.opponent_nickname) : (d.creator_real_name || d.creator_nickname);
+    const friendNickname = isCreator ? d.opponent_nickname : d.creator_nickname;
+    const friendSwish = isCreator ? d.opponent_swish : d.creator_swish;
+    const friendAvatarEmoji = isCreator ? d.opponent_avatar_emoji : d.creator_avatar_emoji;
+    const friendAvatarUrl = isCreator ? d.opponent_avatar_url : d.creator_avatar_url;
+
+    if (!friendsMap.has(friendId)) {
+      friendsMap.set(friendId, {
+        friendId,
+        friendName,
+        friendNickname,
+        friendSwish,
+        friendAvatarEmoji,
+        friendAvatarUrl,
+        netAmount: 0,
+        duelsCount: 0,
+        duelIds: []
+      });
+    }
+
+    const item = friendsMap.get(friendId);
+    item.duelsCount++;
+    item.duelIds.push(d.id);
+
+    const youWon = d.winner_id === userId;
+    if (youWon) {
+      item.netAmount += Number(d.stake_amount) || 0;
+    } else {
+      item.netAmount -= Number(d.stake_amount) || 0;
+    }
+  }
+
+  let totalNet = 0;
+  const friends = Array.from(friendsMap.values()).map(f => {
+    f.netAmount = Math.round(f.netAmount * 100) / 100;
+    totalNet += f.netAmount;
+    return f;
+  });
+
+  return { friends, totalNet: Math.round(totalNet * 100) / 100 };
+}
+
+export function settleDuelById(duelId) {
+  stmts.settleDuel.run(duelId);
+  return true;
+}
+
+export function settleDuelsBetweenUsers(userId, friendId) {
+  stmts.settleDuelsBetweenUsers.run(userId, friendId, friendId, userId);
+  return true;
 }
 

@@ -22,26 +22,85 @@ app.use(express.static(distPath));
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Track clients per event
+// Track clients per event, user, and duel room
 const eventClients = new Map(); // eventId/code → Set<ws>
+const userClients = new Map();  // userId → Set<ws>
+const duelClients = new Map();  // duelId → Set<ws>
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const eventCode = url.searchParams.get('event');
+  const userToken = url.searchParams.get('token');
+  const duelId = url.searchParams.get('duel');
+
+  let boundUserId = null;
+  let boundDuelId = duelId || null;
+  let boundEventCode = eventCode || null;
+
+  if (userToken) {
+    const user = db.getUserByToken(userToken);
+    if (user) {
+      boundUserId = user.id;
+      if (!userClients.has(user.id)) userClients.set(user.id, new Set());
+      userClients.get(user.id).add(ws);
+    }
+  }
 
   if (eventCode) {
-    if (!eventClients.has(eventCode)) {
-      eventClients.set(eventCode, new Set());
-    }
+    if (!eventClients.has(eventCode)) eventClients.set(eventCode, new Set());
     eventClients.get(eventCode).add(ws);
-
-    ws.on('close', () => {
-      eventClients.get(eventCode)?.delete(ws);
-      if (eventClients.get(eventCode)?.size === 0) {
-        eventClients.delete(eventCode);
-      }
-    });
   }
+
+  if (duelId) {
+    if (!duelClients.has(duelId)) duelClients.set(duelId, new Set());
+    duelClients.get(duelId).add(ws);
+  }
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.type === 'auth' && msg.token) {
+        const user = db.getUserByToken(msg.token);
+        if (user) {
+          boundUserId = user.id;
+          if (!userClients.has(user.id)) userClients.set(user.id, new Set());
+          userClients.get(user.id).add(ws);
+        }
+      } else if (msg.type === 'join_duel' && msg.duelId) {
+        boundDuelId = msg.duelId;
+        if (!duelClients.has(msg.duelId)) duelClients.set(msg.duelId, new Set());
+        duelClients.get(msg.duelId).add(ws);
+      } else if (msg.type === 'leave_duel' && msg.duelId) {
+        duelClients.get(msg.duelId)?.delete(ws);
+        if (boundDuelId === msg.duelId) boundDuelId = null;
+      } else if (msg.type === 'duel_live_roll' && msg.duelId) {
+        // Forward roll animation live to opponent in same duel
+        broadcastToDuel(msg.duelId, {
+          type: 'duel_live_roll',
+          duelId: msg.duelId,
+          rollerId: boundUserId,
+          rollerRole: msg.rollerRole,
+          diceValues: msg.diceValues,
+          total: msg.total
+        }, ws); // exclude sender
+      }
+    } catch (e) {}
+  });
+
+  ws.on('close', () => {
+    if (boundEventCode) {
+      eventClients.get(boundEventCode)?.delete(ws);
+      if (eventClients.get(boundEventCode)?.size === 0) eventClients.delete(boundEventCode);
+    }
+    if (boundUserId) {
+      userClients.get(boundUserId)?.delete(ws);
+      if (userClients.get(boundUserId)?.size === 0) userClients.delete(boundUserId);
+    }
+    if (boundDuelId) {
+      duelClients.get(boundDuelId)?.delete(ws);
+      if (duelClients.get(boundDuelId)?.size === 0) duelClients.delete(boundDuelId);
+    }
+  });
 
   ws.on('error', () => {});
 });
@@ -51,9 +110,25 @@ function broadcastToEvent(shareCode, message) {
   if (!clients) return;
   const data = JSON.stringify(message);
   for (const ws of clients) {
-    if (ws.readyState === 1) {
-      ws.send(data);
-    }
+    if (ws.readyState === 1) ws.send(data);
+  }
+}
+
+function broadcastToUser(userId, message) {
+  const clients = userClients.get(userId);
+  if (!clients) return;
+  const data = JSON.stringify(message);
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(data);
+  }
+}
+
+function broadcastToDuel(duelId, message, excludeWs = null) {
+  const clients = duelClients.get(duelId);
+  if (!clients) return;
+  const data = JSON.stringify(message);
+  for (const ws of clients) {
+    if (ws !== excludeWs && ws.readyState === 1) ws.send(data);
   }
 }
 
@@ -1390,6 +1465,126 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
   res.json({ ok: true, isPaid: result.isPaid });
+});
+
+// ── Minigame Duels API ──────────────────────────────
+app.post('/api/duels', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { gameType, opponentId, stakeAmount, mode } = req.body;
+  const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1;
+  const duelMode = mode === 'table' ? 'table' : 'online';
+
+  const duel = db.createDuel({
+    gameType: gameType || 'dice',
+    creatorId: user.id,
+    opponentId: opponentId || null,
+    stakeAmount: stake,
+    mode: duelMode
+  });
+
+  if (opponentId && duelMode === 'online') {
+    broadcastToUser(opponentId, {
+      type: 'duel_challenge',
+      duel
+    });
+  }
+
+  res.json({ duel });
+});
+
+app.get('/api/duels/pending', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const duels = db.getPendingDuelsForUser(user.id);
+  res.json(duels);
+});
+
+app.get('/api/duels/settlements', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const summary = db.getDuelSettlementSummary(user.id);
+  res.json(summary);
+});
+
+app.get('/api/duels/history', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const duels = db.getUserDuels(user.id);
+  res.json(duels);
+});
+
+app.get('/api/duels/:id', (req, res) => {
+  const duel = db.getDuelById(req.params.id);
+  if (!duel) return res.status(404).json({ error: 'Duell hittades inte' });
+  res.json(duel);
+});
+
+app.post('/api/duels/:id/respond', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { accept } = req.body;
+  const duel = db.respondDuel(req.params.id, user.id, Boolean(accept));
+  if (!duel) return res.status(400).json({ error: 'Kunde inte besvara duellen' });
+
+  const payload = {
+    type: accept ? 'duel_accepted' : 'duel_declined',
+    duel
+  };
+  broadcastToDuel(duel.id, payload);
+  if (duel.creator_id) {
+    broadcastToUser(duel.creator_id, payload);
+  }
+
+  res.json({ duel });
+});
+
+app.post('/api/duels/:id/roll', (req, res) => {
+  const { creatorScore, opponentScore, winnerId } = req.body;
+  const duel = db.getDuelById(req.params.id);
+  if (!duel) return res.status(404).json({ error: 'Duell hittades inte' });
+
+  const updated = db.submitDuelResult({
+    duelId: req.params.id,
+    creatorScore,
+    opponentScore,
+    winnerId
+  });
+
+  broadcastToDuel(req.params.id, {
+    type: 'duel_finished',
+    duel: updated
+  });
+
+  res.json({ duel: updated });
+});
+
+app.post('/api/duels/:id/settle', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  db.settleDuelById(req.params.id);
+  broadcastToDuel(req.params.id, {
+    type: 'duel_settled',
+    duelId: req.params.id
+  });
+
+  res.json({ ok: true });
+});
+
+app.post('/api/duels/settle-with/:friendId', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  db.settleDuelsBetweenUsers(user.id, req.params.friendId);
+  broadcastToUser(req.params.friendId, {
+    type: 'duels_settled',
+    friendId: user.id
+  });
+
+  res.json({ ok: true });
 });
 
 

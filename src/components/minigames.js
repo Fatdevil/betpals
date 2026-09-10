@@ -1,7 +1,17 @@
 // ── Components: Minigames Arcade ────────────────────────
-import { showModal } from './modal.js';
-import { launchConfetti, escapeHtml, showToast } from '../utils.js';
-import { getFriends } from '../api.js';
+import { showModal, closeModal } from './modal.js';
+import { launchConfetti, escapeHtml, showToast, createSwishUrl } from '../utils.js';
+import { 
+  getFriends, 
+  createDuel, 
+  getDuel, 
+  respondDuel, 
+  submitDuelRoll, 
+  getDuelSettlements, 
+  settleDuel, 
+  settleDuelsWithFriend 
+} from '../api.js';
+import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
 
 // ── Web Audio Synth SFX (Zero-dependency & instant) ───────
@@ -120,9 +130,14 @@ export function renderMinigamesRoller() {
           <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 4px;"></span>
           <span>🎰</span> <span>${t('arcade.title')}</span>
         </div>
-        <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
-          ${t('arcade.tagline')}
-        </span>
+        <div class="flex gap-xs" style="align-items: center;">
+          <button type="button" class="btn btn-secondary btn-xs" id="btn-open-swishlist" style="font-size: 0.72rem; padding: 2px 8px; border-color: rgba(16, 185, 129, 0.4); color: #34d399; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+            📱 <span>${t('arcade.swishListBtn')}</span>
+          </button>
+          <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
+            ${t('arcade.tagline')}
+          </span>
+        </div>
       </div>
       <div class="minigames-ticker-container" id="minigames-ticker">
         <div class="minigames-ticker-track">
@@ -141,29 +156,35 @@ export function renderMinigamesRoller() {
 // ── 2. Event Listeners for Roller ───────────────────────
 export function attachMinigamesListeners() {
   const ticker = document.getElementById('minigames-ticker');
-  if (!ticker) return;
+  if (ticker) {
+    // Touch handlers to pause smoothly when touched on mobile
+    ticker.addEventListener('touchstart', () => {
+      ticker.classList.add('paused');
+    }, { passive: true });
 
-  // Touch handlers to pause smoothly when touched on mobile
-  ticker.addEventListener('touchstart', () => {
-    ticker.classList.add('paused');
-  }, { passive: true });
+    ticker.addEventListener('touchend', () => {
+      setTimeout(() => {
+        ticker.classList.remove('paused');
+      }, 1200);
+    }, { passive: true });
 
-  ticker.addEventListener('touchend', () => {
-    setTimeout(() => {
-      ticker.classList.remove('paused');
-    }, 1200);
-  }, { passive: true });
+    // Delegated click handler on the ticker cards
+    ticker.addEventListener('click', (e) => {
+      const card = e.target.closest('.minigame-card');
+      if (!card) return;
+      const game = card.getAttribute('data-game');
+      if (game === 'coin-flip') openCoinFlipModal();
+      else if (game === 'slots') openSlotsModal();
+      else if (game === 'wheel') openWheelModal();
+      else if (game === 'dice') openDiceModal();
+    });
+  }
 
-  // Delegated click handler on the ticker cards
-  ticker.addEventListener('click', (e) => {
-    const card = e.target.closest('.minigame-card');
-    if (!card) return;
-    const game = card.getAttribute('data-game');
-    if (game === 'coin-flip') openCoinFlipModal();
-    else if (game === 'slots') openSlotsModal();
-    else if (game === 'wheel') openWheelModal();
-    else if (game === 'dice') openDiceModal();
-  });
+  // Open Swishlistan modal
+  document.getElementById('btn-open-swishlist')?.addEventListener('click', openSwishlistModal);
+
+  // Initialize global real-time duel incoming challenge listener
+  setupGlobalDuelListener();
 }
 
 // ────────────────────────────────────────────────────────
@@ -1088,139 +1109,755 @@ function openWheelModal() {
 }
 
 // ────────────────────────────────────────────────────────
-// 🎲 GAME 4: TÄRNINGSDUELL (Dice Duel)
+// 🎲 GAME 4: TÄRNINGSDUELL (Dice Duel & Swish Dueller)
 // ────────────────────────────────────────────────────────
-function openDiceModal() {
+function renderDicePips(el, val) {
+  if (!el) return;
+  el.innerHTML = '';
+  const pipPositions = {
+    1: [4],
+    2: [0, 8],
+    3: [0, 4, 8],
+    4: [0, 2, 6, 8],
+    5: [0, 2, 4, 6, 8],
+    6: [0, 2, 3, 5, 6, 8]
+  };
+  const active = pipPositions[val] || [4];
+  for (let i = 0; i < 9; i++) {
+    const pip = document.createElement('div');
+    if (active.includes(i)) pip.className = 'dice-pip';
+    el.appendChild(pip);
+  }
+}
+
+function openDiceModal(initialDuel = null) {
   const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+
+  let activeMode = initialDuel ? 'swish' : 'dealer'; // 'dealer' | 'swish'
+  let swishSubMode = initialDuel?.mode || 'table';   // 'table' | 'online'
+  let currentStake = initialDuel?.stake_amount || 1;
+  let selectedFriend = null;
+  let userFriends = [];
+
   let isRolling = false;
   let wins = 0;
   let losses = 0;
 
-  showModal(t('arcade.diceTitle'), `
-    <div class="text-center" style="padding: var(--space-xs) 0;">
-      <p class="text-muted mb-xs" style="font-size: 0.85rem;">
-        ${t('arcade.diceDesc')}
-      </p>
+  // Table mode state
+  let tableTurn = 1; // 1 = player 1, 2 = player 2
+  let p1Val = null;
+  let p2Val = null;
 
-      <div style="display: flex; justify-content: space-around; align-items: center; margin: 15px 0;">
-        <!-- Player -->
-        <div>
-          <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">${t('arcade.diceYou')}</div>
-          <div class="dice-item" id="player-dice">
-            <!-- pips -->
+  // Online duel state
+  let activeDuel = initialDuel || null;
+  let duelWs = null;
+
+  function buildModalHtml() {
+    return `
+      <div class="text-center" style="padding: var(--space-xs) 0;">
+        <!-- Mode Switcher -->
+        <div class="duel-mode-bar">
+          <button type="button" class="duel-mode-btn ${activeMode === 'dealer' ? 'active' : ''}" id="btn-mode-dealer">
+            ${t('arcade.diceModeDealer')}
+          </button>
+          <button type="button" class="duel-mode-btn ${activeMode === 'swish' ? 'active' : ''}" id="btn-mode-swish">
+            ${t('arcade.diceModeSwish')}
+          </button>
+        </div>
+
+        <!-- Swish Config Section -->
+        <div id="swish-config-box" style="display: ${activeMode === 'swish' ? 'block' : 'none'}; background: rgba(0,0,0,0.35); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 10px; margin-bottom: 12px; text-align: left;">
+          <!-- Sub-mode toggle (Table / Online) -->
+          <div class="flex gap-xs mb-xs" style="align-items: center;">
+            <button type="button" class="btn btn-xs ${swishSubMode === 'table' ? 'btn-primary' : 'btn-secondary'}" id="btn-submode-table" style="font-size: 0.75rem; flex: 1;">
+              ${t('arcade.diceModeTable')}
+            </button>
+            <button type="button" class="btn btn-xs ${swishSubMode === 'online' ? 'btn-primary' : 'btn-secondary'}" id="btn-submode-online" style="font-size: 0.75rem; flex: 1;">
+              ${t('arcade.diceModeOnline')}
+            </button>
           </div>
-          <div class="font-heading font-bold mt-xs" id="player-dice-score" style="font-size: 1.1rem;">6</div>
-        </div>
 
-        <div style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 900; color: var(--text-muted);">
-          VS
-        </div>
-
-        <!-- Dealer -->
-        <div>
-          <div style="font-weight: 700; font-size: 0.85rem; color: #f87171; margin-bottom: 6px;">${t('arcade.diceDealer')}</div>
-          <div class="dice-item red" id="dealer-dice">
-            <!-- pips -->
+          <!-- Stake selector -->
+          <div class="mb-xs">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #34d399; margin-bottom: 4px;">${t('arcade.diceStakeLabel')}</div>
+            <div class="duel-stake-bar" style="justify-content: flex-start; margin-bottom: 6px;">
+              <button type="button" class="duel-stake-pill ${currentStake === 1 ? 'active' : ''}" data-stake="1">1 kr</button>
+              <button type="button" class="duel-stake-pill ${currentStake === 5 ? 'active' : ''}" data-stake="5">5 kr</button>
+              <button type="button" class="duel-stake-pill ${currentStake === 10 ? 'active' : ''}" data-stake="10">10 kr</button>
+              <button type="button" class="duel-stake-pill ${currentStake === 20 ? 'active' : ''}" data-stake="20">20 kr</button>
+            </div>
           </div>
-          <div class="font-heading font-bold mt-xs" id="dealer-dice-score" style="font-size: 1.1rem;">6</div>
+
+          <!-- Opponent Selector -->
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 4px;">${t('arcade.dicePickFriend')}</div>
+            <div id="dice-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 85px; overflow-y: auto;">
+              <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Loading friends...' : 'Laddar vänner...'}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dice Arena -->
+        <div style="display: flex; justify-content: space-around; align-items: center; margin: 12px 0;">
+          <!-- Player 1 -->
+          <div>
+            <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;" id="p1-label">
+              ${activeMode === 'swish' && currentUser ? escapeHtml(currentUser.nickname || 'Du') : t('arcade.diceYou')}
+            </div>
+            <div class="dice-item" id="player-dice"></div>
+            <div class="font-heading font-bold mt-xs" id="player-dice-score" style="font-size: 1.1rem;">6</div>
+          </div>
+
+          <div style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 900; color: var(--text-muted);">
+            VS
+          </div>
+
+          <!-- Player 2 / Dealer -->
+          <div>
+            <div style="font-weight: 700; font-size: 0.85rem; color: #f87171; margin-bottom: 6px;" id="p2-label">
+              ${activeMode === 'swish' ? (selectedFriend ? escapeHtml(selectedFriend.nickname) : (isEn ? 'Opponent' : 'Motståndare')) : t('arcade.diceDealer')}
+            </div>
+            <div class="dice-item red" id="dealer-dice"></div>
+            <div class="font-heading font-bold mt-xs" id="dealer-dice-score" style="font-size: 1.1rem;">6</div>
+          </div>
+        </div>
+
+        <!-- Result / Prompt Banner -->
+        <div id="dice-banner" class="mb-sm" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
+          ${t('arcade.dicePrompt')}
+        </div>
+
+        <!-- Swish Payout Action Box (appears after match) -->
+        <div id="dice-swish-action-box" style="display: none; margin-bottom: 12px;"></div>
+
+        <!-- Main Action Button -->
+        <button type="button" class="btn btn-primary btn-block mb-sm" id="btn-roll-dice" style="font-size: 1.05rem; padding: 12px;">
+          ${t('arcade.diceBtn')}
+        </button>
+
+        <!-- Footer / Scoreboard -->
+        <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
+          <span class="text-muted" id="dice-footer-mode">${activeMode === 'swish' ? `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr` : t('arcade.diceScoreboard')}</span>
+          <span class="font-bold" id="dice-scoreboard">🏆 0 ${isEn ? 'wins' : 'vinster'} · 💀 0 ${isEn ? 'losses' : 'förluster'}</span>
         </div>
       </div>
+    `;
+  }
 
-      <div id="dice-banner" class="mb-md" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 26px; color: var(--gold);">
-        ${t('arcade.dicePrompt')}
-      </div>
-
-      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-roll-dice" style="font-size: 1.1rem; padding: 13px;">
-        ${t('arcade.diceBtn')}
-      </button>
-
-      <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
-        <span class="text-muted">${t('arcade.diceScoreboard')}</span>
-        <span class="font-bold" id="dice-scoreboard">🏆 0 ${isEn ? 'wins' : 'vinster'} · 💀 0 ${isEn ? 'losses' : 'förluster'}</span>
-      </div>
-    </div>
-  `);
+  const modal = showModal(t('arcade.diceTitle'), buildModalHtml(), () => {
+    if (duelWs) {
+      try { duelWs.close(); } catch (e) {}
+    }
+  });
 
   const pDice = document.getElementById('player-dice');
   const dDice = document.getElementById('dealer-dice');
   const pScore = document.getElementById('player-dice-score');
   const dScore = document.getElementById('dealer-dice-score');
+  const p1Label = document.getElementById('p1-label');
+  const p2Label = document.getElementById('p2-label');
   const banner = document.getElementById('dice-banner');
-  const scoreboard = document.getElementById('dice-scoreboard');
   const rollBtn = document.getElementById('btn-roll-dice');
+  const scoreboard = document.getElementById('dice-scoreboard');
+  const footerMode = document.getElementById('dice-footer-mode');
+  const swishBox = document.getElementById('swish-config-box');
+  const swishActionBox = document.getElementById('dice-swish-action-box');
+  const friendsList = document.getElementById('dice-friends-list');
 
-  function renderDicePips(el, val) {
-    el.innerHTML = '';
-    // 3x3 grid positions (0 to 8)
-    const pipPositions = {
-      1: [4],
-      2: [0, 8],
-      3: [0, 4, 8],
-      4: [0, 2, 6, 8],
-      5: [0, 2, 4, 6, 8],
-      6: [0, 2, 3, 5, 6, 8]
-    };
-    const active = pipPositions[val] || [4];
-    for (let i = 0; i < 9; i++) {
-      const pip = document.createElement('div');
-      if (active.includes(i)) pip.className = 'dice-pip';
-      el.appendChild(pip);
-    }
-  }
-
-  // Initial draw
+  // Initial dice render
   renderDicePips(pDice, 6);
   renderDicePips(dDice, 6);
 
-  rollBtn?.addEventListener('click', () => {
-    if (isRolling) return;
-    isRolling = true;
-    rollBtn.disabled = true;
-    banner.textContent = t('arcade.diceRolling');
-    banner.style.color = 'var(--text-secondary)';
+  // Load friends for Swish mode
+  getFriends().then(friends => {
+    userFriends = friends || [];
+    if (userFriends.length > 0 && !selectedFriend) {
+      selectedFriend = userFriends[0];
+      if (p2Label && activeMode === 'swish') p2Label.textContent = selectedFriend.nickname;
+    }
+    renderFriendsPicker();
+  }).catch(() => {
+    userFriends = [];
+    renderFriendsPicker();
+  });
 
-    playDiceSound();
+  function renderFriendsPicker() {
+    if (!friendsList) return;
+    if (userFriends.length === 0) {
+      friendsList.innerHTML = `<span class="text-muted" style="font-size: 0.75rem;">${t('arcade.diceNoFriends')}</span>`;
+      return;
+    }
 
-    pDice.classList.add('rolling');
-    dDice.classList.add('rolling');
+    friendsList.innerHTML = userFriends.map(f => {
+      const isSelected = selectedFriend && selectedFriend.id === f.id;
+      return `
+        <button type="button" class="dice-friend-btn" data-id="${f.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isSelected ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isSelected ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.05)'}; color: ${isSelected ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer;">
+          ${f.avatarUrl ? `<img src="${f.avatarUrl}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (f.avatarEmoji || '👤')}
+          <span>${escapeHtml(f.nickname)}</span>
+        </button>
+      `;
+    }).join('');
 
-    const pVal = 1 + Math.floor(Math.random() * 6);
-    const dVal = 1 + Math.floor(Math.random() * 6);
+    friendsList.querySelectorAll('.dice-friend-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        selectedFriend = userFriends.find(f => f.id === id);
+        p2Label.textContent = selectedFriend ? selectedFriend.nickname : 'Motståndare';
+        renderFriendsPicker();
+        updateButtonState();
+      });
+    });
+  }
 
-    setTimeout(() => {
-      pDice.classList.remove('rolling');
-      dDice.classList.remove('rolling');
+  // Mode togglers
+  document.getElementById('btn-mode-dealer')?.addEventListener('click', () => {
+    activeMode = 'dealer';
+    document.getElementById('btn-mode-dealer').classList.add('active');
+    document.getElementById('btn-mode-swish').classList.remove('active');
+    swishBox.style.display = 'none';
+    swishActionBox.style.display = 'none';
+    p1Label.textContent = t('arcade.diceYou');
+    p2Label.textContent = t('arcade.diceDealer');
+    footerMode.textContent = t('arcade.diceScoreboard');
+    banner.textContent = t('arcade.dicePrompt');
+    banner.style.color = 'var(--gold)';
+    rollBtn.textContent = t('arcade.diceBtn');
+    rollBtn.disabled = false;
+  });
 
-      renderDicePips(pDice, pVal);
-      renderDicePips(dDice, dVal);
+  document.getElementById('btn-mode-swish')?.addEventListener('click', () => {
+    if (!currentUser) {
+      showToast(isEn ? 'Log in on your profile to play Swish duels!' : 'Logga in på din profil för att spela Swish-dueller!', 'warning');
+      return;
+    }
+    activeMode = 'swish';
+    document.getElementById('btn-mode-swish').classList.add('active');
+    document.getElementById('btn-mode-dealer').classList.remove('active');
+    swishBox.style.display = 'block';
+    p1Label.textContent = currentUser.nickname || 'Du';
+    p2Label.textContent = selectedFriend ? selectedFriend.nickname : (isEn ? 'Friend' : 'Kompis');
+    footerMode.textContent = `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr`;
+    updateButtonState();
+  });
 
-      pScore.textContent = pVal;
-      dScore.textContent = dVal;
+  document.getElementById('btn-submode-table')?.addEventListener('click', () => {
+    swishSubMode = 'table';
+    document.getElementById('btn-submode-table').className = 'btn btn-xs btn-primary';
+    document.getElementById('btn-submode-online').className = 'btn btn-xs btn-secondary';
+    updateButtonState();
+  });
 
-      if (pVal > dVal) {
-        wins++;
-        banner.textContent = isEn 
-          ? `🎉 You won! ${pVal} to ${dVal}!` 
-          : `🎉 Du vann! ${pVal} mot ${dVal}!`;
-        banner.style.color = '#4ade80';
-        playWinSound();
-        launchConfetti();
-      } else if (pVal < dVal) {
-        losses++;
-        banner.textContent = isEn
-          ? `💀 Dealer won with ${dVal} to ${pVal}!`
-          : `💀 Dealern vann med ${dVal} mot ${pVal}!`;
-        banner.style.color = '#f87171';
+  document.getElementById('btn-submode-online')?.addEventListener('click', () => {
+    swishSubMode = 'online';
+    document.getElementById('btn-submode-online').className = 'btn btn-xs btn-primary';
+    document.getElementById('btn-submode-table').className = 'btn btn-xs btn-secondary';
+    updateButtonState();
+  });
+
+  // Stake pills
+  swishBox.querySelectorAll('.duel-stake-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      swishBox.querySelectorAll('.duel-stake-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentStake = parseInt(pill.getAttribute('data-stake'), 10) || 1;
+      footerMode.textContent = `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr`;
+      updateButtonState();
+    });
+  });
+
+  function updateButtonState() {
+    swishActionBox.style.display = 'none';
+    if (activeMode === 'dealer') {
+      rollBtn.textContent = t('arcade.diceBtn');
+      return;
+    }
+    if (!selectedFriend) {
+      rollBtn.textContent = isEn ? 'Pick a friend first 👆' : 'Välj en kompis ovanför 👆';
+      rollBtn.disabled = true;
+      return;
+    }
+    rollBtn.disabled = false;
+    if (swishSubMode === 'table') {
+      if (tableTurn === 1) {
+        rollBtn.textContent = `🎲 ${currentUser?.nickname || 'Du'}: ${isEn ? 'Roll your dice!' : 'Kasta dina tärningar!'}`;
+        banner.textContent = isEn ? `${currentUser?.nickname || 'You'}, roll your dice!` : `${currentUser?.nickname || 'Du'}, kasta dina tärningar!`;
       } else {
-        banner.textContent = isEn
-          ? `🤝 Draw (${pVal} = ${dVal})! Roll again!`
-          : `🤝 Oavgjort (${pVal} = ${dVal})! Kasta igen!`;
-        banner.style.color = 'var(--gold)';
+        rollBtn.textContent = `🎲 ${selectedFriend.nickname}: ${isEn ? 'Roll dice!' : 'Kasta tärningarna!'}`;
+        banner.textContent = isEn ? `${selectedFriend.nickname}'s turn to roll!` : `${selectedFriend.nickname}s tur att kasta!`;
       }
+    } else {
+      rollBtn.textContent = `⚔️ ${t('arcade.diceChallengeBtn')} ${selectedFriend.nickname} (${currentStake} kr)`;
+      banner.textContent = isEn 
+        ? `Challenge ${selectedFriend.nickname} for ${currentStake} kr via Swish!` 
+        : `Utmana ${selectedFriend.nickname} om ${currentStake} kr via Swish!`;
+    }
+  }
 
-      scoreboard.textContent = `🏆 ${wins} ${isEn ? 'wins' : 'vinster'} · 💀 ${losses} ${isEn ? 'losses' : 'förluster'}`;
-      isRolling = false;
-      rollBtn.disabled = false;
-    }, 600);
+  // Roll Handler
+  rollBtn.addEventListener('click', async () => {
+    if (isRolling) return;
+
+    // 1. DEALER MODE
+    if (activeMode === 'dealer') {
+      isRolling = true;
+      rollBtn.disabled = true;
+      banner.textContent = t('arcade.diceRolling');
+      banner.style.color = 'var(--text-secondary)';
+      playDiceSound();
+      pDice.classList.add('rolling');
+      dDice.classList.add('rolling');
+
+      const pVal = 1 + Math.floor(Math.random() * 6);
+      const dVal = 1 + Math.floor(Math.random() * 6);
+
+      setTimeout(() => {
+        pDice.classList.remove('rolling');
+        dDice.classList.remove('rolling');
+        renderDicePips(pDice, pVal);
+        renderDicePips(dDice, dVal);
+        pScore.textContent = pVal;
+        dScore.textContent = dVal;
+
+        if (pVal > dVal) {
+          wins++;
+          banner.textContent = isEn ? `🎉 You won! ${pVal} to ${dVal}!` : `🎉 Du vann! ${pVal} mot ${dVal}!`;
+          banner.style.color = '#4ade80';
+          playWinSound();
+          launchConfetti();
+        } else if (pVal < dVal) {
+          losses++;
+          banner.textContent = isEn ? `💀 Dealer won with ${dVal} to ${pVal}!` : `💀 Dealern vann med ${dVal} mot ${pVal}!`;
+          banner.style.color = '#f87171';
+        } else {
+          banner.textContent = isEn ? `🤝 Draw (${pVal} = ${dVal})! Roll again!` : `🤝 Oavgjort (${pVal} = ${dVal})! Kasta igen!`;
+          banner.style.color = 'var(--gold)';
+        }
+
+        scoreboard.textContent = `🏆 ${wins} ${isEn ? 'wins' : 'vinster'} · 💀 ${losses} ${isEn ? 'losses' : 'förluster'}`;
+        isRolling = false;
+        rollBtn.disabled = false;
+      }, 600);
+      return;
+    }
+
+    // 2. SWISH MODE - TABLE (Samma telefon)
+    if (swishSubMode === 'table') {
+      if (!selectedFriend) return;
+      isRolling = true;
+      rollBtn.disabled = true;
+      playDiceSound();
+
+      if (tableTurn === 1) {
+        // Player 1 roll
+        pDice.classList.add('rolling');
+        banner.textContent = isEn ? `${currentUser?.nickname || 'You'} rolling...` : `${currentUser?.nickname || 'Du'} kastar...`;
+        const val1 = 1 + Math.floor(Math.random() * 6);
+        setTimeout(() => {
+          pDice.classList.remove('rolling');
+          renderDicePips(pDice, val1);
+          pScore.textContent = val1;
+          p1Val = val1;
+          tableTurn = 2;
+          isRolling = false;
+          updateButtonState();
+        }, 550);
+      } else {
+        // Player 2 roll & Finish match!
+        dDice.classList.add('rolling');
+        banner.textContent = isEn ? `${selectedFriend.nickname} rolling...` : `${selectedFriend.nickname} kastar...`;
+        const val2 = 1 + Math.floor(Math.random() * 6);
+
+        setTimeout(async () => {
+          dDice.classList.remove('rolling');
+          renderDicePips(dDice, val2);
+          dScore.textContent = val2;
+          p2Val = val2;
+
+          let winnerId = 'tie';
+          if (p1Val > p2Val) winnerId = currentUser.id;
+          else if (p2Val > p1Val) winnerId = selectedFriend.id;
+
+          // Record in DB
+          try {
+            const duelRes = await createDuel({
+              gameType: 'dice',
+              opponentId: selectedFriend.id,
+              stakeAmount: currentStake,
+              mode: 'table'
+            });
+            if (duelRes?.duel?.id) {
+              await submitDuelRoll(duelRes.duel.id, {
+                creatorScore: p1Val,
+                opponentScore: p2Val,
+                winnerId
+              });
+            }
+          } catch (e) {
+            console.error('Failed to log table duel:', e);
+          }
+
+          if (winnerId === currentUser.id) {
+            banner.innerHTML = isEn
+              ? `🎉 <span style="color: #4ade80;">${escapeHtml(currentUser.nickname)}</span> won! ${p1Val} to ${p2Val}!`
+              : `🎉 <span style="color: #4ade80;">${escapeHtml(currentUser.nickname)}</span> vann! ${p1Val} mot ${p2Val}!`;
+            playWinSound();
+            launchConfetti();
+
+            swishActionBox.style.display = 'block';
+            swishActionBox.innerHTML = `
+              <div style="background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                <div style="font-weight: 700; color: #4ade80; font-size: 0.9rem; margin-bottom: 4px;">
+                  ${selectedFriend.nickname} ${t('arcade.diceOwes')} dig ${currentStake} kr! 💰
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                  ${isEn ? 'Added to your Swish List!' : 'Tillagd i er gemensamma Swishlista!'}
+                </div>
+              </div>
+            `;
+          } else if (winnerId === selectedFriend.id) {
+            banner.innerHTML = isEn
+              ? `💀 <span style="color: #f87171;">${escapeHtml(selectedFriend.nickname)}</span> won! ${p2Val} to ${p1Val}!`
+              : `💀 <span style="color: #f87171;">${escapeHtml(selectedFriend.nickname)}</span> vann! ${p2Val} mot ${p1Val}!`;
+
+            const swishUrl = createSwishUrl({
+              phone: selectedFriend.swishNumber,
+              amount: currentStake,
+              message: 'Betpals Tärningsduell'
+            });
+
+            swishActionBox.style.display = 'block';
+            swishActionBox.innerHTML = `
+              <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
+                  Du ${t('arcade.diceOwes')} ${selectedFriend.nickname} ${currentStake} kr!
+                </div>
+                <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
+                  📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
+                </a>
+              </div>
+            `;
+          } else {
+            banner.innerHTML = isEn
+              ? `🤝 Draw (${p1Val} = ${p2Val})! Roll again!`
+              : `🤝 Oavgjort (${p1Val} = ${p2Val})! Kasta igen!`;
+            banner.style.color = 'var(--gold)';
+          }
+
+          // Reset turn for rematch
+          tableTurn = 1;
+          isRolling = false;
+          rollBtn.disabled = false;
+          rollBtn.textContent = `🔄 ${isEn ? 'Roll again' : 'Kasta igen'} (${currentStake} kr)`;
+        }, 550);
+      }
+      return;
+    }
+
+    // 3. SWISH MODE - ONLINE (Live 1v1 Utmaning)
+    if (swishSubMode === 'online') {
+      if (!selectedFriend) return;
+      rollBtn.disabled = true;
+      rollBtn.textContent = isEn ? 'Sending challenge...' : 'Skickar utmaning...';
+      try {
+        const res = await createDuel({
+          gameType: 'dice',
+          opponentId: selectedFriend.id,
+          stakeAmount: currentStake,
+          mode: 'online'
+        });
+        activeDuel = res.duel;
+        banner.innerHTML = isEn
+          ? `⏳ Challenge sent to <b>${escapeHtml(selectedFriend.nickname)}</b>! Waiting for acceptance...`
+          : `⏳ Utmaning skickad till <b>${escapeHtml(selectedFriend.nickname)}</b>! Väntar på godkännande...`;
+        banner.style.color = 'var(--gold)';
+        rollBtn.textContent = isEn ? 'Waiting for opponent...' : 'Väntar på motståndaren...';
+
+        // Connect WebSocket room for this duel
+        const token = getToken();
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        duelWs = new WebSocket(`${protocol}//${window.location.host}?token=${token}&duel=${activeDuel.id}`);
+
+        duelWs.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'duel_accepted') {
+              showToast(isEn ? `${selectedFriend.nickname} accepted the duel! ⚔️` : `${selectedFriend.nickname} antog duellen! ⚔️`, 'success');
+              banner.textContent = isEn ? 'Duel accepted! Tap to roll!' : 'Duell godkänd! Klicka för att kasta!';
+              rollBtn.disabled = false;
+              rollBtn.textContent = `🎲 ${isEn ? 'Roll your dice!' : 'Kasta dina tärningar!'}`;
+            } else if (data.type === 'duel_declined') {
+              banner.textContent = isEn ? 'Opponent declined the challenge.' : 'Motståndaren avböjde utmaningen.';
+              banner.style.color = '#f87171';
+              rollBtn.disabled = false;
+              rollBtn.textContent = isEn ? 'Challenge again' : 'Utmana igen';
+            } else if (data.type === 'duel_live_roll') {
+              // Opponent rolled live
+              dDice.classList.add('rolling');
+              setTimeout(() => {
+                dDice.classList.remove('rolling');
+                renderDicePips(dDice, data.total);
+                dScore.textContent = data.total;
+              }, 500);
+            } else if (data.type === 'duel_finished') {
+              // Duel complete
+              const d = data.duel;
+              renderDicePips(pDice, d.creator_score);
+              renderDicePips(dDice, d.opponent_score);
+              pScore.textContent = d.creator_score;
+              dScore.textContent = d.opponent_score;
+
+              if (d.winner_id === currentUser.id) {
+                banner.innerHTML = `🎉 ${isEn ? 'You won!' : 'Du vann!'} ${d.creator_score} mot ${d.opponent_score}!`;
+                playWinSound();
+                launchConfetti();
+              } else if (d.winner_id === selectedFriend.id) {
+                banner.innerHTML = `💀 ${selectedFriend.nickname} ${isEn ? 'won!' : 'vann!'} ${d.opponent_score} mot ${d.creator_score}!`;
+                const swishUrl = createSwishUrl({
+                  phone: selectedFriend.swishNumber,
+                  amount: currentStake,
+                  message: 'Betpals Tärningsduell'
+                });
+                swishActionBox.style.display = 'block';
+                swishActionBox.innerHTML = `
+                  <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%;" target="_blank" rel="noopener">
+                    📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
+                  </a>
+                `;
+              } else {
+                banner.textContent = isEn ? 'Draw! Roll again!' : 'Oavgjort! Kasta igen!';
+              }
+              rollBtn.disabled = false;
+              rollBtn.textContent = isEn ? 'Play again' : 'Spela igen';
+            }
+          } catch (e) {}
+        };
+      } catch (err) {
+        showToast(isEn ? 'Failed to send challenge' : 'Kunde inte skicka utmaningen', 'error');
+        rollBtn.disabled = false;
+        updateButtonState();
+      }
+    }
+  });
+}
+
+// ────────────────────────────────────────────────────────
+// 📱 SWISHLISTAN & UPPGÖRELSER MODAL
+// ────────────────────────────────────────────────────────
+export async function openSwishlistModal() {
+  const isEn = getLang() === 'en';
+  const user = getStoredUser();
+  if (!user) {
+    showToast(isEn ? 'Please log in to view settlements' : 'Logga in för att se uppgörelser', 'warning');
+    return;
+  }
+
+  showModal(t('arcade.swishListTitle'), `
+    <div id="swishlist-content" style="padding: 6px 0;">
+      <div class="text-center text-muted" style="padding: 20px 0;">
+        <span class="spinner" style="margin-bottom: 8px;">⏳</span>
+        <div>${isEn ? 'Loading settlements...' : 'Hämtar uppgörelser...'}</div>
+      </div>
+    </div>
+  `);
+
+  try {
+    const summary = await getDuelSettlements();
+    const content = document.getElementById('swishlist-content');
+    if (!content) return;
+
+    if (!summary || !summary.friends || summary.friends.length === 0) {
+      content.innerHTML = `
+        <div class="text-center" style="padding: 25px 10px;">
+          <div style="font-size: 2.5rem; margin-bottom: 8px;">🥂</div>
+          <div style="font-weight: 700; font-size: 1rem; color: #4ade80; margin-bottom: 4px;">
+            ${t('arcade.swishListEmpty')}
+          </div>
+          <p class="text-muted" style="font-size: 0.8rem; max-width: 280px; margin: 0 auto;">
+            ${isEn ? 'Challenge a friend in Dice Duel to start a Swish duel!' : 'Utmana en vän i Tärningsduell för att spela om Swish!'}
+          </p>
+        </div>
+      `;
+      return;
+    }
+
+    content.innerHTML = `
+      <div class="mb-sm flex-between" style="align-items: center; padding: 0 4px;">
+        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;">
+          ${isEn ? 'Net settlements per friend' : 'Nettoavstämning per vän'}
+        </span>
+        <span class="badge" style="background: ${summary.totalNet >= 0 ? 'rgba(74, 222, 128, 0.15)' : 'rgba(239, 68, 68, 0.15)'}; color: ${summary.totalNet >= 0 ? '#4ade80' : '#ef4444'}; font-weight: 700; font-size: 0.78rem;">
+          ${summary.totalNet >= 0 ? `+${summary.totalNet} kr` : `${summary.totalNet} kr`}
+        </span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto;">
+        ${summary.friends.map(f => {
+          const owesYou = f.netAmount > 0;
+          const absAmount = Math.abs(f.netAmount);
+          const swishUrl = createSwishUrl({
+            phone: f.friendSwish,
+            amount: absAmount,
+            message: 'Betpals Duell'
+          });
+
+          return `
+            <div class="swish-settlement-item" style="border-left: 3px solid ${owesYou ? '#4ade80' : '#ef4444'};">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                <div style="width: 34px; height: 34px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; border: 1px solid var(--border-glass);">
+                  ${f.friendAvatarUrl ? `<img src="${f.friendAvatarUrl}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (f.friendAvatarEmoji || '👤')}
+                </div>
+                <div style="min-width: 0;">
+                  <div style="font-weight: 700; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    ${escapeHtml(f.friendName || f.friendNickname)}
+                  </div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted);">
+                    ${owesYou 
+                      ? (isEn ? `Owes you ${absAmount} kr (${f.duelsCount} duels)` : `Ska swisha dig ${absAmount} kr (${f.duelsCount} dueller)`) 
+                      : (isEn ? `You owe ${absAmount} kr (${f.duelsCount} duels)` : `Du ska swisha ${absAmount} kr (${f.duelsCount} dueller)`)}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex gap-xs" style="align-items: center;">
+                ${!owesYou ? `
+                  <a href="${swishUrl}" class="swish-pay-btn" style="padding: 5px 10px; font-size: 0.75rem;" target="_blank" rel="noopener">
+                    📱 ${isEn ? 'Swish' : 'Swisha'} ${absAmount} kr
+                  </a>
+                ` : `
+                  <button type="button" class="btn btn-ghost btn-xs btn-remind-friend" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName)}" data-amount="${absAmount}" style="color: var(--gold); font-size: 0.75rem; padding: 4px 8px;">
+                    💬 ${isEn ? 'Remind' : 'Påminn'}
+                  </button>
+                `}
+                <button type="button" class="btn btn-secondary btn-xs btn-settle-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" title="${isEn ? 'Mark as settled' : 'Kvittera som betald'}" style="padding: 5px 8px; font-size: 0.75rem;">
+                  ✅
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    // Attach settle listeners
+    content.querySelectorAll('.btn-settle-friend').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const friendId = btn.getAttribute('data-friend-id');
+        const name = btn.getAttribute('data-name');
+        btn.disabled = true;
+        try {
+          await settleDuelsWithFriend(friendId);
+          showToast(isEn ? `Settled with ${name}! ✅` : `Uppgörelse med ${name} kvitterad! ✅`, 'success');
+          openSwishlistModal();
+        } catch (e) {
+          showToast(isEn ? 'Failed to settle' : 'Kunde inte kvittera', 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Remind via share or clipboard
+    content.querySelectorAll('.btn-remind-friend').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.getAttribute('data-name');
+        const amount = btn.getAttribute('data-amount');
+        const text = isEn
+          ? `Hey ${name}! You owe me ${amount} kr from Betpals Dice Duel 🎲`
+          : `Tjena ${name}! Du är skyldig mig ${amount} kr från Betpals Tärningsduell 🎲`;
+        if (navigator.share) {
+          navigator.share({ text }).catch(() => {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(text);
+          showToast(isEn ? 'Reminder copied to clipboard! 📋' : 'Påminnelsetext kopierad till urklipp! 📋', 'info');
+        }
+      });
+    });
+
+  } catch (err) {
+    const content = document.getElementById('swishlist-content');
+    if (content) {
+      content.innerHTML = `<div class="text-center text-muted" style="padding: 20px;">${isEn ? 'Error loading settlements' : 'Kunde inte hämta uppgörelser'}</div>`;
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 🔔 GLOBAL DUEL INCOMING CHALLENGE LISTENER
+// ────────────────────────────────────────────────────────
+let globalDuelWs = null;
+export function setupGlobalDuelListener() {
+  const token = getToken();
+  if (!token) return;
+  if (globalDuelWs && (globalDuelWs.readyState === WebSocket.OPEN || globalDuelWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}?token=${token}`;
+
+  try {
+    globalDuelWs = new WebSocket(wsUrl);
+
+    globalDuelWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'duel_challenge' && data.duel) {
+          showIncomingDuelModal(data.duel);
+        }
+      } catch (e) {}
+    };
+
+    globalDuelWs.onclose = () => {
+      globalDuelWs = null;
+      setTimeout(setupGlobalDuelListener, 6000);
+    };
+  } catch (e) {}
+}
+
+function showIncomingDuelModal(duel) {
+  const isEn = getLang() === 'en';
+  playTone(587.33, 'sine', 0.25, 0.15); // D5 chime
+
+  showModal(t('arcade.diceTitle'), `
+    <div class="text-center" style="padding: 10px 0;">
+      <div style="font-size: 2.8rem; margin-bottom: 8px;">⚔️</div>
+      <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.15rem;">
+        ${escapeHtml(duel.creator_nickname)} ${isEn ? 'challenges you!' : 'utmanar dig!'}
+      </h3>
+      <div class="badge badge-accent mb-md" style="font-size: 0.9rem; padding: 4px 14px;">
+        📱 ${duel.stake_amount} kr via Swish
+      </div>
+      <p class="text-muted mb-lg" style="font-size: 0.85rem; max-width: 290px; margin: 0 auto 16px auto;">
+        ${isEn 
+          ? `By accepting, you agree that the loser will swish ${duel.stake_amount} kr.` 
+          : `Genom att acceptera godkänner du att förloraren swishar ${duel.stake_amount} kr.`}
+      </p>
+
+      <div class="flex gap-sm">
+        <button type="button" class="btn btn-secondary btn-block" id="btn-decline-duel" style="padding: 12px;">
+          ❌ ${t('arcade.diceDecline')}
+        </button>
+        <button type="button" class="btn btn-primary btn-block" id="btn-accept-duel" style="padding: 12px; background: linear-gradient(135deg, #10b981, #059669); border: none;">
+          ✅ ${t('arcade.diceAccept')} (${duel.stake_amount} kr)
+        </button>
+      </div>
+    </div>
+  `);
+
+  document.getElementById('btn-decline-duel')?.addEventListener('click', async () => {
+    try {
+      await respondDuel(duel.id, false);
+    } catch (e) {}
+    closeModal();
+  });
+
+  document.getElementById('btn-accept-duel')?.addEventListener('click', async () => {
+    try {
+      await respondDuel(duel.id, true);
+      closeModal();
+      openDiceModal(duel);
+    } catch (e) {
+      showToast(isEn ? 'Failed to accept duel' : 'Kunde inte acceptera duellen', 'error');
+    }
   });
 }

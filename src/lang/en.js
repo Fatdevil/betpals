@@ -311,6 +311,24 @@ export const en = {
     dicePrompt: 'Roll to challenge the dealer!',
     diceBtn: '🎲 Roll Dice!',
     diceRolling: 'Dice rolling... 🎲',
-    diceScoreboard: 'Results:'
+    diceScoreboard: 'Results:',
+    swishListBtn: '📱 Swish List',
+    swishListTitle: '📱 Swish List & Settlements',
+    swishListEmpty: 'Clean table! No active debts with friends 🥂',
+    diceModeDealer: '🪙 vs Dealer',
+    diceModeSwish: '📱 Swish Duel',
+    diceModeTable: '🍻 Same Phone',
+    diceModeOnline: '🌐 Live 1v1',
+    diceStakeLabel: 'Stake per round:',
+    dicePickFriend: 'Choose opponent from your friends:',
+    diceNoFriends: 'Add friends on your profile to challenge them!',
+    diceChallengeSent: 'Challenge sent! Waiting for approval...',
+    diceChallengeBtn: '⚔️ Challenge',
+    diceAccept: 'Accept',
+    diceDecline: 'Decline',
+    diceOwes: 'owes',
+    diceSwishBtn: '📱 Swish',
+    diceMarkPaid: 'Mark Paid ✅',
+    diceRemind: '💬 Remind'
   }
 };

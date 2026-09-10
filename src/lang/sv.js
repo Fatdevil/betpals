@@ -311,6 +311,24 @@ export const sv = {
     dicePrompt: 'Kasta för att utmana dealern!',
     diceBtn: '🎲 Kasta Tärningarna!',
     diceRolling: 'Tärningarna rullar... 🎲',
-    diceScoreboard: 'Resultat:'
+    diceScoreboard: 'Resultat:',
+    swishListBtn: '📱 Swishlistan',
+    swishListTitle: '📱 Swishlistan & Uppgörelser',
+    swishListEmpty: 'Rent bord! Inga aktiva skulder med vännerna 🥂',
+    diceModeDealer: '🪙 vs Dealern',
+    diceModeSwish: '📱 Swish-duell',
+    diceModeTable: '🍻 Samma telefon',
+    diceModeOnline: '🌐 Live 1v1',
+    diceStakeLabel: 'Insats per omgång:',
+    dicePickFriend: 'Välj motståndare bland dina vänner:',
+    diceNoFriends: 'Lägg till vänner på din profil för att utmana dem!',
+    diceChallengeSent: 'Utmaning skickad! Väntar på godkännande...',
+    diceChallengeBtn: '⚔️ Utmana',
+    diceAccept: 'Acceptera',
+    diceDecline: 'Avböj',
+    diceOwes: 'ska swisha',
+    diceSwishBtn: '📱 Swisha',
+    diceMarkPaid: 'Markera som betald ✅',
+    diceRemind: '💬 Påminn'
   }
 };

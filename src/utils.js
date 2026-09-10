@@ -92,8 +92,20 @@ export function escapeHtml(str) {
 export function sanitizeUrl(url) {
   if (!url) return '';
   const trimmed = String(url).trim();
-  if (/^(https?:\/\/|\/|mailto:|tel:)/i.test(trimmed)) {
+  if (/^(https?:\/\/|\/|mailto:|tel:|swish:)/i.test(trimmed)) {
     return trimmed;
   }
   return '';
+}
+
+export function createSwishUrl({ phone, amount, message }) {
+  if (!phone) return '#';
+  const cleanPhone = String(phone).replace(/[\s\-]/g, '');
+  const swishData = JSON.stringify({
+    version: 1,
+    payee: { value: cleanPhone },
+    amount: { value: Math.max(1, Math.round(Number(amount) || 1)) },
+    message: { value: message || 'Betpals' }
+  });
+  return 'swish://payment?data=' + encodeURIComponent(swishData);
 }
