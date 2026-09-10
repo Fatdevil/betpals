@@ -20,7 +20,7 @@ export function renderNavbar(activePage) {
   const items = [
     { id: 'home', icon: icons.home, label: t('nav.home') },
     { id: 'leaderboard', icon: icons.leaderboard, label: t('nav.leaderboard') },
-    { id: 'join', icon: icons.join, label: t('nav.join') },
+    // { id: 'join', icon: icons.join, label: t('nav.join') }, // Dold tills vidare
     { id: 'profile', icon: icons.profile, label: loggedIn ? (user?.nickname?.slice(0, 7) || t('nav.account')) : t('nav.account') },
     { id: 'admin', icon: icons.admin, label: t('nav.admin') }
   ];
