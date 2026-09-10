@@ -2583,6 +2583,7 @@ export async function openBlind10Modal(initialRoom = null) {
 
     container.innerHTML = `
       <div class="text-center" style="margin-bottom: 14px;">
+        <img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 64px; height: 64px; margin: 0 auto 10px auto; display: block; filter: drop-shadow(0 4px 14px rgba(255,215,0,0.45));" />
         <div style="background: rgba(255, 215, 0, 0.08); border: 2px dashed var(--gold); border-radius: var(--radius-lg); padding: 14px 10px; margin-bottom: 12px;">
           <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700;">
             ${t('arcade.blind10CodePrompt')}
@@ -2783,8 +2784,8 @@ export async function openBlind10Modal(initialRoom = null) {
   function renderWaitingForOthers(myTime, myDiff) {
     const sign = myTime >= 10.000 ? '+' : '-';
     container.innerHTML = `
-      <div class="text-center" style="padding: 24px 0;">
-        <div style="font-size: 3rem; margin-bottom: 8px;">⏱️</div>
+      <div class="text-center" style="padding: 20px 0;">
+        <img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 64px; height: 64px; margin: 0 auto 10px auto; display: block; filter: drop-shadow(0 4px 14px rgba(255,215,0,0.45));" />
         <h3 style="color: var(--gold); margin-bottom: 6px;">
           ${isEn ? 'Time Logged!' : 'Tid registrerad!'}
         </h3>
@@ -3167,7 +3168,7 @@ export function showIncomingPartyModal(room) {
 
   showModal(titleHtml, `
     <div class="text-center" style="padding: 10px 0;">
-      <div style="font-size: 3rem; margin-bottom: 8px;">⏱️</div>
+      <img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />
       <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.2rem;">
         ${escapeHtml(room.hostNickname)} ${isEn ? 'invited you to The Blind 10.00!' : 'bjöd in dig till The Blind 10.00!'}
       </h3>
