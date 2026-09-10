@@ -458,20 +458,6 @@ function openWheelModal() {
         ? ['Alex 🍻', 'Sam 🍺', 'Chris 🍻', 'You 🎯']
         : ['Johan 🍻', 'Sara 🍺', 'Erik 🍻', 'Du 🎯']
     },
-    party: {
-      name: isEn ? 'Party Challenges' : 'Festutmaningar',
-      prompt: isEn ? 'Spin to draw a challenge! 🎉' : 'Snurra för att dra en utmaning! 🎉',
-      items: isEn
-        ? ['Drink 1🍺', 'Double 2x💰', 'Give 2🎯', 'Bust!💀', 'JACKPOT👑', 'Sing🎤', 'Master🌟', 'Spin again🔄']
-        : ['Drick 1🍺', 'Dubbla 2x💰', 'Ge bort 2🎯', 'Nollad!💀', 'JACKPOT👑', 'Sjung🎤', 'Mästare🌟', 'Snurra igen🔄']
-    },
-    food: {
-      name: isEn ? 'Food Choice' : 'Vad äter vi?',
-      prompt: isEn ? "What's for food today? 🍕" : 'Vad blir det för käk idag? 🍕',
-      items: isEn
-        ? ['Pizza 🍕', 'Burger 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
-        : ['Pizza 🍕', 'Burgare 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
-    },
     choice: {
       name: isEn ? 'Yes or No' : 'Ja eller Nej?',
       prompt: isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙',
@@ -517,8 +503,16 @@ function openWheelModal() {
 
   const lastWheel = getLastWheel();
   let activePresetKey = lastWheel?.presetKey || 'beer';
-  let currentTopic = lastWheel?.topic !== undefined ? lastWheel.topic : (isEn ? 'Beer Round' : 'Vem bjuder på ölen?');
-  let items = (lastWheel && Array.isArray(lastWheel.items) && lastWheel.items.length >= 2)
+  // If user had legacy 'party' or 'food' preset saved, fallback to beer
+  if (activePresetKey === 'party' || activePresetKey === 'food') {
+    activePresetKey = 'beer';
+  }
+
+  let currentTopic = lastWheel?.topic !== undefined && activePresetKey !== 'party' && activePresetKey !== 'food'
+    ? lastWheel.topic 
+    : (isEn ? 'Beer Round' : 'Vem bjuder på ölen?');
+
+  let items = (lastWheel && Array.isArray(lastWheel.items) && lastWheel.items.length >= 2 && activePresetKey !== 'party' && activePresetKey !== 'food')
     ? [...lastWheel.items]
     : (PRESETS[activePresetKey] ? [...PRESETS[activePresetKey].items] : [...PRESETS.beer.items]);
 
@@ -528,8 +522,6 @@ function openWheelModal() {
 
   function getPromptText() {
     if (activePresetKey === 'beer') return t('arcade.wheelPromptBeer');
-    if (activePresetKey === 'party') return isEn ? 'Spin to draw a challenge! 🎉' : 'Snurra för att dra en utmaning! 🎉';
-    if (activePresetKey === 'food') return isEn ? "What's for food today? 🍕" : 'Vad blir det för käk idag? 🍕';
     if (activePresetKey === 'choice') return isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙';
     if (currentTopic) return `${t('arcade.wheelDecidePrompt')} ${currentTopic}! 🎯`;
     return t('arcade.wheelPromptBeer');
@@ -633,8 +625,6 @@ function openWheelModal() {
     const savedWheels = getSavedWheels();
     const builtIns = [
       { key: 'beer', label: isEn ? '🍻 Beer Round' : '🍻 Ölrunda' },
-      { key: 'party', label: isEn ? '🎉 Party Games' : '🎉 Festspel' },
-      { key: 'food', label: isEn ? '🍕 Food Choice' : '🍕 Matval' },
       { key: 'choice', label: isEn ? '🪙 Yes / No' : '🪙 Ja / Nej' }
     ];
 
