@@ -2,6 +2,7 @@
 import { showModal } from './modal.js';
 import { launchConfetti, escapeHtml, showToast } from '../utils.js';
 import { getFriends } from '../api.js';
+import { t, getLang } from '../i18n.js';
 
 // ── Web Audio Synth SFX (Zero-dependency & instant) ───────
 let audioCtx = null;
@@ -72,41 +73,41 @@ export function renderMinigamesRoller() {
     <div class="minigames-section animate-in">
       <div class="minigames-header">
         <div class="minigames-title">
-          <span>🎰</span> <span>BetPals Arkad</span>
+          <span>🎰</span> <span>${t('arcade.title')}</span>
         </div>
         <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
-          SPELA DIREKT
+          ${t('arcade.tagline')}
         </span>
       </div>
       <div class="minigames-roller" id="minigames-roller">
-        <!-- Game 1: Singla Slant -->
-        <div class="minigame-card" id="card-coin-flip" title="Singla Slant">
+        <!-- Game 1: Singla Slant / Coin Flip -->
+        <div class="minigame-card" id="card-coin-flip" title="${t('arcade.coinFlipTitle')}">
           <div class="minigame-card-icon" style="display: flex; align-items: center; justify-content: center;">
-            <img src="/coin-head.jpg" alt="Slantsingling" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />
+            <img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />
           </div>
-          <div class="minigame-card-name">Slantsingling</div>
-          <div class="minigame-card-tag">Head / Tails</div>
+          <div class="minigame-card-name">${t('arcade.coinFlip')}</div>
+          <div class="minigame-card-tag">${t('arcade.coinFlipTag')}</div>
         </div>
 
         <!-- Game 2: Slots 777 -->
-        <div class="minigame-card" id="card-slots" title="Enarmad Bandit">
+        <div class="minigame-card" id="card-slots" title="${t('arcade.slotsTitle')}">
           <div class="minigame-card-icon">🎰</div>
-          <div class="minigame-card-name">Bandit 777</div>
-          <div class="minigame-card-tag">Jackpot</div>
+          <div class="minigame-card-name">${t('arcade.slots')}</div>
+          <div class="minigame-card-tag">${t('arcade.slotsTag')}</div>
         </div>
 
-        <!-- Game 3: Lyckohjul -->
-        <div class="minigame-card" id="card-wheel" title="Lyckohjulet">
+        <!-- Game 3: Lyckohjul / Wheel of Fortune -->
+        <div class="minigame-card" id="card-wheel" title="${t('arcade.wheelTitle')}">
           <div class="minigame-card-icon">🎡</div>
-          <div class="minigame-card-name">Lyckohjul</div>
-          <div class="minigame-card-tag">Party</div>
+          <div class="minigame-card-name">${t('arcade.wheel')}</div>
+          <div class="minigame-card-tag">${t('arcade.wheelTag')}</div>
         </div>
 
-        <!-- Game 4: Tärningsduell -->
-        <div class="minigame-card" id="card-dice" title="Tärningsduell">
+        <!-- Game 4: Tärningsduell / Dice Duel -->
+        <div class="minigame-card" id="card-dice" title="${t('arcade.diceTitle')}">
           <div class="minigame-card-icon">🎲</div>
-          <div class="minigame-card-name">Tärningsduell</div>
-          <div class="minigame-card-tag">Duell</div>
+          <div class="minigame-card-name">${t('arcade.dice')}</div>
+          <div class="minigame-card-tag">${t('arcade.diceTag')}</div>
         </div>
       </div>
     </div>
@@ -128,11 +129,12 @@ function openCoinFlipModal() {
   let streak = 0;
   let isFlipping = false;
   let currentRotation = 0;
+  const isEn = getLang() === 'en';
 
-  showModal('🪙 Singla Slant', `
+  showModal(t('arcade.coinFlipTitle'), `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <p class="text-muted mb-sm" style="font-size: 0.85rem;">
-        Avgör vem som tar notan, bjuder på ölen eller servar först!
+        ${t('arcade.coinFlipDesc')}
       </p>
 
       <div class="coin-stage">
@@ -147,7 +149,7 @@ function openCoinFlipModal() {
       </div>
 
       <div id="coin-result-banner" class="mb-md" style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; min-height: 28px; color: var(--gold);">
-        Välj HEAD eller TAILS och klicka på Singla!
+        ${t('arcade.coinFlipPrompt')}
       </div>
 
       <div class="flex gap-sm mb-md" style="justify-content: center;">
@@ -160,12 +162,12 @@ function openCoinFlipModal() {
       </div>
 
       <button type="button" class="btn btn-primary btn-block mb-md" id="btn-do-coin-flip" style="font-size: 1rem; padding: 12px; font-weight: 800;">
-        🪙 Singla Myntet!
+        ${t('arcade.coinFlipBtn')}
       </button>
 
       <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
-        <span class="text-muted">Gissnings-streak:</span>
-        <span class="text-gold font-bold" id="coin-streak-val">🔥 0 i rad</span>
+        <span class="text-muted">${t('arcade.coinFlipStreak')}</span>
+        <span class="text-gold font-bold" id="coin-streak-val">🔥 0 ${isEn ? 'in a row' : 'i rad'}</span>
       </div>
     </div>
   `);
@@ -193,7 +195,7 @@ function openCoinFlipModal() {
     if (isFlipping) return;
     isFlipping = true;
     flipBtn.disabled = true;
-    resultBanner.textContent = 'Snurrar... 🌀';
+    resultBanner.textContent = t('arcade.coinFlipSpinning');
     resultBanner.style.color = 'var(--text-secondary)';
 
     playCoinSound();
@@ -213,29 +215,33 @@ function openCoinFlipModal() {
       flipBtn.disabled = false;
 
       const won = chosenSide === outcome;
+      const sideName = isHead ? 'HEAD' : 'TAILS';
       if (won) {
         streak++;
         playWinSound();
         launchConfetti();
-        resultBanner.textContent = `🎉 Det blev ${isHead ? 'HEAD' : 'TAILS'}! Du gissade RÄTT!`;
+        resultBanner.textContent = isEn 
+          ? `🎉 It landed on ${sideName}! You guessed RIGHT!` 
+          : `🎉 Det blev ${sideName}! Du gissade RÄTT!`;
         resultBanner.style.color = '#4ade80';
       } else {
         streak = 0;
-        resultBanner.textContent = `Det blev ${isHead ? 'HEAD' : 'TAILS'}! Bättre lycka nästa kast!`;
+        resultBanner.textContent = isEn
+          ? `It landed on ${sideName}! Better luck next flip!`
+          : `Det blev ${sideName}! Bättre lycka nästa kast!`;
         resultBanner.style.color = 'var(--text-primary)';
       }
-      streakVal.textContent = `🔥 ${streak} i rad`;
+      streakVal.textContent = `🔥 ${streak} ${isEn ? 'in a row' : 'i rad'}`;
     }, 1800);
   });
 }
 
 // ────────────────────────────────────────────────────────
-// 🎰 GAME 2: ENARMAD BANDIT (Vegas 777 Slots)
-// ────────────────────────────────────────────────────────
 // ────────────────────────────────────────────────────────
 // 🎰 GAME 2: ENARMAD BANDIT (Vegas 777 Slots)
 // ────────────────────────────────────────────────────────
 function openSlotsModal() {
+  const isEn = getLang() === 'en';
   const symbols = ['🍒', '🍋', '🍺', '🔔', '💎', '7️⃣', 'MALTA'];
   let currentChips = getChips();
   let currentBet = 10;
@@ -248,16 +254,16 @@ function openSlotsModal() {
     return symbol;
   }
 
-  showModal('🎰 Enarmad Bandit 777', `
+  showModal(t('arcade.slotsTitle'), `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Chips & Bet Bar -->
       <div class="flex-between mb-sm" style="align-items: center; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: var(--radius-md);">
         <div>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">Dina marker:</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">${t('arcade.slotsChips')}</span>
           <span class="text-gold font-bold" id="slot-chips-display" style="font-size: 1rem; margin-left: 4px;">💰 ${currentChips}</span>
         </div>
         <button type="button" class="btn btn-sm btn-secondary" id="btn-refill-chips" style="font-size: 0.7rem; padding: 2px 8px;">
-          +100 Gratis
+          ${t('arcade.slotsRefill')}
         </button>
       </div>
 
@@ -272,12 +278,12 @@ function openSlotsModal() {
 
       <!-- Result Banner -->
       <div id="slot-banner" class="mb-md" style="font-family: var(--font-heading); font-size: 1rem; font-weight: 700; min-height: 24px; color: var(--gold);">
-        Dra i spaken för att spela!
+        ${t('arcade.slotsPrompt')}
       </div>
 
       <!-- Bet Selector -->
       <div class="flex gap-xs mb-md" style="justify-content: center; align-items: center;">
-        <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 4px;">Insats:</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 4px;">${t('arcade.slotsBet')}</span>
         <button type="button" class="btn btn-secondary btn-sm slot-bet-btn active" data-bet="10" style="border-color: var(--gold);">10</button>
         <button type="button" class="btn btn-secondary btn-sm slot-bet-btn" data-bet="25">25</button>
         <button type="button" class="btn btn-secondary btn-sm slot-bet-btn" data-bet="50">50</button>
@@ -285,7 +291,7 @@ function openSlotsModal() {
 
       <!-- Spin Button -->
       <button type="button" class="btn btn-primary btn-block" id="btn-slot-spin" style="font-size: 1.1rem; padding: 14px; font-weight: 800; letter-spacing: 0.05em;">
-        🎰 SPINN!
+        ${t('arcade.slotsBtn')}
       </button>
 
       <!-- Paytable note -->
@@ -294,8 +300,8 @@ function openSlotsModal() {
           <img src="/chip-malta.png" style="width: 14px; height: 14px; object-fit: contain;" /> x3 Jackpot 50x
         </span> · 
         <span>7️⃣7️⃣7️⃣ 30x</span> · 
-        <span>3 lika 15x</span> · 
-        <span>2 lika 3-5x</span>
+        <span>${isEn ? '3 of a kind 15x' : '3 lika 15x'}</span> · 
+        <span>${isEn ? 'Pair 3-5x' : '2 lika 3-5x'}</span>
       </div>
     </div>
   `);
@@ -328,14 +334,14 @@ function openSlotsModal() {
     currentChips += 100;
     setChips(currentChips);
     chipsDisplay.textContent = `💰 ${currentChips}`;
-    banner.textContent = 'Fyllde på med +100 marker! 🎁';
+    banner.textContent = t('arcade.slotsRefilled');
   });
 
   // Spin
   spinBtn?.addEventListener('click', () => {
     if (isSpinning) return;
     if (currentChips < currentBet) {
-      banner.textContent = 'Slut på marker! Tryck på "+100 Gratis" ovanför! 👆';
+      banner.textContent = t('arcade.slotsOutOfChips');
       banner.style.color = '#ef4444';
       return;
     }
@@ -346,7 +352,7 @@ function openSlotsModal() {
 
     isSpinning = true;
     spinBtn.disabled = true;
-    banner.textContent = 'Hjulen snurrar... 🎰';
+    banner.textContent = t('arcade.slotsSpinning');
     banner.style.color = 'var(--text-secondary)';
 
     // Start spin animation
@@ -394,18 +400,27 @@ function openSlotsModal() {
     if (s1 === s2 && s2 === s3) {
       if (s1 === 'MALTA') {
         multiplier = 50;
-        winMessage = `🔥 MALTA BETTING MEGA JACKPOT! +${currentBet * multiplier} MARKER! 🔥`;
+        winMessage = isEn 
+          ? `🔥 MALTA BETTING MEGA JACKPOT! +${currentBet * multiplier} CHIPS! 🔥`
+          : `🔥 MALTA BETTING MEGA JACKPOT! +${currentBet * multiplier} MARKER! 🔥`;
       } else if (s1 === '7️⃣') {
         multiplier = 30;
-        winMessage = `7️⃣ 7️⃣ 7️⃣ VEGAS JACKPOT! +${currentBet * multiplier} MARKER! 🎉`;
+        winMessage = isEn
+          ? `7️⃣ 7️⃣ 7️⃣ VEGAS JACKPOT! +${currentBet * multiplier} CHIPS! 🎉`
+          : `7️⃣ 7️⃣ 7️⃣ VEGAS JACKPOT! +${currentBet * multiplier} MARKER! 🎉`;
       } else {
         multiplier = 15;
-        winMessage = `🎉 TRIPLAR! 3x ${s1}! +${currentBet * multiplier} MARKER!`;
+        winMessage = isEn
+          ? `🎉 3 OF A KIND! 3x ${s1}! +${currentBet * multiplier} CHIPS!`
+          : `🎉 TRIPLAR! 3x ${s1}! +${currentBet * multiplier} MARKER!`;
       }
     } else if (s1 === s2 || s2 === s3 || s1 === s3) {
       const match = (s1 === s2) ? s1 : (s2 === s3 ? s2 : s1);
       multiplier = (match === 'MALTA') ? 5 : 3;
-      winMessage = `✨ Par i ${match === 'MALTA' ? 'Malta-chips' : match}! Vinst +${currentBet * multiplier} marker!`;
+      const matchLabel = match === 'MALTA' ? (isEn ? 'Malta chips' : 'Malta-chips') : match;
+      winMessage = isEn
+        ? `✨ Pair of ${matchLabel}! Won +${currentBet * multiplier} chips!`
+        : `✨ Par i ${matchLabel}! Vinst +${currentBet * multiplier} marker!`;
     }
 
     if (multiplier > 0) {
@@ -418,7 +433,7 @@ function openSlotsModal() {
       playWinSound();
       if (multiplier >= 15) launchConfetti();
     } else {
-      banner.textContent = 'Ingen vinst denna gång. Snurra igen!';
+      banner.textContent = t('arcade.slotsNoWin');
       banner.style.color = 'var(--text-muted)';
     }
   }
@@ -428,6 +443,7 @@ function openSlotsModal() {
 // 🎡 GAME 3: LYCKOHJULET (Party & Bet Wheel)
 // ────────────────────────────────────────────────────────
 function openWheelModal() {
+  const isEn = getLang() === 'en';
   const PALETTE = [
     '#e63946', '#f59e0b', '#10b981', '#3b82f6', 
     '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', 
@@ -436,20 +452,28 @@ function openWheelModal() {
 
   const PRESETS = {
     beer: {
-      name: '🍻 Vem bjuder på ölen?',
-      items: ['Johan 🍻', 'Sara 🍺', 'Erik 🍻', 'Du 🎯']
+      name: isEn ? '🍻 Beer Round' : '🍻 Vem bjuder på ölen?',
+      items: isEn 
+        ? ['Alex 🍻', 'Sam 🍺', 'Chris 🍻', 'You 🎯']
+        : ['Johan 🍻', 'Sara 🍺', 'Erik 🍻', 'Du 🎯']
     },
     party: {
-      name: '🎉 Festutmaningar',
-      items: ['Drick 1🍺', 'Dubbla 2x💰', 'Ge bort 2🎯', 'Nollad!💀', 'JACKPOT👑', 'Sjung🎤', 'Mästare🌟', 'Snurra igen🔄']
+      name: isEn ? '🎉 Party Challenges' : '🎉 Festutmaningar',
+      items: isEn
+        ? ['Drink 1🍺', 'Double 2x💰', 'Give 2🎯', 'Bust!💀', 'JACKPOT👑', 'Sing🎤', 'Master🌟', 'Spin again🔄']
+        : ['Drick 1🍺', 'Dubbla 2x💰', 'Ge bort 2🎯', 'Nollad!💀', 'JACKPOT👑', 'Sjung🎤', 'Mästare🌟', 'Snurra igen🔄']
     },
     food: {
-      name: '🍕 Vad äter vi?',
-      items: ['Pizza 🍕', 'Burgare 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
+      name: isEn ? '🍕 Food Choice' : '🍕 Vad äter vi?',
+      items: isEn
+        ? ['Pizza 🍕', 'Burger 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
+        : ['Pizza 🍕', 'Burgare 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
     },
     choice: {
-      name: '🪙 Ja eller Nej?',
-      items: ['JA! 🟢', 'NEJ! 🔴']
+      name: isEn ? '🪙 Yes / No' : '🪙 Ja eller Nej?',
+      items: isEn
+        ? ['YES! 🟢', 'NO! 🔴']
+        : ['JA! 🟢', 'NEJ! 🔴']
     }
   };
 
@@ -460,14 +484,14 @@ function openWheelModal() {
   let userFriends = null;
   let showFriendsPicker = false;
 
-  showModal('🎡 Lyckohjulet', `
+  showModal(t('arcade.wheelTitle'), `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Preset pills -->
       <div class="wheel-preset-pills" id="wheel-presets-container">
-        <button type="button" class="wheel-preset-pill active" data-preset="beer">🍻 Ölrunda</button>
-        <button type="button" class="wheel-preset-pill" data-preset="party">🎉 Festspel</button>
-        <button type="button" class="wheel-preset-pill" data-preset="food">🍕 Matval</button>
-        <button type="button" class="wheel-preset-pill" data-preset="choice">🪙 Ja / Nej</button>
+        <button type="button" class="wheel-preset-pill active" data-preset="beer">${isEn ? '🍻 Beer Round' : '🍻 Ölrunda'}</button>
+        <button type="button" class="wheel-preset-pill" data-preset="party">${isEn ? '🎉 Party Games' : '🎉 Festspel'}</button>
+        <button type="button" class="wheel-preset-pill" data-preset="food">${isEn ? '🍕 Food Choice' : '🍕 Matval'}</button>
+        <button type="button" class="wheel-preset-pill" data-preset="choice">${isEn ? '🪙 Yes / No' : '🪙 Ja / Nej'}</button>
       </div>
 
       <!-- Wheel Canvas & Pointer -->
@@ -479,22 +503,22 @@ function openWheelModal() {
 
       <!-- Result Banner -->
       <div id="wheel-result-banner" class="mb-sm mt-xs" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
-        Snurra för att se vem som bjuder! 🍻
+        ${t('arcade.wheelPromptBeer')}
       </div>
 
       <!-- Spin button -->
       <button type="button" class="btn btn-primary btn-block mb-md" id="btn-spin-wheel" style="font-size: 1.1rem; padding: 12px;">
-        🎡 Snurra Hjulet!
+        ${t('arcade.wheelBtn')}
       </button>
 
       <!-- Customization Box -->
       <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; text-align: left;">
         <div class="flex-between mb-xs" style="align-items: center;">
           <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">
-            Alternativ på hjulet (<span id="wheel-items-count">${items.length}</span> st)
+            ${t('arcade.wheelItemsCount')} (<span id="wheel-items-count">${items.length}</span> ${isEn ? 'pcs' : 'st'})
           </span>
           <button type="button" class="btn btn-ghost btn-xs" id="wheel-clear-btn" style="color: var(--text-muted); font-size: 0.72rem; padding: 2px 6px;">
-            Rensa alla
+            ${t('arcade.wheelClearAll')}
           </button>
         </div>
 
@@ -503,25 +527,25 @@ function openWheelModal() {
 
         <!-- Input & Add Controls -->
         <div class="flex gap-xs" style="margin-bottom: 6px;">
-          <input type="text" id="wheel-new-item-input" class="form-input" placeholder="Skriv namn eller val..." maxlength="20" style="padding: 6px 10px; font-size: 0.85rem; flex: 1;" />
+          <input type="text" id="wheel-new-item-input" class="form-input" placeholder="${t('arcade.wheelInputPlaceholder')}" maxlength="20" style="padding: 6px 10px; font-size: 0.85rem; flex: 1;" />
           <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap;">
-            ➕ Lägg till
+            ${t('arcade.wheelAddBtn')}
           </button>
           <button type="button" class="btn btn-secondary btn-sm" id="wheel-toggle-friends-btn" style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap; background: rgba(255,215,0,0.1); border-color: rgba(255,215,0,0.3); color: var(--gold);">
-            👥 Vänner
+            ${t('arcade.wheelFriendsBtn')}
           </button>
         </div>
 
         <!-- Friends Picker Drawer (Collapsible) -->
         <div id="wheel-friends-drawer" style="display: none; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,215,0,0.2); border-radius: var(--radius-sm); padding: 8px; margin-top: 6px;">
           <div class="flex-between mb-xs" style="align-items: center;">
-            <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">👥 Välj från dina vänner:</span>
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">${t('arcade.wheelFriendsDrawerTitle')}</span>
             <button type="button" class="btn btn-ghost btn-xs" id="wheel-add-all-friends-btn" style="font-size: 0.7rem; padding: 2px 6px; color: var(--gold);">
-              ➕ Lägg till alla
+              ${t('arcade.wheelAddAllFriendsBtn')}
             </button>
           </div>
           <div id="wheel-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 110px; overflow-y: auto;">
-            <span class="text-muted" style="font-size: 0.75rem;">Laddar vänner...</span>
+            <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Loading friends...' : 'Laddar vänner...'}</span>
           </div>
         </div>
       </div>
@@ -564,7 +588,7 @@ function openWheelModal() {
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('Lägg till alternativ!', 140, 140);
+      ctx.fillText(isEn ? 'Add options!' : 'Lägg till alternativ!', 140, 140);
       return;
     }
 
@@ -617,7 +641,7 @@ function openWheelModal() {
     tagsWrap.innerHTML = items.map((item, idx) => `
       <span class="wheel-tag">
         ${escapeHtml(item)}
-        <button type="button" class="wheel-tag-remove" data-index="${idx}" title="Ta bort">✕</button>
+        <button type="button" class="wheel-tag-remove" data-index="${idx}" title="${isEn ? 'Remove' : 'Ta bort'}">✕</button>
       </span>
     `).join('');
 
@@ -638,7 +662,7 @@ function openWheelModal() {
     const name = (rawName || '').trim();
     if (!name) return;
     if (items.length >= 20) {
-      showToast('Max 20 alternativ på hjulet!', 'warning');
+      showToast(isEn ? 'Max 20 options on the wheel!' : 'Max 20 alternativ på hjulet!', 'warning');
       return;
     }
     items.push(name);
@@ -651,12 +675,12 @@ function openWheelModal() {
   // Render friends list inside drawer
   function renderFriendsList() {
     if (!userFriends || userFriends.length === 0) {
-      friendsList.innerHTML = `<span class="text-muted" style="font-size: 0.75rem;">Inga vänner tillagda än. Lägg till vänner på din profilsida!</span>`;
+      friendsList.innerHTML = `<span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'No friends added yet. Add friends on your profile page!' : 'Inga vänner tillagda än. Lägg till vänner på din profilsida!'}</span>`;
       return;
     }
 
     friendsList.innerHTML = userFriends.map(f => {
-      const name = f.nickname || f.realName || 'Vän';
+      const name = f.nickname || f.realName || (isEn ? 'Friend' : 'Vän');
       const isAlreadyIn = items.some(it => it.toLowerCase().startsWith(name.toLowerCase()));
       return `
         <button type="button" class="wheel-friend-pick-btn" data-friend="${escapeHtml(name)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isAlreadyIn ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isAlreadyIn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.06)'}; color: ${isAlreadyIn ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer; transition: all 0.2s;">
@@ -676,7 +700,7 @@ function openWheelModal() {
           items.splice(existingIdx, 1);
         } else {
           if (items.length >= 20) {
-            showToast('Max 20 alternativ!', 'warning');
+            showToast(isEn ? 'Max 20 options!' : 'Max 20 alternativ!', 'warning');
             return;
           }
           items.push(`${friendName} 🍻`);
@@ -733,7 +757,7 @@ function openWheelModal() {
     renderTags();
     drawWheel();
     if (showFriendsPicker) renderFriendsList();
-    banner.textContent = 'Hjulet är tomt! Lägg till alternativ nedan.';
+    banner.textContent = t('arcade.wheelEmpty');
     banner.style.color = 'var(--text-muted)';
   });
 
@@ -759,20 +783,21 @@ function openWheelModal() {
         // If beer preset and user has friends, populate with real friends if available
         if (presetKey === 'beer' && userFriends && userFriends.length >= 2) {
           items = userFriends.slice(0, 8).map(f => `${f.nickname || f.realName} 🍻`);
-          if (!items.some(i => i.includes('Du'))) items.push('Du 🎯');
+          const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
+          if (!items.some(i => i.includes('Du') || i.includes('You'))) items.push(youLabel);
         }
         renderTags();
         drawWheel();
         if (showFriendsPicker) renderFriendsList();
 
         if (presetKey === 'beer') {
-          banner.textContent = 'Vem bjuder på nästa bärs? 🍻';
+          banner.textContent = isEn ? 'Who buys the next beer? 🍻' : 'Vem bjuder på nästa bärs? 🍻';
         } else if (presetKey === 'party') {
-          banner.textContent = 'Tryck på Snurra Hjulet!';
+          banner.textContent = isEn ? 'Press Spin Wheel!' : 'Tryck på Snurra Hjulet!';
         } else if (presetKey === 'food') {
-          banner.textContent = 'Vad blir det för käk idag? 🍕';
+          banner.textContent = isEn ? "What's for food today? 🍕" : 'Vad blir det för käk idag? 🍕';
         } else if (presetKey === 'choice') {
-          banner.textContent = 'Låt hjulet avgöra: Ja eller Nej? 🪙';
+          banner.textContent = isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙';
         }
         banner.style.color = 'var(--gold)';
       }
@@ -787,13 +812,13 @@ function openWheelModal() {
   spinBtn?.addEventListener('click', () => {
     if (isSpinning) return;
     if (items.length < 2) {
-      showToast('Lägg till minst 2 alternativ för att snurra hjulet!', 'warning');
+      showToast(t('arcade.wheelMinWarning'), 'warning');
       return;
     }
 
     isSpinning = true;
     spinBtn.disabled = true;
-    banner.textContent = 'Hjulet snurrar för fullt... 🎡';
+    banner.textContent = t('arcade.wheelSpinning');
     banner.style.color = 'var(--text-secondary)';
 
     const numSectors = items.length;
@@ -825,18 +850,26 @@ function openWheelModal() {
 
       if (activePresetKey === 'beer' || winner.includes('🍻') || winner.includes('🍺')) {
         const cleanName = winner.replace(/[🍻🍺]/g, '').trim();
-        banner.innerHTML = `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> bjuder på nästa runda! 🍻`;
+        banner.innerHTML = isEn
+          ? `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> buys the next round! 🍻`
+          : `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> bjuder på nästa runda! 🍻`;
         playWinSound();
         launchConfetti();
-      } else if (winner.includes('JACKPOT') || winner.includes('Dubbla')) {
-        banner.innerHTML = `👑 <span style="color: #fbbf24;">${escapeHtml(winner)}</span>! STORVINST! ✨`;
+      } else if (winner.includes('JACKPOT') || winner.includes('Dubbla') || winner.includes('Double')) {
+        banner.innerHTML = isEn
+          ? `👑 <span style="color: #fbbf24;">${escapeHtml(winner)}</span>! BIG WIN! ✨`
+          : `👑 <span style="color: #fbbf24;">${escapeHtml(winner)}</span>! STORVINST! ✨`;
         playWinSound();
         launchConfetti();
-      } else if (winner.includes('Nollad') || winner.includes('💀')) {
-        banner.innerHTML = `💀 <span style="color: #ef4444;">${escapeHtml(winner)}</span>! Bättre lycka nästa gång!`;
+      } else if (winner.includes('Nollad') || winner.includes('Bust') || winner.includes('💀')) {
+        banner.innerHTML = isEn
+          ? `💀 <span style="color: #ef4444;">${escapeHtml(winner)}</span>! Better luck next time!`
+          : `💀 <span style="color: #ef4444;">${escapeHtml(winner)}</span>! Bättre lycka nästa gång!`;
         playTone(300, 'sawtooth', 0.25, 0.1);
       } else {
-        banner.innerHTML = `🎉 Resultat: <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(winner)}</span>! 🎯`;
+        banner.innerHTML = isEn
+          ? `🎉 Result: <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(winner)}</span>! 🎯`
+          : `🎉 Resultat: <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(winner)}</span>! 🎯`;
         playWinSound();
         launchConfetti();
       }
@@ -848,20 +881,21 @@ function openWheelModal() {
 // 🎲 GAME 4: TÄRNINGSDUELL (Dice Duel)
 // ────────────────────────────────────────────────────────
 function openDiceModal() {
+  const isEn = getLang() === 'en';
   let isRolling = false;
   let wins = 0;
   let losses = 0;
 
-  showModal('🎲 Tärningsduell', `
+  showModal(t('arcade.diceTitle'), `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <p class="text-muted mb-xs" style="font-size: 0.85rem;">
-        Slå dina tärningar mot Dealern! Högst summa vinner omgången.
+        ${t('arcade.diceDesc')}
       </p>
 
       <div style="display: flex; justify-content: space-around; align-items: center; margin: 15px 0;">
         <!-- Player -->
         <div>
-          <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">DU</div>
+          <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">${t('arcade.diceYou')}</div>
           <div class="dice-item" id="player-dice">
             <!-- pips -->
           </div>
@@ -874,7 +908,7 @@ function openDiceModal() {
 
         <!-- Dealer -->
         <div>
-          <div style="font-weight: 700; font-size: 0.85rem; color: #f87171; margin-bottom: 6px;">DEALER</div>
+          <div style="font-weight: 700; font-size: 0.85rem; color: #f87171; margin-bottom: 6px;">${t('arcade.diceDealer')}</div>
           <div class="dice-item red" id="dealer-dice">
             <!-- pips -->
           </div>
@@ -883,16 +917,16 @@ function openDiceModal() {
       </div>
 
       <div id="dice-banner" class="mb-md" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 26px; color: var(--gold);">
-        Kasta för att utmana dealern!
+        ${t('arcade.dicePrompt')}
       </div>
 
       <button type="button" class="btn btn-primary btn-block mb-md" id="btn-roll-dice" style="font-size: 1.1rem; padding: 13px;">
-        🎲 Kasta Tärningarna!
+        ${t('arcade.diceBtn')}
       </button>
 
       <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
-        <span class="text-muted">Resultat:</span>
-        <span class="font-bold" id="dice-scoreboard">🏆 ${wins} vinster · 💀 ${losses} förluster</span>
+        <span class="text-muted">${t('arcade.diceScoreboard')}</span>
+        <span class="font-bold" id="dice-scoreboard">🏆 0 ${isEn ? 'wins' : 'vinster'} · 💀 0 ${isEn ? 'losses' : 'förluster'}</span>
       </div>
     </div>
   `);
@@ -932,7 +966,7 @@ function openDiceModal() {
     if (isRolling) return;
     isRolling = true;
     rollBtn.disabled = true;
-    banner.textContent = 'Tärningarna rullar... 🎲';
+    banner.textContent = t('arcade.diceRolling');
     banner.style.color = 'var(--text-secondary)';
 
     playDiceSound();
@@ -955,20 +989,26 @@ function openDiceModal() {
 
       if (pVal > dVal) {
         wins++;
-        banner.textContent = `🎉 Du vann! ${pVal} mot ${dVal}!`;
+        banner.textContent = isEn 
+          ? `🎉 You won! ${pVal} to ${dVal}!` 
+          : `🎉 Du vann! ${pVal} mot ${dVal}!`;
         banner.style.color = '#4ade80';
         playWinSound();
         launchConfetti();
       } else if (pVal < dVal) {
         losses++;
-        banner.textContent = `💀 Dealern vann med ${dVal} mot ${pVal}!`;
+        banner.textContent = isEn
+          ? `💀 Dealer won with ${dVal} to ${pVal}!`
+          : `💀 Dealern vann med ${dVal} mot ${pVal}!`;
         banner.style.color = '#f87171';
       } else {
-        banner.textContent = `🤝 Oavgjort (${pVal} = ${dVal})! Kasta igen!`;
+        banner.textContent = isEn
+          ? `🤝 Draw (${pVal} = ${dVal})! Roll again!`
+          : `🤝 Oavgjort (${pVal} = ${dVal})! Kasta igen!`;
         banner.style.color = 'var(--gold)';
       }
 
-      scoreboard.textContent = `🏆 ${wins} vinster · 💀 ${losses} förluster`;
+      scoreboard.textContent = `🏆 ${wins} ${isEn ? 'wins' : 'vinster'} · 💀 ${losses} ${isEn ? 'losses' : 'förluster'}`;
       isRolling = false;
       rollBtn.disabled = false;
     }, 600);
