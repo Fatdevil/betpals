@@ -9,7 +9,14 @@ import {
   submitDuelRoll, 
   getDuelSettlements, 
   settleDuel, 
-  settleDuelsWithFriend 
+  settleDuelsWithFriend,
+  createPartyRoom,
+  getPartyRoom,
+  joinPartyRoom,
+  inviteToParty,
+  startPartyGame,
+  submitPartyTime,
+  resolvePartyTie
 } from '../api.js';
 import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
@@ -107,12 +114,19 @@ export function renderMinigamesRoller() {
       tag: t('arcade.diceTag'),
       title: t('arcade.diceTitle'),
       iconHtml: `<img src="/dice-gold.png" alt="${t('arcade.dice')}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'blind10',
+      name: t('arcade.blind10'),
+      tag: t('arcade.blind10Tag'),
+      title: t('arcade.blind10Title'),
+      iconHtml: `<img src="/stopwatch-gold.png" alt="${t('arcade.blind10')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -174,6 +188,7 @@ export function attachMinigamesListeners() {
       else if (game === 'slots') openSlotsModal();
       else if (game === 'wheel') openWheelModal();
       else if (game === 'dice') openDiceModal();
+      else if (game === 'blind10') openBlind10Modal();
     });
   }
 
@@ -2134,6 +2149,1066 @@ function openDiceModal(initialDuel = null) {
 }
 
 // ────────────────────────────────────────────────────────
+// ⏱️ THE BLIND 10.00 SKILLS GAME & PARTY ROOMS
+// ────────────────────────────────────────────────────────
+export async function openBlind10Modal(initialRoom = null) {
+  const isEn = getLang() === 'en';
+  const user = getStoredUser();
+
+  let activeWs = null;
+  let activeAnimationId = null;
+  let activeTimeoutId = null;
+  let currentRoom = initialRoom || null;
+  let selectedStake = 20;
+  let invitedFriendIds = new Set();
+  let currentMode = initialRoom ? 'party' : 'party'; // 'party' | 'pass'
+  let friendsList = [];
+
+  function cleanup() {
+    if (activeWs) {
+      try {
+        activeWs.send(JSON.stringify({ action: 'leave_party', partyId: currentRoom?.id }));
+        activeWs.close();
+      } catch (e) {}
+      activeWs = null;
+    }
+    if (activeAnimationId) {
+      cancelAnimationFrame(activeAnimationId);
+      activeAnimationId = null;
+    }
+    if (activeTimeoutId) {
+      clearTimeout(activeTimeoutId);
+      activeTimeoutId = null;
+    }
+  }
+
+  const modalTitle = `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
+
+  showModal(modalTitle, `
+    <div id="blind10-container" style="padding: 4px 0; min-height: 380px;">
+      <div class="text-center text-muted" style="padding: 40px 0;">
+        <span class="spinner">⏳</span>
+      </div>
+    </div>
+  `);
+
+  const container = document.getElementById('blind10-container');
+  if (!container) return;
+
+  // Cleanup on modal dismiss
+  const modalCloseBtn = document.querySelector('.modal-close');
+  if (modalCloseBtn) {
+    const origClose = modalCloseBtn.onclick;
+    modalCloseBtn.onclick = (e) => {
+      cleanup();
+      if (origClose) origClose.call(modalCloseBtn, e);
+    };
+  }
+
+  if (initialRoom) {
+    setupPartyLobby(initialRoom);
+  } else {
+    try {
+      if (user) {
+        friendsList = await getFriends().catch(() => []);
+      }
+    } catch (e) {}
+    renderSetupView();
+  }
+
+  // ── VIEW 1: SETUP VIEW (PARTY OR PASS & PLAY) ─────────
+  function renderSetupView() {
+    cleanup();
+
+    container.innerHTML = `
+      <div class="the-tab-nav" style="margin-bottom: 14px;">
+        <button type="button" class="tab-nav-btn ${currentMode === 'party' ? 'active' : ''}" id="btn-mode-party">
+          🌐 ${t('arcade.blind10ModeParty')}
+        </button>
+        <button type="button" class="tab-nav-btn ${currentMode === 'pass' ? 'active' : ''}" id="btn-mode-pass">
+          🍻 ${t('arcade.blind10ModePass')}
+        </button>
+      </div>
+
+      <!-- Quick How-To Card -->
+      <div style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
+        <img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 44px; height: 44px; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.3));" />
+        <div style="font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary);">
+          ${t('arcade.blind10Desc')}
+        </div>
+      </div>
+
+      ${currentMode === 'party' ? renderPartySetupHtml() : renderPassSetupHtml()}
+    `;
+
+    // Tab mode switch listeners
+    document.getElementById('btn-mode-party')?.addEventListener('click', () => {
+      currentMode = 'party';
+      renderSetupView();
+    });
+    document.getElementById('btn-mode-pass')?.addEventListener('click', () => {
+      currentMode = 'pass';
+      renderSetupView();
+    });
+
+    // Attach sub-listeners
+    if (currentMode === 'party') {
+      attachPartySetupListeners();
+    } else {
+      attachPassSetupListeners();
+    }
+  }
+
+  // ── PARTY SETUP HTML ─────────────────────────────────
+  function renderPartySetupHtml() {
+    if (!user) {
+      return `
+        <div class="text-center" style="padding: 24px 12px;">
+          <div style="font-size: 2.5rem; margin-bottom: 8px;">🔐</div>
+          <p class="text-muted mb-md">${isEn ? 'Log in to create party rooms and challenge friends on their own phones.' : 'Logga in för att skapa partyrum och utmana vänner på deras egna mobiler.'}</p>
+          <button type="button" class="btn btn-secondary btn-block" id="btn-switch-to-pass">
+            🍻 ${isEn ? 'Play Pass & Play instead' : 'Kör på samma telefon istället'}
+          </button>
+        </div>
+      `;
+    }
+
+    const friendsHtml = friendsList && friendsList.length > 0 ? `
+      <div style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+          👥 ${t('arcade.blind10InviteFriends')} (${isEn ? 'optional' : 'valfritt'}):
+        </label>
+        <div style="max-height: 130px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+          ${friendsList.map(f => `
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
+              <span style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
+                <span style="font-size: 1.1rem;">${f.avatar_emoji || '👤'}</span>
+                <strong>${escapeHtml(f.nickname)}</strong>
+              </span>
+              <input type="checkbox" class="friend-invite-cb" value="${f.id}" ${invitedFriendIds.has(f.id) ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
+    return `
+      <!-- Stake Selector -->
+      <div style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+          💰 ${t('arcade.blind10StakeLabel')}
+        </label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          <button type="button" class="btn ${selectedStake === 0 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="0">0 kr (Ära)</button>
+          <button type="button" class="btn ${selectedStake === 10 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="10">10 kr</button>
+          <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="20">20 kr</button>
+          <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="50">50 kr</button>
+          <button type="button" class="btn ${![0, 10, 20, 50].includes(selectedStake) ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="custom">
+            ${![0, 10, 20, 50].includes(selectedStake) ? `${selectedStake} kr` : 'Valfritt'}
+          </button>
+        </div>
+        <div id="custom-stake-wrap" style="display: ${![0, 10, 20, 50].includes(selectedStake) ? 'block' : 'none'}; margin-top: 8px;">
+          <input type="number" id="custom-stake-input" class="form-input" placeholder="Ange belopp i kr" value="${selectedStake || 30}" min="1" max="1000" style="padding: 8px 12px; font-size: 0.9rem;" />
+        </div>
+      </div>
+
+      ${friendsHtml}
+
+      <button type="button" class="btn btn-primary btn-block mb-lg" id="btn-create-party" style="padding: 14px; font-weight: 700; font-size: 1rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);">
+        ${t('arcade.blind10CreateRoomBtn')}
+      </button>
+
+      <!-- Join with code section -->
+      <div style="position: relative; text-align: center; margin: 18px 0 14px 0;">
+        <hr style="border: 0; border-top: 1px solid var(--border-glass);" />
+        <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #14141e; padding: 0 10px; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">
+          ${isEn ? 'or join with code' : 'eller gå med via kod'}
+        </span>
+      </div>
+
+      <div class="flex gap-sm">
+        <input type="text" id="party-join-code" class="form-input" placeholder="KOD (T.EX. AB12)" maxlength="6" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
+        <button type="button" class="btn btn-secondary" id="btn-join-party" style="white-space: nowrap; padding: 0 18px; font-weight: 700;">
+          ${t('arcade.blind10JoinBtn')}
+        </button>
+      </div>
+    `;
+  }
+
+  function attachPartySetupListeners() {
+    document.getElementById('btn-switch-to-pass')?.addEventListener('click', () => {
+      currentMode = 'pass';
+      renderSetupView();
+    });
+
+    // Stake selector buttons
+    container.querySelectorAll('.party-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.stake;
+        if (val === 'custom') {
+          selectedStake = parseInt(document.getElementById('custom-stake-input')?.value, 10) || 30;
+          document.getElementById('custom-stake-wrap').style.display = 'block';
+        } else {
+          selectedStake = parseInt(val, 10);
+          document.getElementById('custom-stake-wrap').style.display = 'none';
+        }
+        container.querySelectorAll('.party-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    document.getElementById('custom-stake-input')?.addEventListener('input', (e) => {
+      selectedStake = Math.max(1, parseInt(e.target.value, 10) || 1);
+    });
+
+    // Friend checkboxes
+    container.querySelectorAll('.friend-invite-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          invitedFriendIds.add(cb.value);
+        } else {
+          invitedFriendIds.delete(cb.value);
+        }
+      });
+    });
+
+    // Create room button
+    document.getElementById('btn-create-party')?.addEventListener('click', async () => {
+      const createBtn = document.getElementById('btn-create-party');
+      if (createBtn) createBtn.disabled = true;
+      try {
+        const res = await createPartyRoom({
+          gameType: 'blind10',
+          stakeAmount: selectedStake
+        });
+
+        if (res && res.room) {
+          currentRoom = res.room;
+          if (invitedFriendIds.size > 0) {
+            try {
+              await inviteToParty(currentRoom.id, Array.from(invitedFriendIds));
+              showToast(isEn ? 'Invites sent to friends!' : 'Inbjudningar skickade!', 'success');
+            } catch (e) {}
+          }
+          setupPartyLobby(currentRoom);
+        }
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Failed to create party room' : 'Kunde inte skapa partyrum'), 'error');
+        if (createBtn) createBtn.disabled = false;
+      }
+    });
+
+    // Join room button
+    document.getElementById('btn-join-party')?.addEventListener('click', async () => {
+      const codeInput = document.getElementById('party-join-code');
+      const code = (codeInput?.value || '').trim().toUpperCase();
+      if (!code) {
+        showToast(isEn ? 'Please enter a 4-letter room code' : 'Ange en 4-siffrig rumskod', 'warning');
+        return;
+      }
+
+      try {
+        const res = await joinPartyRoom({ code });
+        if (res && res.room) {
+          currentRoom = res.room;
+          setupPartyLobby(currentRoom);
+        }
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Room not found or game in progress' : 'Hittade inte rummet eller spelet har startat'), 'error');
+      }
+    });
+  }
+
+  // ── PASS & PLAY SETUP HTML & LISTENERS ────────────────
+  let passPlayers = [
+    user ? user.nickname : (isEn ? 'Player 1' : 'Spelare 1'),
+    isEn ? 'Player 2' : 'Spelare 2'
+  ];
+
+  function renderPassSetupHtml() {
+    return `
+      <!-- Stake Selector -->
+      <div style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+          💰 ${t('arcade.blind10StakeLabel')}
+        </label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          <button type="button" class="btn ${selectedStake === 0 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="0">0 kr (Ära)</button>
+          <button type="button" class="btn ${selectedStake === 10 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="10">10 kr</button>
+          <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="20">20 kr</button>
+          <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="50">50 kr</button>
+        </div>
+      </div>
+
+      <!-- Player List -->
+      <div style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>👥 ${isEn ? 'Players taking turns' : 'Deltagare (turas om)'}:</span>
+          <span style="font-weight: normal; color: var(--text-muted); font-size: 0.75rem;">${passPlayers.length}/8</span>
+        </label>
+        <div id="pass-players-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;">
+          ${passPlayers.map((p, idx) => `
+            <div class="flex gap-xs align-center">
+              <span style="font-weight: 700; color: var(--gold); min-width: 22px;">#${idx + 1}</span>
+              <input type="text" class="form-input pass-player-input" data-idx="${idx}" value="${escapeHtml(p)}" placeholder="Spelarnamn" style="padding: 8px 12px; font-size: 0.88rem;" />
+              ${passPlayers.length > 2 ? `
+                <button type="button" class="btn btn-secondary btn-sm pass-remove-btn" data-idx="${idx}" style="padding: 6px 10px; color: #ef4444;">✕</button>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+        ${passPlayers.length < 8 ? `
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-add-pass-player" style="font-size: 0.8rem; width: 100%;">
+            ➕ ${isEn ? 'Add Player' : 'Lägg till spelare'}
+          </button>
+        ` : ''}
+      </div>
+
+      <button type="button" class="btn btn-primary btn-block" id="btn-start-pass-play" style="padding: 14px; font-weight: 700; font-size: 1rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+        🚀 ${isEn ? 'Start Pass & Play Challenge!' : 'Starta tävlingen på telefonen!'}
+      </button>
+    `;
+  }
+
+  function attachPassSetupListeners() {
+    container.querySelectorAll('.pass-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStake = parseInt(btn.dataset.stake, 10) || 0;
+        container.querySelectorAll('.pass-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    container.querySelectorAll('.pass-player-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const idx = parseInt(inp.dataset.idx, 10);
+        passPlayers[idx] = e.target.value;
+      });
+    });
+
+    container.querySelectorAll('.pass-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        passPlayers.splice(idx, 1);
+        renderSetupView();
+      });
+    });
+
+    document.getElementById('btn-add-pass-player')?.addEventListener('click', () => {
+      if (passPlayers.length < 8) {
+        passPlayers.push(`${isEn ? 'Player' : 'Spelare'} ${passPlayers.length + 1}`);
+        renderSetupView();
+      }
+    });
+
+    document.getElementById('btn-start-pass-play')?.addEventListener('click', () => {
+      const cleanPlayers = passPlayers.map(p => (p || '').trim()).filter(Boolean);
+      if (cleanPlayers.length < 2) {
+        showToast(isEn ? 'At least 2 players are required' : 'Minst 2 spelare krävs', 'warning');
+        return;
+      }
+      passPlayers = cleanPlayers;
+      startPassAndPlayRun(passPlayers, selectedStake);
+    });
+  }
+
+  // ── VIEW 2: PARTY LOBBY (WEBSOCKET REALTIME) ─────────
+  function setupPartyLobby(room) {
+    currentRoom = room;
+    cleanup();
+
+    // Establish WebSocket for live room events
+    const token = getToken();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}?token=${token || ''}&party=${room.id}`;
+
+    try {
+      activeWs = new WebSocket(wsUrl);
+      activeWs.onopen = () => {
+        activeWs.send(JSON.stringify({ action: 'join_party', partyId: room.id }));
+      };
+      activeWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handlePartyWsMessage(data);
+        } catch (e) {}
+      };
+      activeWs.onclose = () => {
+        activeWs = null;
+      };
+    } catch (e) {}
+
+    renderPartyLobbyView();
+  }
+
+  function handlePartyWsMessage(data) {
+    if (data.type === 'party_updated' && data.room) {
+      currentRoom = data.room;
+      renderPartyLobbyView();
+    } else if (data.type === 'party_started' && data.room) {
+      currentRoom = data.room;
+      runStopwatchGame(data.countdownSec || 3, (time, diff) => {
+        submitPartyTime(currentRoom.id, time).catch(() => {});
+        renderWaitingForOthers(time, diff);
+      });
+    } else if (data.type === 'party_player_stopped') {
+      const waitingStatus = document.getElementById('party-waiting-status');
+      if (waitingStatus) {
+        waitingStatus.textContent = `${data.stoppedCount} / ${data.totalCount} ${isEn ? 'finished' : 'har stannat'}`;
+      }
+    } else if (data.type === 'party_results' && data.room) {
+      currentRoom = data.room;
+      renderPartyResultsView(data.room, data.isTie, data.tiedPlayerIds);
+    } else if (data.type === 'party_sudden_death_start' && data.room) {
+      currentRoom = data.room;
+      runStopwatchGame(data.countdownSec || 3, (time, diff) => {
+        submitPartyTime(currentRoom.id, time).catch(() => {});
+        renderWaitingForOthers(time, diff);
+      });
+    }
+  }
+
+  function renderPartyLobbyView() {
+    if (!currentRoom) return;
+    const isHost = user && currentRoom.hostId === user.id;
+    const totalPot = currentRoom.stakeAmount * (currentRoom.players ? currentRoom.players.length : 0);
+
+    container.innerHTML = `
+      <div class="text-center" style="margin-bottom: 14px;">
+        <div style="background: rgba(255, 215, 0, 0.08); border: 2px dashed var(--gold); border-radius: var(--radius-lg); padding: 14px 10px; margin-bottom: 12px;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700;">
+            ${t('arcade.blind10CodePrompt')}
+          </div>
+          <div style="font-size: 2.4rem; font-weight: 900; letter-spacing: 6px; color: var(--gold); font-family: monospace; margin: 4px 0;">
+            ${currentRoom.code}
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-party-code" style="font-size: 0.8rem; padding: 4px 14px;">
+            📋 ${isEn ? 'Copy Room Code' : 'Kopiera rumskod'}
+          </button>
+        </div>
+
+        <div class="flex justify-between align-center" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-md); padding: 8px 14px; margin-bottom: 14px; border: 1px solid var(--border-glass);">
+          <span style="font-size: 0.85rem; color: var(--text-secondary);">
+            ${isEn ? 'Stake per person' : 'Insats/pers'}: <strong>${currentRoom.stakeAmount} kr</strong>
+          </span>
+          <span style="font-size: 0.88rem; font-weight: 700; color: #10b981;">
+            💰 ${t('arcade.blind10TotalPot')} ${totalPot} kr
+          </span>
+        </div>
+      </div>
+
+      <!-- Player List -->
+      <div style="margin-bottom: 18px;">
+        <div style="font-size: 0.85rem; font-weight: 700; margin-bottom: 8px; color: var(--text-muted);">
+          👥 ${t('arcade.blind10PlayersJoined')} (${currentRoom.players ? currentRoom.players.length : 0}):
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          ${(currentRoom.players || []).map(p => `
+            <div class="party-player-chip ${p.isHost ? 'host' : ''}">
+              <span>${p.avatarEmoji || (p.isHost ? '👑' : '👤')}</span>
+              <span>${escapeHtml(p.nickname)}</span>
+              ${p.isHost ? `<span style="font-size: 0.7rem; opacity: 0.8;">(${isEn ? 'Host' : 'Värd'})</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Action Area -->
+      ${isHost ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-start-party-game" style="padding: 16px; font-size: 1.05rem; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 16px rgba(16, 185, 129, 0.45);">
+          ${t('arcade.blind10StartGameBtn')}
+        </button>
+      ` : `
+        <div class="text-center" style="padding: 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); margin-bottom: 12px;">
+          <span class="spinner" style="margin-bottom: 6px;">⏳</span>
+          <div style="font-size: 0.9rem; font-weight: 600; color: var(--gold);">
+            ${isEn ? 'Waiting for host to start the game...' : 'Väntar på att värden ska starta spelet...'}
+          </div>
+        </div>
+      `}
+
+      <button type="button" class="btn btn-secondary btn-block btn-sm" id="btn-leave-party">
+        🚪 ${isEn ? 'Leave Room' : 'Lämna rummet'}
+      </button>
+    `;
+
+    document.getElementById('btn-copy-party-code')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(currentRoom.code).then(() => {
+        showToast(isEn ? 'Code copied to clipboard!' : 'Rumskod kopierad!', 'success');
+      }).catch(() => {
+        showToast(currentRoom.code, 'info');
+      });
+    });
+
+    document.getElementById('btn-start-party-game')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-start-party-game');
+      if (btn) btn.disabled = true;
+      try {
+        await startPartyGame(currentRoom.id);
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Failed to start game' : 'Kunde inte starta spelet'), 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btn-leave-party')?.addEventListener('click', () => {
+      cleanup();
+      renderSetupView();
+    });
+  }
+
+  // ── VIEW 3: COUNTDOWN & STOPWATCH CHALLENGE ───────────
+  function runStopwatchGame(countdownSec, onFinished) {
+    let currentCountdown = countdownSec;
+    let gameStartTime = 0;
+    let isStopped = false;
+    let finalStoppedTime = 0;
+    let finalDiff = 0;
+
+    container.innerHTML = `
+      <div id="blind10-game-screen" style="padding: 10px 0; text-align: center;">
+        <div id="countdown-overlay" style="padding: 40px 0;">
+          <div style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">
+            ${isEn ? 'Get Ready...' : 'Gör dig redo...'}
+          </div>
+          <div id="countdown-digits" style="font-size: 5rem; font-weight: 900; color: var(--gold); text-shadow: 0 0 30px rgba(255,215,0,0.5);">
+            ${currentCountdown}
+          </div>
+        </div>
+
+        <div id="stopwatch-active-wrap" style="display: none;">
+          <div class="blind10-timer-display" id="blind10-display">
+            <div class="blind10-timer-digits" id="blind10-digits">00.000s</div>
+            <div class="blind10-timer-hint" id="blind10-hint">
+              ${isEn ? 'Clock blacks out at 03:00s!' : 'Klockan släcks vid 03:00s!'}
+            </div>
+          </div>
+
+          <div style="margin-top: 26px;">
+            <button type="button" class="blind10-stop-btn" id="btn-blind10-stop">
+              ${t('arcade.blind10StopBtn')}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    playTone(440, 'sine', 0.2, 0.15); // Countdown 3
+
+    const countdownInterval = setInterval(() => {
+      currentCountdown--;
+      const digitsEl = document.getElementById('countdown-digits');
+      if (currentCountdown > 0) {
+        if (digitsEl) digitsEl.textContent = currentCountdown;
+        playTone(440, 'sine', 0.2, 0.15);
+      } else if (currentCountdown === 0) {
+        if (digitsEl) {
+          digitsEl.textContent = isEn ? 'GO!' : 'KÖR!';
+          digitsEl.style.color = '#10b981';
+        }
+        playTone(880, 'sine', 0.35, 0.25);
+      } else {
+        clearInterval(countdownInterval);
+        startActualClock();
+      }
+    }, 1000);
+
+    function startActualClock() {
+      const overlay = document.getElementById('countdown-overlay');
+      const activeWrap = document.getElementById('stopwatch-active-wrap');
+      if (overlay) overlay.style.display = 'none';
+      if (activeWrap) activeWrap.style.display = 'block';
+
+      const displayEl = document.getElementById('blind10-display');
+      const digitsEl = document.getElementById('blind10-digits');
+      const hintEl = document.getElementById('blind10-hint');
+      const stopBtn = document.getElementById('btn-blind10-stop');
+
+      gameStartTime = performance.now();
+
+      function updateClock() {
+        if (isStopped) return;
+        const now = performance.now();
+        const elapsedSec = (now - gameStartTime) / 1000;
+
+        if (elapsedSec >= 3.0) {
+          if (!displayEl.classList.contains('blind')) {
+            displayEl.classList.add('blind');
+            digitsEl.innerHTML = `<span class="blind-text">👁️ BLIND MODE</span>`;
+            hintEl.textContent = t('arcade.blind10BlindActive');
+          }
+        } else {
+          digitsEl.textContent = elapsedSec.toFixed(3) + 's';
+        }
+
+        activeAnimationId = requestAnimationFrame(updateClock);
+      }
+
+      activeAnimationId = requestAnimationFrame(updateClock);
+
+      stopBtn?.addEventListener('click', () => {
+        if (isStopped) return;
+        isStopped = true;
+        cancelAnimationFrame(activeAnimationId);
+
+        const stopTimeMs = performance.now();
+        finalStoppedTime = Math.round(((stopTimeMs - gameStartTime) / 1000) * 1000) / 1000;
+        finalDiff = Math.round(Math.abs(finalStoppedTime - 10.000) * 1000) / 1000;
+
+        playTone(587.33, 'sine', 0.15, 0.25);
+        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.2), 90);
+
+        stopBtn.disabled = true;
+        displayEl.classList.remove('blind');
+        digitsEl.textContent = finalStoppedTime.toFixed(3) + 's';
+        const sign = finalStoppedTime >= 10.000 ? '+' : '-';
+        hintEl.innerHTML = `<strong style="color: var(--gold); font-size: 1.1rem;">Diff: ${sign}${finalDiff.toFixed(3)}s</strong>`;
+
+        activeTimeoutId = setTimeout(() => {
+          onFinished(finalStoppedTime, finalDiff);
+        }, 1200);
+      });
+    }
+  }
+
+  // ── VIEW 4: PARTY WAITING FOR OTHERS ─────────────────
+  function renderWaitingForOthers(myTime, myDiff) {
+    const sign = myTime >= 10.000 ? '+' : '-';
+    container.innerHTML = `
+      <div class="text-center" style="padding: 24px 0;">
+        <div style="font-size: 3rem; margin-bottom: 8px;">⏱️</div>
+        <h3 style="color: var(--gold); margin-bottom: 6px;">
+          ${isEn ? 'Time Logged!' : 'Tid registrerad!'}
+        </h3>
+        <div style="font-size: 2.2rem; font-family: monospace; font-weight: 800; color: #ffffff; margin-bottom: 4px;">
+          ${myTime.toFixed(3)}s
+        </div>
+        <div class="badge badge-accent mb-lg" style="font-size: 0.95rem; padding: 4px 14px;">
+          Diff mot 10:00: ${sign}${myDiff.toFixed(3)}s
+        </div>
+
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 18px; max-width: 320px; margin: 0 auto;">
+          <span class="spinner" style="margin-bottom: 10px;">⏳</span>
+          <div style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);" id="party-waiting-status">
+            ${t('arcade.blind10StoppedWaiting')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── VIEW 5: PARTY RESULTS & PODIUM ───────────────────
+  function renderPartyResultsView(room, isTie, tiedPlayerIds) {
+    const isHost = user && room.hostId === user.id;
+    const totalPot = room.stakeAmount * (room.players ? room.players.length : 0);
+
+    // Tie breaker on 1st place!
+    if (isTie && tiedPlayerIds && tiedPlayerIds.length > 1) {
+      playTone(440, 'triangle', 0.3, 0.2);
+      const tiedPlayers = room.players.filter(p => tiedPlayerIds.includes(p.id));
+      const tiedNames = tiedPlayers.map(p => escapeHtml(p.nickname)).join(' & ');
+
+      container.innerHTML = `
+        <div class="text-center" style="padding: 10px 0;">
+          <div style="font-size: 3.2rem; margin-bottom: 8px;">🔥</div>
+          <h2 style="color: #ef4444; font-size: 1.4rem; font-weight: 800; margin-bottom: 6px;">
+            ${t('arcade.blind10TieTitle')}
+          </h2>
+          <p style="font-size: 0.95rem; color: var(--text-secondary); max-width: 320px; margin: 0 auto 16px auto;">
+            <strong>${tiedNames}</strong> ${isEn ? 'have the exact same diff!' : 'stannade med exakt samma diff!'} (${tiedPlayers[0]?.diff?.toFixed(3)}s)
+          </p>
+
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; margin-bottom: 18px;">
+            ${room.results.map((p, idx) => `
+              <div class="blind10-podium-item ${tiedPlayerIds.includes(p.id) ? 'rank-1' : ''}">
+                <div class="flex align-center gap-xs">
+                  <span style="font-weight: 700; font-size: 1.1rem;">${tiedPlayerIds.includes(p.id) ? '🔥' : `#${idx + 1}`}</span>
+                  <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
+                </div>
+                <div class="text-right">
+                  <div style="font-family: monospace; font-weight: 700; color: #fff;">${p.stoppedTime?.toFixed(3)}s</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted);">Diff: ${p.diff?.toFixed(3)}s</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+
+          ${isHost ? `
+            <div class="flex flex-col gap-sm">
+              <button type="button" class="btn btn-primary btn-block" id="btn-party-sudden-death" style="padding: 14px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 700;">
+                ${t('arcade.blind10SuddenDeathBtn')}
+              </button>
+              ${room.stakeAmount > 0 ? `
+                <button type="button" class="btn btn-secondary btn-block" id="btn-party-split-pot" style="padding: 12px;">
+                  ${t('arcade.blind10SplitPotBtn')}
+                </button>
+              ` : ''}
+            </div>
+          ` : `
+            <div class="text-muted" style="font-size: 0.88rem; padding: 10px;">
+              <span class="spinner">⏳</span> ${isEn ? 'Waiting for host to choose Sudden Death or Split...' : 'Väntar på att värden ska välja Sudden Death eller dela potten...'}
+            </div>
+          `}
+        </div>
+      `;
+
+      document.getElementById('btn-party-sudden-death')?.addEventListener('click', async () => {
+        try {
+          await resolvePartyTie(room.id, 'sudden_death');
+        } catch (e) {
+          showToast(e.message || 'Kunde inte starta sudden death', 'error');
+        }
+      });
+
+      document.getElementById('btn-party-split-pot')?.addEventListener('click', async () => {
+        try {
+          await resolvePartyTie(room.id, 'split_pot');
+        } catch (e) {
+          showToast(e.message || 'Kunde inte dela potten', 'error');
+        }
+      });
+
+      return;
+    }
+
+    // Single winner decided!
+    launchConfetti();
+    playCoinSound();
+
+    const winner = room.results && room.results[0] ? room.results[0] : room.players[0];
+    const isWinner = user && winner && user.id === winner.id;
+    const losers = room.players.filter(p => p.id !== winner.id);
+
+    // Swish payment link if current user is loser and stake > 0
+    const swishUrl = (!isWinner && room.stakeAmount > 0 && winner.swishNumber)
+      ? createSwishUrl({ phone: winner.swishNumber, amount: room.stakeAmount, message: 'Blind 10 duell' })
+      : null;
+
+    container.innerHTML = `
+      <div class="text-center" style="padding: 10px 0;">
+        <div style="font-size: 3.2rem; margin-bottom: 6px;">👑</div>
+        <h2 style="color: var(--gold); font-size: 1.35rem; font-weight: 800; margin-bottom: 4px;">
+          ${escapeHtml(winner.nickname)} ${t('arcade.blind10WinnerWins')}
+        </h2>
+        ${room.stakeAmount > 0 ? `
+          <div style="font-size: 1.6rem; font-weight: 900; color: #10b981; margin-bottom: 12px;">
+            💰 ${totalPot} kr
+          </div>
+        ` : `
+          <div class="badge badge-accent mb-md" style="font-size: 0.85rem; padding: 4px 14px;">
+            ✨ Ren och skär ära!
+          </div>
+        `}
+
+        <!-- Results Podium -->
+        <div style="margin-bottom: 18px; text-align: left;">
+          ${(room.results || room.players).map((p, idx) => {
+            const isFirst = idx === 0;
+            return `
+              <div class="blind10-podium-item ${isFirst ? 'rank-1' : ''}">
+                <div class="flex align-center gap-xs">
+                  <span style="font-weight: 800; font-size: 1.1rem; min-width: 24px;">
+                    ${isFirst ? '🥇' : (idx === 1 ? '🥈' : (idx === 2 ? '🥉' : `#${idx + 1}`))}
+                  </span>
+                  <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
+                </div>
+                <div class="text-right">
+                  <div style="font-family: monospace; font-weight: 800; color: ${isFirst ? 'var(--gold)' : '#fff'}; font-size: 1rem;">
+                    ${p.stoppedTime !== null && p.stoppedTime !== undefined ? p.stoppedTime.toFixed(3) + 's' : '-'}
+                  </div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted);">
+                    Diff: ${p.diff !== null && p.diff !== undefined ? p.diff.toFixed(3) + 's' : '-'}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- 💸 Swish Action Box -->
+        ${room.stakeAmount > 0 ? (
+          isWinner ? `
+            <div style="background: rgba(16,185,129,0.1); border: 1px solid #10b981; border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px;">
+              <div style="font-weight: 700; color: #34d399; margin-bottom: 4px;">🎉 Grattis! Du är mästaren!</div>
+              <div style="font-size: 0.82rem; color: var(--text-secondary);">
+                ${losers.length} deltagare är skyldiga dig ${room.stakeAmount} kr vardera. Uppgörelsen är sparad i <strong>Swishlistan / Notan</strong>!
+              </div>
+            </div>
+          ` : `
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px;">
+              <div style="font-size: 0.88rem; margin-bottom: 10px; color: var(--text-secondary);">
+                Du förlorade mot <strong>${escapeHtml(winner.nickname)}</strong> och är skyldig <strong>${room.stakeAmount} kr</strong>.
+              </div>
+              ${swishUrl ? `
+                <a href="${swishUrl}" class="swish-pay-btn" target="_blank" rel="noopener noreferrer" style="display: block; text-align: center; margin-bottom: 8px;">
+                  💸 ${t('arcade.diceSwishNow')} (${room.stakeAmount} kr)
+                </a>
+              ` : `
+                <div class="text-muted" style="font-size: 0.8rem;">
+                  📱 Vinnarens Swish: ${winner.swishNumber ? escapeHtml(winner.swishNumber) : 'Ej angivet'}
+                </div>
+              `}
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">
+                ✅ Skulden har automatiskt lagts till i din <strong>Notan & Swishlista</strong>.
+              </div>
+            </div>
+          `
+        ) : ''}
+
+        <div class="flex gap-sm">
+          <button type="button" class="btn btn-secondary btn-block" id="btn-party-close">
+            ❌ ${isEn ? 'Close' : 'Stäng'}
+          </button>
+          <button type="button" class="btn btn-primary btn-block" id="btn-party-play-again" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
+            🔄 ${isEn ? 'Play Again' : 'Spela igen'}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btn-party-close')?.addEventListener('click', () => {
+      cleanup();
+      closeModal();
+    });
+
+    document.getElementById('btn-party-play-again')?.addEventListener('click', () => {
+      cleanup();
+      renderSetupView();
+    });
+  }
+
+  // ── PASS & PLAY LOGIC (SEQUENCE OF TURNS ON ONE PHONE) ─
+  function startPassAndPlayRun(players, stake) {
+    let playerIdx = 0;
+    const results = [];
+
+    function nextTurn() {
+      if (playerIdx >= players.length) {
+        finishPassAndPlayRun(results, stake);
+        return;
+      }
+
+      const currentPlayer = players[playerIdx];
+
+      container.innerHTML = `
+        <div class="text-center" style="padding: 24px 0;">
+          <div style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px;">
+            ${isEn ? `Turn ${playerIdx + 1} of ${players.length}` : `Runda ${playerIdx + 1} av ${players.length}`}
+          </div>
+          <div style="font-size: 3rem; margin-bottom: 8px;">👤</div>
+          <h2 style="color: var(--gold); font-size: 1.5rem; font-weight: 800; margin-bottom: 12px;">
+            ${escapeHtml(currentPlayer)}
+          </h2>
+          <p class="text-muted mb-lg" style="max-width: 280px; margin: 0 auto 20px auto; font-size: 0.88rem;">
+            ${isEn ? 'Take the phone and get ready to stop at 10.00s!' : 'Ta telefonen och gör dig redo att stanna på 10:00!'}
+          </p>
+
+          <button type="button" class="btn btn-primary btn-block" id="btn-start-single-turn" style="padding: 16px; font-size: 1.1rem; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none;">
+            🚀 ${isEn ? 'Start My Turn' : 'Starta min runda!'}
+          </button>
+        </div>
+      `;
+
+      document.getElementById('btn-start-single-turn')?.addEventListener('click', () => {
+        runStopwatchGame(3, (time, diff) => {
+          results.push({
+            name: currentPlayer,
+            stoppedTime: time,
+            diff: diff
+          });
+
+          playerIdx++;
+          container.innerHTML = `
+            <div class="text-center" style="padding: 20px 0;">
+              <div style="font-size: 2.4rem; margin-bottom: 6px;">🎯</div>
+              <h3 style="color: var(--gold);">${escapeHtml(currentPlayer)}</h3>
+              <div style="font-size: 2rem; font-family: monospace; font-weight: 900; margin: 8px 0;">
+                ${time.toFixed(3)}s
+              </div>
+              <div class="badge badge-accent mb-lg" style="font-size: 0.95rem; padding: 4px 14px;">
+                Diff: ${diff.toFixed(3)}s
+              </div>
+              <button type="button" class="btn btn-primary btn-block" id="btn-pass-continue" style="padding: 14px; font-weight: 700;">
+                ${playerIdx < players.length ? `Nästa spelare (${players[playerIdx]}) ➡️` : 'Visa slutresultat! 🏆'}
+              </button>
+            </div>
+          `;
+
+          document.getElementById('btn-pass-continue')?.addEventListener('click', () => {
+            nextTurn();
+          });
+        });
+      });
+    }
+
+    nextTurn();
+  }
+
+  function finishPassAndPlayRun(results, stake) {
+    results.sort((a, b) => a.diff - b.diff);
+    const bestDiff = results[0].diff;
+    const tied = results.filter(r => r.diff === bestDiff);
+
+    if (tied.length > 1) {
+      playTone(440, 'triangle', 0.3, 0.2);
+      const tiedNames = tied.map(t => escapeHtml(t.name)).join(' & ');
+
+      container.innerHTML = `
+        <div class="text-center" style="padding: 10px 0;">
+          <div style="font-size: 3rem; margin-bottom: 8px;">🔥</div>
+          <h2 style="color: #ef4444; font-weight: 800; font-size: 1.35rem; margin-bottom: 4px;">
+            ${t('arcade.blind10TieTitle')}
+          </h2>
+          <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 14px;">
+            <strong>${tiedNames}</strong> stannade med exakt samma diff (${bestDiff.toFixed(3)}s)!
+          </p>
+
+          <div class="flex flex-col gap-sm">
+            <button type="button" class="btn btn-primary btn-block" id="btn-pass-sudden-death" style="padding: 14px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 700;">
+              ${t('arcade.blind10SuddenDeathBtn')}
+            </button>
+            <button type="button" class="btn btn-secondary btn-block" id="btn-pass-split-pot" style="padding: 12px;">
+              ${t('arcade.blind10SplitPotBtn')}
+            </button>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('btn-pass-sudden-death')?.addEventListener('click', () => {
+        startPassAndPlayRun(tied.map(t => t.name), stake);
+      });
+
+      document.getElementById('btn-pass-split-pot')?.addEventListener('click', () => {
+        showFinalPassPodium(results, stake, true, tied);
+      });
+      return;
+    }
+
+    showFinalPassPodium(results, stake, false, []);
+  }
+
+  function showFinalPassPodium(results, stake, isSplit, tied) {
+    launchConfetti();
+    playCoinSound();
+
+    const winner = results[0];
+    const totalPot = stake * results.length;
+
+    container.innerHTML = `
+      <div class="text-center" style="padding: 10px 0;">
+        <div style="font-size: 3.2rem; margin-bottom: 4px;">🏆</div>
+        <h2 style="color: var(--gold); font-size: 1.4rem; font-weight: 800; margin-bottom: 4px;">
+          ${isSplit ? `Delad seger mellan ${tied.map(t => escapeHtml(t.name)).join(' & ')}!` : `${escapeHtml(winner.name)} tar hem segern!`}
+        </h2>
+        ${stake > 0 ? `
+          <div style="font-size: 1.6rem; font-weight: 900; color: #10b981; margin-bottom: 12px;">
+            💰 Pott: ${totalPot} kr ${isSplit ? `(${Math.round(totalPot / tied.length)} kr/vinnare)` : ''}
+          </div>
+        ` : ''}
+
+        <div style="margin-bottom: 16px; text-align: left;">
+          ${results.map((r, idx) => `
+            <div class="blind10-podium-item ${idx === 0 ? 'rank-1' : ''}">
+              <div class="flex align-center gap-xs">
+                <span style="font-weight: 800; font-size: 1.1rem; min-width: 24px;">
+                  ${idx === 0 ? '🥇' : (idx === 1 ? '🥈' : (idx === 2 ? '🥉' : `#${idx + 1}`))}
+                </span>
+                <strong>${escapeHtml(r.name)}</strong>
+              </div>
+              <div class="text-right">
+                <div style="font-family: monospace; font-weight: 800; color: ${idx === 0 ? 'var(--gold)' : '#fff'};">
+                  ${r.stoppedTime.toFixed(3)}s
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                  Diff: ${r.diff.toFixed(3)}s
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="flex gap-sm">
+          <button type="button" class="btn btn-secondary btn-block" id="btn-finish-pass-close">
+            ❌ ${isEn ? 'Close' : 'Stäng'}
+          </button>
+          <button type="button" class="btn btn-primary btn-block" id="btn-finish-pass-again">
+            🔄 ${isEn ? 'Play Again' : 'Ny omgång'}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btn-finish-pass-close')?.addEventListener('click', () => {
+      closeModal();
+    });
+    document.getElementById('btn-finish-pass-again')?.addEventListener('click', () => {
+      renderSetupView();
+    });
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 🔔 INCOMING PARTY INVITATION MODAL
+// ────────────────────────────────────────────────────────
+export function showIncomingPartyModal(room) {
+  const isEn = getLang() === 'en';
+  playTone(587.33, 'sine', 0.25, 0.15); // D5 chime
+  setTimeout(() => playTone(880, 'sine', 0.3, 0.15), 150);
+
+  const titleHtml = `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
+
+  showModal(titleHtml, `
+    <div class="text-center" style="padding: 10px 0;">
+      <div style="font-size: 3rem; margin-bottom: 8px;">⏱️</div>
+      <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.2rem;">
+        ${escapeHtml(room.hostNickname)} ${isEn ? 'invited you to The Blind 10.00!' : 'bjöd in dig till The Blind 10.00!'}
+      </h3>
+      <div class="badge badge-accent mb-md" style="font-size: 0.95rem; padding: 6px 16px;">
+        ${room.stakeAmount > 0 ? `💰 ${room.stakeAmount} kr ${isEn ? 'per player' : 'per deltagare'}` : '✨ Bara ära (0 kr)'}
+      </div>
+      <p class="text-muted mb-lg" style="font-size: 0.85rem; max-width: 300px; margin: 0 auto 16px auto;">
+        ${isEn 
+          ? 'Stop the clock as close to 10.00s as possible. At 3.00s the display turns black!' 
+          : 'Stanna klockan så nära 10:00.00s som möjligt. Vid 3.00s blir skärmen kolsvart!'}
+      </p>
+
+      <div class="flex gap-sm">
+        <button type="button" class="btn btn-secondary btn-block" id="btn-decline-party" style="padding: 12px;">
+          ❌ ${isEn ? 'Decline' : 'Neka'}
+        </button>
+        <button type="button" class="btn btn-primary btn-block" id="btn-accept-party" style="padding: 12px; background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700;">
+          🚀 ${isEn ? 'Join Party' : 'Gå med i rummet'}
+        </button>
+      </div>
+    </div>
+  `);
+
+  document.getElementById('btn-decline-party')?.addEventListener('click', () => {
+    closeModal();
+  });
+
+  document.getElementById('btn-accept-party')?.addEventListener('click', async () => {
+    try {
+      const res = await joinPartyRoom({ roomId: room.id });
+      if (res && res.room) {
+        closeModal();
+        openBlind10Modal(res.room);
+      }
+    } catch (e) {
+      showToast(isEn ? 'Failed to join party room' : 'Kunde inte gå med i rummet', 'error');
+    }
+  });
+}
+
+// ────────────────────────────────────────────────────────
 // 📱 SWISHLISTAN & UPPGÖRELSER MODAL
 // ────────────────────────────────────────────────────────
 export async function openSwishlistModal() {
@@ -2295,6 +3370,8 @@ export function setupGlobalDuelListener() {
         const data = JSON.parse(event.data);
         if (data.type === 'duel_challenge' && data.duel) {
           showIncomingDuelModal(data.duel);
+        } else if (data.type === 'party_invitation' && data.room) {
+          showIncomingPartyModal(data.room);
         }
       } catch (e) {}
     };

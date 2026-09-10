@@ -202,3 +202,13 @@ export const respondDuel = (id, accept) => request('/duels/' + id + '/respond', 
 export const submitDuelRoll = (id, data) => request('/duels/' + id + '/roll', { method: 'POST', body: data });
 export const settleDuel = (id) => request('/duels/' + id + '/settle', { method: 'POST', body: {} });
 export const settleDuelsWithFriend = (friendId) => request('/duels/settle-with/' + friendId, { method: 'POST', body: {} });
+
+// ── Minigame Party Rooms (The Blind 10.00 etc.) ───────
+export const createPartyRoom = (data) => request('/minigames/party/create', { method: 'POST', body: data });
+export const getPartyRoom = (query) => request('/minigames/party/' + encodeURIComponent(query));
+export const joinPartyRoom = (data) => request('/minigames/party/join', { method: 'POST', body: data });
+export const inviteToParty = (id, friendIds) => request('/minigames/party/' + id + '/invite', { method: 'POST', body: { friendIds } });
+export const startPartyGame = (id) => request('/minigames/party/' + id + '/start', { method: 'POST', body: {} });
+export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: { stoppedTime } });
+export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
+

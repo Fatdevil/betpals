@@ -26,16 +26,21 @@ const wss = new WebSocketServer({ server });
 const eventClients = new Map(); // eventId/code → Set<ws>
 const userClients = new Map();  // userId → Set<ws>
 const duelClients = new Map();  // duelId → Set<ws>
+const partyRooms = new Map();   // partyId → room object
+const partyClients = new Map(); // partyId → Set<ws>
+const partyCodeToId = new Map();// 4-char code → partyId
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const eventCode = url.searchParams.get('event');
   const userToken = url.searchParams.get('token');
   const duelId = url.searchParams.get('duel');
+  const partyId = url.searchParams.get('party');
 
   let boundUserId = null;
   let boundDuelId = duelId || null;
   let boundEventCode = eventCode || null;
+  let boundPartyId = partyId || null;
 
   if (userToken) {
     const user = db.getUserByToken(userToken);
@@ -56,6 +61,11 @@ wss.on('connection', (ws, req) => {
     duelClients.get(duelId).add(ws);
   }
 
+  if (partyId) {
+    if (!partyClients.has(partyId)) partyClients.set(partyId, new Set());
+    partyClients.get(partyId).add(ws);
+  }
+
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw);
@@ -73,6 +83,13 @@ wss.on('connection', (ws, req) => {
       } else if (msg.type === 'leave_duel' && msg.duelId) {
         duelClients.get(msg.duelId)?.delete(ws);
         if (boundDuelId === msg.duelId) boundDuelId = null;
+      } else if (msg.type === 'join_party' && msg.partyId) {
+        boundPartyId = msg.partyId;
+        if (!partyClients.has(msg.partyId)) partyClients.set(msg.partyId, new Set());
+        partyClients.get(msg.partyId).add(ws);
+      } else if (msg.type === 'leave_party' && msg.partyId) {
+        partyClients.get(msg.partyId)?.delete(ws);
+        if (boundPartyId === msg.partyId) boundPartyId = null;
       } else if (msg.type === 'duel_live_roll' && msg.duelId) {
         // Forward roll animation live to opponent in same duel
         broadcastToDuel(msg.duelId, {
@@ -109,6 +126,10 @@ wss.on('connection', (ws, req) => {
       duelClients.get(boundDuelId)?.delete(ws);
       if (duelClients.get(boundDuelId)?.size === 0) duelClients.delete(boundDuelId);
     }
+    if (boundPartyId) {
+      partyClients.get(boundPartyId)?.delete(ws);
+      if (partyClients.get(boundPartyId)?.size === 0) partyClients.delete(boundPartyId);
+    }
   });
 
   ws.on('error', () => {});
@@ -134,6 +155,15 @@ function broadcastToUser(userId, message) {
 
 function broadcastToDuel(duelId, message, excludeWs = null) {
   const clients = duelClients.get(duelId);
+  if (!clients) return;
+  const data = JSON.stringify(message);
+  for (const ws of clients) {
+    if (ws !== excludeWs && ws.readyState === 1) ws.send(data);
+  }
+}
+
+function broadcastToParty(partyId, message, excludeWs = null) {
+  const clients = partyClients.get(partyId);
   if (!clients) return;
   const data = JSON.stringify(message);
   for (const ws of clients) {
@@ -1601,6 +1631,297 @@ app.post('/api/duels/settle-with/:friendId', (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+// ── Minigame Party Rooms API (The Blind 10.00 etc.) ──────────────────
+app.post('/api/minigames/party/create', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { gameType, stakeAmount } = req.body;
+  const roomId = crypto.randomUUID();
+  let code;
+  do {
+    code = Math.random().toString(36).substring(2, 6).toUpperCase();
+  } while (partyCodeToId.has(code));
+
+  const room = {
+    id: roomId,
+    code,
+    gameType: gameType || 'blind10',
+    hostId: user.id,
+    hostNickname: user.nickname,
+    stakeAmount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 0,
+    status: 'lobby', // 'lobby' | 'countdown' | 'running' | 'results' | 'tie'
+    createdAt: new Date().toISOString(),
+    players: [
+      {
+        id: user.id,
+        nickname: user.nickname,
+        avatarUrl: user.avatarUrl || null,
+        avatarEmoji: user.avatarEmoji || '👑',
+        swishNumber: user.swishNumber || null,
+        isHost: true,
+        stoppedTime: null,
+        diff: null,
+        rank: null
+      }
+    ],
+    results: [],
+    tiedPlayerIds: []
+  };
+
+  partyRooms.set(roomId, room);
+  partyCodeToId.set(code, roomId);
+  res.json({ room });
+});
+
+app.get('/api/minigames/party/:query', (req, res) => {
+  const query = req.params.query.toUpperCase();
+  const roomId = partyCodeToId.get(query) || req.params.query;
+  const room = partyRooms.get(roomId);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+  res.json({ room });
+});
+
+app.post('/api/minigames/party/join', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { code, roomId } = req.body;
+  const targetId = roomId || partyCodeToId.get((code || '').toUpperCase());
+  const room = partyRooms.get(targetId);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+  if (room.status !== 'lobby' && room.status !== 'tie') {
+    return res.status(400).json({ error: 'Spelet har redan startat' });
+  }
+
+  let player = room.players.find(p => p.id === user.id);
+  if (!player) {
+    player = {
+      id: user.id,
+      nickname: user.nickname,
+      avatarUrl: user.avatarUrl || null,
+      avatarEmoji: user.avatarEmoji || '👤',
+      swishNumber: user.swishNumber || null,
+      isHost: false,
+      stoppedTime: null,
+      diff: null,
+      rank: null
+    };
+    room.players.push(player);
+  }
+
+  broadcastToParty(room.id, {
+    type: 'party_updated',
+    room
+  });
+
+  res.json({ room });
+});
+
+app.post('/api/minigames/party/:id/invite', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+
+  const { friendIds } = req.body;
+  if (Array.isArray(friendIds)) {
+    for (const fId of friendIds) {
+      broadcastToUser(fId, {
+        type: 'party_invitation',
+        room: {
+          id: room.id,
+          code: room.code,
+          gameType: room.gameType,
+          hostNickname: user.nickname,
+          stakeAmount: room.stakeAmount
+        }
+      });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+app.post('/api/minigames/party/:id/start', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+  if (room.hostId !== user.id) return res.status(403).json({ error: 'Endast hosten kan starta spelet' });
+
+  room.status = 'running';
+  room.results = [];
+  room.tiedPlayerIds = [];
+  for (const p of room.players) {
+    p.stoppedTime = null;
+    p.diff = null;
+    p.rank = null;
+  }
+
+  broadcastToParty(room.id, {
+    type: 'party_started',
+    room,
+    countdownSec: 3
+  });
+
+  res.json({ ok: true, room });
+});
+
+app.post('/api/minigames/party/:id/submit', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+
+  const { stoppedTime } = req.body;
+  const time = typeof stoppedTime === 'number' ? stoppedTime : parseFloat(stoppedTime) || 0;
+  const diff = Math.round(Math.abs(time - 10.000) * 1000) / 1000;
+
+  const player = room.players.find(p => p.id === user.id);
+  if (player) {
+    player.stoppedTime = time;
+    player.diff = diff;
+  }
+
+  broadcastToParty(room.id, {
+    type: 'party_player_stopped',
+    userId: user.id,
+    nickname: user.nickname,
+    stoppedCount: room.players.filter(p => p.stoppedTime !== null).length,
+    totalCount: room.players.length
+  });
+
+  const activePlayers = room.tiedPlayerIds.length > 0 
+    ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
+    : room.players;
+
+  const allFinished = activePlayers.every(p => p.stoppedTime !== null);
+
+  if (allFinished && activePlayers.length > 0) {
+    activePlayers.sort((a, b) => a.diff - b.diff);
+
+    const bestDiff = activePlayers[0].diff;
+    const tied = activePlayers.filter(p => p.diff === bestDiff);
+
+    if (tied.length > 1) {
+      room.status = 'tie';
+      room.tiedPlayerIds = tied.map(p => p.id);
+      room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+      broadcastToParty(room.id, {
+        type: 'party_results',
+        room,
+        isTie: true,
+        tiedPlayerIds: room.tiedPlayerIds
+      });
+    } else {
+      room.status = 'completed';
+      const winner = activePlayers[0];
+      room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+      if (room.stakeAmount > 0) {
+        const losers = room.players.filter(p => p.id !== winner.id);
+        for (const loser of losers) {
+          try {
+            const duel = db.createDuel({
+              gameType: 'blind10',
+              creatorId: winner.id,
+              opponentId: loser.id,
+              stakeAmount: room.stakeAmount,
+              mode: 'online'
+            });
+            if (duel) {
+              db.submitDuelResult({
+                duelId: duel.id,
+                creatorScore: 1,
+                opponentScore: 0,
+                winnerId: winner.id
+              });
+            }
+          } catch (e) {
+            console.error('Failed to log party duel settlement:', e);
+          }
+        }
+      }
+
+      broadcastToParty(room.id, {
+        type: 'party_results',
+        room,
+        isTie: false,
+        winner
+      });
+    }
+  }
+
+  res.json({ ok: true, room });
+});
+
+app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+
+  const { decision } = req.body;
+
+  if (decision === 'sudden_death') {
+    room.status = 'running';
+    for (const p of room.players) {
+      if (room.tiedPlayerIds.includes(p.id)) {
+        p.stoppedTime = null;
+        p.diff = null;
+      }
+    }
+    broadcastToParty(room.id, {
+      type: 'party_sudden_death_start',
+      room,
+      countdownSec: 3
+    });
+    res.json({ ok: true, room });
+  } else {
+    room.status = 'completed';
+    const tiedWinners = room.players.filter(p => room.tiedPlayerIds.includes(p.id));
+    const losers = room.players.filter(p => !room.tiedPlayerIds.includes(p.id));
+    
+    if (room.stakeAmount > 0 && tiedWinners.length > 0) {
+      const splitStake = Math.round((room.stakeAmount / tiedWinners.length) * 100) / 100;
+      for (const loser of losers) {
+        for (const winner of tiedWinners) {
+          try {
+            const duel = db.createDuel({
+              gameType: 'blind10',
+              creatorId: winner.id,
+              opponentId: loser.id,
+              stakeAmount: splitStake,
+              mode: 'online'
+            });
+            if (duel) {
+              db.submitDuelResult({
+                duelId: duel.id,
+                creatorScore: 1,
+                opponentScore: 0,
+                winnerId: winner.id
+              });
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    broadcastToParty(room.id, {
+      type: 'party_pot_split',
+      room,
+      tiedWinners
+    });
+    res.json({ ok: true, room });
+  }
 });
 
 
