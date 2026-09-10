@@ -131,9 +131,6 @@ export function renderMinigamesRoller() {
           <span>🎰</span> <span>${t('arcade.title')}</span>
         </div>
         <div class="flex gap-xs" style="align-items: center;">
-          <button type="button" class="btn btn-secondary btn-xs" id="btn-open-swishlist" style="font-size: 0.72rem; padding: 2px 8px; border-color: rgba(16, 185, 129, 0.4); color: #34d399; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
-            📱 <span>${t('arcade.swishListBtn')}</span>
-          </button>
           <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
             ${t('arcade.tagline')}
           </span>
