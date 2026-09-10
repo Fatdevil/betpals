@@ -21,7 +21,7 @@ export const en = {
   },
   nav: {
     home: 'Home',
-    leaderboard: 'Leaderboard',
+    leaderboard: 'The Tab',
     join: 'Join',
     admin: 'Admin',
     account: 'Profile'
@@ -129,10 +129,10 @@ export const en = {
     orDivider: 'or'
   },
   leaderboard: {
-    title: '🏆 Leaderboard',
-    subtitle: 'Malta’s sharpest bettors — who has the best ROI?',
-    noPlayers: 'No bettors on the board yet. Place a bet and take the lead!',
-    allPlayers: '📊 Overall Rankings',
+    title: '🧾 The Tab',
+    subtitle: "Who's rolling in chips and who's picking up the tab?",
+    noPlayers: 'No bettors on the tab yet. Place a bet and take a seat at the table!',
+    allPlayers: '📊 Table Standings',
     players: 'Bettor',
     totalPredictions: 'Total bets',
     totalPool: 'Total volume',

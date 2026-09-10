@@ -21,7 +21,7 @@ export const sv = {
   },
   nav: {
     home: 'Hem',
-    leaderboard: 'Topplista',
+    leaderboard: 'Notan',
     join: 'Gå med',
     admin: 'Admin',
     account: 'Profil'
@@ -129,10 +129,10 @@ export const sv = {
     orDivider: 'eller'
   },
   leaderboard: {
-    title: '🏆 Topplista',
-    subtitle: 'Maltas vassaste bettare — vem har bäst ROI?',
-    noPlayers: 'Inga bettare på listan ännu. Lägg ett bet och ta ledningen!',
-    allPlayers: '📊 Total ranking',
+    title: '🧾 Notan',
+    subtitle: 'Vem badar i chips och vem plockar upp notan?',
+    noPlayers: 'Inga bettare på notan ännu. Lägg ett bet och ta plats vid bordet!',
+    allPlayers: '📊 Ställning runt bordet',
     players: 'Bettare',
     totalPredictions: 'Totala bets',
     totalPool: 'Totalt omsatt',
