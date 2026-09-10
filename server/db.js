@@ -325,10 +325,12 @@ const stmts = {
   deleteBanner: db.prepare('DELETE FROM tournament_banners WHERE id = ? AND tournament_id = ?'),
 
   // Settlement Receipts
-  getSettlementReceipts: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ?'),
+  getSettlementReceipts: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? ORDER BY paid_at ASC'),
   getSettlementReceipt: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
+  getSettlementReceiptById: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE id = ?'),
   insertSettlementReceipt: db.prepare('INSERT INTO tournament_settlement_receipts (id, tournament_id, from_name, to_name, amount) VALUES (?, ?, ?, ?, ?)'),
   deleteSettlementReceipt: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
+  deleteSettlementReceiptById: db.prepare('DELETE FROM tournament_settlement_receipts WHERE id = ?'),
   deleteTournamentReceipts: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ?'),
   deleteTournamentBanners: db.prepare('DELETE FROM tournament_banners WHERE tournament_id = ?'),
   deleteTournamentPhotosByTournament: db.prepare('DELETE FROM tournament_photos WHERE tournament_id = ?'),
@@ -882,11 +884,21 @@ export function getFullTournament(idOrCode) {
 }
 
 export function getTournamentNetSettlement(tournamentId) {
-  const rounds = stmts.getEventsByTournament.all(tournamentId);
-  const finishedRounds = rounds.filter(r => r.status === 'finished' && r.winner_id);
+  const events = stmts.getEventsByTournament.all(tournamentId);
+  const finishedEvents = events.filter(r => r.status === 'finished' && r.winner_id);
 
-  // Calculate net balance per user (by bettor_name since not all bettors may have accounts)
-  const balances = {}; // { bettorName: net amount }
+  // Balances and audit trail per person
+  const balances = {}; // { [name]: { amount: 0, rawTotal: 0, totalPaid: 0, totalReceived: 0, userId: null } }
+  const auditTrail = {}; // { [name]: Array<any> }
+
+  const ensurePlayer = (name, userId) => {
+    if (!balances[name]) {
+      balances[name] = { amount: 0, rawTotal: 0, totalPaid: 0, totalReceived: 0, userId: userId || null };
+    } else if (userId && !balances[name].userId) {
+      balances[name].userId = userId;
+    }
+    if (!auditTrail[name]) auditTrail[name] = [];
+  };
 
   const tournament = stmts.getTournamentById.get(tournamentId);
   let creatorName = 'Hus/Skapare';
@@ -896,57 +908,122 @@ export function getTournamentNetSettlement(tournamentId) {
     if (u) creatorName = u.nickname;
   }
 
-  for (const round of finishedRounds) {
-    const bets = stmts.getBetsByEvent.all(round.id);
-    const totalPool = stmts.getTotalPool.get(round.id).total;
-    const effectivePool = totalPool * (round.payout_percent / 100);
+  for (const ev of finishedEvents) {
+    const bets = stmts.getBetsByEvent.all(ev.id);
+    const totalPool = stmts.getTotalPool.get(ev.id).total;
+    const effectivePool = totalPool * (ev.payout_percent / 100);
     const houseEdge = totalPool - effectivePool;
-    const winnerPool = stmts.getPlayerPool.get(round.id, round.winner_id).total;
+    const winnerPool = stmts.getPlayerPool.get(ev.id, ev.winner_id).total;
     const odds = winnerPool > 0 ? effectivePool / winnerPool : 0;
 
     if (houseEdge > 0) {
-      if (!balances[creatorName]) balances[creatorName] = { amount: 0, userId: creatorUserId };
+      ensurePlayer(creatorName, creatorUserId);
       balances[creatorName].amount += houseEdge;
+      balances[creatorName].rawTotal += houseEdge;
+      auditTrail[creatorName].push({
+        type: 'house_edge',
+        title: ev.name + ' (Husmarginal)',
+        isSideBet: Boolean(ev.is_side_bet),
+        amount: Math.round(houseEdge),
+        timestamp: ev.created_at
+      });
     }
 
     for (const bet of bets) {
       const name = bet.bettor_name;
-      if (!balances[name]) balances[name] = { amount: 0, userId: bet.user_id };
+      ensurePlayer(name, bet.user_id);
 
-      if (bet.player_id === round.winner_id) {
-        // Winner: gains (winnings - original bet)
+      const won = bet.player_id === ev.winner_id;
+      if (won) {
         const winnings = bet.amount * odds;
-        balances[name].amount += (winnings - bet.amount);
+        const netWinnings = winnings - bet.amount;
+        balances[name].amount += netWinnings;
+        balances[name].rawTotal += netWinnings;
+        auditTrail[name].push({
+          type: ev.is_side_bet ? 'sidebet' : 'round',
+          title: ev.name,
+          eventId: ev.id,
+          won: true,
+          amount: Math.round(netWinnings),
+          betAmount: bet.amount,
+          payout: Math.round(winnings),
+          timestamp: bet.created_at || ev.created_at
+        });
       } else {
-        // Loser: loses entire bet
         balances[name].amount -= bet.amount;
+        balances[name].rawTotal -= bet.amount;
+        auditTrail[name].push({
+          type: ev.is_side_bet ? 'sidebet' : 'round',
+          title: ev.name,
+          eventId: ev.id,
+          won: false,
+          amount: -Math.round(bet.amount),
+          betAmount: bet.amount,
+          timestamp: bet.created_at || ev.created_at
+        });
       }
-      // Keep latest userId
-      if (bet.user_id) balances[name].userId = bet.user_id;
     }
   }
 
-  // Fetch marked receipts
+  // Fetch marked receipts (delbetalningar mitt i resan / kvitteringar)
   const receipts = stmts.getSettlementReceipts.all(tournamentId);
+  for (const r of receipts) {
+    if (r.amount > 0) {
+      ensurePlayer(r.from_name, null);
+      ensurePlayer(r.to_name, null);
 
-  // Calculate minimal transfers (debt simplification)
+      // Debtor paid: debt reduced (balance increases)
+      balances[r.from_name].amount += r.amount;
+      balances[r.from_name].totalPaid += r.amount;
+
+      // Creditor received: credit reduced (balance decreases)
+      balances[r.to_name].amount -= r.amount;
+      balances[r.to_name].totalReceived += r.amount;
+
+      auditTrail[r.from_name].push({
+        type: 'payment_sent',
+        receiptId: r.id,
+        title: `📱 Inbetald delbetalning till ${r.to_name}`,
+        to: r.to_name,
+        amount: Math.round(r.amount),
+        timestamp: r.paid_at
+      });
+
+      auditTrail[r.to_name].push({
+        type: 'payment_received',
+        receiptId: r.id,
+        title: `📱 Mottagen delbetalning från ${r.from_name}`,
+        from: r.from_name,
+        amount: -Math.round(r.amount),
+        timestamp: r.paid_at
+      });
+    }
+  }
+
+  // Calculate minimal transfers (remaining debt to be settled)
   const people = Object.entries(balances)
-    .map(([name, data]) => ({ name, amount: Math.round(data.amount), userId: data.userId }))
-    .filter(p => Math.abs(p.amount) >= 1); // Ignore tiny rounding diffs
+    .map(([name, data]) => ({
+      name,
+      amount: Math.round(data.amount),
+      userId: data.userId
+    }))
+    .filter(p => Math.abs(p.amount) >= 1);
 
-  const debtors = people.filter(p => p.amount < 0).sort((a, b) => a.amount - b.amount); // most negative first
-  const creditors = people.filter(p => p.amount > 0).sort((a, b) => b.amount - a.amount); // most positive first
+  const debtors = people.filter(p => p.amount < 0).sort((a, b) => a.amount - b.amount);
+  const creditors = people.filter(p => p.amount > 0).sort((a, b) => b.amount - a.amount);
 
   const transfers = [];
   let di = 0, ci = 0;
 
-  while (di < debtors.length && ci < creditors.length) {
-    const debtor = debtors[di];
-    const creditor = creditors[ci];
+  const debtorWork = debtors.map(d => ({ ...d }));
+  const creditorWork = creditors.map(c => ({ ...c }));
+
+  while (di < debtorWork.length && ci < creditorWork.length) {
+    const debtor = debtorWork[di];
+    const creditor = creditorWork[ci];
     const transfer = Math.min(-debtor.amount, creditor.amount);
 
     if (transfer > 0) {
-      // Look up creditor's swish number
       let swishNumber = null;
       if (creditor.userId) {
         const user = stmts.getUserById.get(creditor.userId);
@@ -957,8 +1034,6 @@ export function getTournamentNetSettlement(tournamentId) {
         if (userByNick) swishNumber = userByNick.swish_number;
       }
 
-      const isPaid = receipts.some(r => r.from_name === debtor.name && r.to_name === creditor.name);
-
       transfers.push({
         from: debtor.name,
         fromUserId: debtor.userId,
@@ -966,7 +1041,7 @@ export function getTournamentNetSettlement(tournamentId) {
         toUserId: creditor.userId,
         amount: transfer,
         toSwish: swishNumber,
-        isPaid
+        isPaid: false
       });
     }
 
@@ -981,11 +1056,23 @@ export function getTournamentNetSettlement(tournamentId) {
     balances: Object.entries(balances).map(([name, data]) => ({
       name,
       net: Math.round(data.amount),
+      rawTotal: Math.round(data.rawTotal || 0),
+      totalPaid: Math.round(data.totalPaid || 0),
+      totalReceived: Math.round(data.totalReceived || 0),
+      isDebtFree: Math.abs(Math.round(data.amount)) < 1,
       userId: data.userId
     })),
     transfers,
-    finishedRounds: finishedRounds.length,
-    totalRounds: rounds.length
+    receipts: receipts.map(r => ({
+      id: r.id,
+      fromName: r.from_name,
+      toName: r.to_name,
+      amount: r.amount,
+      paidAt: r.paid_at
+    })),
+    auditTrail,
+    finishedRounds: finishedEvents.length,
+    totalRounds: events.length
   };
 }
 
@@ -993,11 +1080,15 @@ export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amou
   const existing = stmts.getSettlementReceipt.get(tournamentId, fromName, toName);
   if (existing) {
     stmts.deleteSettlementReceipt.run(tournamentId, fromName, toName);
-    return { isPaid: false };
+    return { isPaid: false, deletedId: existing.id };
   } else {
     stmts.insertSettlementReceipt.run(id, tournamentId, fromName, toName, amount);
-    return { isPaid: true };
+    return { isPaid: true, id };
   }
+}
+
+export function deleteSettlementReceiptById(receiptId) {
+  return stmts.deleteSettlementReceiptById.run(receiptId);
 }
 
 export const deleteTournament = db.transaction((tournamentId) => {

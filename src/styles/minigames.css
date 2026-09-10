@@ -539,3 +539,132 @@
   width: 380px;
   animation: slideDown 0.3s ease-out;
 }
+
+/* ── 6. THE TAB & AUDIT HUB STYLES ────────────────────────── */
+.the-tab-container {
+  max-width: 680px;
+  margin: 0 auto;
+  padding-bottom: 80px;
+}
+
+.the-tab-nav {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  border-radius: 999px;
+  margin-bottom: var(--space-md);
+  border: 1px solid var(--border-glass);
+}
+
+.the-tab-nav .tab-nav-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.the-tab-nav .tab-nav-btn.active {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 165, 0, 0.15));
+  color: var(--gold);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.tab-hero-card {
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.tab-hero-card.hero-debt {
+  background: linear-gradient(145deg, rgba(239, 68, 68, 0.15), rgba(20, 20, 30, 0.9));
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.tab-hero-card.hero-debtfree {
+  background: linear-gradient(145deg, rgba(74, 222, 128, 0.15), rgba(20, 20, 30, 0.9));
+  border: 1px solid rgba(74, 222, 128, 0.4);
+}
+
+.tab-hero-card.hero-credit {
+  background: linear-gradient(145deg, rgba(255, 215, 0, 0.15), rgba(20, 20, 30, 0.9));
+  border: 1px solid rgba(255, 215, 0, 0.4);
+}
+
+.tab-tournament-selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin-bottom: var(--space-md);
+}
+
+.tab-audit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-audit-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 215, 0, 0.3);
+}
+
+.tab-audit-drawer {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px dashed var(--border-glass);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  padding: 12px 14px;
+  margin-top: -6px;
+  margin-bottom: 10px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.audit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.8rem;
+}
+
+.audit-item:last-child {
+  border-bottom: none;
+}
+
+.tab-transfer-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  border-left: 3px solid var(--gold);
+}
+
