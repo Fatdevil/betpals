@@ -1,8 +1,9 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, getMyBets, getMyStats, updateAvatar, updateProfile } from '../api.js';
+import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass } from '../utils.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
+import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -16,8 +17,12 @@ export async function renderProfile() {
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
-    const [bets, stats] = await Promise.all([getMyBets(), getMyStats()]);
-    renderProfileContent(content, user, bets, stats);
+    const [bets, stats, creds] = await Promise.all([
+      getMyBets(),
+      getMyStats(),
+      getMyCredentials().catch(() => ({ hasBiometric: false }))
+    ]);
+    renderProfileContent(content, user, bets, stats, creds);
   } catch (err) {
     clearUser();
     renderAuthScreen(content);
@@ -25,6 +30,8 @@ export async function renderProfile() {
 }
 
 function renderAuthScreen(content) {
+  const hasBiometric = isWebAuthnSupported();
+
   content.innerHTML = `
     <div class="animate-in">
       <div class="page-header text-center">
@@ -32,7 +39,7 @@ function renderAuthScreen(content) {
         <p class="page-subtitle">${t('profile.simpleAuthHint')}</p>
       </div>
 
-      <div class="card">
+      <div class="card" id="auth-main-card">
         <div class="auth-tabs">
           <button class="auth-tab active" data-tab="register" id="tab-register">✨ ${t('profile.register')}</button>
           <button class="auth-tab" data-tab="login" id="tab-login">🔑 ${t('profile.login')}</button>
@@ -60,16 +67,17 @@ function renderAuthScreen(content) {
           </div>
 
           <div class="form-group">
-            <label class="form-label">📱 ${t('profile.swishNumber')}</label>
+            <label class="form-label">📱 ${t('profile.swishNumber')} <span class="text-gold">*</span></label>
             <input type="tel" inputmode="numeric" class="form-input" id="reg-swish" 
-                   placeholder="${t('profile.swishPlaceholder')}" maxlength="15" />
+                   placeholder="${t('profile.swishPlaceholder')}" required minlength="8" maxlength="15" />
             <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.swishHint')}</span>
           </div>
 
-          <div class="card mb-md" style="background: rgba(255, 215, 0, 0.06); border-color: rgba(255, 215, 0, 0.2); padding: var(--space-sm);">
-            <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4;">
-              💡 <strong>Enkelt mellan polare:</strong> Inga lösenord behövs. Du loggar direkt in med ditt Bettarnamn eller Swish-nummer när du byter telefon.
-            </div>
+          <div class="form-group">
+            <label class="form-label">🔒 ${t('profile.personalPin')} <span class="text-gold">*</span></label>
+            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="reg-pin" 
+                   placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em;" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.pinHint')}</span>
           </div>
 
           <button type="submit" class="btn btn-primary btn-block" id="reg-submit-btn">${t('profile.startBetting')}</button>
@@ -77,21 +85,44 @@ function renderAuthScreen(content) {
 
         <!-- Tab 2: Logga in -->
         <form id="login-form" class="mt-md" style="display: none;">
-          <div class="form-group text-center mb-md">
-            <div class="profile-avatar mb-xs" style="margin: 0 auto; width: 64px; height: 64px; font-size: 2rem;">🔑</div>
-            <div class="text-muted" style="font-size: 0.8rem;">${t('profile.loginLink')}</div>
+          ${hasBiometric ? `
+            <div class="mb-md">
+              <button type="button" class="btn btn-accent btn-block" id="btn-biometric-login" style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span>📸</span> <span>${t('profile.biometricLogin')}</span>
+              </button>
+            </div>
+            <div class="auth-divider mb-md" style="display: flex; align-items: center; text-align: center; color: var(--text-muted); font-size: 0.75rem;">
+              <span style="flex: 1; border-bottom: 1px solid var(--border-glass);"></span>
+              <span style="padding: 0 10px;">eller med mobil & PIN</span>
+              <span style="flex: 1; border-bottom: 1px solid var(--border-glass);"></span>
+            </div>
+          ` : ''}
+
+          <div class="form-group">
+            <label class="form-label">📱 ${t('profile.loginIdentifier')} <span class="text-gold">*</span></label>
+            <input type="text" class="form-input" id="login-identifier"
+                   placeholder="${t('profile.loginIdentifierPlaceholder')}" required minlength="2" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Skriv ditt mobilnummer (t.ex. 0701234567) eller smeknamn</span>
           </div>
 
           <div class="form-group">
-            <label class="form-label">${t('profile.loginIdentifier')} <span class="text-gold">*</span></label>
-            <input type="text" class="form-input" id="login-identifier"
-                   placeholder="${t('profile.loginIdentifierPlaceholder')}" required minlength="2" />
-            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Skriv in ditt Bettarnamn eller ditt Swish-nummer</span>
+            <label class="form-label">🔒 ${t('profile.loginPin')} <span class="text-gold">*</span></label>
+            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="login-pin"
+                   placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em;" />
           </div>
 
           <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">${t('profile.loginBtn')}</button>
+
+          <div class="text-center mt-md">
+            <p class="text-muted" style="font-size: 0.75rem; line-height: 1.4;">
+              💡 ${t('profile.forgotPinPrompt')}
+            </p>
+          </div>
         </form>
       </div>
+
+      <!-- Reset PIN container (hidden by default) -->
+      <div id="pin-reset-card" class="card mt-md" style="display: none;"></div>
     </div>
   `;
 
@@ -105,19 +136,40 @@ function renderAuthScreen(content) {
     });
   });
 
+  // Biometric login button
+  if (hasBiometric) {
+    document.getElementById('btn-biometric-login')?.addEventListener('click', async () => {
+      try {
+        showToast('Verifierar FaceID / TouchID... 📸', 'info');
+        const user = await loginWithBiometrics();
+        storeUser(user);
+        showToast(`Välkommen tillbaka, ${user.nickname}! 👋`, 'success');
+        renderProfile();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
   // Register form submit
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = document.getElementById('reg-name').value.trim();
     const nickname = document.getElementById('reg-nickname').value.trim();
     const swishNumber = document.getElementById('reg-swish').value.trim();
+    const pin = document.getElementById('reg-pin').value.trim();
+
+    if (pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+      showToast('PIN-koden måste bestå av exakt 4 siffror', 'error');
+      return;
+    }
 
     const btn = document.getElementById('reg-submit-btn');
     btn.disabled = true;
     btn.textContent = 'Skapar profil... ⏳';
 
     try {
-      const user = await registerUser({ name, nickname, swishNumber, avatarEmoji: '👤' });
+      const user = await registerUser({ name, nickname, swishNumber, pin, avatarEmoji: '👤' });
       storeUser(user);
       showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
       renderProfile();
@@ -132,15 +184,22 @@ function renderAuthScreen(content) {
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const identifier = document.getElementById('login-identifier').value.trim();
+    const pin = document.getElementById('login-pin').value.trim();
 
     const btn = document.getElementById('login-submit-btn');
     btn.disabled = true;
     btn.textContent = 'Loggar in... ⏳';
 
     try {
-      const user = await loginUser(identifier);
-      storeUser(user);
-      showToast(`Välkommen tillbaka, ${user.nickname}! 👋`, 'success');
+      const res = await loginUser({ identifier, pin });
+
+      if (res.needsPinReset) {
+        showPinResetUI(res.userId, res.nickname);
+        return;
+      }
+
+      storeUser(res);
+      showToast(`Välkommen tillbaka, ${res.nickname}! 👋`, 'success');
       renderProfile();
     } catch (err) {
       showToast(err.message, 'error');
@@ -150,7 +209,54 @@ function renderAuthScreen(content) {
   });
 }
 
-function renderProfileContent(content, user, bets, stats) {
+function showPinResetUI(userId, nickname) {
+  const mainCard = document.getElementById('auth-main-card');
+  const resetCard = document.getElementById('pin-reset-card');
+  if (mainCard) mainCard.style.display = 'none';
+
+  resetCard.style.display = 'block';
+  resetCard.innerHTML = `
+    <div class="text-center mb-md">
+      <div style="font-size: 2.5rem; margin-bottom: var(--space-xs);">🔑</div>
+      <h2 style="font-size: 1.2rem; font-weight: 700;">${t('profile.pinResetRequiredTitle')}</h2>
+      <p class="text-muted" style="font-size: 0.85rem; line-height: 1.4;">
+        ${t('profile.pinResetRequiredDesc')}
+      </p>
+    </div>
+
+    <form id="pin-reset-form">
+      <div class="form-group">
+        <label class="form-label">${t('profile.newPin')}</label>
+        <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="new-reset-pin"
+               placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em;" />
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="btn-submit-reset-pin">
+        Spara ny PIN & Logga in 🚀
+      </button>
+    </form>
+  `;
+
+  document.getElementById('pin-reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const newPin = document.getElementById('new-reset-pin').value.trim();
+    if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+      showToast('PIN-koden måste bestå av exakt 4 siffror', 'error');
+      return;
+    }
+
+    try {
+      const user = await completePinReset(userId, newPin);
+      storeUser(user);
+      showToast('PIN-koden har uppdaterats! 🎉', 'success');
+      renderProfile();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+}
+
+function renderProfileContent(content, user, bets, stats, creds) {
   const totalBet = bets.reduce((s, b) => s + b.amount, 0);
   const wonBets = bets.filter(b => b.won);
   const lostBets = bets.filter(b => b.eventStatus === 'finished' && !b.won);
@@ -168,6 +274,9 @@ function renderProfileContent(content, user, bets, stats) {
   // Language options
   const langs = getAvailableLanguages();
   const currentLang = getLang();
+
+  const hasBiometric = isWebAuthnSupported();
+  const isBiometricActive = creds?.hasBiometric || false;
 
   content.innerHTML = `
     <div class="animate-in">
@@ -191,14 +300,57 @@ function renderProfileContent(content, user, bets, stats) {
         <div style="font-size: 1.3rem; font-weight: 700; margin-top: var(--space-sm);">${user.realName || user.nickname}</div>
         <div style="display: flex; justify-content: center; gap: 8px; margin-top: 4px; align-items: center; flex-wrap: wrap;">
           <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.8rem; font-weight: 600;">@${user.nickname}</span>
-          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 Swish: ${user.swishNumber}</span>` : ''}
+          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 ${user.swishNumber}</span>` : ''}
         </div>
+      </div>
+
+      <!-- Biometric & Security Shortcuts -->
+      <div class="card mt-md">
+        <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-md);">
+          🔒 Säkerhet & Inloggning
+        </div>
+
+        ${hasBiometric ? `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border-glass);">
+            <div>
+              <div style="font-weight: 600; font-size: 0.9rem;">FaceID / TouchID</div>
+              <div class="text-muted" style="font-size: 0.75rem;">Logga in med ansiktet eller fingret</div>
+            </div>
+            <button class="btn btn-sm ${isBiometricActive ? 'btn-secondary' : 'btn-accent'}" id="btn-toggle-biometric">
+              ${isBiometricActive ? t('profile.biometricActive') : t('profile.enableBiometric')}
+            </button>
+          </div>
+        ` : ''}
+
+        <!-- Change PIN Toggle -->
+        <div class="mt-sm">
+          <button class="btn btn-secondary btn-sm btn-block" id="btn-show-change-pin">
+            🔑 ${t('profile.changePin')}
+          </button>
+        </div>
+
+        <form id="change-pin-form" class="mt-md" style="display: none; padding-top: var(--space-sm); border-top: 1px solid var(--border-glass);">
+          <div class="form-group mb-sm">
+            <label class="form-label" style="font-size: 0.75rem;">${t('profile.currentPin')}</label>
+            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="input-current-pin"
+                   placeholder="••••" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.2em;" />
+          </div>
+          <div class="form-group mb-md">
+            <label class="form-label" style="font-size: 0.75rem;">${t('profile.newPin')}</label>
+            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="input-new-pin"
+                   placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.2em;" />
+          </div>
+          <div class="flex gap-sm">
+            <button type="submit" class="btn btn-primary btn-sm" style="flex: 1;">${t('profile.savePin')}</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-change-pin" style="flex: 1;">Avbryt</button>
+          </div>
+        </form>
       </div>
 
       <!-- Edit profile details -->
       <div class="card mt-md">
-        <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-md); display: flex; justify-content: space-between; align-items: center;">
-          <span>⚙️ Dina profiluppgifter</span>
+        <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-md);">
+          ⚙️ Redigera uppgifter
         </div>
         
         <div class="form-group mb-sm">
@@ -326,6 +478,50 @@ function renderProfileContent(content, user, bets, stats) {
   document.getElementById('logout-btn').addEventListener('click', () => {
     clearUser();
     renderProfile();
+  });
+
+  // Enable/Toggle Biometric
+  if (hasBiometric) {
+    document.getElementById('btn-toggle-biometric')?.addEventListener('click', async () => {
+      try {
+        showToast('Aktiverar FaceID / TouchID... 📸', 'info');
+        await enableBiometricAuth();
+        showToast(t('profile.biometricActive') || 'FaceID aktiverat! 📸', 'success');
+        renderProfile();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // Show / Hide Change PIN form
+  const changePinForm = document.getElementById('change-pin-form');
+  document.getElementById('btn-show-change-pin')?.addEventListener('click', () => {
+    changePinForm.style.display = changePinForm.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('btn-cancel-change-pin')?.addEventListener('click', () => {
+    changePinForm.style.display = 'none';
+  });
+
+  // Change PIN submit
+  changePinForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const currentPin = document.getElementById('input-current-pin').value.trim();
+    const newPin = document.getElementById('input-new-pin').value.trim();
+
+    if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+      showToast('Nya PIN-koden måste vara exakt 4 siffror', 'error');
+      return;
+    }
+
+    try {
+      await changePin(currentPin, newPin);
+      showToast(t('profile.pinChanged') || 'PIN-koden har ändrats! 🔒', 'success');
+      changePinForm.reset();
+      changePinForm.style.display = 'none';
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   });
 
   // Client-side image compression

@@ -72,6 +72,8 @@ export function onWebSocketMessage(callback) {
 export const adminStatus = () => request('/admin/status');
 export const adminSetup = (pin) => request('/admin/setup', { method: 'POST', body: { pin } });
 export const adminVerify = (pin) => request('/admin/verify', { method: 'POST', body: { pin } });
+export const adminGetUsers = (pin) => request('/admin/users', { method: 'POST', body: { pin } });
+export const adminResetUserPin = (userId, pin) => request(`/admin/users/${userId}/reset-pin`, { method: 'POST', body: { pin } });
 
 // ── Events ─────────────────────────────────────────────
 export const getEvents = () => request('/events');
@@ -107,10 +109,14 @@ export const finishEvent = (id, winnerId, pin) =>
   request(`/events/${id}/finish`, { method: 'POST', body: { winnerId, pin } });
 
 // ── Users ─────────────────────────────────────────────
-export const registerUser = ({ name, nickname, swishNumber, avatarEmoji }) =>
-  request('/users/register', { method: 'POST', body: { name, nickname, swishNumber, avatarEmoji } });
-export const loginUser = (identifier) =>
-  request('/users/login', { method: 'POST', body: { identifier } });
+export const registerUser = ({ name, nickname, swishNumber, pin, avatarEmoji }) =>
+  request('/users/register', { method: 'POST', body: { name, nickname, swishNumber, pin, avatarEmoji } });
+export const loginUser = ({ identifier, pin }) =>
+  request('/users/login', { method: 'POST', body: { identifier, pin } });
+export const completePinReset = (userId, newPin) =>
+  request('/users/reset-pin', { method: 'POST', body: { userId, newPin } });
+export const changePin = (currentPin, newPin) =>
+  request('/users/change-pin', { method: 'POST', body: { currentPin, newPin } });
 export const getMe = () => request('/users/me');
 export const getMyBets = () => request('/users/me/bets');
 export const updateProfile = (data) =>
@@ -119,6 +125,18 @@ export const updateAvatar = (imageData) =>
   request('/users/me/avatar', { method: 'PUT', body: { imageData } });
 export const updateSwish = (swishNumber) =>
   request('/users/me/swish', { method: 'PUT', body: { swishNumber } });
+
+// ── WebAuthn / FaceID / TouchID ──────────────────────
+export const webauthnRegisterOptions = () =>
+  request('/auth/webauthn/register-options', { method: 'POST' });
+export const webauthnRegisterVerify = (credentialId, publicKey) =>
+  request('/auth/webauthn/register-verify', { method: 'POST', body: { credentialId, publicKey } });
+export const webauthnLoginOptions = () =>
+  request('/auth/webauthn/login-options', { method: 'POST' });
+export const webauthnLoginVerify = (credentialId) =>
+  request('/auth/webauthn/login-verify', { method: 'POST', body: { credentialId } });
+export const getMyCredentials = () =>
+  request('/users/me/credentials');
 
 // ── Leaderboard ──────────────────────────────────────
 export const getLeaderboard = () => request('/leaderboard');

@@ -133,6 +133,8 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
       <div id="admin-events-list">
         <div class="text-center text-muted">${t('common.loading')}</div>
       </div>
+
+      ${hasPinSession ? '<div id="admin-users-list"></div>' : ''}
     </div>
   `;
 
@@ -163,6 +165,9 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
 
   await loadAdminTournaments(loggedIn, hasPinSession, user);
   await loadAdminEvents(loggedIn, hasPinSession, user);
+  if (hasPinSession) {
+    await loadAdminUsers(getPin());
+  }
 }
 
 async function loadAdminEvents(loggedIn, hasPinSession, user) {
@@ -656,4 +661,70 @@ function showCreateTournamentModal() {
       navigate('tournament', { code: result.shareCode });
     } catch (err) { showToast(err.message, 'error'); }
   });
+}
+
+async function loadAdminUsers(pin) {
+  const container = document.getElementById('admin-users-list');
+  if (!container) return;
+  try {
+    const users = await api.adminGetUsers(pin);
+    if (!users || users.length === 0) {
+      container.innerHTML = `
+        <div class="section-header mt-lg">
+          <h2 class="section-title">${t('admin.usersTitle')}</h2>
+        </div>
+        <div class="card text-center text-muted" style="padding: var(--space-md);">${t('admin.noUsers')}</div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="section-header mt-lg">
+        <h2 class="section-title">${t('admin.usersTitle')} (${users.length})</h2>
+      </div>
+      <div class="card" style="padding: var(--space-sm);">
+        <div style="display: flex; flex-direction: column; gap: var(--space-xs);">
+          ${users.map(u => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm); border-bottom: 1px solid var(--border-glass); flex-wrap: wrap; gap: 8px;">
+              <div>
+                <div style="font-weight: 600; font-size: 0.9rem;">
+                  ${u.real_name || u.nickname} 
+                  <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.75rem;">@${u.nickname}</span>
+                </div>
+                <div class="text-muted" style="font-size: 0.75rem;">
+                  ${u.swish_number ? `📱 Swish: ${u.swish_number}` : 'Inget Swish'} 
+                  ${u.needs_pin_reset ? '· <span class="text-red font-bold">PIN Nollställd</span>' : (u.has_pin ? '· <span class="text-green">PIN Aktiv</span>' : '· Ingen PIN')}
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm reset-user-pin-btn" data-id="${u.id}" data-name="${u.nickname}" style="font-size: 0.75rem;">
+                ${t('admin.resetPinBtn')}
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    container.querySelectorAll('.reset-user-pin-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const userId = btn.dataset.id;
+        const userName = btn.dataset.name;
+        if (!confirm(`${t('admin.resetPinConfirm')} ${userName}?`)) return;
+
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          await api.adminResetUserPin(userId, pin);
+          showToast(t('admin.pinResetToast') || 'PIN nollställd!', 'success');
+          await loadAdminUsers(pin);
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = t('admin.resetPinBtn');
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<div class="text-red text-center">${err.message}</div>`;
+  }
 }

@@ -122,9 +122,27 @@ app.get('/api/admin/status', (req, res) => {
   res.json({ hasPin: !!db.getAdminPin() });
 });
 
+// Get all users (Superadmin only)
+app.post('/api/admin/users', (req, res) => {
+  const { pin } = req.body;
+  if (!pin || !verifyPin(pin)) return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  const users = db.getAllUsers();
+  res.json(users);
+});
+
+// Reset user PIN (Superadmin only)
+app.post('/api/admin/users/:id/reset-pin', (req, res) => {
+  const { pin } = req.body;
+  if (!pin || !verifyPin(pin)) return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  const targetUser = db.getUserById(req.params.id);
+  if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
+  db.resetUserPin(targetUser.id);
+  res.json({ ok: true, message: `PIN nollställd för ${targetUser.nickname}` });
+});
+
 // ── Users ────────────────────────────────────────────
 app.post('/api/users/register', (req, res) => {
-  const { name, realName, nickname, swishNumber, avatarEmoji } = req.body;
+  const { name, realName, nickname, swishNumber, pin, avatarEmoji } = req.body;
   const finalName = (name || realName || '').trim();
   const finalNickname = (nickname || '').trim();
 
@@ -134,6 +152,10 @@ app.post('/api/users/register', (req, res) => {
 
   if (!finalNickname || finalNickname.length < 2) {
     return res.status(400).json({ error: 'Bettarnamnet måste vara minst 2 tecken' });
+  }
+
+  if (!pin || !/^\d{4}$/.test(pin)) {
+    return res.status(400).json({ error: 'Välj en 4-siffrig personlig PIN-kod (exakt 4 siffror)' });
   }
 
   const existingNick = db.getUserByNickname(finalNickname);
@@ -156,7 +178,7 @@ app.post('/api/users/register', (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   const emoji = avatarEmoji || '👤';
 
-  db.createUser(id, finalNickname, token, emoji, finalName, cleanSwish);
+  db.createUser(id, finalNickname, token, emoji, finalName, cleanSwish, pin);
 
   res.json({
     id,
@@ -170,15 +192,32 @@ app.post('/api/users/register', (req, res) => {
 });
 
 app.post('/api/users/login', (req, res) => {
-  const { identifier, nickname, swishNumber } = req.body;
+  const { identifier, nickname, swishNumber, pin } = req.body;
   const query = (identifier || nickname || swishNumber || '').trim();
   if (!query) {
-    return res.status(400).json({ error: 'Ange ditt Bettarnamn eller Swish-nummer' });
+    return res.status(400).json({ error: 'Ange ditt Bettarnamn eller mobilnummer' });
   }
 
   const user = db.getUserByNicknameOrSwish(query);
   if (!user) {
-    return res.status(404).json({ error: 'Ingen användare hittades med det namnet eller Swish-numret. Skapa profil först!' });
+    return res.status(404).json({ error: 'Ingen användare hittades med det namnet eller mobilnumret. Skapa profil först!' });
+  }
+
+  // Check if admin reset the PIN
+  if (user.needs_pin_reset) {
+    return res.status(200).json({
+      needsPinReset: true,
+      userId: user.id,
+      nickname: user.nickname,
+      message: 'Din PIN-kod har nollställts av admin. Välj en ny 4-siffrig PIN nedan!'
+    });
+  }
+
+  // Check PIN if user has a PIN configured
+  if (user.pin_hash) {
+    if (!pin || !db.verifyUserPin(user, pin)) {
+      return res.status(401).json({ error: 'Felaktig 4-siffrig PIN-kod. Försök igen!' });
+    }
   }
 
   res.json({
@@ -191,6 +230,123 @@ app.post('/api/users/login', (req, res) => {
     avatarUrl: user.avatar_url,
     email: user.email
   });
+});
+
+// Complete PIN reset after admin reset
+app.post('/api/users/reset-pin', (req, res) => {
+  const { userId, newPin } = req.body;
+  if (!userId || !newPin || !/^\d{4}$/.test(newPin)) {
+    return res.status(400).json({ error: 'Ny PIN måste vara exakt 4 siffror' });
+  }
+  const user = db.getUserById(userId);
+  if (!user) return res.status(404).json({ error: 'Användare hittades inte' });
+  if (!user.needs_pin_reset) {
+    return res.status(400).json({ error: 'Kontot är inte i återställningsläge' });
+  }
+
+  db.setUserPin(user.id, newPin);
+  const updated = db.getUserById(user.id);
+  res.json({
+    id: updated.id,
+    nickname: updated.nickname,
+    realName: updated.real_name,
+    swishNumber: updated.swish_number,
+    token: updated.token,
+    avatar: updated.avatar_emoji,
+    avatarUrl: updated.avatar_url
+  });
+});
+
+// Change PIN when logged in
+app.post('/api/users/change-pin', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
+  const user = db.getUserByToken(token);
+  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+
+  const { currentPin, newPin } = req.body;
+  if (!newPin || !/^\d{4}$/.test(newPin)) {
+    return res.status(400).json({ error: 'Ny PIN måste vara exakt 4 siffror' });
+  }
+
+  if (user.pin_hash && (!currentPin || !db.verifyUserPin(user, currentPin))) {
+    return res.status(401).json({ error: 'Nuvarande PIN-kod är felaktig' });
+  }
+
+  db.setUserPin(user.id, newPin);
+  res.json({ ok: true, message: 'PIN-koden har ändrats! 🔒' });
+});
+
+// WebAuthn / FaceID / TouchID
+const webauthnChallenges = new Map();
+
+app.post('/api/auth/webauthn/register-options', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
+  const user = db.getUserByToken(token);
+  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+
+  const challenge = crypto.randomBytes(32).toString('base64url');
+  webauthnChallenges.set(user.id, { challenge, expires: Date.now() + 120000 });
+
+  res.json({
+    challenge,
+    userId: user.id,
+    nickname: user.nickname,
+    realName: user.real_name || user.nickname
+  });
+});
+
+app.post('/api/auth/webauthn/register-verify', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
+  const user = db.getUserByToken(token);
+  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+
+  const { credentialId, publicKey } = req.body;
+  if (!credentialId) return res.status(400).json({ error: 'Credential ID saknas' });
+
+  db.saveCredential(generateId(), user.id, credentialId, publicKey || 'device_key');
+  res.json({ ok: true, message: 'FaceID / TouchID har aktiverats! 📸' });
+});
+
+app.post('/api/auth/webauthn/login-options', (req, res) => {
+  const challenge = crypto.randomBytes(32).toString('base64url');
+  const tempId = crypto.randomBytes(16).toString('hex');
+  webauthnChallenges.set(tempId, { challenge, expires: Date.now() + 120000 });
+
+  res.json({ challenge, sessionId: tempId });
+});
+
+app.post('/api/auth/webauthn/login-verify', (req, res) => {
+  const { credentialId } = req.body;
+  if (!credentialId) return res.status(400).json({ error: 'Credential ID saknas' });
+
+  const cred = db.getCredentialById(credentialId);
+  if (!cred) {
+    return res.status(404).json({ error: 'Ingen enhet eller FaceID hittades för detta konto. Logga in med PIN istället!' });
+  }
+
+  res.json({
+    id: cred.user_id,
+    nickname: cred.nickname,
+    realName: cred.real_name,
+    swishNumber: cred.swish_number,
+    token: cred.token,
+    avatar: cred.avatar_emoji,
+    avatarUrl: cred.avatar_url,
+    email: cred.email
+  });
+});
+
+app.get('/api/users/me/credentials', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
+  const user = db.getUserByToken(token);
+  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+
+  const creds = db.getCredentialsByUser(user.id);
+  res.json({ count: creds.length, hasBiometric: creds.length > 0 });
 });
 
 app.put('/api/users/me/profile', (req, res) => {
@@ -604,10 +760,21 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
 
   // Get user from token if provided
   let userId = null;
+  let loggedInUser = null;
   const token = req.headers['x-user-token'];
   if (token) {
-    const user = db.getUserByToken(token);
-    if (user) userId = user.id;
+    loggedInUser = db.getUserByToken(token);
+    if (loggedInUser) userId = loggedInUser.id;
+  }
+
+  // Name protection: check if bettorName belongs to a registered user
+  const registeredUser = db.getUserByNickname(bettorName.trim());
+  if (registeredUser) {
+    if (!loggedInUser || loggedInUser.id !== registeredUser.id) {
+      return res.status(403).json({
+        error: `🛑 Bettarnamnet "${bettorName.trim()}" tillhör en registrerad profil. Logga in för att lägga bets som ${bettorName.trim()}!`
+      });
+    }
   }
 
   const betId = generateId();

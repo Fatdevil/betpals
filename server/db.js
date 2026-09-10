@@ -127,12 +127,28 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_banners_tournament ON tournament_banners(tournament_id);
 `);
 
-// ── Migrations (safe to run repeatedly) ──────────────
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN swish_number TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN real_name TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN pin_hash TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN pin_salt TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN needs_pin_reset INTEGER DEFAULT 0'); } catch {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_credentials (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      credential_id TEXT UNIQUE NOT NULL,
+      public_key TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cred_user ON user_credentials(user_id);
+    CREATE INDEX IF NOT EXISTS idx_cred_id ON user_credentials(credential_id);
+  `);
+} catch {}
 
 // ── Prepared Statements ──────────────
 const stmts = {
@@ -184,8 +200,11 @@ const stmts = {
   getUserByNickname: db.prepare('SELECT * FROM users WHERE LOWER(nickname) = LOWER(?)'),
   getUserBySwish: db.prepare('SELECT * FROM users WHERE REPLACE(REPLACE(swish_number, \' \', \'\'), \'-\', \'\') = ?'),
   getUserByGoogleId: db.prepare('SELECT * FROM users WHERE google_id = ?'),
-  getAllUsers: db.prepare('SELECT * FROM users ORDER BY created_at DESC'),
+  getAllUsers: db.prepare('SELECT id, nickname, real_name, swish_number, token, avatar_emoji, avatar_url, email, needs_pin_reset, CASE WHEN pin_hash IS NOT NULL THEN 1 ELSE 0 END as has_pin, created_at FROM users ORDER BY created_at DESC'),
   insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number) VALUES (?, ?, ?, ?, ?, ?)'),
+  insertUserWithPin: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number, pin_hash, pin_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+  setUserPin: db.prepare('UPDATE users SET pin_hash = ?, pin_salt = ?, needs_pin_reset = 0 WHERE id = ?'),
+  resetUserPin: db.prepare('UPDATE users SET pin_hash = NULL, pin_salt = NULL, needs_pin_reset = 1 WHERE id = ?'),
   insertGoogleUser: db.prepare('INSERT INTO users (id, nickname, token, google_id, email, avatar_url) VALUES (?, ?, ?, ?, ?, ?)'),
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
@@ -193,6 +212,12 @@ const stmts = {
   updateUserSwish: db.prepare('UPDATE users SET swish_number = ? WHERE id = ?'),
   updateUserRealName: db.prepare('UPDATE users SET real_name = ? WHERE id = ?'),
   updateUserNickname: db.prepare('UPDATE users SET nickname = ? WHERE id = ?'),
+
+  // Credentials (WebAuthn / FaceID / TouchID)
+  insertCredential: db.prepare('INSERT INTO user_credentials (id, user_id, credential_id, public_key) VALUES (?, ?, ?, ?)'),
+  getCredentialsByUser: db.prepare('SELECT * FROM user_credentials WHERE user_id = ? ORDER BY created_at DESC'),
+  getCredentialById: db.prepare('SELECT c.*, u.id as user_id, u.nickname, u.real_name, u.swish_number, u.token, u.avatar_emoji, u.avatar_url, u.email, u.needs_pin_reset FROM user_credentials c JOIN users u ON c.user_id = u.id WHERE c.credential_id = ?'),
+  deleteCredential: db.prepare('DELETE FROM user_credentials WHERE id = ? AND user_id = ?'),
 
   // Tournament Photos
   getPhotosByTournament: db.prepare(`
@@ -386,8 +411,57 @@ export function playerExists(playerId) {
 }
 
 // ── Users ────────────────────────────────────────────
-export function createUser(id, nickname, token, avatarEmoji, realName = null, swishNumber = null) {
-  stmts.insertUser.run(id, nickname, token, avatarEmoji || '👤', realName, swishNumber);
+export function hashUserPin(pin, salt) {
+  return crypto.pbkdf2Sync(pin, salt, 10000, 32, 'sha256').toString('hex');
+}
+
+export function createUser(id, nickname, token, avatarEmoji, realName = null, swishNumber = null, pin = null) {
+  if (pin) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = hashUserPin(pin, salt);
+    stmts.insertUserWithPin.run(id, nickname, token, avatarEmoji || '👤', realName, swishNumber, hash, salt);
+  } else {
+    stmts.insertUser.run(id, nickname, token, avatarEmoji || '👤', realName, swishNumber);
+  }
+}
+
+export function verifyUserPin(user, pin) {
+  if (!user) return false;
+  // If user has no PIN configured yet, allow login or force setup
+  if (!user.pin_hash || !user.pin_salt) return true;
+  const hash = hashUserPin(pin, user.pin_salt);
+  return hash === user.pin_hash;
+}
+
+export function setUserPin(userId, pin) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashUserPin(pin, salt);
+  stmts.setUserPin.run(hash, salt, userId);
+}
+
+export function resetUserPin(userId) {
+  stmts.resetUserPin.run(userId);
+}
+
+export function getAllUsers() {
+  return stmts.getAllUsers.all();
+}
+
+// ── WebAuthn / FaceID / TouchID Credentials ──────────
+export function saveCredential(id, userId, credentialId, publicKey) {
+  stmts.insertCredential.run(id, userId, credentialId, publicKey);
+}
+
+export function getCredentialsByUser(userId) {
+  return stmts.getCredentialsByUser.all(userId);
+}
+
+export function getCredentialById(credentialId) {
+  return stmts.getCredentialById.get(credentialId);
+}
+
+export function deleteCredential(credentialId, userId) {
+  stmts.deleteCredential.run(credentialId, userId);
 }
 
 export function getUserBySwish(swishNumber) {
