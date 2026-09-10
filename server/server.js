@@ -622,7 +622,7 @@ app.get('/api/events', (req, res) => {
 });
 
 app.post('/api/events', (req, res) => {
-  const { pin, name, date, payoutPercent, minBet, maxBet, players, swishNumber, tournamentId } = req.body;
+  const { pin, name, date, payoutPercent, minBet, maxBet, players, swishNumber, tournamentId, imageUrl } = req.body;
   
   // Allow creation with user token OR admin PIN
   const user = getUserFromToken(req);
@@ -636,12 +636,19 @@ app.post('/api/events', (req, res) => {
     return res.status(400).json({ error: 'Ett matchnamn krävs (minst 2 tecken)' });
   }
 
-  // Clean and deduplicate players
-  const cleanPlayers = [...new Set((players || [])
-    .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
-    .filter(Boolean))];
+  // Parse and deduplicate players (supports both string names and objects with imageUrl)
+  const playerData = [];
+  const seenNames = new Set();
+  for (const p of (players || [])) {
+    const pName = (typeof p === 'string' ? p : (p?.name || '')).trim();
+    const pImg = (typeof p === 'object' && p?.imageUrl) ? p.imageUrl : null;
+    if (pName && !seenNames.has(pName.toLowerCase())) {
+      seenNames.add(pName.toLowerCase());
+      playerData.push({ id: generateId(), name: pName, imageUrl: pImg });
+    }
+  }
 
-  if (cleanPlayers.length < 2) {
+  if (playerData.length < 2) {
     return res.status(400).json({ error: 'Minst 2 deltagare krävs för att skapa en match' });
   }
 
@@ -664,10 +671,10 @@ app.post('/api/events', (req, res) => {
     tournamentId: tournamentId || null,
     isSideBet: 0,
     linkedRoundId: null,
-    betMode: 'open'
+    betMode: 'open',
+    imageUrl: imageUrl || null
   };
 
-  const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
 
   const full = db.getFullEvent(eventData.id);
@@ -722,7 +729,7 @@ app.get('/api/tournaments/:code/qr', async (req, res) => {
 
 // ── Players ──────────────────────────────────────────
 app.post('/api/events/:id/players', (req, res) => {
-  const { pin, name } = req.body;
+  const { pin, name, imageUrl } = req.body;
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
@@ -736,10 +743,25 @@ app.post('/api/events/:id/players', (req, res) => {
   }
 
   const playerId = generateId();
-  db.addPlayer(req.params.id, playerId, cleanName);
+  db.addPlayer(req.params.id, playerId, cleanName, imageUrl || null);
 
   broadcastToEvent(event.share_code, { type: 'player_added', eventCode: event.share_code });
-  res.json({ id: playerId, name: cleanName });
+  res.json({ id: playerId, name: cleanName, imageUrl: imageUrl || null });
+});
+
+app.put('/api/events/:id/players/:playerId/image', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  const player = db.getPlayerById(req.params.playerId);
+  if (!player || player.event_id !== event.id) return res.status(404).json({ error: 'Spelaren hittades inte' });
+
+  const { imageUrl } = req.body;
+  db.updatePlayerImage(player.id, imageUrl || null);
+
+  broadcastToEvent(event.share_code, { type: 'player_updated', eventCode: event.share_code });
+  res.json({ ok: true, id: player.id, imageUrl: imageUrl || null });
 });
 
 app.delete('/api/events/:id/players/:playerId', (req, res) => {
@@ -910,8 +932,25 @@ app.post('/api/events/:id/reopen', (req, res) => {
   res.json({ ok: true, status: 'open' });
 });
 
+app.put('/api/events/:id/image', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  const { imageUrl } = req.body;
+  db.updateEventImage(event.id, imageUrl || null);
+
+  broadcastToEvent(event.share_code, { type: 'event_updated', eventCode: event.share_code });
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
+
+  res.json({ ok: true, id: event.id, imageUrl: imageUrl || null });
+});
+
 app.post('/api/events/:id/finish', (req, res) => {
-  const { pin, winnerId } = req.body;
+  const { pin, winnerId, winnerImageUrl } = req.body;
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
@@ -921,7 +960,7 @@ app.post('/api/events/:id/finish', (req, res) => {
     return res.status(400).json({ error: 'Ogiltig vinnare för denna match' });
   }
 
-  db.finishEvent(req.params.id, winnerId);
+  db.finishEvent(req.params.id, winnerId, winnerImageUrl || null);
 
   // Calculate payouts
   const full = db.getFullEvent(req.params.id);
@@ -941,7 +980,8 @@ app.post('/api/events/:id/finish', (req, res) => {
   broadcastToEvent(event.share_code, {
     type: 'event_finished',
     eventCode: event.share_code,
-    winner: winnerPlayer?.name
+    winner: winnerPlayer?.name,
+    winnerImageUrl: winnerImageUrl || null
   });
 
   if (event.tournament_id) {
@@ -1101,7 +1141,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
-  const { name, players, linkedRoundId, betMode, betAmount } = req.body;
+  const { name, players, linkedRoundId, betMode, betAmount, imageUrl } = req.body;
   const finalName = (name || '').trim();
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
@@ -1133,7 +1173,8 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     tournamentId: tournament.id,
     isSideBet: 1,
     linkedRoundId: linkedRoundId || null,
-    betMode: betMode || 'open'
+    betMode: betMode || 'open',
+    imageUrl: imageUrl || null
   };
 
   const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));

@@ -5,6 +5,7 @@ import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
 import { t } from '../i18n.js';
+import { compressImage } from '../imageUtils.js';
 
 let adminPin = null;
 
@@ -203,6 +204,11 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
 
     list.innerHTML = events.map((ev, i) => `
       <div class="card animate-in" style="animation-delay: ${i * 0.05}s">
+        ${ev.imageUrl ? `
+          <div style="width: 100%; height: 90px; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm); border: 1px solid var(--border-light);">
+            <img src="${ev.imageUrl}" style="width: 100%; height: 100%; object-fit: cover;" />
+          </div>
+        ` : ''}
         <div class="flex-between mb-md">
           <div>
             <h3 style="font-family: var(--font-heading); font-weight: 700;">${ev.name}</h3>
@@ -218,6 +224,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
         <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
           <button class="btn btn-sm btn-secondary admin-view-btn" data-code="${ev.shareCode}">${t('admin.btnView')}</button>
           <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${ev.name}">${t('admin.btnPlayers')}</button>
+          <button class="btn btn-sm btn-secondary admin-cover-btn" data-id="${ev.id}" title="Byt eller lägg till match-omslag">📸 Omslag</button>
           ${ev.status === 'open' ? `
             <button class="btn btn-sm btn-secondary admin-lock-btn" data-id="${ev.id}">${t('admin.btnLock')}</button>
           ` : ''}
@@ -236,6 +243,10 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
     // Event listeners
     list.querySelectorAll('.admin-view-btn').forEach(btn => {
       btn.addEventListener('click', () => navigate('event', { code: btn.dataset.code }));
+    });
+
+    list.querySelectorAll('.admin-cover-btn').forEach(btn => {
+      btn.addEventListener('click', () => showCoverModal(btn.dataset.id, loggedIn, hasPinSession, user));
     });
 
     list.querySelectorAll('.admin-lock-btn').forEach(btn => {
@@ -301,6 +312,20 @@ function showCreateEventModal() {
   showModal(t('admin.createEventTitle'), `
     <form id="create-event-form">
       <div class="form-group">
+        <label class="form-label">📸 Match-omslag (valfritt)</label>
+        <div class="image-picker-box" id="ce-cover-drop">
+          <div id="ce-cover-preview-wrapper" class="image-preview-wrapper" style="display:none;">
+            <img id="ce-cover-preview" alt="Förhandsvisning" />
+            <button type="button" class="image-preview-remove" id="ce-cover-remove">✕</button>
+          </div>
+          <div id="ce-cover-placeholder">
+            <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka för att fota / välja omslagsbild</div>
+          </div>
+          <input type="file" accept="image/*" id="ce-cover-input" style="display:none;" />
+        </div>
+      </div>
+      <div class="form-group">
         <label class="form-label">${t('admin.eventName')}</label>
         <input type="text" class="form-input" id="ce-name" placeholder="${t('admin.eventNamePlaceholder')}" required />
       </div>
@@ -331,12 +356,72 @@ function showCreateEventModal() {
             👍 Ja / 👎 Nej
           </button>
         </div>
-        <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" />
+        <div class="flex gap-xs" style="align-items: center;">
+          <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" style="flex: 1;" />
+          <button type="button" class="btn btn-secondary" id="ce-player-avatar-btn" style="padding: 0 10px; font-size: 1.1rem;" title="Bifoga bild till deltagare">📷</button>
+          <input type="file" accept="image/*" id="ce-player-avatar-input" style="display:none;" />
+        </div>
+        <div id="ce-player-avatar-indicator" style="display:none; font-size: 0.75rem; color: var(--gold); margin-top: 4px;">
+          Bild vald för nästa deltagare ✅
+        </div>
         <div class="player-tags mt-sm" id="ce-player-tags"></div>
       </div>
       <button type="submit" class="btn btn-primary btn-block mt-md">${t('admin.submitCreateEvent')}</button>
     </form>
   `);
+
+  let selectedCoverBase64 = null;
+  const coverInput = document.getElementById('ce-cover-input');
+  const coverDrop = document.getElementById('ce-cover-drop');
+  const coverPreview = document.getElementById('ce-cover-preview');
+  const coverPreviewWrapper = document.getElementById('ce-cover-preview-wrapper');
+  const coverPlaceholder = document.getElementById('ce-cover-placeholder');
+  const coverRemove = document.getElementById('ce-cover-remove');
+
+  coverDrop?.addEventListener('click', (e) => {
+    if (e.target === coverRemove) return;
+    coverInput.click();
+  });
+
+  coverInput?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      selectedCoverBase64 = await compressImage(file, 1000, 0.8);
+      coverPreview.src = selectedCoverBase64;
+      coverPreviewWrapper.style.display = 'inline-block';
+      coverPlaceholder.style.display = 'none';
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  coverRemove?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectedCoverBase64 = null;
+    coverInput.value = '';
+    coverPreview.src = '';
+    coverPreviewWrapper.style.display = 'none';
+    coverPlaceholder.style.display = 'block';
+  });
+
+  let pendingPlayerAvatar = null;
+  const playerAvatarBtn = document.getElementById('ce-player-avatar-btn');
+  const playerAvatarInput = document.getElementById('ce-player-avatar-input');
+  const playerAvatarIndicator = document.getElementById('ce-player-avatar-indicator');
+
+  playerAvatarBtn?.addEventListener('click', () => playerAvatarInput.click());
+  playerAvatarInput?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      pendingPlayerAvatar = await compressImage(file, 500, 0.8);
+      playerAvatarIndicator.style.display = 'block';
+      playerAvatarBtn.style.borderColor = 'var(--gold)';
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 
   const payoutSlider = document.getElementById('ce-payout');
   const payoutDisplay = document.getElementById('ce-payout-display');
@@ -357,31 +442,34 @@ function showCreateEventModal() {
 
   document.getElementById('ce-preset-yesno')?.addEventListener('click', () => {
     players.length = 0;
-    players.push('Ja', 'Nej');
+    players.push({ name: 'Ja', imageUrl: null }, { name: 'Nej', imageUrl: null });
     updateTags();
     document.getElementById('ce-name')?.focus();
   });
 
+  function addCurrentPlayer() {
+    const name = playerInput.value.trim();
+    if (name && !players.some(p => (typeof p === 'string' ? p : p.name).toLowerCase() === name.toLowerCase())) {
+      players.push({ name, imageUrl: pendingPlayerAvatar });
+      pendingPlayerAvatar = null;
+      if (playerAvatarIndicator) playerAvatarIndicator.style.display = 'none';
+      if (playerAvatarBtn) playerAvatarBtn.style.borderColor = '';
+      if (playerAvatarInput) playerAvatarInput.value = '';
+      updateTags();
+    }
+    playerInput.value = '';
+  }
+
   playerInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const name = playerInput.value.trim();
-      if (name && !players.includes(name)) {
-        players.push(name);
-        updateTags();
-      }
-      playerInput.value = '';
+      addCurrentPlayer();
     }
   });
 
   document.getElementById('create-event-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const pendingName = playerInput.value.trim();
-    if (pendingName && !players.includes(pendingName)) {
-      players.push(pendingName);
-      updateTags();
-      playerInput.value = '';
-    }
+    addCurrentPlayer();
 
     const name = document.getElementById('ce-name').value.trim();
     if (!name || name.length < 2) {
@@ -415,7 +503,8 @@ function showCreateEventModal() {
         minBet,
         maxBet,
         payoutPercent: Number(payoutSlider.value),
-        players
+        players,
+        imageUrl: selectedCoverBase64
       });
       closeModal();
       showToast(`${t('admin.toastEventCreated')} ${t('admin.code')}: ${event.shareCode}`, 'success');
@@ -431,12 +520,17 @@ function showCreateEventModal() {
 }
 
 function renderPlayerTags(players, container, onRemove) {
-  container.innerHTML = players.map((name, i) => `
-    <span class="player-tag">
-      ${name}
-      <button type="button" class="player-tag-remove" data-idx="${i}">&times;</button>
-    </span>
-  `).join('');
+  container.innerHTML = players.map((p, i) => {
+    const name = typeof p === 'string' ? p : p.name;
+    const img = typeof p === 'object' ? p.imageUrl : null;
+    return `
+      <span class="player-tag" style="display: inline-flex; align-items: center; gap: 4px;">
+        ${img ? `<img src="${img}" alt="${name}" class="player-avatar-mini" style="width: 18px; height: 18px;" />` : ''}
+        <span>${name}</span>
+        <button type="button" class="player-tag-remove" data-idx="${i}">&times;</button>
+      </span>
+    `;
+  }).join('');
   if (onRemove) {
     container.querySelectorAll('.player-tag-remove').forEach(btn => {
       btn.addEventListener('click', () => onRemove(Number(btn.dataset.idx)));
@@ -451,26 +545,80 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
     showModal(`${t('admin.managePlayersTitle')} — ${eventName}`, `
       <div class="form-group">
         <label class="form-label">${t('admin.addPlayerLabel')}</label>
-        <div class="flex gap-sm">
+        <div class="flex gap-sm" style="align-items: center;">
           <input type="text" class="form-input" id="add-player-input" placeholder="${t('admin.addPlayerPlaceholder')}" style="flex:1;" />
+          <button type="button" class="btn btn-secondary btn-sm" id="modal-player-avatar-btn" title="Välj bild för deltagare">📷</button>
+          <input type="file" accept="image/*" id="modal-player-avatar-input" style="display: none;" />
           <button class="btn btn-primary btn-sm" id="add-player-btn">${t('admin.btnAdd')}</button>
+        </div>
+        <div id="modal-player-avatar-indicator" style="display: none; font-size: 0.75rem; color: var(--gold); margin-top: 4px;">
+          Bild vald för deltagare ✅
         </div>
       </div>
       <div id="player-list-modal">
         ${event.players.map(p => `
-          <div class="bet-item">
-            <span class="bet-item-name">${p.name}</span>
-            <button class="btn btn-sm btn-danger remove-player-modal" data-id="${p.id}">&times;</button>
+          <div class="bet-item" style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}" class="player-avatar-mini" />` : `<span style="font-size: 1.1rem;">👤</span>`}
+              <span class="bet-item-name">${p.name}</span>
+            </div>
+            <div class="flex gap-xs" style="align-items: center;">
+              <button class="btn btn-sm btn-secondary change-player-img-btn" data-id="${p.id}" title="Byt bild">📷</button>
+              <button class="btn btn-sm btn-danger remove-player-modal" data-id="${p.id}">&times;</button>
+            </div>
           </div>
         `).join('') || `<p class="text-muted text-center">${t('admin.noPlayersYet')}</p>`}
       </div>
+      <input type="file" accept="image/*" id="change-player-file-input" style="display: none;" />
     `);
+
+    let pendingNewPlayerAvatar = null;
+    const playerAvatarBtn = document.getElementById('modal-player-avatar-btn');
+    const playerAvatarInput = document.getElementById('modal-player-avatar-input');
+    const playerAvatarIndicator = document.getElementById('modal-player-avatar-indicator');
+
+    playerAvatarBtn?.addEventListener('click', () => playerAvatarInput.click());
+    playerAvatarInput?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        pendingNewPlayerAvatar = await compressImage(file, 500, 0.8);
+        playerAvatarIndicator.style.display = 'block';
+        playerAvatarBtn.style.borderColor = 'var(--gold)';
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    // Change existing player avatar
+    let activePlayerIdToChange = null;
+    const changeFileInput = document.getElementById('change-player-file-input');
+    document.querySelectorAll('.change-player-img-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activePlayerIdToChange = btn.dataset.id;
+        changeFileInput.click();
+      });
+    });
+
+    changeFileInput?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file || !activePlayerIdToChange) return;
+      try {
+        const compressed = await compressImage(file, 500, 0.8);
+        await api.updatePlayerImage(eventId, activePlayerIdToChange, { imageUrl: compressed, pin: getPin() });
+        showToast('Spelarbild uppdaterad! 📸', 'success');
+        closeModal();
+        showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
 
     document.getElementById('add-player-btn').addEventListener('click', async () => {
       const name = document.getElementById('add-player-input').value.trim();
       if (!name) return;
       try {
-        await api.addPlayer(eventId, name, getPin());
+        await api.addPlayer(eventId, name, getPin(), pendingNewPlayerAvatar);
         showToast(`${name} ${t('admin.toastPlayerAdded')}`, 'success');
         closeModal();
         showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user);
@@ -498,6 +646,87 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
     });
 
   } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function showCoverModal(eventId, loggedIn, hasPinSession, user) {
+  try {
+    const event = await api.getEvent(eventId);
+    showModal('📸 Ändra match-omslag', `
+      <div class="form-group">
+        <label class="form-label">Omslagsbild</label>
+        <div class="image-picker-box" id="modal-cover-drop">
+          <div id="modal-cover-preview-wrapper" class="image-preview-wrapper" style="${event.imageUrl ? 'display:inline-block;' : 'display:none;'}">
+            <img id="modal-cover-preview" src="${event.imageUrl || ''}" alt="Omslag" />
+            <button type="button" class="image-preview-remove" id="modal-cover-remove">✕</button>
+          </div>
+          <div id="modal-cover-placeholder" style="${event.imageUrl ? 'display:none;' : 'display:block;'}">
+            <div style="font-size: 2rem; margin-bottom: 4px;">📷</div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
+          </div>
+          <input type="file" accept="image/*" id="modal-cover-input" style="display:none;" />
+        </div>
+      </div>
+      <button type="button" class="btn btn-primary btn-block mt-md" id="modal-cover-save-btn">Spara omslag ✅</button>
+    `);
+
+    let currentCover = event.imageUrl || null;
+    const input = document.getElementById('modal-cover-input');
+    const drop = document.getElementById('modal-cover-drop');
+    const preview = document.getElementById('modal-cover-preview');
+    const previewWrapper = document.getElementById('modal-cover-preview-wrapper');
+    const placeholder = document.getElementById('modal-cover-placeholder');
+    const removeBtn = document.getElementById('modal-cover-remove');
+    const saveBtn = document.getElementById('modal-cover-save-btn');
+
+    drop?.addEventListener('click', (e) => {
+      if (e.target === removeBtn) return;
+      input.click();
+    });
+
+    input?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Komprimerar...';
+      try {
+        currentCover = await compressImage(file, 1000, 0.8);
+        preview.src = currentCover;
+        previewWrapper.style.display = 'inline-block';
+        placeholder.style.display = 'none';
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Spara omslag ✅';
+      }
+    });
+
+    removeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentCover = null;
+      input.value = '';
+      preview.src = '';
+      previewWrapper.style.display = 'none';
+      placeholder.style.display = 'block';
+    });
+
+    saveBtn?.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Sparar...';
+      try {
+        await api.updateEventImage(eventId, { imageUrl: currentCover, pin: getPin() });
+        closeModal();
+        showToast('Omslagsbild sparad! 📸', 'success');
+        loadAdminEvents(loggedIn, hasPinSession, user);
+      } catch (err) {
+        showToast(err.message, 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Spara omslag ✅';
+      }
+    });
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) {
@@ -544,21 +773,75 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
     const event = await api.getEvent(shareCode);
 
     showModal(t('admin.finishTitle'), `
-      <p class="text-secondary mb-lg">${t('admin.whoWonPrompt')} <strong>${event.name}</strong>?</p>
+      <p class="text-secondary mb-md">${t('admin.whoWonPrompt')} <strong>${event.name}</strong>?</p>
+
+      <div class="form-group mb-md">
+        <label class="form-label">📸 Vinnarbevis / resultatbild (valfritt)</label>
+        <div class="image-picker-box" id="finish-proof-drop">
+          <div id="finish-proof-preview-wrapper" class="image-preview-wrapper" style="display:none;">
+            <img id="finish-proof-preview" alt="Vinnarbevis" />
+            <button type="button" class="image-preview-remove" id="finish-proof-remove">✕</button>
+          </div>
+          <div id="finish-proof-placeholder">
+            <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">Fota scorekort / målgång / resultat</div>
+          </div>
+          <input type="file" accept="image/*" id="finish-proof-input" style="display:none;" />
+        </div>
+      </div>
+
       <div class="bet-list" id="winner-list">
         ${event.players.map(p => `
-          <button class="bet-item card-clickable winner-select-btn" data-id="${p.id}" style="width:100%; border:none; cursor:pointer;">
-            <span class="bet-item-name">${p.name}</span>
+          <button class="bet-item card-clickable winner-select-btn" data-id="${p.id}" style="width:100%; border:none; cursor:pointer; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}" class="player-avatar-mini" />` : ''}
+              <span class="bet-item-name">${p.name}</span>
+            </div>
             <span class="text-gold">${t('admin.selectWinnerBtn')}</span>
           </button>
         `).join('')}
       </div>
     `);
 
+    let selectedWinnerProof = null;
+    const proofInput = document.getElementById('finish-proof-input');
+    const proofDrop = document.getElementById('finish-proof-drop');
+    const proofPreview = document.getElementById('finish-proof-preview');
+    const proofPreviewWrapper = document.getElementById('finish-proof-preview-wrapper');
+    const proofPlaceholder = document.getElementById('finish-proof-placeholder');
+    const proofRemove = document.getElementById('finish-proof-remove');
+
+    proofDrop?.addEventListener('click', (e) => {
+      if (e.target === proofRemove) return;
+      proofInput.click();
+    });
+
+    proofInput?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        selectedWinnerProof = await compressImage(file, 1000, 0.8);
+        proofPreview.src = selectedWinnerProof;
+        proofPreviewWrapper.style.display = 'inline-block';
+        proofPlaceholder.style.display = 'none';
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    proofRemove?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedWinnerProof = null;
+      proofInput.value = '';
+      proofPreview.src = '';
+      proofPreviewWrapper.style.display = 'none';
+      proofPlaceholder.style.display = 'block';
+    });
+
     document.querySelectorAll('.winner-select-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         try {
-          const result = await api.finishEvent(eventId, btn.dataset.id, getPin());
+          const result = await api.finishEvent(eventId, btn.dataset.id, getPin(), selectedWinnerProof);
           closeModal();
           launchConfetti();
           showToast(`🏆 ${result.winner} ${t('admin.toastWinnerDeclared')} Odds: ${result.odds}x`, 'success');

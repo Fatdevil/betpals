@@ -158,8 +158,19 @@ function renderEventContent(event, content, code) {
     };
   }
 
+  const hasPlayerImages = event.players.some(p => p.imageUrl);
+
   content.innerHTML = `
     <div class="animate-in">
+      ${event.imageUrl ? `
+        <div class="event-hero-banner" id="event-hero-banner">
+          <img src="${event.imageUrl}" alt="${event.name}" class="event-hero-img" />
+          <div class="event-hero-overlay">
+            <span class="badge ${statusBadgeClass(event.status)}" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);">${statusLabel(event.status)}</span>
+          </div>
+        </div>
+      ` : ''}
+
       <div class="page-header">
         <div class="flex-between">
           <h1 class="page-title">${event.name}</h1>
@@ -200,8 +211,21 @@ function renderEventContent(event, content, code) {
 
       ${isFinished && winner ? `
         <div class="winner-banner">
+          ${winner.imageUrl ? `
+            <div style="display: flex; justify-content: center; margin-bottom: var(--space-xs);">
+              <img src="${winner.imageUrl}" alt="${winner.name}" class="player-avatar-large" />
+            </div>
+          ` : ''}
           <div class="winner-label">🏆 ${t('event.winner')}</div>
           <div class="winner-name">${winner.name}</div>
+          ${event.winnerImageUrl ? `
+            <div class="winner-proof-wrapper">
+              <div class="winner-proof-card" id="winner-proof-trigger" data-img="${event.winnerImageUrl}" title="Klicka för fullskärm">
+                <img src="${event.winnerImageUrl}" alt="Vinnarbevis" class="winner-proof-img" />
+                <div class="winner-proof-badge">📸 Vinnarbevis / Resultat (klicka för fullskärm 🔍)</div>
+              </div>
+            </div>
+          ` : ''}
         </div>
       ` : ''}
 
@@ -241,6 +265,16 @@ function renderEventContent(event, content, code) {
                   ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
                 </select>
               ` : `
+                ${hasPlayerImages ? `
+                  <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
+                    ${event.players.map(p => `
+                      <button type="button" class="btn player-quick-btn" data-player-id="${p.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-full); border: 1.5px solid var(--border-light); background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                        ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}" class="player-avatar-mini" />` : ''}
+                        <span>${p.name}</span>
+                      </button>
+                    `).join('')}
+                  </div>
+                ` : ''}
                 <select class="form-input" id="bet-player" required>
                   <option value="">${t('event.selectPlayer')}</option>
                   ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
@@ -342,6 +376,36 @@ function renderEventContent(event, content, code) {
         if (select) select.value = btn.dataset.playerId;
       });
     });
+
+    document.querySelectorAll('.player-quick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.player-quick-btn').forEach(b => {
+          b.style.borderColor = 'var(--border-light)';
+          b.style.boxShadow = 'none';
+        });
+        btn.style.borderColor = 'var(--gold)';
+        btn.style.boxShadow = '0 0 10px var(--gold-glow)';
+        const select = document.getElementById('bet-player');
+        if (select) select.value = btn.dataset.playerId;
+      });
+    });
+
+    // Winner proof lightbox
+    const proofTrigger = document.getElementById('winner-proof-trigger');
+    if (proofTrigger) {
+      proofTrigger.addEventListener('click', () => {
+        const imgUrl = proofTrigger.dataset.img;
+        const lightbox = document.createElement('div');
+        lightbox.className = 'lightbox';
+        lightbox.innerHTML = `
+          <button class="lightbox-close">&times;</button>
+          <img src="${imgUrl}" alt="Vinnarbevis" />
+          <div class="lightbox-caption">📸 Vinnarbevis / Resultat</div>
+        `;
+        document.body.appendChild(lightbox);
+        lightbox.addEventListener('click', () => lightbox.remove());
+      });
+    }
 
     const form = document.getElementById('bet-form');
     form?.addEventListener('submit', async (e) => {

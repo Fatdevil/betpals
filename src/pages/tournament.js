@@ -3,6 +3,7 @@ import { formatCurrency, showToast, launchConfetti } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
+import { compressImage } from '../imageUtils.js';
 
 let wsUnsubscribe = null;
 
@@ -354,34 +355,6 @@ function renderTournamentContent(content, t, photos = []) {
     });
   });
 
-  // Client-side image compression
-  const compressImage = async (file, maxWidth = 1000, quality = 0.8) => {
-    return new Promise((resolve, reject) => {
-      if (!file || !file.type.startsWith('image/')) return reject(new Error('Välj en giltig bildfil'));
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = () => reject(new Error('Kunde inte läsa in bilden'));
-        img.src = e.target.result;
-      };
-      reader.onerror = () => reject(new Error('Kunde inte läsa filen'));
-      reader.readAsDataURL(file);
-    });
-  };
 
   // Photo Upload
   document.getElementById('add-photo-btn')?.addEventListener('click', () => {
@@ -773,6 +746,21 @@ function showSideBetModal(t, content) {
   showModal('🎯 Nytt sido-spel', `
     <form id="sidebet-form">
       <div class="form-group">
+        <label class="form-label">📸 Omslagsbild (valfri)</label>
+        <div class="image-picker-box" id="sidebet-cover-drop">
+          <div id="sidebet-cover-preview-wrapper" class="image-preview-wrapper" style="display:none;">
+            <img id="sidebet-cover-preview" alt="Förhandsvisning" />
+            <button type="button" class="image-preview-remove" id="sidebet-cover-remove">✕</button>
+          </div>
+          <div id="sidebet-cover-placeholder">
+            <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
+          </div>
+          <input type="file" accept="image/*" id="sidebet-cover-input" style="display:none;" />
+        </div>
+      </div>
+
+      <div class="form-group">
         <label class="form-label">Namn</label>
         <input type="text" class="form-input" id="sidebet-name" placeholder="t.ex. Närmast pinnen H7 eller Spik i vatten" required />
       </div>
@@ -819,6 +807,41 @@ function showSideBetModal(t, content) {
       <button type="submit" class="btn btn-primary btn-block">Skapa sido-spel 🎯</button>
     </form>
   `);
+
+  let selectedSidebetCover = null;
+  const coverInput = document.getElementById('sidebet-cover-input');
+  const coverDrop = document.getElementById('sidebet-cover-drop');
+  const coverPreview = document.getElementById('sidebet-cover-preview');
+  const coverPreviewWrapper = document.getElementById('sidebet-cover-preview-wrapper');
+  const coverPlaceholder = document.getElementById('sidebet-cover-placeholder');
+  const coverRemove = document.getElementById('sidebet-cover-remove');
+
+  coverDrop?.addEventListener('click', (e) => {
+    if (e.target === coverRemove) return;
+    coverInput.click();
+  });
+
+  coverInput?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      selectedSidebetCover = await compressImage(file, 1000, 0.8);
+      coverPreview.src = selectedSidebetCover;
+      coverPreviewWrapper.style.display = 'inline-block';
+      coverPlaceholder.style.display = 'none';
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  coverRemove?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectedSidebetCover = null;
+    coverInput.value = '';
+    coverPreview.src = '';
+    coverPreviewWrapper.style.display = 'none';
+    coverPlaceholder.style.display = 'block';
+  });
 
   let betMode = 'self';
 
@@ -915,6 +938,7 @@ function showSideBetModal(t, content) {
         linkedRoundId,
         betMode,
         betAmount,
+        imageUrl: selectedSidebetCover,
         pin
       });
       closeModal();

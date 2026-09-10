@@ -87,8 +87,10 @@ export const getEventQR = (idOrCode, baseUrl) => {
 };
 
 // ── Players ────────────────────────────────────────────
-export const addPlayer = (eventId, name, pin) =>
-  request(`/events/${eventId}/players`, { method: 'POST', body: { name, pin } });
+export const addPlayer = (eventId, name, pin, imageUrl = null) =>
+  request(`/events/${eventId}/players`, { method: 'POST', body: { name, pin, imageUrl } });
+export const updatePlayerImage = (eventId, playerId, data) =>
+  request(`/events/${eventId}/players/${playerId}/image`, { method: 'PUT', body: data });
 export const removePlayer = (eventId, playerId, pin) =>
   request(`/events/${eventId}/players/${playerId}`, { method: 'DELETE', body: { pin } });
 
@@ -105,8 +107,10 @@ export const lockEvent = (id, pin) =>
   request(`/events/${id}/lock`, { method: 'POST', body: { pin } });
 export const reopenEvent = (id, pin) =>
   request(`/events/${id}/reopen`, { method: 'POST', body: { pin } });
-export const finishEvent = (id, winnerId, pin) =>
-  request(`/events/${id}/finish`, { method: 'POST', body: { winnerId, pin } });
+export const finishEvent = (id, winnerId, pin, winnerImageUrl = null) =>
+  request(`/events/${id}/finish`, { method: 'POST', body: { winnerId, pin, winnerImageUrl } });
+export const updateEventImage = (id, data) =>
+  request(`/events/${id}/image`, { method: 'PUT', body: data });
 
 // ── Users ─────────────────────────────────────────────
 export const registerUser = ({ name, nickname, swishNumber, pin, avatarEmoji }) =>
