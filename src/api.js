@@ -212,3 +212,10 @@ export const startPartyGame = (id) => request('/minigames/party/' + id + '/start
 export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: { stoppedTime } });
 export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
 
+// ── AnyBet (Kompisbettet) ─────────────────────────────
+export const createAnyBet = (data) => request('/anybets/create', { method: 'POST', body: data });
+export const getAnyBets = () => request('/anybets');
+export const getAnyBet = (id) => request('/anybets/' + id);
+export const joinAnyBet = (id, choice) => request('/anybets/' + id + '/join', { method: 'POST', body: { choice } });
+export const settleAnyBet = (id, data) => request('/anybets/' + id + '/settle', { method: 'POST', body: data });
+

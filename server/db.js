@@ -212,6 +212,45 @@ try {
   `);
 } catch {}
 
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS anybets (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      creator_id TEXT NOT NULL,
+      judge_id TEXT NOT NULL,
+      stake_amount REAL NOT NULL DEFAULT 0,
+      bet_type TEXT NOT NULL DEFAULT 'winner_takes_all',
+      deadline TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      winner_id TEXT,
+      winning_side TEXT,
+      proof_image_url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (judge_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_anybets_creator ON anybets(creator_id);
+    CREATE INDEX IF NOT EXISTS idx_anybets_judge ON anybets(judge_id);
+    CREATE INDEX IF NOT EXISTS idx_anybets_status ON anybets(status);
+
+    CREATE TABLE IF NOT EXISTS anybet_participants (
+      id TEXT PRIMARY KEY,
+      bet_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      choice TEXT DEFAULT 'participant',
+      status TEXT NOT NULL DEFAULT 'accepted',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (bet_id) REFERENCES anybets(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(bet_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_anybet_part_bet ON anybet_participants(bet_id);
+    CREATE INDEX IF NOT EXISTS idx_anybet_part_user ON anybet_participants(user_id);
+  `);
+} catch {}
+
 // ── Prepared Statements ──────────────
 const stmts = {
   // Settings
@@ -421,6 +460,57 @@ const stmts = {
     WHERE ((creator_id = ? AND opponent_id = ?) OR (creator_id = ? AND opponent_id = ?))
       AND status = 'completed'
       AND is_settled = 0
+  `),
+
+  // AnyBets
+  insertAnyBet: db.prepare(`
+    INSERT INTO anybets (id, title, description, creator_id, judge_id, stake_amount, bet_type, deadline, status)
+    VALUES (@id, @title, @description, @creator_id, @judge_id, @stake_amount, @bet_type, @deadline, @status)
+  `),
+  insertAnyBetParticipant: db.prepare(`
+    INSERT OR REPLACE INTO anybet_participants (id, bet_id, user_id, choice, status)
+    VALUES (@id, @bet_id, @user_id, @choice, @status)
+  `),
+  getAnyBetById: db.prepare(`
+    SELECT b.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url,
+           j.nickname as judge_nickname, j.real_name as judge_real_name, j.avatar_emoji as judge_avatar_emoji, j.avatar_url as judge_avatar_url,
+           w.nickname as winner_nickname, w.real_name as winner_real_name, w.avatar_emoji as winner_avatar_emoji, w.avatar_url as winner_avatar_url, w.swish_number as winner_swish
+    FROM anybets b
+    LEFT JOIN users c ON b.creator_id = c.id
+    LEFT JOIN users j ON b.judge_id = j.id
+    LEFT JOIN users w ON b.winner_id = w.id
+    WHERE b.id = ?
+  `),
+  getAnyBetParticipants: db.prepare(`
+    SELECT p.*,
+           u.nickname, u.real_name, u.swish_number, u.avatar_emoji, u.avatar_url
+    FROM anybet_participants p
+    JOIN users u ON p.user_id = u.id
+    WHERE p.bet_id = ?
+    ORDER BY p.created_at ASC
+  `),
+  updateAnyBetParticipantChoice: db.prepare(`
+    UPDATE anybet_participants SET choice = ?, status = 'accepted' WHERE bet_id = ? AND user_id = ?
+  `),
+  settleAnyBet: db.prepare(`
+    UPDATE anybets
+    SET status = 'completed', winner_id = @winner_id, winning_side = @winning_side, proof_image_url = @proof_image_url
+    WHERE id = @id
+  `),
+  getAnyBetsForUser: db.prepare(`
+    SELECT DISTINCT b.*,
+           c.nickname as creator_nickname, c.avatar_emoji as creator_avatar_emoji,
+           j.nickname as judge_nickname, j.avatar_emoji as judge_avatar_emoji,
+           w.nickname as winner_nickname, w.avatar_emoji as winner_avatar_emoji
+    FROM anybets b
+    LEFT JOIN users c ON b.creator_id = c.id
+    LEFT JOIN users j ON b.judge_id = j.id
+    LEFT JOIN users w ON b.winner_id = w.id
+    LEFT JOIN anybet_participants p ON b.id = p.bet_id
+    WHERE b.creator_id = ? OR b.judge_id = ? OR p.user_id = ?
+    ORDER BY b.created_at DESC
+    LIMIT 50
   `),
 };
 
@@ -1409,5 +1499,145 @@ export function settleDuelById(duelId) {
 export function settleDuelsBetweenUsers(userId, friendId) {
   stmts.settleDuelsBetweenUsers.run(userId, friendId, friendId, userId);
   return true;
+}
+
+// ── AnyBet Public API ─────────────────────────────────
+
+export function createAnyBet({ title, description, creatorId, judgeId, stakeAmount, betType, deadline, participantIds }) {
+  const betId = crypto.randomUUID();
+  const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : (parseFloat(stakeAmount) || 0);
+
+  stmts.insertAnyBet.run({
+    id: betId,
+    title: title.trim(),
+    description: description ? description.trim() : null,
+    creator_id: creatorId,
+    judge_id: judgeId || creatorId,
+    stake_amount: stake,
+    bet_type: betType || 'winner_takes_all',
+    deadline: deadline || null,
+    status: 'open'
+  });
+
+  // Ensure creator is included in participants
+  const allParticipantIds = new Set(participantIds || []);
+  allParticipantIds.add(creatorId);
+
+  for (const pUserId of allParticipantIds) {
+    stmts.insertAnyBetParticipant.run({
+      id: crypto.randomUUID(),
+      bet_id: betId,
+      user_id: pUserId,
+      choice: 'participant',
+      status: pUserId === creatorId ? 'accepted' : 'invited'
+    });
+  }
+
+  return getAnyBetById(betId);
+}
+
+export function getAnyBetById(id) {
+  const bet = stmts.getAnyBetById.get(id);
+  if (!bet) return null;
+  const participants = stmts.getAnyBetParticipants.all(id);
+  return { ...bet, participants };
+}
+
+export function getAnyBetsForUser(userId) {
+  const bets = stmts.getAnyBetsForUser.all(userId, userId, userId);
+  return bets.map(b => {
+    const participants = stmts.getAnyBetParticipants.all(b.id);
+    return { ...b, participants };
+  });
+}
+
+export function updateAnyBetChoice(betId, userId, choice) {
+  stmts.updateAnyBetParticipantChoice.run(choice, betId, userId);
+  return getAnyBetById(betId);
+}
+
+export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImageUrl }) {
+  const bet = getAnyBetById(betId);
+  if (!bet) throw new Error('Bettet hittades inte');
+  if (bet.judge_id !== judgeId && bet.creator_id !== judgeId) {
+    throw new Error('Endast domaren kan avgöra bettet');
+  }
+  if (bet.status === 'completed') {
+    throw new Error('Bettet är redan avgjort');
+  }
+
+  stmts.settleAnyBet.run({
+    id: betId,
+    winner_id: winnerId || null,
+    winning_side: winningSide || null,
+    proof_image_url: proofImageUrl || null
+  });
+
+  // If there is money on the line, settle debts in minigame_duels for Notan & Swish!
+  if (bet.stake_amount > 0) {
+    const acceptedParticipants = bet.participants.filter(p => p.status === 'accepted');
+
+    if (bet.bet_type === 'winner_takes_all' && winnerId) {
+      const losers = acceptedParticipants.filter(p => p.user_id !== winnerId);
+      for (const loser of losers) {
+        try {
+          const duelId = crypto.randomUUID();
+          stmts.insertDuel.run({
+            id: duelId,
+            game_type: 'anybet',
+            creator_id: winnerId,
+            opponent_id: loser.user_id,
+            stake_amount: bet.stake_amount,
+            mode: 'anybet',
+            status: 'completed'
+          });
+          stmts.updateDuelResult.run({
+            id: duelId,
+            creator_score: 1,
+            opponent_score: 0,
+            winner_id: winnerId,
+            status: 'completed'
+          });
+        } catch (e) {
+          console.error('Failed to log anybet debt settlement:', e);
+        }
+      }
+    } else if (bet.bet_type === 'yes_no' && winningSide) {
+      const winners = acceptedParticipants.filter(p => p.choice === winningSide);
+      const losers = acceptedParticipants.filter(p => p.choice && p.choice !== winningSide);
+
+      if (winners.length > 0 && losers.length > 0) {
+        for (const loser of losers) {
+          for (const winner of winners) {
+            try {
+              const perWinnerStake = Math.round((bet.stake_amount / winners.length) * 100) / 100;
+              if (perWinnerStake <= 0) continue;
+              const duelId = crypto.randomUUID();
+              stmts.insertDuel.run({
+                id: duelId,
+                game_type: 'anybet',
+                creator_id: winner.user_id,
+                opponent_id: loser.user_id,
+                stake_amount: perWinnerStake,
+                mode: 'anybet',
+                status: 'completed'
+              });
+              stmts.updateDuelResult.run({
+                id: duelId,
+                creator_score: 1,
+                opponent_score: 0,
+                winner_id: winner.user_id,
+                status: 'completed'
+              });
+            } catch (e) {
+              console.error('Failed to log anybet yes/no debt settlement:', e);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return getAnyBetById(betId);
 }
 

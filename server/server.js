@@ -1924,6 +1924,114 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
   }
 });
 
+// ── AnyBet API (Kompisbettet) ─────────────────────────
+app.post('/api/anybets/create', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { title, description, judgeId, stakeAmount, betType, deadline, participantIds } = req.body;
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'Ange vad bettet handlar om' });
+  }
+
+  try {
+    const bet = db.createAnyBet({
+      title,
+      description,
+      creatorId: user.id,
+      judgeId: judgeId || user.id,
+      stakeAmount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : (parseFloat(stakeAmount) || 0),
+      betType: betType || 'winner_takes_all',
+      deadline: deadline || null,
+      participantIds: Array.isArray(participantIds) ? participantIds : []
+    });
+
+    if (Array.isArray(participantIds)) {
+      for (const pId of participantIds) {
+        if (pId !== user.id) {
+          broadcastToUser(pId, {
+            type: 'anybet_invitation',
+            bet: {
+              id: bet.id,
+              title: bet.title,
+              creatorNickname: user.nickname,
+              stakeAmount: bet.stake_amount
+            }
+          });
+        }
+      }
+    }
+
+    res.json({ ok: true, bet });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Kunde inte skapa bettet' });
+  }
+});
+
+app.get('/api/anybets', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const bets = db.getAnyBetsForUser(user.id);
+    res.json({ bets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/anybets/:id', (req, res) => {
+  try {
+    const bet = db.getAnyBetById(req.params.id);
+    if (!bet) return res.status(404).json({ error: 'Bettet hittades inte' });
+    res.json({ bet });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/anybets/:id/join', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { choice } = req.body;
+  try {
+    const bet = db.updateAnyBetChoice(req.params.id, user.id, choice || 'participant');
+    res.json({ ok: true, bet });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/anybets/:id/settle', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { winnerId, winningSide, proofImageUrl } = req.body;
+  try {
+    const settledBet = db.settleAnyBet({
+      betId: req.params.id,
+      judgeId: user.id,
+      winnerId,
+      winningSide,
+      proofImageUrl
+    });
+
+    if (settledBet && settledBet.participants) {
+      for (const p of settledBet.participants) {
+        broadcastToUser(p.user_id, {
+          type: 'anybet_settled',
+          bet: settledBet
+        });
+      }
+    }
+
+    res.json({ ok: true, bet: settledBet });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';

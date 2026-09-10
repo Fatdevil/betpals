@@ -390,6 +390,27 @@ export const sv = {
     blind10TieTitle: '🔥 OAVGJORT PÅ 1:A PLATS!',
     blind10SuddenDeathBtn: '🔥 Sudden Death (Kör om!)',
     blind10SplitPotBtn: '🤝 Dela på potten',
-    blind10WinnerWins: 'tar hem hela potten på'
+    blind10WinnerWins: 'tar hem hela potten på',
+    anybet: 'AnyBet',
+    anybetTag: 'Social · Eget Bet',
+    anybetTitle: '🤝 AnyBet – Kompisbettet',
+    anybetDesc: 'Skapa helt valfria kompisbet i vardagen! Välj vad bettet handlar om, deadline, insats, bjud in vänner och utse en domare.',
+    anybetCreateTab: '➕ Skapa Nytt Bet',
+    anybetActiveTab: '📋 Aktiva Bet',
+    anybetFinishedTab: '🏁 Avslutade Bet',
+    anybetTitlePlaceholder: 'Vad handlar bettet om? (t.ex. Klarar Kalle milen under 45m?)',
+    anybetRulesPlaceholder: 'Regler & detaljer (valfritt, t.ex. Måste bevisas med Strava)',
+    anybetModelLabel: 'Typ av bet:',
+    anybetModelWinner: '🏆 Vinnarpott (Winner Takes All)',
+    anybetModelYesNo: '⚖️ Ja / Nej (Utmaning)',
+    anybetDeadlineLabel: 'Slutdatum / Deadline (valfritt):',
+    anybetJudgeLabel: 'Vem är domare? (avgör bettet):',
+    anybetCreateBtn: '🤝 Skapa AnyBet',
+    anybetSettleBtn: '⚖️ Avgör bettet',
+    anybetConfirmWinner: '🏆 Bekräfta Vinnare',
+    anybetUploadProof: '📸 Ladda upp bildbevis (valfritt):',
+    anybetPickSidePrompt: 'Välj din sida:',
+    anybetNoActive: 'Inga aktiva AnyBets just nu. Skapa det första vettja!',
+    anybetNoFinished: 'Inga avslutade AnyBets än.'
   }
 };

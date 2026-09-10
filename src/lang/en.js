@@ -390,6 +390,27 @@ export const en = {
     blind10TieTitle: '🔥 TIE FOR 1ST PLACE!',
     blind10SuddenDeathBtn: '🔥 Sudden Death (Rematch!)',
     blind10SplitPotBtn: '🤝 Split the pot',
-    blind10WinnerWins: 'takes the whole pot of'
+    blind10WinnerWins: 'takes the whole pot of',
+    anybet: 'AnyBet',
+    anybetTag: 'Social · Custom Bet',
+    anybetTitle: '🤝 AnyBet – Custom Bets',
+    anybetDesc: 'Create any friendly bet! Choose the topic, deadline, stake, invite friends, and appoint a judge.',
+    anybetCreateTab: '➕ Create New Bet',
+    anybetActiveTab: '📋 Active Bets',
+    anybetFinishedTab: '🏁 Completed Bets',
+    anybetTitlePlaceholder: 'What is the bet about? (e.g. Can John run 10k in 45m?)',
+    anybetRulesPlaceholder: 'Rules & details (optional, e.g. Strava proof required)',
+    anybetModelLabel: 'Bet type:',
+    anybetModelWinner: '🏆 Winner Takes All (Pot)',
+    anybetModelYesNo: '⚖️ Yes / No (Challenge)',
+    anybetDeadlineLabel: 'Target date / Deadline (optional):',
+    anybetJudgeLabel: 'Who is the judge? (decides winner):',
+    anybetCreateBtn: '🤝 Create AnyBet',
+    anybetSettleBtn: '⚖️ Settle Bet',
+    anybetConfirmWinner: '🏆 Confirm Winner',
+    anybetUploadProof: '📸 Upload photo proof (optional):',
+    anybetPickSidePrompt: 'Choose your side:',
+    anybetNoActive: 'No active AnyBets right now. Create the first one!',
+    anybetNoFinished: 'No completed AnyBets yet.'
   }
 };

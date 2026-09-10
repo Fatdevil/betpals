@@ -16,7 +16,12 @@ import {
   inviteToParty,
   startPartyGame,
   submitPartyTime,
-  resolvePartyTie
+  resolvePartyTie,
+  createAnyBet,
+  getAnyBets,
+  getAnyBet,
+  joinAnyBet,
+  settleAnyBet
 } from '../api.js';
 import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
@@ -121,12 +126,19 @@ export function renderMinigamesRoller() {
       tag: t('arcade.blind10Tag'),
       title: t('arcade.blind10Title'),
       iconHtml: `<img src="/stopwatch-gold.png" alt="${t('arcade.blind10')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'anybet',
+      name: t('arcade.anybet'),
+      tag: t('arcade.anybetTag'),
+      title: t('arcade.anybetTitle'),
+      iconHtml: `<img src="/handshake-gold.png" alt="${t('arcade.anybet')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' || g.id === 'anybet' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -189,6 +201,7 @@ export function attachMinigamesListeners() {
       else if (game === 'wheel') openWheelModal();
       else if (game === 'dice') openDiceModal();
       else if (game === 'blind10') openBlind10Modal();
+      else if (game === 'anybet') openAnyBetModal();
     });
   }
 
@@ -3210,6 +3223,720 @@ export function showIncomingPartyModal(room) {
 }
 
 // ────────────────────────────────────────────────────────
+// 🤝 ANYBET (KOMPISBETTET MED GYLLENE HANDSLAG)
+// ────────────────────────────────────────────────────────
+export async function openAnyBetModal(initialBetId = null) {
+  const isEn = getLang() === 'en';
+  const user = getStoredUser();
+
+  let activeTab = initialBetId ? 'active' : 'create'; // 'create' | 'active' | 'finished'
+  let friendsList = [];
+  let selectedStake = 20;
+  let selectedModel = 'winner_takes_all'; // 'winner_takes_all' | 'yes_no'
+  let invitedFriendIds = new Set();
+  let proofImageData = null;
+
+  const modalTitle = `<img src="/handshake-gold.png" alt="AnyBet" style="width: 26px; height: 26px; vertical-align: -4px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.anybetTitle')}`;
+
+  showModal(modalTitle, `
+    <div id="anybet-container" style="padding: 4px 0; min-height: 380px;">
+      <div class="text-center text-muted" style="padding: 40px 0;">
+        <span class="spinner">⏳</span>
+      </div>
+    </div>
+  `);
+
+  const container = document.getElementById('anybet-container');
+  if (!container) return;
+
+  try {
+    if (user) {
+      friendsList = await getFriends().catch(() => []);
+    }
+  } catch (e) {}
+
+  renderMainView();
+
+  function renderMainView() {
+    container.innerHTML = `
+      <div class="the-tab-nav" style="margin-bottom: 14px;">
+        <button type="button" class="tab-nav-btn ${activeTab === 'create' ? 'active' : ''}" id="tab-anybet-create">
+          ${t('arcade.anybetCreateTab')}
+        </button>
+        <button type="button" class="tab-nav-btn ${activeTab === 'active' ? 'active' : ''}" id="tab-anybet-active">
+          ${t('arcade.anybetActiveTab')}
+        </button>
+        <button type="button" class="tab-nav-btn ${activeTab === 'finished' ? 'active' : ''}" id="tab-anybet-finished">
+          ${t('arcade.anybetFinishedTab')}
+        </button>
+      </div>
+
+      <div id="anybet-tab-content"></div>
+    `;
+
+    document.getElementById('tab-anybet-create')?.addEventListener('click', () => {
+      activeTab = 'create';
+      renderMainView();
+    });
+    document.getElementById('tab-anybet-active')?.addEventListener('click', () => {
+      activeTab = 'active';
+      renderMainView();
+    });
+    document.getElementById('tab-anybet-finished')?.addEventListener('click', () => {
+      activeTab = 'finished';
+      renderMainView();
+    });
+
+    const tabContent = document.getElementById('anybet-tab-content');
+    if (!tabContent) return;
+
+    if (activeTab === 'create') {
+      renderCreateTab(tabContent);
+    } else if (activeTab === 'active') {
+      renderActiveTab(tabContent);
+    } else {
+      renderFinishedTab(tabContent);
+    }
+  }
+
+  // ── FLIK 1: SKAPA NYTT BET ────────────────────────────
+  function renderCreateTab(tabContent) {
+    if (!user) {
+      tabContent.innerHTML = `
+        <div class="text-center" style="padding: 30px 10px;">
+          <img src="/handshake-gold.png" alt="Handshake" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; opacity: 0.8;" />
+          <h3 style="color: var(--gold); margin-bottom: 8px;">Logga in för AnyBet</h3>
+          <p class="text-muted mb-lg" style="font-size: 0.9rem;">
+            ${isEn ? 'Log in to create custom bets, challenge friends, and track debts in Swishlistan.' : 'Logga in för att skapa kompisbet, utmana vänner och hålla koll på skulder i Swishlistan.'}
+          </p>
+        </div>
+      `;
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    tabContent.innerHTML = `
+      <div style="background: rgba(255, 215, 0, 0.05); border: 1px solid rgba(255, 215, 0, 0.2); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
+        <img src="/handshake-gold.png" alt="AnyBet" style="width: 48px; height: 48px; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.3));" />
+        <div style="font-size: 0.82rem; line-height: 1.4; color: var(--text-secondary);">
+          ${t('arcade.anybetDesc')}
+        </div>
+      </div>
+
+      <!-- 1. Vad handlar bettet om? -->
+      <div style="margin-bottom: 14px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
+          💬 ${isEn ? 'What is the bet about?' : 'Vad handlar bettet om?'} *
+        </label>
+        <input type="text" id="anybet-title-input" class="form-input" placeholder="${t('arcade.anybetTitlePlaceholder')}" maxlength="120" style="padding: 10px 12px; font-size: 0.92rem; font-weight: 600;" />
+        <textarea id="anybet-desc-input" class="form-input" placeholder="${t('arcade.anybetRulesPlaceholder')}" rows="2" style="font-size: 0.82rem; resize: none; margin-top: 6px; padding: 8px 12px;"></textarea>
+      </div>
+
+      <!-- 2. Typ av bet (Vinnarpott vs Ja/Nej) -->
+      <div style="margin-bottom: 14px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
+          ⚖️ ${t('arcade.anybetModelLabel')}
+        </label>
+        <div class="flex gap-xs">
+          <button type="button" class="btn ${selectedModel === 'winner_takes_all' ? 'btn-primary' : 'btn-secondary'} btn-sm btn-block anybet-model-btn" data-model="winner_takes_all" style="font-size: 0.8rem; padding: 8px 6px;">
+            ${t('arcade.anybetModelWinner')}
+          </button>
+          <button type="button" class="btn ${selectedModel === 'yes_no' ? 'btn-primary' : 'btn-secondary'} btn-sm btn-block anybet-model-btn" data-model="yes_no" style="font-size: 0.8rem; padding: 8px 6px;">
+            ${t('arcade.anybetModelYesNo')}
+          </button>
+        </div>
+      </div>
+
+      <!-- 3. Insats per person -->
+      <div style="margin-bottom: 14px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
+          💰 ${t('arcade.blind10StakeLabel')}
+        </label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          <button type="button" class="btn ${selectedStake === 0 ? 'btn-primary' : 'btn-secondary'} btn-sm anybet-stake-btn" data-stake="0">0 kr (Ära)</button>
+          <button type="button" class="btn ${selectedStake === 10 ? 'btn-primary' : 'btn-secondary'} btn-sm anybet-stake-btn" data-stake="10">10 kr</button>
+          <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm anybet-stake-btn" data-stake="20">20 kr</button>
+          <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm anybet-stake-btn" data-stake="50">50 kr</button>
+          <button type="button" class="btn ${selectedStake === 100 ? 'btn-primary' : 'btn-secondary'} btn-sm anybet-stake-btn" data-stake="100">100 kr</button>
+          <button type="button" class="btn ${![0, 10, 20, 50, 100].includes(selectedStake) ? 'btn-primary' : 'btn-secondary'} btn-sm anybet-stake-btn" data-stake="custom">
+            ${![0, 10, 20, 50, 100].includes(selectedStake) ? `${selectedStake} kr` : (isEn ? 'Custom' : 'Valfritt')}
+          </button>
+        </div>
+        <div id="anybet-custom-stake-wrap" style="display: ${![0, 10, 20, 50, 100].includes(selectedStake) ? 'block' : 'none'}; margin-top: 8px;">
+          <input type="number" id="anybet-custom-stake-input" class="form-input" placeholder="Ange belopp i kr" value="${selectedStake || 30}" min="1" max="10000" style="padding: 8px 12px; font-size: 0.88rem;" />
+        </div>
+      </div>
+
+      <!-- 4. Slutdatum / Kalender (Valfritt) -->
+      <div style="margin-bottom: 14px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
+          📅 ${t('arcade.anybetDeadlineLabel')}
+        </label>
+        <input type="date" id="anybet-deadline-input" class="form-input" min="${todayStr}" style="padding: 8px 12px; font-size: 0.88rem;" />
+      </div>
+
+      <!-- 5. Bjud in deltagare -->
+      <div style="margin-bottom: 14px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span>👥 ${isEn ? 'Invite participants' : 'Bjud in deltagare'}:</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">${friendsList.length} ${isEn ? 'friends available' : 'vänner'}</span>
+        </label>
+        ${friendsList.length > 0 ? `
+          <div style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+            ${friendsList.map(f => `
+              <label style="display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
+                <span style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
+                  <span>${f.avatar_emoji || '👤'}</span>
+                  <strong>${escapeHtml(f.nickname)}</strong>
+                </span>
+                <input type="checkbox" class="anybet-friend-cb" value="${f.id}" ${invitedFriendIds.has(f.id) ? 'checked' : ''} style="width: 17px; height: 17px; accent-color: var(--gold);" />
+              </label>
+            `).join('')}
+          </div>
+        ` : `
+          <div class="text-muted" style="font-size: 0.8rem; padding: 8px 0;">
+            ${isEn ? 'No friends added yet. Add friends via Profile to challenge them!' : 'Du har inga vänner tillagda än. Lägg till vänner under Profil för att utmana dem!'}
+          </div>
+        `}
+      </div>
+
+      <!-- 6. Vem är domare? -->
+      <div style="margin-bottom: 18px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
+          ⚖️ ${t('arcade.anybetJudgeLabel')}
+        </label>
+        <select id="anybet-judge-select" class="form-input" style="padding: 8px 12px; font-size: 0.88rem;">
+          <option value="${user.id}">👑 ${isEn ? 'Me (Creator)' : 'Jag själv (Skaparen)'} – ${escapeHtml(user.nickname)}</option>
+          ${friendsList.map(f => `
+            <option value="${f.id}">⚖️ ${escapeHtml(f.nickname)}</option>
+          `).join('')}
+        </select>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-block" id="btn-create-anybet-submit" style="padding: 14px; font-weight: 800; font-size: 1rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4);">
+        ${t('arcade.anybetCreateBtn')}
+      </button>
+    `;
+
+    // Listeners for Model buttons
+    tabContent.querySelectorAll('.anybet-model-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedModel = btn.dataset.model;
+        tabContent.querySelectorAll('.anybet-model-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    // Listeners for Stake buttons
+    tabContent.querySelectorAll('.anybet-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.stake;
+        if (val === 'custom') {
+          selectedStake = parseInt(document.getElementById('anybet-custom-stake-input')?.value, 10) || 30;
+          document.getElementById('anybet-custom-stake-wrap').style.display = 'block';
+        } else {
+          selectedStake = parseInt(val, 10);
+          document.getElementById('anybet-custom-stake-wrap').style.display = 'none';
+        }
+        tabContent.querySelectorAll('.anybet-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    document.getElementById('anybet-custom-stake-input')?.addEventListener('input', (e) => {
+      selectedStake = Math.max(1, parseInt(e.target.value, 10) || 1);
+    });
+
+    // Friend checkboxes
+    tabContent.querySelectorAll('.anybet-friend-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          invitedFriendIds.add(cb.value);
+        } else {
+          invitedFriendIds.delete(cb.value);
+        }
+      });
+    });
+
+    // Submit AnyBet
+    document.getElementById('btn-create-anybet-submit')?.addEventListener('click', async () => {
+      const title = (document.getElementById('anybet-title-input')?.value || '').trim();
+      const description = (document.getElementById('anybet-desc-input')?.value || '').trim();
+      const deadline = document.getElementById('anybet-deadline-input')?.value || null;
+      const judgeId = document.getElementById('anybet-judge-select')?.value || user.id;
+
+      if (!title) {
+        showToast(isEn ? 'Please describe what the bet is about' : 'Ange vad bettet handlar om', 'warning');
+        return;
+      }
+
+      const submitBtn = document.getElementById('btn-create-anybet-submit');
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const res = await createAnyBet({
+          title,
+          description,
+          judgeId,
+          stakeAmount: selectedStake,
+          betType: selectedModel,
+          deadline,
+          participantIds: Array.from(invitedFriendIds)
+        });
+
+        if (res && res.ok) {
+          showToast(isEn ? 'AnyBet created successfully!' : 'AnyBet skapat! Handslaget är slutet 🤝', 'success');
+          playTone(587.33, 'sine', 0.2, 0.2);
+          setTimeout(() => playTone(880, 'sine', 0.25, 0.2), 100);
+          activeTab = 'active';
+          renderMainView();
+        }
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Failed to create bet' : 'Kunde inte skapa bettet'), 'error');
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // ── FLIK 2: AKTIVA BET ────────────────────────────────
+  async function renderActiveTab(tabContent) {
+    if (!user) {
+      tabContent.innerHTML = `<div class="text-center text-muted" style="padding: 30px;">Logga in för att se dina aktiva AnyBets.</div>`;
+      return;
+    }
+
+    tabContent.innerHTML = `
+      <div class="text-center text-muted" style="padding: 30px 0;">
+        <span class="spinner">⏳</span>
+      </div>
+    `;
+
+    try {
+      const res = await getAnyBets();
+      const allBets = res.bets || [];
+      const activeBets = allBets.filter(b => b.status === 'open');
+
+      if (activeBets.length === 0) {
+        tabContent.innerHTML = `
+          <div class="text-center" style="padding: 30px 10px;">
+            <img src="/handshake-gold.png" alt="Handshake" style="width: 60px; height: 60px; margin: 0 auto 10px auto; display: block; opacity: 0.5;" />
+            <p class="text-muted" style="font-size: 0.9rem; margin-bottom: 14px;">${t('arcade.anybetNoActive')}</p>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-goto-create-anybet" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
+              ➕ ${isEn ? 'Create First Bet' : 'Skapa första kompisbettet'}
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-goto-create-anybet')?.addEventListener('click', () => {
+          activeTab = 'create';
+          renderMainView();
+        });
+        return;
+      }
+
+      tabContent.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          ${activeBets.map(bet => {
+            const isJudge = user.id === bet.judge_id || user.id === bet.creator_id;
+            const myPart = (bet.participants || []).find(p => p.user_id === user.id);
+            const isYesNo = bet.bet_type === 'yes_no';
+            const totalPot = bet.stake_amount * (bet.participants ? bet.participants.length : 0);
+
+            return `
+              <div class="anybet-card" data-bet-id="${bet.id}">
+                <div class="flex justify-between align-center" style="margin-bottom: 6px;">
+                  <span class="badge ${isYesNo ? 'badge-accent' : 'badge-gold'}" style="font-size: 0.72rem; padding: 2px 8px;">
+                    ${isYesNo ? '⚖️ Ja / Nej' : '🏆 Vinnarpott'}
+                  </span>
+                  ${bet.deadline ? `
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">
+                      📅 ${bet.deadline}
+                    </span>
+                  ` : ''}
+                </div>
+
+                <h4 style="color: #fff; font-size: 1.05rem; font-weight: 700; margin-bottom: 4px;">
+                  ${escapeHtml(bet.title)}
+                </h4>
+
+                ${bet.description ? `
+                  <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.3;">
+                    ${escapeHtml(bet.description)}
+                  </p>
+                ` : ''}
+
+                <div class="flex justify-between align-center" style="background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); padding: 6px 10px; margin-bottom: 10px;">
+                  <span style="font-size: 0.8rem; color: var(--text-muted);">
+                    Domare: <strong>⚖️ ${escapeHtml(bet.judge_nickname || bet.creator_nickname)}</strong>
+                  </span>
+                  <span style="font-size: 0.85rem; font-weight: 700; color: #10b981;">
+                    ${bet.stake_amount > 0 ? `💰 Pott: ${totalPot} kr` : '✨ Ren ära'}
+                  </span>
+                </div>
+
+                <!-- Participants list -->
+                <div style="margin-bottom: 10px;">
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">👥 Deltagare (${bet.participants ? bet.participants.length : 0}):</div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    ${(bet.participants || []).map(p => `
+                      <span class="party-player-chip" style="font-size: 0.75rem; padding: 3px 8px;">
+                        <span>${p.avatar_emoji || '👤'}</span>
+                        <span>${escapeHtml(p.nickname)}</span>
+                        ${isYesNo && p.choice ? `
+                          <strong style="color: ${p.choice === 'yes' ? '#34d399' : '#f87171'}; margin-left: 2px;">
+                            (${p.choice.toUpperCase()})
+                          </strong>
+                        ` : ''}
+                      </span>
+                    `).join('')}
+                  </div>
+                </div>
+
+                <!-- Yes / No Choice Buttons for Current User if applicable -->
+                ${isYesNo ? `
+                  <div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-glass); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px;">
+                    <div style="font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; color: var(--text-secondary);">
+                      ${t('arcade.anybetPickSidePrompt')}
+                    </div>
+                    <div class="flex gap-xs">
+                      <button type="button" class="btn ${myPart?.choice === 'yes' ? 'btn-primary' : 'btn-secondary'} btn-sm btn-block btn-pick-side" data-bet-id="${bet.id}" data-side="yes" style="${myPart?.choice === 'yes' ? 'background: #10b981; border: none;' : ''}">
+                        ✅ JA ${myPart?.choice === 'yes' ? '(Valt)' : ''}
+                      </button>
+                      <button type="button" class="btn ${myPart?.choice === 'no' ? 'btn-primary' : 'btn-secondary'} btn-sm btn-block btn-pick-side" data-bet-id="${bet.id}" data-side="no" style="${myPart?.choice === 'no' ? 'background: #ef4444; border: none;' : ''}">
+                        ❌ NEJ ${myPart?.choice === 'no' ? '(Valt)' : ''}
+                      </button>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <!-- Judge Settle Button -->
+                ${isJudge ? `
+                  <button type="button" class="btn btn-primary btn-block btn-sm btn-open-settle" data-bet-id="${bet.id}" style="padding: 10px; font-weight: 700; background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
+                    ⚖️ ${t('arcade.anybetSettleBtn')}
+                  </button>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      // Pick side listeners
+      tabContent.querySelectorAll('.btn-pick-side').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const betId = btn.dataset.betId;
+          const side = btn.dataset.side;
+          try {
+            await joinAnyBet(betId, side);
+            showToast(isEn ? `You picked ${side.toUpperCase()}!` : `Du valde ${side.toUpperCase()}!`, 'success');
+            renderActiveTab(tabContent);
+          } catch (e) {
+            showToast(e.message || 'Kunde inte välja sida', 'error');
+          }
+        });
+      });
+
+      // Settle button listeners
+      tabContent.querySelectorAll('.btn-open-settle').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const betId = btn.dataset.betId;
+          const targetBet = activeBets.find(b => b.id === betId);
+          if (targetBet) openSettleModal(targetBet);
+        });
+      });
+
+    } catch (err) {
+      tabContent.innerHTML = `<div class="text-danger text-center" style="padding: 20px;">${err.message || 'Kunde inte ladda bet'}</div>`;
+    }
+  }
+
+  // ── FLIK 3: AVSLUTADE BET ────────────────────────────
+  async function renderFinishedTab(tabContent) {
+    tabContent.innerHTML = `
+      <div class="text-center text-muted" style="padding: 30px 0;">
+        <span class="spinner">⏳</span>
+      </div>
+    `;
+
+    try {
+      const res = await getAnyBets();
+      const allBets = res.bets || [];
+      const finishedBets = allBets.filter(b => b.status === 'completed');
+
+      if (finishedBets.length === 0) {
+        tabContent.innerHTML = `
+          <div class="text-center" style="padding: 30px 10px;">
+            <div style="font-size: 2.8rem; margin-bottom: 8px;">🏁</div>
+            <p class="text-muted" style="font-size: 0.9rem;">${t('arcade.anybetNoFinished')}</p>
+          </div>
+        `;
+        return;
+      }
+
+      tabContent.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          ${finishedBets.map(bet => {
+            const isYesNo = bet.bet_type === 'yes_no';
+            const winnerText = isYesNo 
+              ? (bet.winning_side === 'yes' ? '✅ JA vann!' : '❌ NEJ vann!')
+              : `👑 ${escapeHtml(bet.winner_nickname || 'Vinnare')} vann!`;
+
+            const totalPot = bet.stake_amount * (bet.participants ? bet.participants.length : 0);
+            const myPart = (bet.participants || []).find(p => p.user_id === user?.id);
+            const amIWinner = isYesNo 
+              ? (myPart?.choice === bet.winning_side)
+              : (bet.winner_id === user?.id);
+
+            const winnerUser = (bet.participants || []).find(p => p.user_id === bet.winner_id);
+            const swishUrl = (!amIWinner && bet.stake_amount > 0 && winnerUser?.swish_number)
+              ? createSwishUrl({ phone: winnerUser.swish_number, amount: bet.stake_amount, message: `AnyBet: ${bet.title}` })
+              : null;
+
+            return `
+              <div class="anybet-card completed">
+                <div class="flex justify-between align-center" style="margin-bottom: 6px;">
+                  <span class="badge badge-success" style="font-size: 0.72rem;">✅ Avslutat</span>
+                  <span style="font-size: 0.82rem; font-weight: 700; color: #10b981;">
+                    ${bet.stake_amount > 0 ? `💰 Pott: ${totalPot} kr` : '✨ Ren ära'}
+                  </span>
+                </div>
+
+                <h4 style="color: #fff; font-size: 1.05rem; font-weight: 700; margin-bottom: 4px;">
+                  ${escapeHtml(bet.title)}
+                </h4>
+
+                <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid #10b981; border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0;">
+                  <div style="font-size: 0.95rem; font-weight: 800; color: #34d399;">
+                    ${winnerText}
+                  </div>
+                </div>
+
+                ${bet.proof_image_url ? `
+                  <div style="margin: 8px 0;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">📸 Bildbevis från domaren:</div>
+                    <img src="${bet.proof_image_url}" class="anybet-proof-img" alt="Bildbevis" />
+                  </div>
+                ` : ''}
+
+                <!-- Swish Action if user lost -->
+                ${(!amIWinner && bet.stake_amount > 0) ? `
+                  <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 10px; margin-top: 8px;">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;">
+                      Du förlorade och är skyldig <strong>${bet.stake_amount} kr</strong>.
+                    </div>
+                    ${swishUrl ? `
+                      <a href="${swishUrl}" class="swish-pay-btn" target="_blank" rel="noopener noreferrer" style="display: block; text-align: center; font-size: 0.85rem; padding: 8px;">
+                        💸 Swisha ${escapeHtml(winnerUser?.nickname || 'vinnaren')} (${bet.stake_amount} kr)
+                      </a>
+                    ` : ''}
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
+                      ✅ Loggat i din <strong>Swishlista & Notan</strong>.
+                    </div>
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } catch (err) {
+      tabContent.innerHTML = `<div class="text-danger text-center" style="padding: 20px;">${err.message || 'Kunde inte ladda avslutade bet'}</div>`;
+    }
+  }
+
+  // ── MODAL: DOMARENS AVGÖRANDE ─────────────────────────
+  function openSettleModal(bet) {
+    const isYesNo = bet.bet_type === 'yes_no';
+    let chosenWinnerId = (bet.participants && bet.participants[0]) ? bet.participants[0].user_id : null;
+    let chosenSide = 'yes';
+    proofImageData = null;
+
+    showModal(`⚖️ ${isEn ? 'Settle AnyBet' : 'Avgör AnyBet'}`, `
+      <div style="padding: 6px 0;">
+        <h4 style="color: var(--gold); font-size: 1.1rem; margin-bottom: 8px;">
+          ${escapeHtml(bet.title)}
+        </h4>
+        <p class="text-muted" style="font-size: 0.82rem; margin-bottom: 14px;">
+          ${isEn ? 'As judge, select the winner to distribute the pot and log settlements.' : 'Som domare utser du vinnaren för att fördela potten och bokföra uppgörelser.'}
+        </p>
+
+        ${isYesNo ? `
+          <div style="margin-bottom: 16px;">
+            <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+              Vilken sida vann?
+            </label>
+            <div class="flex gap-xs">
+              <button type="button" class="btn btn-primary btn-block btn-settle-side-btn" data-side="yes" style="padding: 12px; font-weight: 700; background: #10b981; border: none;">
+                ✅ JA vann!
+              </button>
+              <button type="button" class="btn btn-secondary btn-block btn-settle-side-btn" data-side="no" style="padding: 12px; font-weight: 700;">
+                ❌ NEJ vann!
+              </button>
+            </div>
+          </div>
+        ` : `
+          <div style="margin-bottom: 16px;">
+            <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+              🏆 Välj vem som vann bland deltagarna:
+            </label>
+            <div style="display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto;">
+              ${(bet.participants || []).map(p => `
+                <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
+                  <span style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
+                    <span>${p.avatar_emoji || '👤'}</span>
+                    <strong>${escapeHtml(p.nickname)}</strong>
+                  </span>
+                  <input type="radio" name="settle-winner" value="${p.user_id}" ${p.user_id === chosenWinnerId ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        `}
+
+        <!-- Bildbevis (Valfritt) -->
+        <div style="margin-bottom: 18px;">
+          <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
+            ${t('arcade.anybetUploadProof')}
+          </label>
+          <input type="file" id="settle-proof-file" accept="image/*" class="form-input" style="padding: 6px 10px; font-size: 0.82rem;" />
+          <div id="settle-proof-preview-wrap" style="display: none; margin-top: 8px;">
+            <img id="settle-proof-preview" style="max-height: 140px; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); display: block;" />
+          </div>
+        </div>
+
+        <div class="flex gap-sm">
+          <button type="button" class="btn btn-secondary btn-block" id="btn-cancel-settle">
+            ❌ Avbryt
+          </button>
+          <button type="button" class="btn btn-primary btn-block" id="btn-confirm-settle" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 800;">
+            ${t('arcade.anybetConfirmWinner')}
+          </button>
+        </div>
+      </div>
+    `);
+
+    // Settle side listeners
+    document.querySelectorAll('.btn-settle-side-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        chosenSide = btn.dataset.side;
+        document.querySelectorAll('.btn-settle-side-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+          b.style.background = '';
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+        btn.style.background = chosenSide === 'yes' ? '#10b981' : '#ef4444';
+      });
+    });
+
+    // Winner radio listener
+    document.querySelectorAll('input[name="settle-winner"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        chosenWinnerId = radio.value;
+      });
+    });
+
+    // Proof file handler
+    document.getElementById('settle-proof-file')?.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        proofImageData = evt.target.result;
+        const previewEl = document.getElementById('settle-proof-preview');
+        const previewWrap = document.getElementById('settle-proof-preview-wrap');
+        if (previewEl && previewWrap) {
+          previewEl.src = proofImageData;
+          previewWrap.style.display = 'block';
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('btn-cancel-settle')?.addEventListener('click', () => {
+      closeModal();
+      openAnyBetModal();
+    });
+
+    document.getElementById('btn-confirm-settle')?.addEventListener('click', async () => {
+      const confirmBtn = document.getElementById('btn-confirm-settle');
+      if (confirmBtn) confirmBtn.disabled = true;
+
+      try {
+        await settleAnyBet(bet.id, {
+          winnerId: isYesNo ? null : chosenWinnerId,
+          winningSide: isYesNo ? chosenSide : null,
+          proofImageUrl: proofImageData
+        });
+
+        launchConfetti();
+        playCoinSound();
+        showToast(isEn ? 'Bet settled! The pot has been distributed.' : 'Bettet är avgjort! Potten och Notan har uppdaterats 🏆', 'success');
+
+        closeModal();
+        openAnyBetModal();
+      } catch (err) {
+        showToast(err.message || 'Kunde inte avgöra bettet', 'error');
+        if (confirmBtn) confirmBtn.disabled = false;
+      }
+    });
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 🔔 INCOMING ANYBET INVITATION MODAL
+// ────────────────────────────────────────────────────────
+export function showIncomingAnyBetModal(bet) {
+  const isEn = getLang() === 'en';
+  playTone(587.33, 'sine', 0.25, 0.15);
+  setTimeout(() => playTone(880, 'sine', 0.3, 0.15), 150);
+
+  const titleHtml = `<img src="/handshake-gold.png" alt="Handshake" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.anybetTitle')}`;
+
+  showModal(titleHtml, `
+    <div class="text-center" style="padding: 10px 0;">
+      <img src="/handshake-gold.png" alt="Handshake" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />
+      <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.2rem;">
+        ${escapeHtml(bet.creatorNickname)} ${isEn ? 'invited you to an AnyBet!' : 'bjöd in dig till ett AnyBet!'}
+      </h3>
+      <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 8px 0 10px 0;">
+        "${escapeHtml(bet.title)}"
+      </div>
+      <div class="badge badge-accent mb-md" style="font-size: 0.95rem; padding: 6px 16px;">
+        ${bet.stakeAmount > 0 ? `💰 ${bet.stakeAmount} kr ${isEn ? 'stake' : 'i insats'}` : '✨ Bara ära (0 kr)'}
+      </div>
+
+      <div class="flex gap-sm" style="margin-top: 14px;">
+        <button type="button" class="btn btn-secondary btn-block" id="btn-decline-anybet" style="padding: 12px;">
+          ❌ ${isEn ? 'Close' : 'Stäng'}
+        </button>
+        <button type="button" class="btn btn-primary btn-block" id="btn-open-anybet-invite" style="padding: 12px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 700;">
+          🤝 ${isEn ? 'View AnyBet' : 'Öppna AnyBet'}
+        </button>
+      </div>
+    </div>
+  `);
+
+  document.getElementById('btn-decline-anybet')?.addEventListener('click', () => {
+    closeModal();
+  });
+
+  document.getElementById('btn-open-anybet-invite')?.addEventListener('click', () => {
+    closeModal();
+    openAnyBetModal(bet.id);
+  });
+}
+
+// ────────────────────────────────────────────────────────
 // 📱 SWISHLISTAN & UPPGÖRELSER MODAL
 // ────────────────────────────────────────────────────────
 export async function openSwishlistModal() {
@@ -3373,6 +4100,8 @@ export function setupGlobalDuelListener() {
           showIncomingDuelModal(data.duel);
         } else if (data.type === 'party_invitation' && data.room) {
           showIncomingPartyModal(data.room);
+        } else if (data.type === 'anybet_invitation' && data.bet) {
+          showIncomingAnyBetModal(data.bet);
         }
       } catch (e) {}
     };
