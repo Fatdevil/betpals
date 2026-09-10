@@ -1,22 +1,8 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, googleLogin, getMyBets, getMyStats, updateAvatar, updateSwish } from '../api.js';
+import { registerUser, loginUser, getMyBets, getMyStats, updateAvatar, updateProfile } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass } from '../utils.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
-
-// Google callback — exposed globally
-window.handleGoogleLogin = async (response) => {
-  try {
-    const user = await googleLogin(response.credential);
-    storeUser(user);
-    showToast(`Welcome, ${user.nickname}! 🎉`, 'success');
-    renderProfile();
-  } catch (err) {
-    showToast(err.message || 'Google login failed', 'error');
-  }
-};
-
-// Default avatar logic will be handled gracefully by server.
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -43,60 +29,71 @@ function renderAuthScreen(content) {
     <div class="animate-in">
       <div class="page-header text-center">
         <h1 class="page-title">👤 ${t('profile.title')}</h1>
-        <p class="page-subtitle">${t('profile.loginLink')}</p>
+        <p class="page-subtitle">${t('profile.simpleAuthHint')}</p>
       </div>
 
       <div class="card">
-        <div class="text-center">
-          <div id="google-signin-btn" style="display: flex; justify-content: center; margin-bottom: var(--space-md);"></div>
-          <p class="text-muted" style="font-size: 0.75rem;">${t('profile.googleHint') || 'Secure login with Google'}</p>
-        </div>
-
-        <div class="auth-divider"><span>${t('profile.orDivider') || 'or'}</span></div>
-
         <div class="auth-tabs">
-          <button class="auth-tab active" data-tab="register" id="tab-register">${t('profile.register')}</button>
-          <button class="auth-tab" data-tab="login" id="tab-login">${t('profile.loginBtn')}</button>
+          <button class="auth-tab active" data-tab="register" id="tab-register">✨ ${t('profile.register')}</button>
+          <button class="auth-tab" data-tab="login" id="tab-login">🔑 ${t('profile.login')}</button>
         </div>
 
+        <!-- Tab 1: Skapa profil -->
         <form id="register-form" class="mt-md">
           <div class="form-group text-center mb-md">
             <div class="profile-avatar mb-xs" style="margin: 0 auto; width: 64px; height: 64px; font-size: 2rem;">👤</div>
-            <div class="text-muted" style="font-size: 0.75rem;">${t('profile.nickname')}</div>
+            <div class="text-muted" style="font-size: 0.8rem;">${t('profile.registerLink')}</div>
           </div>
+
           <div class="form-group">
-            <label class="form-label">${t('profile.nickname')}</label>
-            <input type="text" class="form-input" id="reg-nickname" 
-                   placeholder="${t('profile.nickname')}" required minlength="2" maxlength="20" />
+            <label class="form-label">${t('profile.realName')} <span class="text-gold">*</span></label>
+            <input type="text" class="form-input" id="reg-name" 
+                   placeholder="${t('profile.realNamePlaceholder')}" required minlength="2" maxlength="40" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Ditt för- och efternamn så polarna vet vem du är</span>
           </div>
-          <button type="submit" class="btn btn-primary btn-block">${t('profile.createAccount')} 🎯</button>
+
+          <div class="form-group">
+            <label class="form-label">${t('profile.nickname')} <span class="text-gold">*</span></label>
+            <input type="text" class="form-input" id="reg-nickname" 
+                   placeholder="${t('profile.nicknamePlaceholder')}" required minlength="2" maxlength="20" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Ditt smeknamn som visas på spel & odds</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">📱 ${t('profile.swishNumber')}</label>
+            <input type="tel" inputmode="numeric" class="form-input" id="reg-swish" 
+                   placeholder="${t('profile.swishPlaceholder')}" maxlength="15" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.swishHint')}</span>
+          </div>
+
+          <div class="card mb-md" style="background: rgba(255, 215, 0, 0.06); border-color: rgba(255, 215, 0, 0.2); padding: var(--space-sm);">
+            <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4;">
+              💡 <strong>Enkelt mellan polare:</strong> Inga lösenord behövs. Du loggar direkt in med ditt Bettarnamn eller Swish-nummer när du byter telefon.
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="reg-submit-btn">${t('profile.startBetting')}</button>
         </form>
 
+        <!-- Tab 2: Logga in -->
         <form id="login-form" class="mt-md" style="display: none;">
-          <div class="form-group">
-            <label class="form-label">${t('profile.nickname')}</label>
-            <input type="text" class="form-input" id="login-nickname"
-                   placeholder="${t('profile.nickname')}" required minlength="2" />
+          <div class="form-group text-center mb-md">
+            <div class="profile-avatar mb-xs" style="margin: 0 auto; width: 64px; height: 64px; font-size: 2rem;">🔑</div>
+            <div class="text-muted" style="font-size: 0.8rem;">${t('profile.loginLink')}</div>
           </div>
-          <button type="submit" class="btn btn-primary btn-block">${t('profile.loginBtn')} →</button>
+
+          <div class="form-group">
+            <label class="form-label">${t('profile.loginIdentifier')} <span class="text-gold">*</span></label>
+            <input type="text" class="form-input" id="login-identifier"
+                   placeholder="${t('profile.loginIdentifierPlaceholder')}" required minlength="2" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Skriv in ditt Bettarnamn eller ditt Swish-nummer</span>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">${t('profile.loginBtn')}</button>
         </form>
       </div>
     </div>
   `;
-
-  // Initialize Google Sign-In button
-  setTimeout(() => {
-    if (typeof google !== 'undefined' && google.accounts) {
-      google.accounts.id.initialize({
-        client_id: window.GOOGLE_CLIENT_ID || '',
-        callback: window.handleGoogleLogin
-      });
-      google.accounts.id.renderButton(
-        document.getElementById('google-signin-btn'),
-        { theme: 'filled_black', size: 'large', shape: 'pill', width: 280, text: 'signin_with' }
-      );
-    }
-  }, 300);
 
   // Tab switching
   document.querySelectorAll('.auth-tab').forEach(tab => {
@@ -108,31 +105,47 @@ function renderAuthScreen(content) {
     });
   });
 
-  // Register
+  // Register form submit
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const name = document.getElementById('reg-name').value.trim();
     const nickname = document.getElementById('reg-nickname').value.trim();
+    const swishNumber = document.getElementById('reg-swish').value.trim();
+
+    const btn = document.getElementById('reg-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Skapar profil... ⏳';
+
     try {
-      const user = await registerUser(nickname, '👤');
+      const user = await registerUser({ name, nickname, swishNumber, avatarEmoji: '👤' });
       storeUser(user);
-      showToast(`Welcome, ${user.nickname}! 🎉`, 'success');
+      showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
       renderProfile();
     } catch (err) {
       showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = t('profile.startBetting');
     }
   });
 
-  // Login
+  // Login form submit
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const nickname = document.getElementById('login-nickname').value.trim();
+    const identifier = document.getElementById('login-identifier').value.trim();
+
+    const btn = document.getElementById('login-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Loggar in... ⏳';
+
     try {
-      const user = await loginUser(nickname);
+      const user = await loginUser(identifier);
       storeUser(user);
-      showToast(`Welcome back, ${user.nickname}! 👋`, 'success');
+      showToast(`Välkommen tillbaka, ${user.nickname}! 👋`, 'success');
       renderProfile();
     } catch (err) {
       showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = t('profile.loginBtn');
     }
   });
 }
@@ -175,9 +188,36 @@ function renderProfileContent(content, user, bets, stats) {
         </div>
         <input type="file" id="profile-picture-input" accept="image/*" style="display: none;" />
         
-        <div class="profile-nickname mt-sm">${user.nickname}</div>
-        ${user.email ? `<div class="text-muted" style="font-size: 0.75rem;">${user.email}</div>` : ''}
-        ${user.googleLinked ? `<div style="font-size: 0.65rem; color: var(--green); margin-top: 4px;">✓ Google</div>` : ''}
+        <div style="font-size: 1.3rem; font-weight: 700; margin-top: var(--space-sm);">${user.realName || user.nickname}</div>
+        <div style="display: flex; justify-content: center; gap: 8px; margin-top: 4px; align-items: center; flex-wrap: wrap;">
+          <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.8rem; font-weight: 600;">@${user.nickname}</span>
+          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 Swish: ${user.swishNumber}</span>` : ''}
+        </div>
+      </div>
+
+      <!-- Edit profile details -->
+      <div class="card mt-md">
+        <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-md); display: flex; justify-content: space-between; align-items: center;">
+          <span>⚙️ Dina profiluppgifter</span>
+        </div>
+        
+        <div class="form-group mb-sm">
+          <label class="form-label" style="font-size: 0.75rem;">${t('profile.realName')}</label>
+          <input type="text" id="edit-real-name" class="form-input" value="${user.realName || ''}" placeholder="${t('profile.realNamePlaceholder')}" />
+        </div>
+
+        <div class="form-group mb-sm">
+          <label class="form-label" style="font-size: 0.75rem;">${t('profile.nickname')}</label>
+          <input type="text" id="edit-nickname" class="form-input" value="${user.nickname || ''}" placeholder="${t('profile.nicknamePlaceholder')}" />
+        </div>
+
+        <div class="form-group mb-md">
+          <label class="form-label" style="font-size: 0.75rem;">📱 ${t('profile.swishNumber')}</label>
+          <input type="tel" id="edit-swish" class="form-input" placeholder="0701234567" value="${user.swishNumber || ''}" />
+          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">${t('profile.swishHint')}</div>
+        </div>
+
+        <button class="btn btn-primary btn-block" id="save-profile-btn">${t('profile.saveChanges')}</button>
       </div>
 
       <!-- Language Switcher (pill toggle) -->
@@ -191,16 +231,6 @@ function renderProfileContent(content, user, bets, stats) {
             </button>
           `).join('')}
         </div>
-      </div>
-
-      <!-- Swish Number -->
-      <div class="card mt-md">
-        <div style="font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-sm);">📱 Swish-nummer</div>
-        <div style="display: flex; gap: var(--space-sm);">
-          <input type="tel" id="swish-input" class="input" placeholder="0701234567" value="${user.swishNumber || ''}" style="flex: 1;" />
-          <button class="btn btn-primary" id="save-swish-btn">Spara</button>
-        </div>
-        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">Används för att ta emot pengar vid turneringsvinster.</div>
       </div>
 
       <!-- Stats -->
@@ -309,7 +339,6 @@ function renderProfileContent(content, user, bets, stats) {
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-          // Crop to square if desired, or just compress. We'll let Cloudinary handle the cropping.
           if (width > maxWidth) {
             height = Math.round((height * maxWidth) / width);
             width = maxWidth;
@@ -347,15 +376,40 @@ function renderProfileContent(content, user, bets, stats) {
       
       const res = await updateAvatar(base64Image);
       
-      // Update local storage user gracefully
       const u = getStoredUser();
       u.avatarUrl = res.avatarUrl;
       storeUser(u);
       
-      showToast('Profilbild var uppdaterad! 📸', 'success');
+      showToast('Profilbild uppdaterad! 📸', 'success');
       renderProfile(); 
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  });
+
+  // Save profile details (Name, Nickname, Swish)
+  document.getElementById('save-profile-btn')?.addEventListener('click', async () => {
+    const realName = document.getElementById('edit-real-name').value.trim();
+    const nickname = document.getElementById('edit-nickname').value.trim();
+    const swishNumber = document.getElementById('edit-swish').value.trim();
+
+    const btn = document.getElementById('save-profile-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sparar... ⏳';
+
+    try {
+      const res = await updateProfile({ realName, nickname, swishNumber });
+      const u = getStoredUser();
+      if (res.user) {
+        storeUser({ ...u, ...res.user });
+      }
+      showToast(t('profile.profileSaved') || 'Profilen sparades! 🎉', 'success');
+      renderProfile();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = t('profile.saveChanges');
     }
   });
 
@@ -365,26 +419,6 @@ function renderProfileContent(content, user, bets, stats) {
       setLang(btn.dataset.lang);
       renderProfile();
     });
-  });
-
-  // Swish save listener
-  document.getElementById('save-swish-btn')?.addEventListener('click', async () => {
-    const swishNumber = document.getElementById('swish-input').value;
-    const btn = document.getElementById('save-swish-btn');
-    btn.disabled = true;
-    btn.textContent = 'Sparar...';
-    try {
-      const res = await updateSwish(swishNumber);
-      const u = getStoredUser();
-      u.swishNumber = res.swishNumber;
-      storeUser(u);
-      showToast('Swish-nummer sparat! 📱', 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Spara';
-    }
   });
 
   // Click bet to go to event

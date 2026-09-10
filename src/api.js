@@ -107,14 +107,14 @@ export const finishEvent = (id, winnerId, pin) =>
   request(`/events/${id}/finish`, { method: 'POST', body: { winnerId, pin } });
 
 // ── Users ─────────────────────────────────────────────
-export const registerUser = (nickname, avatarEmoji) =>
-  request('/users/register', { method: 'POST', body: { nickname, avatarEmoji } });
-export const loginUser = (nickname) =>
-  request('/users/login', { method: 'POST', body: { nickname } });
-export const googleLogin = (credential) =>
-  request('/auth/google', { method: 'POST', body: { credential } });
+export const registerUser = ({ name, nickname, swishNumber, avatarEmoji }) =>
+  request('/users/register', { method: 'POST', body: { name, nickname, swishNumber, avatarEmoji } });
+export const loginUser = (identifier) =>
+  request('/users/login', { method: 'POST', body: { identifier } });
 export const getMe = () => request('/users/me');
 export const getMyBets = () => request('/users/me/bets');
+export const updateProfile = (data) =>
+  request('/users/me/profile', { method: 'PUT', body: data });
 export const updateAvatar = (imageData) =>
   request('/users/me/avatar', { method: 'PUT', body: { imageData } });
 export const updateSwish = (swishNumber) =>

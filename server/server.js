@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
-import { OAuth2Client } from 'google-auth-library';
 import * as db from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,9 +13,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Serve frontend in production
 const distPath = path.join(__dirname, '..', 'dist');
@@ -99,7 +95,7 @@ function verifyEventAdmin(req, event) {
 
 // ── Config ──────────────────────────────────────────
 app.get('/api/config', (req, res) => {
-  res.json({ googleClientId: GOOGLE_CLIENT_ID });
+  res.json({});
 });
 
 // ── Admin PIN ────────────────────────────────────────
@@ -128,36 +124,109 @@ app.get('/api/admin/status', (req, res) => {
 
 // ── Users ────────────────────────────────────────────
 app.post('/api/users/register', (req, res) => {
-  const { nickname, avatarEmoji } = req.body;
-  if (!nickname || nickname.trim().length < 2) {
-    return res.status(400).json({ error: 'Nickname måste vara minst 2 tecken' });
+  const { name, realName, nickname, swishNumber, avatarEmoji } = req.body;
+  const finalName = (name || realName || '').trim();
+  const finalNickname = (nickname || '').trim();
+
+  if (!finalName || finalName.length < 2) {
+    return res.status(400).json({ error: 'Ange ditt riktiga för- och efternamn (minst 2 tecken)' });
   }
 
-  const existing = db.getUserByNickname(nickname.trim());
-  if (existing) {
-    return res.status(400).json({ error: 'Det namnet är redan taget' });
+  if (!finalNickname || finalNickname.length < 2) {
+    return res.status(400).json({ error: 'Bettarnamnet måste vara minst 2 tecken' });
+  }
+
+  const existingNick = db.getUserByNickname(finalNickname);
+  if (existingNick) {
+    return res.status(400).json({ error: 'Detta bettarnamn är redan taget. Välj ett annat!' });
+  }
+
+  const cleanSwish = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null;
+  if (cleanSwish) {
+    if (cleanSwish.length < 8) {
+      return res.status(400).json({ error: 'Ogiltigt Swish-nummer' });
+    }
+    const existingSwish = db.getUserBySwish(cleanSwish);
+    if (existingSwish) {
+      return res.status(400).json({ error: 'Detta Swish-nummer är redan registrerat på en användare' });
+    }
   }
 
   const id = generateId();
   const token = crypto.randomBytes(32).toString('hex');
   const emoji = avatarEmoji || '👤';
 
-  db.createUser(id, nickname.trim(), token, emoji);
+  db.createUser(id, finalNickname, token, emoji, finalName, cleanSwish);
 
-  res.json({ id, nickname: nickname.trim(), token, avatar: emoji, swishNumber: null });
+  res.json({
+    id,
+    nickname: finalNickname,
+    realName: finalName,
+    swishNumber: cleanSwish,
+    token,
+    avatar: emoji,
+    avatarUrl: null
+  });
 });
 
 app.post('/api/users/login', (req, res) => {
-  const { nickname } = req.body;
-  const user = db.getUserByNickname(nickname?.trim());
+  const { identifier, nickname, swishNumber } = req.body;
+  const query = (identifier || nickname || swishNumber || '').trim();
+  if (!query) {
+    return res.status(400).json({ error: 'Ange ditt Bettarnamn eller Swish-nummer' });
+  }
+
+  const user = db.getUserByNicknameOrSwish(query);
   if (!user) {
-    return res.status(404).json({ error: 'Ingen användare med det namnet. Registrera dig först!' });
+    return res.status(404).json({ error: 'Ingen användare hittades med det namnet eller Swish-numret. Skapa profil först!' });
   }
-  if (user.google_id) {
-    return res.status(403).json({ error: 'Konto kopplat till Google Auth. Logga in med Google istället.' });
+
+  res.json({
+    id: user.id,
+    nickname: user.nickname,
+    realName: user.real_name,
+    swishNumber: user.swish_number,
+    token: user.token,
+    avatar: user.avatar_emoji,
+    avatarUrl: user.avatar_url,
+    email: user.email
+  });
+});
+
+app.put('/api/users/me/profile', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
+  const user = db.getUserByToken(token);
+  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+
+  const { name, realName, nickname, swishNumber } = req.body;
+  if (name || realName) {
+    db.updateUserRealName(user.id, (name || realName).trim());
   }
-  // Return token for the user (simple system — no passwords)
-  res.json({ id: user.id, nickname: user.nickname, token: user.token, avatar: user.avatar_emoji, avatarUrl: user.avatar_url, email: user.email, swishNumber: user.swish_number });
+  if (nickname && nickname.trim().length >= 2) {
+    const existing = db.getUserByNickname(nickname.trim());
+    if (existing && existing.id !== user.id) {
+      return res.status(400).json({ error: 'Detta bettarnamn är redan upptaget' });
+    }
+    db.updateUserNickname(user.id, nickname.trim());
+  }
+  if (swishNumber !== undefined) {
+    const cleanSwish = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null;
+    db.updateUserSwish(user.id, cleanSwish);
+  }
+
+  const updated = db.getUserById(user.id);
+  res.json({
+    ok: true,
+    user: {
+      id: updated.id,
+      nickname: updated.nickname,
+      realName: updated.real_name,
+      swishNumber: updated.swish_number,
+      avatar: updated.avatar_emoji,
+      avatarUrl: updated.avatar_url
+    }
+  });
 });
 
 app.put('/api/users/me/swish', (req, res) => {
@@ -176,7 +245,15 @@ app.get('/api/users/me', (req, res) => {
   if (!token) return res.status(401).json({ error: 'Ej inloggad' });
   const user = db.getUserByToken(token);
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
-  res.json({ id: user.id, nickname: user.nickname, avatar: user.avatar_emoji, avatarUrl: user.avatar_url, email: user.email });
+  res.json({
+    id: user.id,
+    nickname: user.nickname,
+    realName: user.real_name,
+    swishNumber: user.swish_number,
+    avatar: user.avatar_emoji,
+    avatarUrl: user.avatar_url,
+    email: user.email
+  });
 });
 
 app.get('/api/users/me/bets', (req, res) => {
@@ -250,38 +327,6 @@ app.put('/api/users/me/avatar', async (req, res) => {
   } catch (err) {
     console.error('Avatar upload error:', err.message);
     res.status(500).json({ error: 'Kunde inte uppdatera profilbilden' });
-  }
-});
-
-// ── Google Auth ──────────────────────────────────────
-app.post('/api/auth/google', async (req, res) => {
-  const { credential } = req.body;
-  if (!credential) return res.status(400).json({ error: 'Missing credential' });
-  if (!GOOGLE_CLIENT_ID) return res.status(500).json({ error: 'Google auth not configured' });
-
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: GOOGLE_CLIENT_ID
-    });
-    const payload = ticket.getPayload();
-    const { sub: googleId, email, name, picture } = payload;
-
-    const token = crypto.randomBytes(32).toString('hex');
-    const user = db.findOrCreateGoogleUser(googleId, email, name, picture, token);
-
-    res.json({
-      id: user.id,
-      nickname: user.nickname,
-      token: user.token,
-      avatar: user.avatar_emoji || '🎲',
-      avatarUrl: user.avatar_url,
-      email: user.email,
-      googleLinked: true
-    });
-  } catch (err) {
-    console.error('Google auth error:', err.message);
-    res.status(401).json({ error: 'Invalid Google token' });
   }
 });
 

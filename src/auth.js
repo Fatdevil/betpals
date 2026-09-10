@@ -12,14 +12,17 @@ export function getStoredUser() {
 }
 
 export function storeUser(user) {
-  localStorage.setItem(STORAGE_KEY, user.token);
+  if (user.token) {
+    localStorage.setItem(STORAGE_KEY, user.token);
+  }
   localStorage.setItem(USER_KEY, JSON.stringify({
     id: user.id,
     nickname: user.nickname,
-    avatar: user.avatar,
-    avatarUrl: user.avatarUrl || null,
-    email: user.email || null,
-    googleLinked: user.googleLinked || false
+    realName: user.realName || user.real_name || '',
+    swishNumber: user.swishNumber || user.swish_number || '',
+    avatar: user.avatar || user.avatar_emoji || '👤',
+    avatarUrl: user.avatarUrl || user.avatar_url || null,
+    email: user.email || null
   }));
 }
 

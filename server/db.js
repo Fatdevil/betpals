@@ -132,41 +132,48 @@ try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAUL
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN swish_number TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN real_name TEXT'); } catch {}
 
-// ── Prepared Statements ──────────────────────────────
+// ── Prepared Statements ──────────────
 const stmts = {
   // Settings
   getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
   setSetting: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
+  getAdminPin: db.prepare('SELECT value FROM settings WHERE key = \'admin_pin\''),
+  setAdminPin: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (\'admin_pin\', ?)'),
 
   // Events
-  getAllEvents: db.prepare('SELECT * FROM events ORDER BY created_at DESC'),
+  insertEvent: db.prepare(`
+    INSERT INTO events (id, name, date, min_bet, max_bet, payout_percent, share_code, creator_id, is_side_bet, linked_round_id, bet_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `),
   getEventById: db.prepare('SELECT * FROM events WHERE id = ?'),
   getEventByCode: db.prepare('SELECT * FROM events WHERE share_code = ?'),
-  insertEvent: db.prepare(`
-    INSERT INTO events (id, name, date, status, share_code, payout_percent, min_bet, max_bet, creator_id, swish_number, tournament_id, is_side_bet, linked_round_id, bet_mode)
-    VALUES (@id, @name, @date, @status, @shareCode, @payoutPercent, @minBet, @maxBet, @creatorId, @swishNumber, @tournamentId, @isSideBet, @linkedRoundId, @betMode)
-  `),
+  getAllEvents: db.prepare('SELECT * FROM events ORDER BY created_at DESC'),
+  getOpenEvents: db.prepare('SELECT * FROM events WHERE status = \'open\' ORDER BY created_at DESC'),
   updateEventStatus: db.prepare('UPDATE events SET status = ? WHERE id = ?'),
-  updateEventWinner: db.prepare('UPDATE events SET status = ?, winner_id = ? WHERE id = ?'),
-  resetEvent: db.prepare('UPDATE events SET status = ?, winner_id = NULL WHERE id = ?'),
+  updateEventWinner: db.prepare('UPDATE events SET winner_id = ?, status = \'finished\' WHERE id = ?'),
   deleteEvent: db.prepare('DELETE FROM events WHERE id = ?'),
 
   // Players
+  insertPlayer: db.prepare('INSERT INTO players (id, event_id, name) VALUES (?, ?, ?)'),
   getPlayersByEvent: db.prepare('SELECT * FROM players WHERE event_id = ?'),
   getPlayerById: db.prepare('SELECT * FROM players WHERE id = ?'),
-  insertPlayer: db.prepare('INSERT INTO players (id, event_id, name) VALUES (?, ?, ?)'),
   deletePlayer: db.prepare('DELETE FROM players WHERE id = ? AND event_id = ?'),
 
   // Bets
-  getBetsByEvent: db.prepare('SELECT * FROM bets WHERE event_id = ? ORDER BY timestamp DESC'),
-  getBetsByPlayer: db.prepare('SELECT * FROM bets WHERE event_id = ? AND player_id = ?'),
-  getBetsByUser: db.prepare('SELECT b.*, e.name as event_name, e.share_code, e.status as event_status, e.winner_id, p.name as player_name FROM bets b JOIN events e ON b.event_id = e.id JOIN players p ON b.player_id = p.id WHERE b.user_id = ? ORDER BY b.timestamp DESC'),
-  getTotalPool: db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM bets WHERE event_id = ?'),
-  getPlayerPool: db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM bets WHERE event_id = ? AND player_id = ?'),
-  getBetCount: db.prepare('SELECT COUNT(*) as count FROM bets WHERE event_id = ?'),
-  getPlayerCount: db.prepare('SELECT COUNT(*) as count FROM players WHERE event_id = ?'),
   insertBet: db.prepare('INSERT INTO bets (id, event_id, bettor_name, player_id, user_id, amount) VALUES (?, ?, ?, ?, ?, ?)'),
+  getBetsByEvent: db.prepare('SELECT * FROM bets WHERE event_id = ? ORDER BY timestamp ASC'),
+  getBetsByUser: db.prepare(`
+    SELECT b.*, e.name as event_name, e.share_code, e.status as event_status, e.winner_id, p.name as player_name
+    FROM bets b
+    JOIN events e ON b.event_id = e.id
+    JOIN players p ON b.player_id = p.id
+    WHERE b.user_id = ?
+    ORDER BY b.timestamp DESC
+  `),
+  getTotalPoolByEvent: db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM bets WHERE event_id = ?'),
+  getBetsByPlayer: db.prepare('SELECT * FROM bets WHERE event_id = ? AND player_id = ?'),
   deleteBet: db.prepare('DELETE FROM bets WHERE id = ? AND event_id = ?'),
   deleteBetsByPlayer: db.prepare('DELETE FROM bets WHERE event_id = ? AND player_id = ?'),
   markBetPaid: db.prepare('UPDATE bets SET paid = ? WHERE id = ? AND event_id = ?'),
@@ -174,15 +181,18 @@ const stmts = {
   // Users
   getUserById: db.prepare('SELECT * FROM users WHERE id = ?'),
   getUserByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
-  getUserByNickname: db.prepare('SELECT * FROM users WHERE nickname = ?'),
+  getUserByNickname: db.prepare('SELECT * FROM users WHERE LOWER(nickname) = LOWER(?)'),
+  getUserBySwish: db.prepare('SELECT * FROM users WHERE REPLACE(REPLACE(swish_number, \' \', \'\'), \'-\', \'\') = ?'),
   getUserByGoogleId: db.prepare('SELECT * FROM users WHERE google_id = ?'),
   getAllUsers: db.prepare('SELECT * FROM users ORDER BY created_at DESC'),
-  insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji) VALUES (?, ?, ?, ?)'),
+  insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number) VALUES (?, ?, ?, ?, ?, ?)'),
   insertGoogleUser: db.prepare('INSERT INTO users (id, nickname, token, google_id, email, avatar_url) VALUES (?, ?, ?, ?, ?, ?)'),
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
   updateUserAvatarUrl: db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?'),
   updateUserSwish: db.prepare('UPDATE users SET swish_number = ? WHERE id = ?'),
+  updateUserRealName: db.prepare('UPDATE users SET real_name = ? WHERE id = ?'),
+  updateUserNickname: db.prepare('UPDATE users SET nickname = ? WHERE id = ?'),
 
   // Tournament Photos
   getPhotosByTournament: db.prepare(`
@@ -376,8 +386,30 @@ export function playerExists(playerId) {
 }
 
 // ── Users ────────────────────────────────────────────
-export function createUser(id, nickname, token, avatarEmoji) {
-  stmts.insertUser.run(id, nickname, token, avatarEmoji);
+export function createUser(id, nickname, token, avatarEmoji, realName = null, swishNumber = null) {
+  stmts.insertUser.run(id, nickname, token, avatarEmoji || '👤', realName, swishNumber);
+}
+
+export function getUserBySwish(swishNumber) {
+  if (!swishNumber) return null;
+  const clean = swishNumber.replace(/[\s\-]/g, '');
+  if (!clean) return null;
+  return stmts.getUserBySwish.get(clean);
+}
+
+export function getUserByNicknameOrSwish(identifier) {
+  if (!identifier) return null;
+  const clean = identifier.trim();
+  // check nickname first
+  let user = stmts.getUserByNickname.get(clean);
+  if (user) return user;
+  // check swish (digits only)
+  const digits = clean.replace(/[\s\-]/g, '');
+  if (digits.length >= 6) {
+    user = stmts.getUserBySwish.get(digits);
+    if (user) return user;
+  }
+  return null;
 }
 
 export function findOrCreateGoogleUser(googleId, email, name, avatarUrl, token) {
@@ -426,6 +458,14 @@ export function updateUserAvatarUrl(userId, url) {
 
 export function updateUserSwish(userId, swishNumber) {
   stmts.updateUserSwish.run(swishNumber, userId);
+}
+
+export function updateUserRealName(userId, realName) {
+  stmts.updateUserRealName.run(realName, userId);
+}
+
+export function updateUserNickname(userId, nickname) {
+  stmts.updateUserNickname.run(nickname, userId);
 }
 
 export function getUserBets(userId) {
