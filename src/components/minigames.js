@@ -80,9 +80,11 @@ export function renderMinigamesRoller() {
       <div class="minigames-roller" id="minigames-roller">
         <!-- Game 1: Singla Slant -->
         <div class="minigame-card" id="card-coin-flip" title="Singla Slant">
-          <div class="minigame-card-icon">🪙</div>
+          <div class="minigame-card-icon" style="display: flex; align-items: center; justify-content: center;">
+            <img src="/coin-head.jpg" alt="Slantsingling" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />
+          </div>
           <div class="minigame-card-name">Slantsingling</div>
-          <div class="minigame-card-tag">50 / 50</div>
+          <div class="minigame-card-tag">Head / Tails</div>
         </div>
 
         <!-- Game 2: Slots 777 -->
@@ -135,31 +137,29 @@ function openCoinFlipModal() {
       <div class="coin-stage">
         <div class="coin-flip-coin" id="game-coin">
           <div class="coin-side coin-front">
-            <div class="coin-symbol">👑</div>
-            <div class="coin-label">Krona</div>
+            <img src="/coin-head.jpg" alt="HEAD" class="coin-chip-img" />
           </div>
           <div class="coin-side coin-back">
-            <div class="coin-symbol">🦁</div>
-            <div class="coin-label">Klave</div>
+            <img src="/coin-tail.jpg" alt="TAILS" class="coin-chip-img" />
           </div>
         </div>
       </div>
 
       <div id="coin-result-banner" class="mb-md" style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; min-height: 28px; color: var(--gold);">
-        Välj sida och klicka på Singla!
+        Välj HEAD eller TAILS och klicka på Singla!
       </div>
 
       <div class="flex gap-sm mb-md" style="justify-content: center;">
-        <button type="button" class="btn btn-secondary coin-pick-btn active" data-side="krona" style="flex: 1; border-color: var(--gold);">
-          👑 Krona
+        <button type="button" class="btn btn-secondary coin-pick-btn active" data-side="head" style="flex: 1; border-color: var(--gold); font-weight: 700;">
+          🪙 HEAD
         </button>
-        <button type="button" class="btn btn-secondary coin-pick-btn" data-side="klave" style="flex: 1;">
-          🦁 Klave
+        <button type="button" class="btn btn-secondary coin-pick-btn" data-side="tails" style="flex: 1; font-weight: 700;">
+          🪙 TAILS
         </button>
       </div>
 
-      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-do-coin-flip" style="font-size: 1rem; padding: 12px;">
-        🪙 Singla Slanten!
+      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-do-coin-flip" style="font-size: 1rem; padding: 12px; font-weight: 800;">
+        🪙 Singla Myntet!
       </button>
 
       <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
@@ -169,7 +169,7 @@ function openCoinFlipModal() {
     </div>
   `);
 
-  let chosenSide = 'krona';
+  let chosenSide = 'head';
   const pickBtns = document.querySelectorAll('.coin-pick-btn');
   pickBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -197,12 +197,12 @@ function openCoinFlipModal() {
 
     playCoinSound();
 
-    const isKrona = Math.random() < 0.5;
-    const outcome = isKrona ? 'krona' : 'klave';
+    const isHead = Math.random() < 0.5;
+    const outcome = isHead ? 'head' : 'tails';
 
     // Flip 5 to 7 full rotations + target face
     const extraTurns = 5 + Math.floor(Math.random() * 3);
-    const targetDeg = (extraTurns * 360) + (isKrona ? 0 : 180);
+    const targetDeg = (extraTurns * 360) + (isHead ? 0 : 180);
     currentRotation += targetDeg;
 
     coinEl.style.transform = `rotateY(${currentRotation}deg)`;
@@ -216,11 +216,11 @@ function openCoinFlipModal() {
         streak++;
         playWinSound();
         launchConfetti();
-        resultBanner.textContent = `🎉 Det blev ${isKrona ? 'Krona 👑' : 'Klave 🦁'}! Du gissade RÄTT!`;
+        resultBanner.textContent = `🎉 Det blev ${isHead ? 'HEAD' : 'TAILS'}! Du gissade RÄTT!`;
         resultBanner.style.color = '#4ade80';
       } else {
         streak = 0;
-        resultBanner.textContent = `Det blev ${isKrona ? 'Krona 👑' : 'Klave 🦁'}! Bättre lycka nästa kast!`;
+        resultBanner.textContent = `Det blev ${isHead ? 'HEAD' : 'TAILS'}! Bättre lycka nästa kast!`;
         resultBanner.style.color = 'var(--text-primary)';
       }
       streakVal.textContent = `🔥 ${streak} i rad`;
