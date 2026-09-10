@@ -1,7 +1,8 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
-import { formatCurrency, showToast } from '../utils.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
+import { formatCurrency, showToast, launchConfetti } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
+import { navigate } from '../main.js';
 
 let wsUnsubscribe = null;
 
@@ -31,6 +32,10 @@ export async function renderTournament(params = {}) {
     ]);
     const p = await getTournamentPhotos(t.id).catch(e => []);
     renderTournamentContent(content, t, p);
+
+    if (t.status === 'settled') {
+      launchConfetti();
+    }
 
     connectWebSocket(t.shareCode);
     wsUnsubscribe = onWebSocketMessage((msg) => {
@@ -75,16 +80,21 @@ function renderTournamentContent(content, t, photos = []) {
 
   const renderSideBetCard = (sb) => `
     <div class="bet-item card-clickable round-link" data-code="${sb.shareCode}" style="border-left: 3px solid var(--accent); margin-left: var(--space-sm);">
-      <div>
+      <div style="flex: 1;">
         <div class="bet-item-name">🎯 ${sb.name}</div>
         <div class="bet-item-player">${sb.players.map(p => p.name).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
       </div>
-      <div style="text-align: right;">
+      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
         <div class="bet-item-amount">${formatCurrency(sb.totalPool)}</div>
-        ${renderSideBetBadge(sb)}
+        <div class="flex gap-xs" style="align-items: center;">
+          ${renderSideBetBadge(sb)}
+          ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${sb.name}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort sido-spel">🗑️</button>` : ''}
+        </div>
       </div>
     </div>
   `;
+
+  const top3 = [...t.settlement.balances].sort((a, b) => b.net - a.net).slice(0, 3);
 
   content.innerHTML = `
     <div class="animate-in">
@@ -96,9 +106,16 @@ function renderTournamentContent(content, t, photos = []) {
           </div>
           <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}">${t.status === 'active' ? 'Pågår' : 'Avräknad'}</span>
         </div>
-        <button class="btn btn-secondary btn-sm mt-sm" id="share-tournament-btn" style="align-self: flex-end;">
-          📱 Dela turnering
-        </button>
+        <div class="flex gap-sm mt-sm" style="justify-content: flex-end; align-items: center;">
+          <button class="btn btn-secondary btn-sm" id="share-tournament-btn">
+            📱 Dela turnering
+          </button>
+          ${isCreator ? `
+            <button class="btn btn-danger btn-sm" id="delete-tournament-btn" title="Radera hela turneringen" style="font-size: 0.75rem;">
+              🗑️ Radera
+            </button>
+          ` : ''}
+        </div>
       </div>
 
       <!-- Rounds -->
@@ -172,6 +189,46 @@ function renderTournamentContent(content, t, photos = []) {
         </div>
       ` : ''}
 
+      <!-- Settled Podium -->
+      ${t.status === 'settled' && top3.length > 0 ? `
+        <div class="card mt-lg text-center" style="background: linear-gradient(180deg, rgba(255,215,0,0.12) 0%, rgba(10,10,20,0.7) 100%); border: 1px solid rgba(255,215,0,0.35); padding: var(--space-md);">
+          <div style="font-size: 2.2rem; margin-bottom: 4px;">🏆</div>
+          <h3 class="font-heading" style="color: var(--gold); margin-bottom: 2px;">PRISPALL</h3>
+          <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">Grattis till årets mästare!</p>
+          
+          <div style="display: flex; justify-content: center; align-items: flex-end; gap: 8px; margin: var(--space-md) auto; max-width: 320px;">
+            ${top3[1] ? `
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                <div style="font-size: 1.4rem;">🥈</div>
+                <div style="font-weight: 700; font-size: 0.8rem; word-break: break-word;">${top3[1].name}</div>
+                <div class="${top3[1].net >= 0 ? 'text-green' : 'text-red'}" style="font-size: 0.75rem; font-weight: 700;">${top3[1].net >= 0 ? '+' : ''}${formatCurrency(top3[1].net)}</div>
+                <div style="height: 60px; width: 100%; background: linear-gradient(180deg, #b0bec5, #78909c); border-radius: 6px 6px 0 0; margin-top: 6px; display: flex; align-items: center; justify-content: center; color: #111; font-weight: 800;">2</div>
+              </div>
+            ` : ''}
+            ${top3[0] ? `
+              <div style="flex: 1.2; display: flex; flex-direction: column; align-items: center;">
+                <div style="font-size: 1.8rem; filter: drop-shadow(0 0 8px rgba(255,215,0,0.8));">👑 🥇</div>
+                <div style="font-weight: 800; font-size: 0.9rem; color: var(--gold); word-break: break-word;">${top3[0].name}</div>
+                <div class="text-green" style="font-size: 0.8rem; font-weight: 800;">+${formatCurrency(top3[0].net)}</div>
+                <div style="height: 85px; width: 100%; background: linear-gradient(180deg, #ffd700, #ffa000); border-radius: 6px 6px 0 0; margin-top: 6px; display: flex; align-items: center; justify-content: center; color: #111; font-weight: 900; font-size: 1.1rem; box-shadow: 0 0 15px rgba(255,215,0,0.3);">1</div>
+              </div>
+            ` : ''}
+            ${top3[2] ? `
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                <div style="font-size: 1.4rem;">🥉</div>
+                <div style="font-weight: 700; font-size: 0.8rem; word-break: break-word;">${top3[2].name}</div>
+                <div class="${top3[2].net >= 0 ? 'text-green' : 'text-red'}" style="font-size: 0.75rem; font-weight: 700;">${top3[2].net >= 0 ? '+' : ''}${formatCurrency(top3[2].net)}</div>
+                <div style="height: 45px; width: 100%; background: linear-gradient(180deg, #cd7f32, #8d6e63); border-radius: 6px 6px 0 0; margin-top: 6px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800;">3</div>
+              </div>
+            ` : ''}
+          </div>
+
+          <button class="btn btn-secondary btn-sm mt-sm" id="copy-settlement-btn" style="font-size: 0.75rem; width: 100%;">
+            📋 Kopiera resultat till kompis-chatten
+          </button>
+        </div>
+      ` : ''}
+
       <!-- Net Settlement -->
       ${t.settlement.finishedRounds > 0 ? `
         <div class="section-header mt-lg">
@@ -215,25 +272,43 @@ function renderTournamentContent(content, t, photos = []) {
                   });
                   swishUrl = 'swish://payment?data=' + encodeURIComponent(swishData);
                 }
-                const isMe = user && tr.fromUserId === user.id;
+                const isMe = user && (tr.fromUserId === user.id || user.nickname === tr.from || user.realName === tr.from);
+                const isToMe = user && (tr.toUserId === user.id || user.nickname === tr.to || user.realName === tr.to);
+                const canToggleReceipt = isCreator || isToMe || isMe;
                 return `
-                  <div class="swish-row">
+                  <div class="swish-row" style="${tr.isPaid ? 'opacity: 0.75; background: rgba(46,204,113,0.06);' : ''}">
                     <div>
                       <div class="swish-name">
                         ${tr.from} ${isMe ? '<span class="text-gold" style="font-size: 0.7rem;">(du)</span>' : ''}
-                        → ${tr.to}
+                        → ${tr.to} ${isToMe ? '<span class="text-gold" style="font-size: 0.7rem;">(du)</span>' : ''}
                       </div>
                       <div class="swish-detail">${formatCurrency(tr.amount)}</div>
                     </div>
-                    <div class="flex gap-xs" style="align-items: center;">
-                      ${tr.toSwish
-                        ? '<a href="' + swishUrl + '" class="btn btn-sm swish-btn">📱 Swisha</a>'
-                        : '<span class="text-muted" style="font-size: 0.7rem;">Inget Swish-nr</span>'}
+                    <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap;">
+                      ${tr.isPaid 
+                        ? '<span class="badge" style="background: rgba(46,204,113,0.2); color: var(--green); font-size: 0.7rem; font-weight: 700; padding: 4px 8px;">Betald ✅</span>'
+                        : (tr.toSwish 
+                            ? '<a href="' + swishUrl + '" class="btn btn-sm swish-btn">📱 Swisha</a>'
+                            : '<span class="text-muted" style="font-size: 0.7rem;">Inget Swish-nr</span>')
+                      }
+                      ${canToggleReceipt ? `
+                        <button type="button" class="btn btn-sm ${tr.isPaid ? 'btn-secondary' : 'btn-primary'} toggle-receipt-btn" 
+                          data-from="${tr.from}" data-to="${tr.to}" data-amount="${tr.amount}" style="font-size: 0.7rem; padding: 4px 8px;">
+                          ${tr.isPaid ? '↩️ Ångra' : 'Mottagen ✅'}
+                        </button>
+                      ` : ''}
                     </div>
                   </div>
                 `;
               }).join('')}
             </div>
+          ` : ''}
+
+          <!-- Settle Tournament Button -->
+          ${isCreator && t.status === 'active' ? `
+            <button class="btn btn-block mt-md" id="settle-tournament-btn" style="background: linear-gradient(135deg, #ffd700, #ff8800); color: #000; font-weight: 800; font-size: 0.95rem; padding: 12px; border: none; border-radius: var(--radius-md); cursor: pointer; box-shadow: 0 4px 15px rgba(255,215,0,0.3);">
+              🏆 Avsluta turnering & kora vinnare
+            </button>
           ` : ''}
         </div>
       ` : ''}
@@ -562,24 +637,127 @@ function renderTournamentContent(content, t, photos = []) {
     });
   }
 
+  // Toggle settlement receipt
+  content.querySelectorAll('.toggle-receipt-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await toggleSettlementReceipt(t.id, {
+          fromName: btn.dataset.from,
+          toName: btn.dataset.to,
+          amount: Number(btn.dataset.amount),
+          pin
+        });
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated);
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Settle tournament
+  document.getElementById('settle-tournament-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Vill du avsluta turneringen "${t.name}" och fastställa slutresultatet?`)) return;
+    try {
+      const pin = sessionStorage.getItem('betpals_pin') || '';
+      await settleTournament(t.id, { pin });
+      launchConfetti();
+      showToast('Turneringen är avslutad! 🏆', 'success');
+      const updated = await getTournament(t.shareCode);
+      renderTournamentContent(content, updated);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // Delete entire tournament
+  document.getElementById('delete-tournament-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Är du säker på att du vill radera hela turneringen "${t.name}" och alla dess spel? Detta kan INTE ångras!`)) return;
+    try {
+      const pin = sessionStorage.getItem('betpals_pin') || '';
+      await deleteTournament(t.id, { pin });
+      showToast('Turneringen har raderats', 'success');
+      navigate('home');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // Delete side-bet or round
+  content.querySelectorAll('.delete-event-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const evName = btn.dataset.name || 'detta spel';
+      if (!confirm(`Vill du ta bort "${evName}"?`)) return;
+      try {
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await deleteEvent(btn.dataset.id, pin);
+        showToast('Spelet togs bort', 'success');
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Copy settlement summary
+  document.getElementById('copy-settlement-btn')?.addEventListener('click', () => {
+    const sorted = [...t.settlement.balances].sort((a, b) => b.net - a.net);
+    const lines = [
+      `🏆 SLUTSTÄLLNING - ${t.name}`,
+      `═════════════════════════════`,
+      ...sorted.map((b, i) => `${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`} ${b.name}: ${b.net >= 0 ? '+' : ''}${b.net} kr`),
+      ``,
+      `📱 ATT SWISHA:`,
+      ...t.settlement.transfers.map(tr => `• ${tr.from} swishar ${tr.amount} kr till ${tr.to} ${tr.isPaid ? '(Betald ✅)' : ''}`),
+      ``,
+      `Spelat via BetPals 🎲`
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    showToast('Slutresultat kopierat till urklipp! 📋', 'success');
+  });
+
   // Share button
   document.getElementById('share-tournament-btn')?.addEventListener('click', async () => {
     try {
       const baseUrl = window.location.origin;
       const { qr, url } = await getTournamentQR(t.shareCode, baseUrl);
+      const shareMsg = `🏆 Häng med på turneringen ${t.name} i BetPals! Se ställningen och betta här: ${url}`;
       showModal('📱 Dela turnering', `
         <div class="text-center">
           <img src="${qr}" alt="QR-kod" style="width: 200px; height: 200px; border-radius: var(--radius-md); margin-bottom: var(--space-md);" />
-          <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">Skanna QR-koden eller kopiera länken nedan</p>
-          <div class="flex gap-sm">
+          <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">Skanna QR-koden eller dela direkt via länkarna nedan</p>
+          <div class="flex gap-sm mb-md">
             <input type="text" class="form-input" value="${url}" readonly id="share-url" style="flex: 1; font-size: 0.75rem;" />
             <button class="btn btn-sm btn-primary" id="copy-url-btn">📋</button>
+          </div>
+          <div class="flex gap-xs" style="justify-content: center; flex-wrap: wrap;">
+            <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}" target="_blank" rel="noopener" class="btn btn-sm" style="background: #25D366; color: white; text-decoration: none; font-size: 0.8rem; flex: 1;">
+              💬 WhatsApp
+            </a>
+            <a href="sms:?&body=${encodeURIComponent(shareMsg)}" class="btn btn-sm" style="background: #3498db; color: white; text-decoration: none; font-size: 0.8rem; flex: 1;">
+              📱 SMS
+            </a>
+            ${navigator.share ? `
+              <button class="btn btn-sm btn-secondary" id="native-share-btn" style="font-size: 0.8rem; flex: 1;">
+                📤 Fler...
+              </button>
+            ` : ''}
           </div>
         </div>
       `);
       document.getElementById('copy-url-btn')?.addEventListener('click', () => {
         navigator.clipboard.writeText(url);
         showToast('Länk kopierad! ✅', 'success');
+      });
+      document.getElementById('native-share-btn')?.addEventListener('click', async () => {
+        try {
+          await navigator.share({ title: t.name, text: shareMsg, url });
+        } catch {}
       });
     } catch (err) {
       showToast('Kunde inte generera QR-kod', 'error');
@@ -596,7 +774,7 @@ function showSideBetModal(t, content) {
     <form id="sidebet-form">
       <div class="form-group">
         <label class="form-label">Namn</label>
-        <input type="text" class="form-input" id="sidebet-name" placeholder="t.ex. Närmast pinnen H7" required />
+        <input type="text" class="form-input" id="sidebet-name" placeholder="t.ex. Närmast pinnen H7 eller Spik i vatten" required />
       </div>
 
       <div class="form-group">
@@ -625,9 +803,14 @@ function showSideBetModal(t, content) {
       </div>
 
       <div class="form-group">
-        <label class="form-label">Spelare</label>
+        <div class="flex-between mb-xs">
+          <label class="form-label" style="margin: 0;">Spelare / Alternativ</label>
+          <button type="button" class="btn btn-sm btn-secondary" id="sidebet-preset-yesno" style="font-size: 0.7rem; padding: 2px 8px;">
+            👍 Ja / 👎 Nej
+          </button>
+        </div>
         <div class="flex gap-sm">
-          <input type="text" class="form-input" id="sidebet-player-input" placeholder="Lägg till spelare" style="flex: 1;" />
+          <input type="text" class="form-input" id="sidebet-player-input" placeholder="Lägg till alternativ/spelare" style="flex: 1;" />
           <button type="button" class="btn btn-sm btn-secondary" id="sidebet-add-player">+</button>
         </div>
         <div id="sidebet-player-list" class="mt-sm"></div>
@@ -667,6 +850,15 @@ function showSideBetModal(t, content) {
       const amountGroup = document.getElementById('bet-amount-group');
       if (amountGroup) amountGroup.style.display = betMode === 'self' ? 'block' : 'none';
     });
+  });
+
+  // Yes/No preset
+  document.getElementById('sidebet-preset-yesno')?.addEventListener('click', () => {
+    players = ['Ja', 'Nej'];
+    const modeOpen = document.getElementById('mode-open');
+    if (modeOpen) modeOpen.click();
+    renderPlayers();
+    document.getElementById('sidebet-name')?.focus();
   });
 
   // Add player

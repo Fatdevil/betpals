@@ -149,6 +149,20 @@ try {
     CREATE INDEX IF NOT EXISTS idx_cred_id ON user_credentials(credential_id);
   `);
 } catch {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tournament_settlement_receipts (
+      id TEXT PRIMARY KEY,
+      tournament_id TEXT NOT NULL,
+      from_name TEXT NOT NULL,
+      to_name TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      paid_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_receipts_tournament ON tournament_settlement_receipts(tournament_id);
+  `);
+} catch {}
 
 // ── Prepared Statements ──────────────
 const stmts = {
@@ -259,6 +273,16 @@ const stmts = {
   getBannersByTournament: db.prepare('SELECT * FROM tournament_banners WHERE tournament_id = ? ORDER BY sort_order ASC, created_at ASC'),
   insertBanner: db.prepare('INSERT INTO tournament_banners (id, tournament_id, image_data, link_url, label, sort_order) VALUES (?, ?, ?, ?, ?, ?)'),
   deleteBanner: db.prepare('DELETE FROM tournament_banners WHERE id = ? AND tournament_id = ?'),
+
+  // Settlement Receipts
+  getSettlementReceipts: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ?'),
+  getSettlementReceipt: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
+  insertSettlementReceipt: db.prepare('INSERT INTO tournament_settlement_receipts (id, tournament_id, from_name, to_name, amount) VALUES (?, ?, ?, ?, ?)'),
+  deleteSettlementReceipt: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
+  deleteTournamentReceipts: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ?'),
+  deleteTournamentBanners: db.prepare('DELETE FROM tournament_banners WHERE tournament_id = ?'),
+  deleteTournamentPhotosByTournament: db.prepare('DELETE FROM tournament_photos WHERE tournament_id = ?'),
+  deleteTournament: db.prepare('DELETE FROM tournaments WHERE id = ?'),
 };
 
 // ── Public API ───────────────────────────────────────
@@ -588,65 +612,6 @@ export function togglePhotoLike(photoId, userId) {
   return false; // Unliked
 }
 
-export function getLeaderboard() {
-  // For each user, calculate total bet, total won, profit, events participated
-  const users = stmts.getAllUsers.all();
-  const events = stmts.getAllEvents.all();
-
-  return users.map(user => {
-    const userBets = stmts.getBetsByUser.all(user.id);
-    let totalBet = 0;
-    let totalFinishedBet = 0;
-    let totalWon = 0;
-    let wins = 0;
-    let losses = 0;
-    const eventsPlayed = new Set();
-
-    for (const bet of userBets) {
-      totalBet += bet.amount;
-      eventsPlayed.add(bet.event_id);
-
-      if (bet.event_status === 'finished') {
-        totalFinishedBet += bet.amount;
-        if (bet.player_id === bet.winner_id) {
-          // Won this bet — calculate winnings
-          const event = events.find(e => e.id === bet.event_id);
-          if (event) {
-            const eventTotalPool = stmts.getTotalPool.get(event.id).total;
-            const effectivePool = eventTotalPool * (event.payout_percent / 100);
-            const winnerPool = stmts.getPlayerPool.get(event.id, bet.winner_id).total;
-            const odds = winnerPool > 0 ? effectivePool / winnerPool : 0;
-            totalWon += bet.amount * odds;
-            wins++;
-          }
-        } else {
-          losses++;
-        }
-      }
-    }
-
-    const profit = totalWon - totalFinishedBet;
-    const roi = totalFinishedBet > 0 ? ((profit / totalFinishedBet) * 100) : 0;
-
-    const finishedCount = wins + losses;
-    const winRate = finishedCount > 0 ? Math.round((wins / finishedCount) * 100) : 0;
-
-    return {
-      id: user.id,
-      nickname: user.nickname,
-      avatar: user.avatar_emoji,
-      totalBet: Math.round(totalBet),
-      totalWon: Math.round(totalWon),
-      profit: Math.round(profit),
-      roi: +roi.toFixed(1),
-      wins,
-      losses,
-      winRate,
-      eventsPlayed: eventsPlayed.size,
-      totalBets: userBets.length
-    };
-  }).sort((a, b) => b.profit - a.profit);
-}
 
 export { db };
 
@@ -800,6 +765,9 @@ export function getTournamentNetSettlement(tournamentId) {
     }
   }
 
+  // Fetch marked receipts
+  const receipts = stmts.getSettlementReceipts.all(tournamentId);
+
   // Calculate minimal transfers (debt simplification)
   const people = Object.entries(balances)
     .map(([name, data]) => ({ name, amount: Math.round(data.amount), userId: data.userId }))
@@ -823,6 +791,12 @@ export function getTournamentNetSettlement(tournamentId) {
         const user = stmts.getUserById.get(creditor.userId);
         if (user) swishNumber = user.swish_number;
       }
+      if (!swishNumber && creditor.name) {
+        const userByNick = stmts.getUserByNickname.get(creditor.name);
+        if (userByNick) swishNumber = userByNick.swish_number;
+      }
+
+      const isPaid = receipts.some(r => r.from_name === debtor.name && r.to_name === creditor.name);
 
       transfers.push({
         from: debtor.name,
@@ -830,7 +804,8 @@ export function getTournamentNetSettlement(tournamentId) {
         to: creditor.name,
         toUserId: creditor.userId,
         amount: transfer,
-        toSwish: swishNumber
+        toSwish: swishNumber,
+        isPaid
       });
     }
 
@@ -853,8 +828,100 @@ export function getTournamentNetSettlement(tournamentId) {
   };
 }
 
+export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amount) {
+  const existing = stmts.getSettlementReceipt.get(tournamentId, fromName, toName);
+  if (existing) {
+    stmts.deleteSettlementReceipt.run(tournamentId, fromName, toName);
+    return { isPaid: false };
+  } else {
+    stmts.insertSettlementReceipt.run(id, tournamentId, fromName, toName, amount);
+    return { isPaid: true };
+  }
+}
+
+export const deleteTournament = db.transaction((tournamentId) => {
+  const events = stmts.getEventsByTournament.all(tournamentId);
+  for (const e of events) {
+    stmts.deleteEvent.run(e.id);
+  }
+  stmts.deleteTournamentReceipts.run(tournamentId);
+  stmts.deleteTournamentBanners.run(tournamentId);
+  stmts.deleteTournamentPhotosByTournament.run(tournamentId);
+  stmts.deleteTournament.run(tournamentId);
+});
+
 export function settleTournament(tournamentId) {
   stmts.updateTournamentStatus.run('settled', tournamentId);
+}
+
+export function getLeaderboard() {
+  const finishedBets = db.prepare(`
+    SELECT b.*, e.payout_percent, e.winner_id, e.id AS event_id,
+           COALESCE(u.nickname, b.bettor_name) AS display_name,
+           u.avatar_emoji, u.avatar_url
+    FROM bets b
+    JOIN events e ON b.event_id = e.id
+    LEFT JOIN users u ON b.user_id = u.id
+    WHERE e.status = 'finished'
+  `).all();
+
+  const usersMap = {};
+  for (const bet of finishedBets) {
+    const key = bet.display_name;
+    if (!usersMap[key]) {
+      usersMap[key] = {
+        name: key,
+        avatarEmoji: bet.avatar_emoji || '👤',
+        avatarUrl: bet.avatar_url || null,
+        totalBets: 0,
+        wins: 0,
+        totalStaked: 0,
+        totalWon: 0,
+        bestOdds: 0
+      };
+    }
+
+    const u = usersMap[key];
+    u.totalBets++;
+    u.totalStaked += bet.amount;
+
+    if (bet.player_id === bet.winner_id) {
+      u.wins++;
+      const full = getFullEvent(bet.event_id);
+      if (full) {
+        const effectivePool = full.totalPool * (full.payoutPercent / 100);
+        const winnerPool = full.bets.filter(b => b.playerId === full.winnerId).reduce((s, b) => s + b.amount, 0);
+        const odds = winnerPool > 0 ? (effectivePool / winnerPool) : 0;
+        const winnings = +(bet.amount * odds).toFixed(2);
+        u.totalWon += winnings;
+        if (odds > u.bestOdds) {
+          u.bestOdds = +odds.toFixed(2);
+        }
+      }
+    }
+  }
+
+  const list = Object.values(usersMap).map(u => {
+    const profit = Math.round(u.totalWon - u.totalStaked);
+    const losses = u.totalBets - u.wins;
+    const roi = u.totalStaked > 0 ? Math.round((profit / u.totalStaked) * 100) : 0;
+    return {
+      nickname: u.name,
+      avatar: u.avatarEmoji || '👤',
+      avatarUrl: u.avatarUrl,
+      totalBets: u.totalBets,
+      totalBet: u.totalStaked,
+      wins: u.wins,
+      losses,
+      profit,
+      roi,
+      winRate: u.totalBets > 0 ? Math.round((u.wins / u.totalBets) * 100) : 0,
+      bestOdds: u.bestOdds
+    };
+  });
+
+  list.sort((a, b) => b.profit - a.profit);
+  return list;
 }
 
 // ── User Stats ────────────────────────────────────────

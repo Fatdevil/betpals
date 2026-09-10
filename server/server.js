@@ -1206,6 +1206,53 @@ app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Delete Tournament ────────────────────────────────
+app.delete('/api/tournaments/:id', (req, res) => {
+  const tournament = db.getFullTournament(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const user = getUserFromToken(req);
+  const isCreator = user && tournament.creatorId === user.id;
+  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet att radera turneringen' });
+  }
+
+  db.deleteTournament(tournament.id);
+  res.json({ ok: true });
+});
+
+// ── Settlement Receipts (Kvittering) ────────────────
+app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
+  const tournament = db.getFullTournament(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const { fromName, toName, amount } = req.body;
+  if (!fromName || !toName) {
+    return res.status(400).json({ error: 'Avsändare och mottagare krävs' });
+  }
+
+  const user = getUserFromToken(req);
+  const isCreator = user && tournament.creatorId === user.id;
+  const isCreditor = user && (user.nickname === toName || user.real_name === toName);
+  const isDebtor = user && (user.nickname === fromName || user.real_name === fromName);
+  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+
+  if (!isCreator && !isCreditor && !isDebtor && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet att kvittera denna överföring' });
+  }
+
+  const result = db.toggleSettlementReceipt(generateId(), tournament.id, fromName, toName, Number(amount) || 0);
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
+
+  res.json({ ok: true, isPaid: result.isPaid });
+});
+
+// ── Leaderboard (Hall of Fame) ───────────────────────
+app.get('/api/leaderboard', (req, res) => {
+  res.json(db.getLeaderboard());
+});
+
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';
 const indexHtml = path.join(distPath, 'index.html');

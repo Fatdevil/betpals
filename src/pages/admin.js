@@ -325,7 +325,12 @@ function showCreateEventModal() {
         <div class="text-center text-gold font-heading font-bold mt-sm" id="ce-payout-display">100%</div>
       </div>
       <div class="form-group">
-        <label class="form-label">${t('admin.playersEnterHint')}</label>
+        <div class="flex-between mb-xs">
+          <label class="form-label" style="margin: 0;">${t('admin.playersEnterHint')}</label>
+          <button type="button" class="btn btn-sm btn-secondary" id="ce-preset-yesno" style="font-size: 0.7rem; padding: 2px 8px;">
+            👍 Ja / 👎 Nej
+          </button>
+        </div>
         <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" />
         <div class="player-tags mt-sm" id="ce-player-tags"></div>
       </div>
@@ -349,6 +354,13 @@ function showCreateEventModal() {
       updateTags();
     });
   }
+
+  document.getElementById('ce-preset-yesno')?.addEventListener('click', () => {
+    players.length = 0;
+    players.push('Ja', 'Nej');
+    updateTags();
+    document.getElementById('ce-name')?.focus();
+  });
 
   playerInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {

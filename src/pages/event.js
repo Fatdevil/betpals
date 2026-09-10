@@ -131,6 +131,12 @@ function renderEventContent(event, content, code) {
   const isFinished = event.status === 'finished';
   const winner = isFinished ? event.players.find(p => p.id === event.winnerId) : null;
 
+  const isYesNo = event.players.length === 2 &&
+    event.players.some(p => p.name.toLowerCase() === 'ja') &&
+    event.players.some(p => p.name.toLowerCase() === 'nej');
+  const jaPlayer = isYesNo ? event.players.find(p => p.name.toLowerCase() === 'ja') : null;
+  const nejPlayer = isYesNo ? event.players.find(p => p.name.toLowerCase() === 'nej') : null;
+
   let payoutInfo = null;
   if (isFinished && event.winnerId) {
     const totalPool = event.totalPool || 0;
@@ -221,10 +227,25 @@ function renderEventContent(event, content, code) {
             </div>
             <div class="form-group">
               <label class="form-label">${t('event.choosePlayer')}</label>
-              <select class="form-input" id="bet-player" required>
-                <option value="">${t('event.selectPlayer')}</option>
-                ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-              </select>
+              ${isYesNo ? `
+                <div class="flex gap-sm mb-xs">
+                  <button type="button" class="btn yesno-choice-btn" data-player-id="${jaPlayer.id}" style="flex: 1; padding: 12px; background: rgba(46,204,113,0.15); border: 2px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                    👍 JA
+                  </button>
+                  <button type="button" class="btn yesno-choice-btn" data-player-id="${nejPlayer.id}" style="flex: 1; padding: 12px; background: rgba(231,76,60,0.15); border: 2px solid #e74c3c; color: #e74c3c; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                    👎 NEJ
+                  </button>
+                </div>
+                <select class="form-input" id="bet-player" required style="display: none;">
+                  <option value="">${t('event.selectPlayer')}</option>
+                  ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                </select>
+              ` : `
+                <select class="form-input" id="bet-player" required>
+                  <option value="">${t('event.selectPlayer')}</option>
+                  ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                </select>
+              `}
             </div>
             <div class="form-group">
               <label class="form-label">${t('event.stake')} (${formatCurrency(event.minBet)} – ${formatCurrency(event.maxBet)})</label>
@@ -309,6 +330,19 @@ function renderEventContent(event, content, code) {
       if (nameInput && user) nameInput.value = user.nickname;
     }
 
+    document.querySelectorAll('.yesno-choice-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.yesno-choice-btn').forEach(b => {
+          b.style.boxShadow = 'none';
+          b.style.transform = 'scale(1)';
+        });
+        btn.style.boxShadow = '0 0 15px currentColor';
+        btn.style.transform = 'scale(1.03)';
+        const select = document.getElementById('bet-player');
+        if (select) select.value = btn.dataset.playerId;
+      });
+    });
+
     const form = document.getElementById('bet-form');
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -352,10 +386,27 @@ async function loadQRCode(code) {
     const data = await getEventQR(code, baseUrl);
     const container = document.getElementById('qr-container');
     if (container) {
+      const shareUrl = `${baseUrl}/?page=event&code=${code}`;
+      const shareMsg = `🎲 Häng på och lägg dina bets i BetPals! Länk: ${shareUrl}`;
       container.innerHTML = `
         <img src="${data.qr}" alt="QR ${code}" />
         <span class="qr-label">${t('event.scanToJoin')}</span>
+        <div class="flex gap-xs mt-sm" style="width: 100%; max-width: 280px; margin: var(--space-sm) auto 0; justify-content: center; flex-wrap: wrap;">
+          <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}" target="_blank" rel="noopener" class="btn btn-sm" style="background: #25D366; color: white; text-decoration: none; font-size: 0.75rem; flex: 1;">
+            💬 WhatsApp
+          </a>
+          <a href="sms:?&body=${encodeURIComponent(shareMsg)}" class="btn btn-sm" style="background: #3498db; color: white; text-decoration: none; font-size: 0.75rem; flex: 1;">
+            📱 SMS
+          </a>
+          <button type="button" class="btn btn-sm btn-secondary copy-event-link-btn" style="font-size: 0.75rem;">
+            📋
+          </button>
+        </div>
       `;
+      container.querySelector('.copy-event-link-btn')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(shareUrl);
+        showToast('Länk kopierad! ✅', 'success');
+      });
     }
   } catch (e) {
     const container = document.getElementById('qr-container');
