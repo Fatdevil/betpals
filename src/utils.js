@@ -2,7 +2,7 @@
 import { t } from './i18n.js';
 
 export function formatPoints(amount) {
-  if (amount === null || amount === undefined) return '0';
+  if (amount === null || amount === undefined) return '0 kr';
   return Math.round(amount).toLocaleString() + ' ' + t('common.pts');
 }
 

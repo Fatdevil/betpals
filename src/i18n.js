@@ -46,8 +46,8 @@ export function getAvailableLanguages() {
   ];
 }
 
-// Format points (no currency)
+// Format currency (kr)
 export function formatPoints(amount) {
-  if (amount === null || amount === undefined) return '0';
+  if (amount === null || amount === undefined) return '0 kr';
   return Math.round(amount).toLocaleString() + ' ' + t('common.pts');
 }

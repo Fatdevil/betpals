@@ -1,8 +1,8 @@
 // ── Swedish translations ──────────────────────────────
 export const sv = {
   common: {
-    pts: 'p',
-    points: 'poäng',
+    pts: 'kr',
+    points: 'kr',
     save: 'Spara',
     cancel: 'Avbryt',
     close: 'Stäng',

@@ -1,8 +1,8 @@
 // ── English translations ──────────────────────────────
 export const en = {
   common: {
-    pts: 'pts',
-    points: 'points',
+    pts: 'kr',
+    points: 'kr',
     save: 'Save',
     cancel: 'Cancel',
     close: 'Close',
