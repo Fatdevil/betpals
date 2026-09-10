@@ -83,6 +83,15 @@ wss.on('connection', (ws, req) => {
           diceValues: msg.diceValues,
           total: msg.total
         }, ws); // exclude sender
+      } else if (msg.type === 'duel_live_flip' && msg.duelId) {
+        // Forward coin flip animation live to opponent in same duel
+        broadcastToDuel(msg.duelId, {
+          type: 'duel_live_flip',
+          duelId: msg.duelId,
+          flipperId: boundUserId,
+          outcome: msg.outcome,
+          targetDeg: msg.targetDeg
+        }, ws); // exclude sender
       }
     } catch (e) {}
   });

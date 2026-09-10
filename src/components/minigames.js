@@ -187,54 +187,220 @@ export function attachMinigamesListeners() {
 // ────────────────────────────────────────────────────────
 // 🪙 GAME 1: SINGLA SLANT (Coin Flip)
 // ────────────────────────────────────────────────────────
-function openCoinFlipModal() {
+function openCoinFlipModal(initialDuel = null) {
+  const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+
   let streak = 0;
   let isFlipping = false;
   let currentRotation = 0;
-  const isEn = getLang() === 'en';
 
-  showModal(t('arcade.coinFlipTitle'), `
-    <div class="text-center" style="padding: var(--space-xs) 0;">
-      <p class="text-muted mb-sm" style="font-size: 0.85rem;">
-        ${t('arcade.coinFlipDesc')}
-      </p>
+  // Active mode: 'solo' (free) | 'swish'
+  let activeMode = initialDuel ? 'swish' : 'solo';
+  let swishSubMode = initialDuel?.mode || 'table'; // 'table' | 'online'
+  let currentStake = initialDuel?.stake_amount || 1;
+  let selectedFriend = null;
+  let userFriends = [];
 
-      <div class="coin-stage">
-        <div class="coin-flip-coin" id="game-coin">
-          <div class="coin-side coin-front">
-            <img src="/coin-head.jpg" alt="HEAD" class="coin-chip-img" />
+  let chosenSide = 'head'; // 'head' | 'tails' (P1 chooses, P2 automatically gets the opposite)
+
+  // Online duel state
+  let activeDuel = initialDuel || null;
+  let duelWs = null;
+
+  if (initialDuel && currentUser) {
+    if (initialDuel.creator_id === currentUser.id) {
+      selectedFriend = { id: initialDuel.opponent_id, nickname: initialDuel.opponent_nickname, swishNumber: initialDuel.opponent_swish };
+    } else {
+      selectedFriend = { id: initialDuel.creator_id, nickname: initialDuel.creator_nickname, swishNumber: initialDuel.creator_swish };
+    }
+  }
+
+  function getSideLabel(side) {
+    if (side === 'head') return isEn ? '🪙 HEAD (Krona)' : '🪙 HEAD (Krona)';
+    return isEn ? '🪙 TAILS (Klave)' : '🪙 TAILS (Klave)';
+  }
+
+  function buildModalHtml() {
+    const p1Name = currentUser?.nickname || (isEn ? 'You' : 'Du');
+    const p2Name = selectedFriend ? selectedFriend.nickname : (isEn ? 'Opponent' : 'Motståndare');
+
+    return `
+      <div class="text-center" style="padding: var(--space-xs) 0;">
+        <!-- Mode Switcher -->
+        <div class="duel-mode-bar">
+          <button type="button" class="duel-mode-btn ${activeMode === 'solo' ? 'active' : ''}" id="btn-coin-mode-solo">
+            ${t('arcade.coinModeSolo')}
+          </button>
+          <button type="button" class="duel-mode-btn ${activeMode === 'swish' ? 'active' : ''}" id="btn-coin-mode-swish">
+            ${t('arcade.coinModeSwish')}
+          </button>
+        </div>
+
+        <!-- Swish Config Section -->
+        <div id="coin-swish-config-box" style="display: ${activeMode === 'swish' ? 'block' : 'none'}; background: rgba(0,0,0,0.35); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 10px; margin-bottom: 12px; text-align: left;">
+          <!-- Sub-mode toggle -->
+          <div class="flex gap-xs mb-xs" style="align-items: center;">
+            <button type="button" class="btn btn-xs ${swishSubMode === 'table' ? 'btn-primary' : 'btn-secondary'}" id="btn-coin-submode-table" style="font-size: 0.75rem; flex: 1;">
+              ${t('arcade.diceModeTable')}
+            </button>
+            <button type="button" class="btn btn-xs ${swishSubMode === 'online' ? 'btn-primary' : 'btn-secondary'}" id="btn-coin-submode-online" style="font-size: 0.75rem; flex: 1;">
+              ${t('arcade.diceModeOnline')}
+            </button>
           </div>
-          <div class="coin-side coin-back">
-            <img src="/coin-tail.jpg" alt="TAILS" class="coin-chip-img" />
+
+          <!-- Stake selector with quick pills + custom input -->
+          <div class="mb-xs">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #34d399; margin-bottom: 4px;">${t('arcade.diceStakeLabel')}</div>
+            <div class="duel-stake-bar" style="justify-content: flex-start; margin-bottom: 6px; flex-wrap: wrap; align-items: center;">
+              <button type="button" class="duel-stake-pill coin-stake-pill ${currentStake === 1 ? 'active' : ''}" data-stake="1">1 kr</button>
+              <button type="button" class="duel-stake-pill coin-stake-pill ${currentStake === 5 ? 'active' : ''}" data-stake="5">5 kr</button>
+              <button type="button" class="duel-stake-pill coin-stake-pill ${currentStake === 10 ? 'active' : ''}" data-stake="10">10 kr</button>
+              <button type="button" class="duel-stake-pill coin-stake-pill ${currentStake === 20 ? 'active' : ''}" data-stake="20">20 kr</button>
+              <div style="display: inline-flex; align-items: center; gap: 4px; margin-left: 2px;">
+                <input type="number" id="coin-custom-stake-input" class="form-input" min="1" max="50000" placeholder="${isEn ? 'Custom...' : 'Valfri...'}" value="${[1, 5, 10, 20].includes(currentStake) ? '' : currentStake}" style="padding: 2px 8px; font-size: 0.76rem; width: 80px; border-radius: 12px; height: 26px;" />
+                <span style="font-size: 0.72rem; color: var(--text-muted);">kr</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Opponent Selector -->
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 4px;">${t('arcade.dicePickFriend')}</div>
+            <div id="coin-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 85px; overflow-y: auto;">
+              <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Loading friends...' : 'Laddar vänner...'}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div id="coin-result-banner" class="mb-md" style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; min-height: 28px; color: var(--gold);">
-        ${t('arcade.coinFlipPrompt')}
-      </div>
+        <!-- Side Picker -->
+        <div id="coin-side-picker-box" class="mb-sm">
+          <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;" id="coin-side-prompt-label">
+            ${activeMode === 'swish' ? t('arcade.coinSidePickPrompt') : t('arcade.coinFlipPrompt')}
+          </div>
+          <div class="flex gap-sm mb-xs" style="justify-content: center;">
+            <button type="button" class="btn btn-secondary coin-pick-btn ${chosenSide === 'head' ? 'active' : ''}" data-side="head" style="flex: 1; ${chosenSide === 'head' ? 'border-color: var(--gold);' : ''} font-weight: 700;">
+              🪙 HEAD (Krona)
+            </button>
+            <button type="button" class="btn btn-secondary coin-pick-btn ${chosenSide === 'tails' ? 'active' : ''}" data-side="tails" style="flex: 1; ${chosenSide === 'tails' ? 'border-color: var(--gold);' : ''} font-weight: 700;">
+              🪙 TAILS (Klave)
+            </button>
+          </div>
+          <!-- Duel matchup assignment preview -->
+          <div id="coin-matchup-preview" style="display: ${activeMode === 'swish' ? 'flex' : 'none'}; justify-content: space-around; font-size: 0.76rem; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); padding: 4px 8px; border: 1px solid var(--border-glass);">
+            <span style="color: var(--gold);"><b>${escapeHtml(p1Name)}:</b> ${chosenSide === 'head' ? '🪙 HEAD' : '🪙 TAILS'}</span>
+            <span style="color: var(--text-muted); font-weight: 800;">VS</span>
+            <span style="color: #f87171;"><b><span id="coin-matchup-p2-name">${escapeHtml(p2Name)}</span>:</b> <span id="coin-matchup-p2-side">${chosenSide === 'head' ? '🪙 TAILS' : '🪙 HEAD'}</span></span>
+          </div>
+        </div>
 
-      <div class="flex gap-sm mb-md" style="justify-content: center;">
-        <button type="button" class="btn btn-secondary coin-pick-btn active" data-side="head" style="flex: 1; border-color: var(--gold); font-weight: 700;">
-          🪙 HEAD
+        <!-- Coin 3D Stage -->
+        <div class="coin-stage">
+          <div class="coin-flip-coin" id="game-coin">
+            <div class="coin-side coin-front">
+              <img src="/coin-head.jpg" alt="HEAD" class="coin-chip-img" />
+            </div>
+            <div class="coin-side coin-back">
+              <img src="/coin-tail.jpg" alt="TAILS" class="coin-chip-img" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Result / Prompt Banner -->
+        <div id="coin-result-banner" class="mb-sm" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
+          ${t('arcade.coinFlipPrompt')}
+        </div>
+
+        <!-- Swish Payout Action Box -->
+        <div id="coin-swish-action-box" style="display: none; margin-bottom: 12px;"></div>
+
+        <!-- Main Action Button -->
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-do-coin-flip" style="font-size: 1rem; padding: 12px; font-weight: 800;">
+          ${t('arcade.coinFlipBtn')}
         </button>
-        <button type="button" class="btn btn-secondary coin-pick-btn" data-side="tails" style="flex: 1; font-weight: 700;">
-          🪙 TAILS
+
+        <!-- Footer / Streak or Scoreboard -->
+        <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
+          <span class="text-muted" id="coin-footer-mode">${activeMode === 'swish' ? `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr` : t('arcade.coinFlipStreak')}</span>
+          <span class="text-gold font-bold" id="coin-streak-val">🔥 0 ${isEn ? 'in a row' : 'i rad'}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const coinTitleHtml = `<img src="/coin-head.jpg" alt="Coin" style="width: 22px; height: 22px; border-radius: 50%; vertical-align: -3px; margin-right: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);" />${t('arcade.coinFlipTitle')}`;
+  const modal = showModal(coinTitleHtml, buildModalHtml(), () => {
+    if (duelWs) {
+      try { duelWs.close(); } catch (e) {}
+    }
+  });
+
+  const coinEl = document.getElementById('game-coin');
+  const banner = document.getElementById('coin-result-banner');
+  const streakVal = document.getElementById('coin-streak-val');
+  const flipBtn = document.getElementById('btn-do-coin-flip');
+  const footerMode = document.getElementById('coin-footer-mode');
+  const swishBox = document.getElementById('coin-swish-config-box');
+  const swishActionBox = document.getElementById('coin-swish-action-box');
+  const friendsList = document.getElementById('coin-friends-list');
+  const matchupPreview = document.getElementById('coin-matchup-preview');
+  const matchupP2Name = document.getElementById('coin-matchup-p2-name');
+  const matchupP2Side = document.getElementById('coin-matchup-p2-side');
+  const sidePromptLabel = document.getElementById('coin-side-prompt-label');
+  const customStakeInput = document.getElementById('coin-custom-stake-input');
+
+  // Load friends for Swish mode
+  getFriends().then(friends => {
+    userFriends = friends || [];
+    if (userFriends.length > 0 && !selectedFriend) {
+      selectedFriend = userFriends[0];
+    }
+    renderFriendsPicker();
+    updateMatchupDisplay();
+    updateButtonState();
+  }).catch(() => {
+    userFriends = [];
+    renderFriendsPicker();
+  });
+
+  function renderFriendsPicker() {
+    if (!friendsList) return;
+    if (userFriends.length === 0) {
+      friendsList.innerHTML = `<span class="text-muted" style="font-size: 0.75rem;">${t('arcade.diceNoFriends')}</span>`;
+      return;
+    }
+
+    friendsList.innerHTML = userFriends.map(f => {
+      const isSelected = selectedFriend && selectedFriend.id === f.id;
+      return `
+        <button type="button" class="coin-friend-btn" data-id="${f.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isSelected ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isSelected ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.05)'}; color: ${isSelected ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer;">
+          ${f.avatarUrl ? `<img src="${f.avatarUrl}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (f.avatarEmoji || '👤')}
+          <span>${escapeHtml(f.nickname)}</span>
         </button>
-      </div>
+      `;
+    }).join('');
 
-      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-do-coin-flip" style="font-size: 1rem; padding: 12px; font-weight: 800;">
-        ${t('arcade.coinFlipBtn')}
-      </button>
+    friendsList.querySelectorAll('.coin-friend-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        selectedFriend = userFriends.find(f => f.id === id);
+        renderFriendsPicker();
+        updateMatchupDisplay();
+        updateButtonState();
+      });
+    });
+  }
 
-      <div class="flex-between" style="padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.75rem;">
-        <span class="text-muted">${t('arcade.coinFlipStreak')}</span>
-        <span class="text-gold font-bold" id="coin-streak-val">🔥 0 ${isEn ? 'in a row' : 'i rad'}</span>
-      </div>
-    </div>
-  `);
+  function updateMatchupDisplay() {
+    if (matchupP2Name) {
+      matchupP2Name.textContent = selectedFriend ? selectedFriend.nickname : (isEn ? 'Opponent' : 'Motståndare');
+    }
+    if (matchupP2Side) {
+      matchupP2Side.textContent = chosenSide === 'head' ? '🪙 TAILS' : '🪙 HEAD';
+    }
+  }
 
-  let chosenSide = 'head';
+  // Side selection buttons
   const pickBtns = document.querySelectorAll('.coin-pick-btn');
   pickBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -245,36 +411,233 @@ function openCoinFlipModal() {
       btn.classList.add('active');
       btn.style.borderColor = 'var(--gold)';
       chosenSide = btn.dataset.side;
+      updateMatchupDisplay();
     });
   });
 
-  const coinEl = document.getElementById('game-coin');
-  const resultBanner = document.getElementById('coin-result-banner');
-  const streakVal = document.getElementById('coin-streak-val');
-  const flipBtn = document.getElementById('btn-do-coin-flip');
+  // Mode togglers
+  document.getElementById('btn-coin-mode-solo')?.addEventListener('click', () => {
+    activeMode = 'solo';
+    document.getElementById('btn-coin-mode-solo').classList.add('active');
+    document.getElementById('btn-coin-mode-swish').classList.remove('active');
+    swishBox.style.display = 'none';
+    matchupPreview.style.display = 'none';
+    swishActionBox.style.display = 'none';
+    sidePromptLabel.textContent = t('arcade.coinFlipPrompt');
+    updateButtonState();
+  });
 
-  flipBtn?.addEventListener('click', () => {
+  document.getElementById('btn-coin-mode-swish')?.addEventListener('click', () => {
+    if (!currentUser) {
+      showToast(isEn ? 'Log in on your profile to play Swish duels!' : 'Logga in på din profil för att spela Swish-dueller!', 'warning');
+      return;
+    }
+    activeMode = 'swish';
+    document.getElementById('btn-coin-mode-swish').classList.add('active');
+    document.getElementById('btn-coin-mode-solo').classList.remove('active');
+    swishBox.style.display = 'block';
+    matchupPreview.style.display = 'flex';
+    sidePromptLabel.textContent = t('arcade.coinSidePickPrompt');
+    updateMatchupDisplay();
+    updateButtonState();
+  });
+
+  document.getElementById('btn-coin-submode-table')?.addEventListener('click', () => {
+    swishSubMode = 'table';
+    document.getElementById('btn-coin-submode-table').className = 'btn btn-xs btn-primary';
+    document.getElementById('btn-coin-submode-online').className = 'btn btn-xs btn-secondary';
+    updateButtonState();
+  });
+
+  document.getElementById('btn-coin-submode-online')?.addEventListener('click', () => {
+    swishSubMode = 'online';
+    document.getElementById('btn-coin-submode-online').className = 'btn btn-xs btn-primary';
+    document.getElementById('btn-coin-submode-table').className = 'btn btn-xs btn-secondary';
+    updateButtonState();
+  });
+
+  // Stake preset pills
+  swishBox.querySelectorAll('.coin-stake-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      swishBox.querySelectorAll('.coin-stake-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentStake = parseInt(pill.getAttribute('data-stake'), 10) || 1;
+      if (customStakeInput) customStakeInput.value = '';
+      updateButtonState();
+    });
+  });
+
+  // Custom stake input
+  customStakeInput?.addEventListener('input', () => {
+    const val = parseInt(customStakeInput.value, 10);
+    if (val && val > 0) {
+      currentStake = val;
+      swishBox.querySelectorAll('.coin-stake-pill').forEach(p => p.classList.remove('active'));
+    } else {
+      currentStake = 1;
+    }
+    updateButtonState();
+  });
+
+  function updateButtonState() {
+    swishActionBox.style.display = 'none';
+    if (activeMode === 'solo') {
+      flipBtn.textContent = t('arcade.coinFlipBtn');
+      flipBtn.disabled = false;
+      banner.textContent = t('arcade.coinFlipPrompt');
+      banner.style.color = 'var(--gold)';
+      footerMode.textContent = t('arcade.coinFlipStreak');
+      streakVal.textContent = `🔥 ${streak} ${isEn ? 'in a row' : 'i rad'}`;
+      return;
+    }
+
+    footerMode.textContent = `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr`;
+    streakVal.textContent = '⚔️ 1v1';
+
+    if (!selectedFriend) {
+      flipBtn.textContent = isEn ? 'Pick a friend first 👆' : 'Välj en kompis ovanför 👆';
+      flipBtn.disabled = true;
+      return;
+    }
+
+    flipBtn.disabled = false;
+    if (swishSubMode === 'table') {
+      flipBtn.textContent = `🪙 ${isEn ? `Flip for ${currentStake} kr!` : `Singla om ${currentStake} kr!`}`;
+      banner.textContent = isEn 
+        ? `Flip the coin! ${currentUser?.nickname || 'You'} vs ${selectedFriend.nickname}` 
+        : `Singla slanten! ${currentUser?.nickname || 'Du'} mot ${selectedFriend.nickname}`;
+      banner.style.color = 'var(--gold)';
+    } else {
+      if (activeDuel && activeDuel.status === 'active') {
+        flipBtn.textContent = `🪙 ${isEn ? `Flip coin (${currentStake} kr)` : `Singla slanten (${currentStake} kr)`}`;
+        banner.textContent = isEn ? 'Duel accepted! Tap to flip!' : 'Duell godkänd! Klicka för att singla!';
+        banner.style.color = '#4ade80';
+      } else {
+        flipBtn.textContent = `⚔️ ${t('arcade.diceChallengeBtn')} ${selectedFriend.nickname} (${currentStake} kr)`;
+        banner.textContent = isEn 
+          ? `Challenge ${selectedFriend.nickname} for ${currentStake} kr via Swish!` 
+          : `Utmana ${selectedFriend.nickname} om ${currentStake} kr via Swish!`;
+        banner.style.color = 'var(--gold)';
+      }
+    }
+  }
+
+  // Connect online duel WS if opening an active duel
+  if (initialDuel && initialDuel.mode === 'online') {
+    connectDuelWs(initialDuel.id);
+  }
+
+  function connectDuelWs(duelId) {
+    const token = getToken();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    duelWs = new WebSocket(`${protocol}//${window.location.host}?token=${token}&duel=${duelId}`);
+
+    duelWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'duel_accepted') {
+          showToast(isEn ? `${selectedFriend.nickname} accepted the duel! ⚔️` : `${selectedFriend.nickname} antog duellen! ⚔️`, 'success');
+          if (activeDuel) activeDuel.status = 'active';
+          updateButtonState();
+        } else if (data.type === 'duel_declined') {
+          banner.textContent = isEn ? 'Opponent declined the challenge.' : 'Motståndaren avböjde utmaningen.';
+          banner.style.color = '#f87171';
+          flipBtn.disabled = false;
+          flipBtn.textContent = isEn ? 'Challenge again' : 'Utmana igen';
+        } else if (data.type === 'duel_live_flip') {
+          // Opponent triggered flip live
+          spinCoinAnimation(data.outcome, data.targetDeg, false);
+        } else if (data.type === 'duel_finished') {
+          const d = data.duel;
+          handleDuelFinished(d);
+        }
+      } catch (e) {}
+    };
+  }
+
+  function spinCoinAnimation(outcome, targetDeg, isInitiator) {
     if (isFlipping) return;
     isFlipping = true;
     flipBtn.disabled = true;
-    resultBanner.textContent = t('arcade.coinFlipSpinning');
-    resultBanner.style.color = 'var(--text-secondary)';
-
+    banner.textContent = t('arcade.coinFlipSpinning');
+    banner.style.color = 'var(--text-secondary)';
     playCoinSound();
 
-    const isHead = Math.random() < 0.5;
-    const outcome = isHead ? 'head' : 'tails';
-
-    // Flip 5 to 7 full rotations + target face
-    const extraTurns = 5 + Math.floor(Math.random() * 3);
-    const targetDeg = (extraTurns * 360) + (isHead ? 0 : 180);
     currentRotation += targetDeg;
-
     coinEl.style.transform = `rotateY(${currentRotation}deg)`;
 
-    setTimeout(() => {
-      isFlipping = false;
-      flipBtn.disabled = false;
+    return new Promise(resolve => {
+      setTimeout(() => {
+        isFlipping = false;
+        resolve();
+      }, 1800);
+    });
+  }
+
+  function handleDuelFinished(d) {
+    const p1Won = d.winner_id === currentUser?.id;
+    const sideName = (d.creator_score === 1 && d.creator_id === currentUser?.id) || (d.opponent_score === 1 && d.opponent_id === currentUser?.id)
+      ? (chosenSide === 'head' ? 'HEAD' : 'TAILS')
+      : (chosenSide === 'head' ? 'TAILS' : 'HEAD');
+
+    if (p1Won) {
+      banner.innerHTML = isEn
+        ? `🎉 <span style="color: #4ade80;">${escapeHtml(currentUser?.nickname || 'You')}</span> won on ${sideName}!`
+        : `🎉 <span style="color: #4ade80;">${escapeHtml(currentUser?.nickname || 'Du')}</span> vann på ${sideName}!`;
+      playWinSound();
+      launchConfetti();
+
+      swishActionBox.style.display = 'block';
+      swishActionBox.innerHTML = `
+        <div style="background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+          <div style="font-weight: 700; color: #4ade80; font-size: 0.9rem; margin-bottom: 4px;">
+            ${escapeHtml(selectedFriend.nickname)} ${t('arcade.diceOwes')} dig ${currentStake} kr! 💰
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">
+            ${isEn ? 'Logged in The Tab & Swish List!' : 'Loggat i Notan & Swishlistan!'}
+          </div>
+        </div>
+      `;
+    } else {
+      banner.innerHTML = isEn
+        ? `💀 <span style="color: #f87171;">${escapeHtml(selectedFriend.nickname)}</span> won on ${sideName}!`
+        : `💀 <span style="color: #f87171;">${escapeHtml(selectedFriend.nickname)}</span> vann på ${sideName}!`;
+
+      const swishUrl = createSwishUrl({
+        phone: selectedFriend.swishNumber,
+        amount: currentStake,
+        message: 'Betpals Singla Slant'
+      });
+
+      swishActionBox.style.display = 'block';
+      swishActionBox.innerHTML = `
+        <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+          <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
+            Du ${t('arcade.diceOwes')} ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr!
+          </div>
+          <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
+            📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
+          </a>
+        </div>
+      `;
+    }
+
+    flipBtn.disabled = false;
+    flipBtn.textContent = `🔄 ${isEn ? 'Flip again' : 'Singla igen'} (${currentStake} kr)`;
+  }
+
+  // Flip Action Button Handler
+  flipBtn?.addEventListener('click', async () => {
+    if (isFlipping) return;
+
+    // 1. SOLO FREE MODE
+    if (activeMode === 'solo') {
+      const isHead = Math.random() < 0.5;
+      const outcome = isHead ? 'head' : 'tails';
+      const extraTurns = 5 + Math.floor(Math.random() * 3);
+      const targetDeg = (extraTurns * 360) + (isHead ? 0 : 180);
+
+      await spinCoinAnimation(outcome, targetDeg, true);
 
       const won = chosenSide === outcome;
       const sideName = isHead ? 'HEAD' : 'TAILS';
@@ -282,19 +645,129 @@ function openCoinFlipModal() {
         streak++;
         playWinSound();
         launchConfetti();
-        resultBanner.textContent = isEn 
+        banner.textContent = isEn 
           ? `🎉 It landed on ${sideName}! You guessed RIGHT!` 
           : `🎉 Det blev ${sideName}! Du gissade RÄTT!`;
-        resultBanner.style.color = '#4ade80';
+        banner.style.color = '#4ade80';
       } else {
         streak = 0;
-        resultBanner.textContent = isEn
+        banner.textContent = isEn
           ? `It landed on ${sideName}! Better luck next flip!`
           : `Det blev ${sideName}! Bättre lycka nästa kast!`;
-        resultBanner.style.color = 'var(--text-primary)';
+        banner.style.color = 'var(--text-primary)';
       }
       streakVal.textContent = `🔥 ${streak} ${isEn ? 'in a row' : 'i rad'}`;
-    }, 1800);
+      flipBtn.disabled = false;
+      return;
+    }
+
+    // 2. SWISH MODE - TABLE (Pass & play on same phone)
+    if (swishSubMode === 'table') {
+      if (!selectedFriend) return;
+      const isHead = Math.random() < 0.5;
+      const outcome = isHead ? 'head' : 'tails';
+      const extraTurns = 5 + Math.floor(Math.random() * 3);
+      const targetDeg = (extraTurns * 360) + (isHead ? 0 : 180);
+
+      await spinCoinAnimation(outcome, targetDeg, true);
+
+      const p1Won = chosenSide === outcome;
+      const winnerId = p1Won ? currentUser.id : selectedFriend.id;
+
+      // Record duel result in database (The Tab / Swishlistan settlement)
+      try {
+        const duelRes = await createDuel({
+          gameType: 'coin',
+          opponentId: selectedFriend.id,
+          stakeAmount: currentStake,
+          mode: 'table'
+        });
+        if (duelRes?.duel?.id) {
+          const finished = await submitDuelRoll(duelRes.duel.id, {
+            creatorScore: p1Won ? 1 : 0,
+            opponentScore: p1Won ? 0 : 1,
+            winnerId
+          });
+          if (finished?.duel) {
+            handleDuelFinished(finished.duel);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error('Failed to log coin duel:', e);
+      }
+
+      handleDuelFinished({
+        creator_id: currentUser?.id,
+        opponent_id: selectedFriend.id,
+        creator_score: p1Won ? 1 : 0,
+        opponent_score: p1Won ? 0 : 1,
+        winner_id: winnerId
+      });
+      return;
+    }
+
+    // 3. SWISH MODE - ONLINE (Live 1v1 Utmaning)
+    if (swishSubMode === 'online') {
+      if (!selectedFriend) return;
+
+      // If duel hasn't been sent yet, create challenge
+      if (!activeDuel || activeDuel.status !== 'active') {
+        flipBtn.disabled = true;
+        flipBtn.textContent = isEn ? 'Sending challenge...' : 'Skickar utmaning...';
+        try {
+          const res = await createDuel({
+            gameType: 'coin',
+            opponentId: selectedFriend.id,
+            stakeAmount: currentStake,
+            mode: 'online'
+          });
+          activeDuel = res.duel;
+          banner.innerHTML = isEn
+            ? `⏳ Challenge sent to <b>${escapeHtml(selectedFriend.nickname)}</b>! Waiting for acceptance...`
+            : `⏳ Utmaning skickad till <b>${escapeHtml(selectedFriend.nickname)}</b>! Väntar på godkännande...`;
+          banner.style.color = 'var(--gold)';
+          flipBtn.textContent = isEn ? 'Waiting for opponent...' : 'Väntar på motståndaren...';
+          connectDuelWs(activeDuel.id);
+        } catch (err) {
+          showToast(isEn ? 'Failed to send challenge' : 'Kunde inte skicka utmaningen', 'error');
+          flipBtn.disabled = false;
+          updateButtonState();
+        }
+        return;
+      }
+
+      // If duel is active, trigger the flip!
+      const isHead = Math.random() < 0.5;
+      const outcome = isHead ? 'head' : 'tails';
+      const extraTurns = 5 + Math.floor(Math.random() * 3);
+      const targetDeg = (extraTurns * 360) + (isHead ? 0 : 180);
+
+      // Broadcast flip animation live to opponent
+      if (duelWs && duelWs.readyState === WebSocket.OPEN) {
+        duelWs.send(JSON.stringify({
+          type: 'duel_live_flip',
+          duelId: activeDuel.id,
+          outcome,
+          targetDeg
+        }));
+      }
+
+      await spinCoinAnimation(outcome, targetDeg, true);
+
+      const creatorWon = chosenSide === outcome;
+      const winnerId = creatorWon ? activeDuel.creator_id : activeDuel.opponent_id;
+
+      try {
+        await submitDuelRoll(activeDuel.id, {
+          creatorScore: creatorWon ? 1 : 0,
+          opponentScore: creatorWon ? 0 : 1,
+          winnerId
+        });
+      } catch (err) {
+        console.error('Failed to submit online coin duel:', err);
+      }
+    }
   });
 }
 
@@ -1180,11 +1653,15 @@ function openDiceModal(initialDuel = null) {
           <!-- Stake selector -->
           <div class="mb-xs">
             <div style="font-size: 0.75rem; font-weight: 700; color: #34d399; margin-bottom: 4px;">${t('arcade.diceStakeLabel')}</div>
-            <div class="duel-stake-bar" style="justify-content: flex-start; margin-bottom: 6px;">
-              <button type="button" class="duel-stake-pill ${currentStake === 1 ? 'active' : ''}" data-stake="1">1 kr</button>
-              <button type="button" class="duel-stake-pill ${currentStake === 5 ? 'active' : ''}" data-stake="5">5 kr</button>
-              <button type="button" class="duel-stake-pill ${currentStake === 10 ? 'active' : ''}" data-stake="10">10 kr</button>
-              <button type="button" class="duel-stake-pill ${currentStake === 20 ? 'active' : ''}" data-stake="20">20 kr</button>
+            <div class="duel-stake-bar" style="justify-content: flex-start; margin-bottom: 6px; flex-wrap: wrap; align-items: center;">
+              <button type="button" class="duel-stake-pill dice-stake-pill ${currentStake === 1 ? 'active' : ''}" data-stake="1">1 kr</button>
+              <button type="button" class="duel-stake-pill dice-stake-pill ${currentStake === 5 ? 'active' : ''}" data-stake="5">5 kr</button>
+              <button type="button" class="duel-stake-pill dice-stake-pill ${currentStake === 10 ? 'active' : ''}" data-stake="10">10 kr</button>
+              <button type="button" class="duel-stake-pill dice-stake-pill ${currentStake === 20 ? 'active' : ''}" data-stake="20">20 kr</button>
+              <div style="display: inline-flex; align-items: center; gap: 4px; margin-left: 2px;">
+                <input type="number" id="dice-custom-stake-input" class="form-input" min="1" max="50000" placeholder="${isEn ? 'Custom...' : 'Valfri...'}" value="${[1, 5, 10, 20].includes(currentStake) ? '' : currentStake}" style="padding: 2px 8px; font-size: 0.76rem; width: 80px; border-radius: 12px; height: 26px;" />
+                <span style="font-size: 0.72rem; color: var(--text-muted);">kr</span>
+              </div>
             </div>
           </div>
 
@@ -1356,14 +1833,29 @@ function openDiceModal(initialDuel = null) {
   });
 
   // Stake pills
-  swishBox.querySelectorAll('.duel-stake-pill').forEach(pill => {
+  const diceCustomStake = document.getElementById('dice-custom-stake-input');
+  swishBox.querySelectorAll('.dice-stake-pill').forEach(pill => {
     pill.addEventListener('click', () => {
-      swishBox.querySelectorAll('.duel-stake-pill').forEach(p => p.classList.remove('active'));
+      swishBox.querySelectorAll('.dice-stake-pill').forEach(p => p.classList.remove('active'));
       pill.classList.add('active');
       currentStake = parseInt(pill.getAttribute('data-stake'), 10) || 1;
+      if (diceCustomStake) diceCustomStake.value = '';
       footerMode.textContent = `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr`;
       updateButtonState();
     });
+  });
+
+  // Custom stake input
+  diceCustomStake?.addEventListener('input', () => {
+    const val = parseInt(diceCustomStake.value, 10);
+    if (val && val > 0) {
+      currentStake = val;
+      swishBox.querySelectorAll('.dice-stake-pill').forEach(p => p.classList.remove('active'));
+    } else {
+      currentStake = 1;
+    }
+    footerMode.textContent = `📱 ${isEn ? 'Swish Duel' : 'Swish-duell'}: ${currentStake} kr`;
+    updateButtonState();
   });
 
   function updateButtonState() {
@@ -1818,12 +2310,18 @@ function showIncomingDuelModal(duel) {
   const isEn = getLang() === 'en';
   playTone(587.33, 'sine', 0.25, 0.15); // D5 chime
 
-  const diceTitleHtml = `<img src="/dice-gold.png" alt="Dice" style="width: 22px; height: 22px; vertical-align: -3px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.diceTitle').replace('🎲', '').trim()}`;
-  showModal(diceTitleHtml, `
+  const isCoin = duel.game_type === 'coin';
+  const titleHtml = isCoin
+    ? `<img src="/coin-head.jpg" alt="Coin" style="width: 22px; height: 22px; border-radius: 50%; vertical-align: -3px; margin-right: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);" />${t('arcade.coinFlipTitle')}`
+    : `<img src="/dice-gold.png" alt="Dice" style="width: 22px; height: 22px; vertical-align: -3px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.diceTitle').replace('🎲', '').trim()}`;
+
+  const gameName = isCoin ? (isEn ? 'Coin Flip' : 'Singla Slant') : (isEn ? 'Dice Duel' : 'Tärningsduell');
+
+  showModal(titleHtml, `
     <div class="text-center" style="padding: 10px 0;">
-      <div style="font-size: 2.8rem; margin-bottom: 8px;">⚔️</div>
+      <div style="font-size: 2.8rem; margin-bottom: 8px;">${isCoin ? '🪙' : '⚔️'}</div>
       <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.15rem;">
-        ${escapeHtml(duel.creator_nickname)} ${isEn ? 'challenges you!' : 'utmanar dig!'}
+        ${escapeHtml(duel.creator_nickname)} ${isEn ? `challenges you in ${gameName}!` : `utmanar dig i ${gameName}!`}
       </h3>
       <div class="badge badge-accent mb-md" style="font-size: 0.9rem; padding: 4px 14px;">
         📱 ${duel.stake_amount} kr via Swish
@@ -1856,7 +2354,11 @@ function showIncomingDuelModal(duel) {
     try {
       await respondDuel(duel.id, true);
       closeModal();
-      openDiceModal(duel);
+      if (isCoin) {
+        openCoinFlipModal(duel);
+      } else {
+        openDiceModal(duel);
+      }
     } catch (e) {
       showToast(isEn ? 'Failed to accept duel' : 'Kunde inte acceptera duellen', 'error');
     }
