@@ -117,6 +117,8 @@ export const getMe = () => request('/users/me');
 export const getMyBets = () => request('/users/me/bets');
 export const updateAvatar = (imageData) =>
   request('/users/me/avatar', { method: 'PUT', body: { imageData } });
+export const updateSwish = (swishNumber) =>
+  request('/users/me/swish', { method: 'PUT', body: { swishNumber } });
 
 // ── Leaderboard ──────────────────────────────────────
 export const getLeaderboard = () => request('/leaderboard');
@@ -153,10 +155,3 @@ export const togglePhotoLike = (id, photoId) =>
 
 // ── User Stats ───────────────────────────────────────
 export const getMyStats = () => request('/users/me/stats');
-
-// ── Photos ───────────────────────────────────────────
-export const getEventPhotos = (code) => request(`/events/${code}/photos`);
-export const uploadEventPhoto = (code, imageData, caption) =>
-  request(`/events/${code}/photos`, { method: 'POST', body: { imageData, caption } });
-export const deleteEventPhoto = (code, photoId) =>
-  request(`/events/${code}/photos/${photoId}`, { method: 'DELETE' });

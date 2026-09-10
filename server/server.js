@@ -104,6 +104,9 @@ app.get('/api/config', (req, res) => {
 
 // ── Admin PIN ────────────────────────────────────────
 app.post('/api/admin/setup', (req, res) => {
+  if (db.getAdminPin()) {
+    return res.status(403).json({ error: 'PIN är redan satt' });
+  }
   const { pin } = req.body;
   if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
     return res.status(400).json({ error: 'PIN måste vara exakt 4 siffror' });
@@ -150,8 +153,22 @@ app.post('/api/users/login', (req, res) => {
   if (!user) {
     return res.status(404).json({ error: 'Ingen användare med det namnet. Registrera dig först!' });
   }
+  if (user.google_id) {
+    return res.status(403).json({ error: 'Konto kopplat till Google Auth. Logga in med Google istället.' });
+  }
   // Return token for the user (simple system — no passwords)
-  res.json({ id: user.id, nickname: user.nickname, token: user.token, avatar: user.avatar_emoji, avatarUrl: user.avatar_url, email: user.email });
+  res.json({ id: user.id, nickname: user.nickname, token: user.token, avatar: user.avatar_emoji, avatarUrl: user.avatar_url, email: user.email, swishNumber: user.swish_number });
+});
+
+app.put('/api/users/me/swish', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
+  const user = db.getUserByToken(token);
+  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
+
+  const swishNumber = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : null;
+  db.updateUserSwish(user.id, swishNumber);
+  res.json({ ok: true, swishNumber });
 });
 
 app.get('/api/users/me', (req, res) => {
@@ -270,7 +287,7 @@ app.post('/api/auth/google', async (req, res) => {
 
 // ── Tournament Photos ─────────────────────────────────
 app.get('/api/tournaments/:id/photos', (req, res) => {
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
   const user = getUserFromToken(req); // Optional for fetching likes
   
@@ -292,7 +309,7 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs för att ladda upp bilder' });
 
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const { imageData, caption } = req.body;
@@ -351,14 +368,14 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
 
 app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   const user = getUserFromToken(req);
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
   
   // Verify ownership or super admin
   const hasPin = req.body?.pin && verifyPin(req.body.pin);
-  const isCreator = tournament.creator_id === user.id;
+  const isCreator = tournament.creatorId === user.id;
   
   // Actually, we must check if the user is the one who uploaded the photo, or if they are admin.
   // We'll let `deleteTournamentPhoto` just delete it by db logic for the user if not admin.
@@ -507,6 +524,16 @@ app.delete('/api/events/:id/players/:playerId', (req, res) => {
 
   db.removePlayer(req.params.id, req.params.playerId);
   broadcastToEvent(event.share_code, { type: 'player_removed', eventCode: event.share_code });
+  
+  const updated = db.getFullEvent(event.share_code);
+  broadcastToEvent(event.share_code, {
+    type: 'odds_update',
+    eventCode: event.share_code,
+    odds: updated.odds,
+    totalPool: updated.totalPool,
+    betCount: updated.bets.length
+  });
+
   res.json({ ok: true });
 });
 
@@ -566,17 +593,11 @@ app.post('/api/events/:id/bets/:betId/paid', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
 
-  // Allow: event admin OR the bettor themselves
-  const user = getUserFromToken(req);
+  // Allow: event admin ONLY
   const isAdmin = verifyEventAdmin(req, event);
   
-  // Check if user is the bettor
-  const full = db.getFullEvent(req.params.id);
-  const bet = full?.bets.find(b => b.id === req.params.betId);
-  const isBettor = user && bet && bet.userId === user.id;
-
-  if (!isAdmin && !isBettor) {
-    return res.status(403).json({ error: 'Ingen behörighet' });
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Endast skaparen/admin kan markera bet som betalt' });
   }
 
   const { paid } = req.body;
@@ -729,11 +750,11 @@ app.get('/api/tournaments/:code', (req, res) => {
 });
 
 app.post('/api/tournaments/:id/rounds', (req, res) => {
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const isCreator = user && tournament.creator_id === user.id;
+  const isCreator = user && tournament.creatorId === user.id;
   const hasPin = req.body.pin && verifyPin(req.body.pin);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
@@ -765,16 +786,18 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
   const playerData = playerNames.map(name => ({ id: generateId(), name }));
   db.createEvent(eventData, playerData);
 
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
+
   res.json(db.getFullTournament(tournament.id));
 });
 
 // Side bets
 app.post('/api/tournaments/:id/sidebets', (req, res) => {
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const isCreator = user && tournament.creator_id === user.id;
+  const isCreator = user && tournament.creatorId === user.id;
   const hasPin = req.body.pin && verifyPin(req.body.pin);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
@@ -813,15 +836,17 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     }
   }
 
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
+
   res.json(db.getFullTournament(tournament.id));
 });
 
 app.post('/api/tournaments/:id/settle', (req, res) => {
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const isCreator = user && tournament.creator_id === user.id;
+  const isCreator = user && tournament.creatorId === user.id;
   const hasPin = req.body.pin && verifyPin(req.body.pin);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
@@ -833,11 +858,11 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
 
 // ── Tournament Banners ───────────────────────────────
 app.post('/api/tournaments/:id/banners', (req, res) => {
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const isCreator = user && tournament.creator_id === user.id;
+  const isCreator = user && tournament.creatorId === user.id;
   const hasPin = req.body.pin && verifyPin(req.body.pin);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
@@ -854,11 +879,11 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
 });
 
 app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
-  const tournament = db.getTournamentById(req.params.id);
+  const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const isCreator = user && tournament.creator_id === user.id;
+  const isCreator = user && tournament.creatorId === user.id;
   const hasPin = req.body?.pin && verifyPin(req.body.pin);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });

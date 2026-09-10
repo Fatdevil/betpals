@@ -1,9 +1,20 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
 import { formatCurrency, showToast } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 
+let wsUnsubscribe = null;
+
+export function cleanupTournament() {
+  disconnectWebSocket();
+  if (wsUnsubscribe) {
+    wsUnsubscribe();
+    wsUnsubscribe = null;
+  }
+}
+
 export async function renderTournament(params = {}) {
+  cleanupTournament();
   const content = document.getElementById('page-content');
   const code = params.code;
   if (!code) {
@@ -16,10 +27,18 @@ export async function renderTournament(params = {}) {
   try {
     const [t, photos] = await Promise.all([
       getTournament(code),
-      getTournamentPhotos(code).catch(e => { console.error('Failed to load photos', e); return []; }) // pass ID/code, actually ID is preferred but API is code? No wait, API is /tournaments/:id/photos. But the route in backend is /api/tournaments/:id/photos and we only have code here. Let's see... getTournament returns the full tournament including its ID.
+      getTournamentPhotos(code).catch(e => { console.error('Failed to load photos', e); return []; })
     ]);
     const p = await getTournamentPhotos(t.id).catch(e => []);
     renderTournamentContent(content, t, p);
+
+    connectWebSocket(t.shareCode);
+    wsUnsubscribe = onWebSocketMessage((msg) => {
+      if (msg.type === 'tournament_updated') {
+        renderTournament(params);
+      }
+    });
+
   } catch (err) {
     content.innerHTML = '<div class="text-center text-red mt-lg">' + err.message + '</div>';
   }

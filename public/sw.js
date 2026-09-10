@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v1';
+const CACHE_NAME = 'betpals-v2';
 const STATIC_ASSETS = [
   '/',
   '/src/style.css',

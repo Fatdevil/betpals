@@ -131,6 +131,7 @@ db.exec(`
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN swish_number TEXT'); } catch {}
 
 // ── Prepared Statements ──────────────────────────────
 const stmts = {
@@ -181,6 +182,7 @@ const stmts = {
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
   updateUserAvatarUrl: db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?'),
+  updateUserSwish: db.prepare('UPDATE users SET swish_number = ? WHERE id = ?'),
 
   // Tournament Photos
   getPhotosByTournament: db.prepare(`
@@ -381,12 +383,25 @@ export function createUser(id, nickname, token, avatarEmoji) {
 export function findOrCreateGoogleUser(googleId, email, name, avatarUrl, token) {
   const existing = stmts.getUserByGoogleId.get(googleId);
   if (existing) {
-    stmts.updateUserGoogle.run(email, avatarUrl, name, googleId);
-    return { ...existing, email, avatar_url: avatarUrl, nickname: name };
+    let finalName = name;
+    let collision = stmts.getUserByNickname.get(finalName);
+    while (collision && collision.google_id !== googleId) {
+      finalName = name + '_' + crypto.randomBytes(2).toString('hex');
+      collision = stmts.getUserByNickname.get(finalName);
+    }
+    stmts.updateUserGoogle.run(email, avatarUrl, finalName, googleId);
+    return { ...existing, email, avatar_url: avatarUrl, nickname: finalName };
+  }
+  
+  let finalName = name;
+  let collision = stmts.getUserByNickname.get(finalName);
+  while (collision) {
+    finalName = name + '_' + crypto.randomBytes(2).toString('hex');
+    collision = stmts.getUserByNickname.get(finalName);
   }
   const id = crypto.randomUUID();
-  stmts.insertGoogleUser.run(id, name, token, googleId, email, avatarUrl);
-  return { id, nickname: name, token, google_id: googleId, email, avatar_url: avatarUrl };
+  stmts.insertGoogleUser.run(id, finalName, token, googleId, email, avatarUrl);
+  return { id, nickname: finalName, token, google_id: googleId, email, avatar_url: avatarUrl };
 }
 
 export function getUserByToken(token) {
@@ -407,6 +422,10 @@ export function updateUserAvatar(userId, emoji) {
 
 export function updateUserAvatarUrl(userId, url) {
   stmts.updateUserAvatarUrl.run(url, userId);
+}
+
+export function updateUserSwish(userId, swishNumber) {
+  stmts.updateUserSwish.run(swishNumber, userId);
 }
 
 export function getUserBets(userId) {
@@ -450,6 +469,7 @@ export function getLeaderboard() {
   return users.map(user => {
     const userBets = stmts.getBetsByUser.all(user.id);
     let totalBet = 0;
+    let totalFinishedBet = 0;
     let totalWon = 0;
     let wins = 0;
     let losses = 0;
@@ -460,6 +480,7 @@ export function getLeaderboard() {
       eventsPlayed.add(bet.event_id);
 
       if (bet.event_status === 'finished') {
+        totalFinishedBet += bet.amount;
         if (bet.player_id === bet.winner_id) {
           // Won this bet — calculate winnings
           const event = events.find(e => e.id === bet.event_id);
@@ -477,8 +498,8 @@ export function getLeaderboard() {
       }
     }
 
-    const profit = totalWon - totalBet;
-    const roi = totalBet > 0 ? ((profit / totalBet) * 100) : 0;
+    const profit = totalWon - totalFinishedBet;
+    const roi = totalFinishedBet > 0 ? ((profit / totalFinishedBet) * 100) : 0;
 
     const finishedCount = wins + losses;
     const winRate = finishedCount > 0 ? Math.round((wins / finishedCount) * 100) : 0;
@@ -614,12 +635,26 @@ export function getTournamentNetSettlement(tournamentId) {
   // Calculate net balance per user (by bettor_name since not all bettors may have accounts)
   const balances = {}; // { bettorName: net amount }
 
+  const tournament = stmts.getTournamentById.get(tournamentId);
+  let creatorName = 'Hus/Skapare';
+  let creatorUserId = tournament ? tournament.creator_id : null;
+  if (creatorUserId) {
+    const u = stmts.getUserById.get(creatorUserId);
+    if (u) creatorName = u.nickname;
+  }
+
   for (const round of finishedRounds) {
     const bets = stmts.getBetsByEvent.all(round.id);
     const totalPool = stmts.getTotalPool.get(round.id).total;
     const effectivePool = totalPool * (round.payout_percent / 100);
+    const houseEdge = totalPool - effectivePool;
     const winnerPool = stmts.getPlayerPool.get(round.id, round.winner_id).total;
     const odds = winnerPool > 0 ? effectivePool / winnerPool : 0;
+
+    if (houseEdge > 0) {
+      if (!balances[creatorName]) balances[creatorName] = { amount: 0, userId: creatorUserId };
+      balances[creatorName].amount += houseEdge;
+    }
 
     for (const bet of bets) {
       const name = bet.bettor_name;
@@ -712,6 +747,7 @@ export function getUserStats(userId) {
   const losses = finishedBets.filter(b => b.player_id !== b.winner_id);
 
   const totalBet = bets.reduce((s, b) => s + b.amount, 0);
+  const totalFinishedBetStake = finishedBets.reduce((s, b) => s + b.amount, 0);
   const totalLost = losses.reduce((s, b) => s + b.amount, 0);
 
   // Calculate winnings (same logic as finish endpoint)
@@ -756,7 +792,7 @@ export function getUserStats(userId) {
     totalBet: Math.round(totalBet),
     totalWon: Math.round(totalWon),
     totalLost: Math.round(totalLost),
-    netProfit: Math.round(totalWon - totalLost),
+    netProfit: Math.round(totalWon - totalFinishedBetStake),
     streak: streak,
     streakType: streakType || 'none'
   };

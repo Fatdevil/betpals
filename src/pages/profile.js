@@ -1,5 +1,5 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, googleLogin, getMyBets, getMyStats, updateAvatar } from '../api.js';
+import { registerUser, loginUser, googleLogin, getMyBets, getMyStats, updateAvatar, updateSwish } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass } from '../utils.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
@@ -193,6 +193,16 @@ function renderProfileContent(content, user, bets, stats) {
         </div>
       </div>
 
+      <!-- Swish Number -->
+      <div class="card mt-md">
+        <div style="font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-sm);">📱 Swish-nummer</div>
+        <div style="display: flex; gap: var(--space-sm);">
+          <input type="tel" id="swish-input" class="input" placeholder="0701234567" value="${user.swishNumber || ''}" style="flex: 1;" />
+          <button class="btn btn-primary" id="save-swish-btn">Spara</button>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">Används för att ta emot pengar vid turneringsvinster.</div>
+      </div>
+
       <!-- Stats -->
       <div class="stats-row mt-md">
         <div class="stat-card">
@@ -355,6 +365,26 @@ function renderProfileContent(content, user, bets, stats) {
       setLang(btn.dataset.lang);
       renderProfile();
     });
+  });
+
+  // Swish save listener
+  document.getElementById('save-swish-btn')?.addEventListener('click', async () => {
+    const swishNumber = document.getElementById('swish-input').value;
+    const btn = document.getElementById('save-swish-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sparar...';
+    try {
+      const res = await updateSwish(swishNumber);
+      const u = getStoredUser();
+      u.swishNumber = res.swishNumber;
+      storeUser(u);
+      showToast('Swish-nummer sparat! 📱', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Spara';
+    }
   });
 
   // Click bet to go to event

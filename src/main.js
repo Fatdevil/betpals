@@ -6,7 +6,7 @@ import { renderJoin } from './pages/join.js';
 import { renderAdmin } from './pages/admin.js';
 import { renderProfile } from './pages/profile.js';
 import { renderLeaderboard } from './pages/leaderboard.js';
-import { renderTournament } from './pages/tournament.js';
+import { renderTournament, cleanupTournament } from './pages/tournament.js';
 import { initAds } from './components/ads.js';
 
 // Google Auth — fetched from server config
@@ -21,6 +21,7 @@ let currentParams = {};
 export function navigate(page, params = {}) {
   // Cleanup previous page
   if (currentPage === 'event') cleanupEvent();
+  if (currentPage === 'tournament') cleanupTournament();
 
   currentPage = page;
   currentParams = params;

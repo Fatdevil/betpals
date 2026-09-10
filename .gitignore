@@ -1,5 +1,8 @@
 node_modules/
 dist/
-server/betpals.db
+server/betpals.db*
+*.db
+*.db-shm
+*.db-wal
 .env
 *.log
