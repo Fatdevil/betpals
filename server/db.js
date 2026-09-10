@@ -322,7 +322,11 @@ const stmts = {
   searchUsers: db.prepare(`
     SELECT id, nickname, real_name, avatar_emoji, avatar_url, swish_number
     FROM users
-    WHERE id != ? AND (nickname LIKE ? OR real_name LIKE ?)
+    WHERE id != ? AND (
+      nickname LIKE ? OR 
+      real_name LIKE ? OR 
+      (swish_number IS NOT NULL AND swish_number LIKE ?)
+    )
     ORDER BY nickname ASC
     LIMIT 15
   `),
@@ -1098,7 +1102,16 @@ export function removeFriend(userId, friendId) {
 
 export function searchUsers(query, excludeUserId) {
   if (!query || String(query).trim().length < 1) return [];
-  const clean = `%${String(query).trim()}%`;
-  return stmts.searchUsers.all(excludeUserId || '', clean, clean);
+  const raw = String(query).trim();
+  const clean = `%${raw}%`;
+  const digits = raw.replace(/\D/g, '');
+  const phonePattern = digits.length >= 4 ? `%${digits}%` : clean;
+  return stmts.searchUsers.all(excludeUserId || '', clean, clean, phonePattern).map(u => ({
+    id: u.id,
+    nickname: u.nickname,
+    realName: u.real_name,
+    avatarEmoji: u.avatar_emoji,
+    avatarUrl: u.avatar_url
+  }));
 }
 

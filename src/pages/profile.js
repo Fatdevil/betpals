@@ -758,16 +758,20 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
 
 function showAddFriendModal(currentFriends = []) {
   const friendIdSet = new Set(currentFriends.map(f => f.id));
+  const currentUser = getStoredUser();
+  const myNick = currentUser?.nickname || '';
+  const inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(myNick)}`;
+  const inviteText = `Tja! Häng med på BetPals och betta med oss: ${inviteUrl}`;
 
   showModal('👥 Lägg till vän', `
     <div>
       <div class="form-group">
-        <label class="form-label" style="font-size: 0.8rem;">Sök användare (@smeknamn eller namn)</label>
-        <input type="search" class="form-input" id="friend-search-input" placeholder="T.ex. Johan eller @johand..." autofocus />
+        <label class="form-label" style="font-size: 0.8rem;">Sök på mobilnummer, @smeknamn eller namn</label>
+        <input type="search" class="form-input" id="friend-search-input" placeholder="T.ex. 070-123 45 67, Johan eller @johand..." autofocus />
       </div>
-      <div id="friend-search-results" style="min-height: 80px; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+      <div id="friend-search-results" style="min-height: 80px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
         <div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">
-          Skriv minst 2 tecken för att söka efter vänner
+          Skriv ett mobilnummer, smeknamn eller namn för att söka
         </div>
       </div>
     </div>
@@ -782,7 +786,7 @@ function showAddFriendModal(currentFriends = []) {
     if (q.length < 2) {
       resultsDiv.innerHTML = `
         <div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">
-          Skriv minst 2 tecken för att söka efter vänner
+          Skriv ett mobilnummer, smeknamn eller namn för att söka
         </div>
       `;
       return;
@@ -790,14 +794,80 @@ function showAddFriendModal(currentFriends = []) {
 
     resultsDiv.innerHTML = `<div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">Söker... 🔍</div>`;
 
+    const digits = q.replace(/\D/g, '');
+    const looksLikePhone = digits.length >= 7;
+
     try {
       const users = await searchUsers(q);
       if (users.length === 0) {
+        if (looksLikePhone) {
+          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+          const smsSeparator = isIOS ? '&' : '?';
+          const smsLink = `sms:${encodeURIComponent(digits)}${smsSeparator}body=${encodeURIComponent(inviteText)}`;
+
+          let intlPhone = digits;
+          if (intlPhone.startsWith('0')) {
+            intlPhone = '46' + intlPhone.slice(1);
+          }
+          const waLink = `https://wa.me/${intlPhone}?text=${encodeURIComponent(inviteText)}`;
+
+          resultsDiv.innerHTML = `
+            <div class="card text-center" style="padding: var(--space-md); border: 1px dashed rgba(255,215,0,0.35); background: rgba(255,215,0,0.03); margin-top: 4px;">
+              <div style="font-size: 2.2rem; margin-bottom: 6px;">📱</div>
+              <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 4px;">Inget konto för ${escapeHtml(q)}</div>
+              <p class="text-muted" style="font-size: 0.8rem; line-height: 1.4; margin-bottom: var(--space-md);">
+                Kompisen har inte registrerat sig än. Bjud in hen via SMS eller WhatsApp så kopplas ni automatiskt ihop som vänner när hen klickar på länken!
+              </p>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <a href="${smsLink}" class="btn btn-primary btn-block" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem;">
+                  <span>💬</span> <span>Skicka SMS till ${escapeHtml(q)}</span>
+                </a>
+                <a href="${waLink}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-block" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem; border-color: #25D366; color: #25D366;">
+                  <span>🟢</span> <span>Öppna i WhatsApp</span>
+                </a>
+                ${navigator.share ? `
+                  <button type="button" class="btn btn-secondary btn-block" id="btn-native-share-invite" style="font-size: 0.8rem;">
+                    📤 Dela via annan app...
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+
+          document.getElementById('btn-native-share-invite')?.addEventListener('click', async () => {
+            try {
+              await navigator.share({
+                title: 'BetPals Inbjudan',
+                text: inviteText,
+                url: inviteUrl
+              });
+            } catch {}
+          });
+          return;
+        }
+
         resultsDiv.innerHTML = `
           <div class="text-center text-muted" style="font-size: 0.8rem; padding: 20px 0;">
-            Inga användare hittades som matchar "${escapeHtml(q)}"
+            <div>Inga användare hittades som matchar "${escapeHtml(q)}"</div>
+            <div class="mt-sm">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-fallback-copy-invite">
+                🔗 Kopiera din inbjudningslänk
+              </button>
+            </div>
           </div>
         `;
+        document.getElementById('btn-fallback-copy-invite')?.addEventListener('click', async () => {
+          try {
+            if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(inviteUrl);
+              showToast('Kopierade din inbjudningslänk till urklipp! 📋', 'success');
+            } else {
+              prompt('Kopiera din inbjudningslänk:', inviteUrl);
+            }
+          } catch {
+            prompt('Kopiera din inbjudningslänk:', inviteUrl);
+          }
+        });
         return;
       }
 
