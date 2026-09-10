@@ -92,7 +92,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.slots'),
       tag: t('arcade.slotsTag'),
       title: t('arcade.slotsTitle'),
-      iconHtml: `🎰`
+      iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'wheel',
@@ -112,7 +112,7 @@ export function renderMinigamesRoller() {
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -316,7 +316,8 @@ function openSlotsModal() {
     return symbol;
   }
 
-  showModal(t('arcade.slotsTitle'), `
+  const slotsTitleHtml = `<img src="/slots-machine.png" alt="Slots" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.slotsTitle').replace('🎰', '').trim()}`;
+  showModal(slotsTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Chips & Bet Bar -->
       <div class="flex-between mb-sm" style="align-items: center; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: var(--radius-md);">
