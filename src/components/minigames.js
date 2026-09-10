@@ -99,7 +99,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.wheel'),
       tag: t('arcade.wheelTag'),
       title: t('arcade.wheelTitle'),
-      iconHtml: `🎡`
+      iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'dice',
@@ -112,7 +112,7 @@ export function renderMinigamesRoller() {
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -590,7 +590,8 @@ function openWheelModal() {
     return t('arcade.wheelPromptBeer');
   }
 
-  showModal(t('arcade.wheelTitle'), `
+  const wheelTitleHtml = `<img src="/wheel-fortune.png" alt="Wheel" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle').replace('🎡', '').trim()}`;
+  showModal(wheelTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Preset pills -->
       <div class="wheel-preset-pills" id="wheel-presets-container"></div>
