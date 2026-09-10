@@ -3,11 +3,13 @@ import { getEvents, getTournaments } from '../api.js';
 import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { navigate } from '../main.js';
 import { t } from '../i18n.js';
+import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
 
 export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
-    <div class="page-header animate-in" style="padding-top: var(--space-sm);">
+    ${renderMinigamesRoller()}
+    <div class="page-header animate-in" style="padding-top: var(--space-xs);">
       <div class="home-logo-wrap">
         <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
       </div>
@@ -18,6 +20,8 @@ export async function renderHome() {
       <div class="text-center text-muted mt-lg">${t('common.loading')}</div>
     </div>
   `;
+
+  attachMinigamesListeners();
 
   try {
     const [events, tournaments] = await Promise.all([getEvents(), getTournaments()]);
