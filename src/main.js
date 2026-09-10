@@ -12,10 +12,14 @@ import { initAds } from './components/ads.js';
 let currentPage = 'home';
 let currentParams = {};
 
-export function navigate(page, params = {}) {
-  // Cleanup previous page
+function cleanupActivePage() {
   if (currentPage === 'event') cleanupEvent();
   if (currentPage === 'tournament') cleanupTournament();
+}
+
+export function navigate(page, params = {}) {
+  // Cleanup previous page
+  cleanupActivePage();
 
   currentPage = page;
   currentParams = params;
@@ -80,11 +84,11 @@ function init() {
 
   // Handle browser back/forward
   window.addEventListener('popstate', () => {
+    cleanupActivePage();
     const url = new URL(window.location);
     currentPage = url.searchParams.get('page') || 'home';
     const code = url.searchParams.get('code');
     currentParams = code ? { code } : {};
-    if (currentPage === 'event') cleanupEvent();
     renderApp();
   });
 

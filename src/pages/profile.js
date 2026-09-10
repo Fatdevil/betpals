@@ -1,7 +1,7 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
 
@@ -194,7 +194,7 @@ function renderAuthScreen(content) {
       const res = await loginUser({ identifier, pin });
 
       if (res.needsPinReset) {
-        showPinResetUI(res.userId, res.nickname);
+        showPinResetUI(identifier, res.nickname);
         return;
       }
 
@@ -209,7 +209,7 @@ function renderAuthScreen(content) {
   });
 }
 
-function showPinResetUI(userId, nickname) {
+function showPinResetUI(identifier, nickname) {
   const mainCard = document.getElementById('auth-main-card');
   const resetCard = document.getElementById('pin-reset-card');
   if (mainCard) mainCard.style.display = 'none';
@@ -220,11 +220,17 @@ function showPinResetUI(userId, nickname) {
       <div style="font-size: 2.5rem; margin-bottom: var(--space-xs);">🔑</div>
       <h2 style="font-size: 1.2rem; font-weight: 700;">${t('profile.pinResetRequiredTitle')}</h2>
       <p class="text-muted" style="font-size: 0.85rem; line-height: 1.4;">
-        ${t('profile.pinResetRequiredDesc')}
+        Hej <strong>${escapeHtml(nickname)}</strong>! Ange din 6-siffriga engångskod från admin och välj en ny PIN-kod.
       </p>
     </div>
 
     <form id="pin-reset-form">
+      <div class="form-group">
+        <label class="form-label">6-siffrig engångskod från admin</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="reset-code-input"
+               placeholder="123456" required minlength="6" maxlength="6" style="font-size: 1.4rem; letter-spacing: 0.25em;" />
+      </div>
+
       <div class="form-group">
         <label class="form-label">${t('profile.newPin')}</label>
         <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="new-reset-pin"
@@ -239,19 +245,31 @@ function showPinResetUI(userId, nickname) {
 
   document.getElementById('pin-reset-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const resetCode = document.getElementById('reset-code-input').value.trim();
     const newPin = document.getElementById('new-reset-pin').value.trim();
+
+    if (resetCode.length !== 6 || !/^\d{6}$/.test(resetCode)) {
+      showToast('Engångskoden måste bestå av 6 siffror', 'error');
+      return;
+    }
     if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
       showToast('PIN-koden måste bestå av exakt 4 siffror', 'error');
       return;
     }
 
+    const btn = document.getElementById('btn-submit-reset-pin');
+    btn.disabled = true;
+    btn.textContent = 'Sparar...';
+
     try {
-      const user = await completePinReset(userId, newPin);
+      const user = await completePinReset({ identifier, resetCode, newPin });
       storeUser(user);
       showToast('PIN-koden har uppdaterats! 🎉', 'success');
       renderProfile();
     } catch (err) {
       showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Spara ny PIN & Logga in 🚀';
     }
   });
 }
@@ -297,10 +315,10 @@ function renderProfileContent(content, user, bets, stats, creds) {
         </div>
         <input type="file" id="profile-picture-input" accept="image/*" style="display: none;" />
         
-        <div style="font-size: 1.3rem; font-weight: 700; margin-top: var(--space-sm);">${user.realName || user.nickname}</div>
+        <div style="font-size: 1.3rem; font-weight: 700; margin-top: var(--space-sm);">${escapeHtml(user.realName || user.nickname)}</div>
         <div style="display: flex; justify-content: center; gap: 8px; margin-top: 4px; align-items: center; flex-wrap: wrap;">
-          <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.8rem; font-weight: 600;">@${user.nickname}</span>
-          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 ${user.swishNumber}</span>` : ''}
+          <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.8rem; font-weight: 600;">@${escapeHtml(user.nickname)}</span>
+          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 ${escapeHtml(user.swishNumber)}</span>` : ''}
         </div>
       </div>
 
@@ -452,8 +470,8 @@ function renderProfileContent(content, user, bets, stats, creds) {
           ${bets.map(b => `
             <div class="bet-item card-clickable" data-code="${b.eventCode}" id="bet-history-${b.id}">
               <div>
-                <div class="bet-item-name">${b.eventName}</div>
-                <div class="bet-item-player">→ ${b.playerName} · ${formatDate(b.timestamp)}</div>
+                <div class="bet-item-name">${escapeHtml(b.eventName)}</div>
+                <div class="bet-item-player">→ ${escapeHtml(b.playerName)} · ${formatDate(b.timestamp)}</div>
               </div>
               <div style="text-align: right;">
                 <div class="bet-item-amount">${formatCurrency(b.amount)}</div>

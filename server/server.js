@@ -136,8 +136,14 @@ app.post('/api/admin/users/:id/reset-pin', (req, res) => {
   if (!pin || !verifyPin(pin)) return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
   const targetUser = db.getUserById(req.params.id);
   if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
-  db.resetUserPin(targetUser.id);
-  res.json({ ok: true, message: `PIN nollställd för ${targetUser.nickname}` });
+  
+  const resetCode = String(crypto.randomInt(100000, 1000000));
+  db.resetUserPin(targetUser.id, resetCode);
+  res.json({
+    ok: true,
+    resetCode,
+    message: `PIN nollställd för ${targetUser.nickname}. Engångskod: ${resetCode}`
+  });
 });
 
 // ── Users ────────────────────────────────────────────
@@ -207,9 +213,8 @@ app.post('/api/users/login', (req, res) => {
   if (user.needs_pin_reset) {
     return res.status(200).json({
       needsPinReset: true,
-      userId: user.id,
       nickname: user.nickname,
-      message: 'Din PIN-kod har nollställts av admin. Välj en ny 4-siffrig PIN nedan!'
+      message: 'Din PIN-kod har nollställts av admin. Ange din 6-siffriga engångskod och välj en ny PIN!'
     });
   }
 
@@ -234,17 +239,39 @@ app.post('/api/users/login', (req, res) => {
 
 // Complete PIN reset after admin reset
 app.post('/api/users/reset-pin', (req, res) => {
-  const { userId, newPin } = req.body;
-  if (!userId || !newPin || !/^\d{4}$/.test(newPin)) {
+  const { identifier, userId, resetCode, newPin } = req.body;
+  const cleanCode = (resetCode !== undefined && resetCode !== null) ? String(resetCode).trim() : '';
+  const cleanPin = (newPin !== undefined && newPin !== null) ? String(newPin).trim() : '';
+
+  if (!cleanCode || !/^\d{6}$/.test(cleanCode)) {
+    return res.status(400).json({ error: 'Ange den 6-siffriga engångskoden från admin' });
+  }
+  if (!cleanPin || !/^\d{4}$/.test(cleanPin)) {
     return res.status(400).json({ error: 'Ny PIN måste vara exakt 4 siffror' });
   }
-  const user = db.getUserById(userId);
+
+  let user = null;
+  if (identifier) {
+    user = db.getUserByNicknameOrSwish(String(identifier).trim());
+  } else if (userId) {
+    user = db.getUserById(userId);
+  }
+
   if (!user) return res.status(404).json({ error: 'Användare hittades inte' });
   if (!user.needs_pin_reset) {
     return res.status(400).json({ error: 'Kontot är inte i återställningsläge' });
   }
 
-  db.setUserPin(user.id, newPin);
+  if (!user.reset_code || user.reset_code !== cleanCode) {
+    return res.status(401).json({ error: 'Felaktig 6-siffrig engångskod' });
+  }
+
+  if (user.reset_code_expires && new Date(user.reset_code_expires) < new Date()) {
+    return res.status(400).json({ error: 'Engångskoden har löpt ut. Be admin nollställa PIN på nytt.' });
+  }
+
+  const newToken = crypto.randomUUID();
+  db.setUserPin(user.id, cleanPin, newToken);
   const updated = db.getUserById(user.id);
   res.json({
     id: updated.id,
@@ -253,7 +280,8 @@ app.post('/api/users/reset-pin', (req, res) => {
     swishNumber: updated.swish_number,
     token: updated.token,
     avatar: updated.avatar_emoji,
-    avatarUrl: updated.avatar_url
+    avatarUrl: updated.avatar_url,
+    email: updated.email
   });
 });
 
@@ -498,6 +526,7 @@ app.get('/api/tournaments/:id/photos', (req, res) => {
     url: p.url,
     thumbnailUrl: p.thumbnail_url,
     caption: p.caption,
+    userId: p.user_id,
     uploaderName: p.uploader_name,
     uploaderAvatar: p.uploader_avatar,
     createdAt: p.created_at,
@@ -560,7 +589,7 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
     const photoId = generateId();
     db.addTournamentPhoto(photoId, tournament.id, user.id, url, thumbUrl, caption);
 
-    res.json({ id: photoId, url, thumbnailUrl: thumbUrl, caption, uploaderName: user.nickname });
+    res.json({ id: photoId, url, thumbnailUrl: thumbUrl, caption, uploaderName: user.nickname, userId: user.id });
   } catch (err) {
     console.error('Photo upload error:', err.message);
     res.status(500).json({ error: 'Uppladdningen misslyckades' });
@@ -622,13 +651,25 @@ app.get('/api/events', (req, res) => {
 });
 
 app.post('/api/events', (req, res) => {
-  const { pin, name, date, payoutPercent, minBet, maxBet, players, swishNumber, tournamentId, imageUrl } = req.body;
+  const { pin, name, date, payoutPercent, minBet, maxBet, players, swishNumber, tournamentId, imageUrl } = req.body || {};
   
   // Allow creation with user token OR admin PIN
   const user = getUserFromToken(req);
   const hasPin = pin && verifyPin(pin);
   if (!user && !hasPin) {
     return res.status(403).json({ error: 'Logga in eller ange admin-PIN för att skapa match' });
+  }
+
+  // If adding to a tournament, verify that the caller is tournament creator or superadmin
+  if (tournamentId) {
+    const tournament = db.getFullTournament(tournamentId);
+    if (!tournament) {
+      return res.status(404).json({ error: 'Turneringen hittades inte' });
+    }
+    const isTournamentCreator = user && tournament.creatorId === user.id;
+    if (!isTournamentCreator && !hasPin) {
+      return res.status(403).json({ error: 'Du har inte behörighet att lägga till matcher i denna turnering' });
+    }
   }
 
   const finalName = (name || '').trim();
@@ -865,11 +906,16 @@ app.post('/api/events/:id/bets/:betId/paid', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
 
-  // Allow: event admin ONLY
+  const full = db.getFullEvent(event.id);
+  const bet = full?.bets.find(b => b.id === req.params.betId);
+  if (!bet) return res.status(404).json({ error: 'Bet hittades inte' });
+
+  const user = getUserFromToken(req);
   const isAdmin = verifyEventAdmin(req, event);
-  
-  if (!isAdmin) {
-    return res.status(403).json({ error: 'Endast skaparen/admin kan markera bet som betalt' });
+  const isBettor = user && bet.userId && bet.userId === user.id;
+
+  if (!isAdmin && !isBettor) {
+    return res.status(403).json({ error: 'Endast skaparen, admin eller spelaren själv kan markera bet som betalt' });
   }
 
   const { paid } = req.body;
@@ -1015,13 +1061,14 @@ app.get('/api/tournaments', (req, res) => {
 });
 
 app.post('/api/tournaments', (req, res) => {
+  const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = body.pin && verifyPin(body.pin);
   if (!user && !hasPin) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
 
-  const { name, players } = req.body;
+  const { name, players } = body;
   const finalName = (name || '').trim();
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett turneringsnamn krävs (minst 2 tecken)' });
@@ -1289,10 +1336,6 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   res.json({ ok: true, isPaid: result.isPaid });
 });
 
-// ── Leaderboard (Hall of Fame) ───────────────────────
-app.get('/api/leaderboard', (req, res) => {
-  res.json(db.getLeaderboard());
-});
 
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';

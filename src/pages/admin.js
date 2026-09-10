@@ -1,6 +1,6 @@
 // ── Page: Admin Panel ─────────────────────────────────
 import * as api from '../api.js';
-import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, showToast, launchConfetti } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
@@ -211,9 +211,9 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
         ` : ''}
         <div class="flex-between mb-md">
           <div>
-            <h3 style="font-family: var(--font-heading); font-weight: 700;">${ev.name}</h3>
+            <h3 style="font-family: var(--font-heading); font-weight: 700;">${escapeHtml(ev.name)}</h3>
             <p class="text-secondary" style="font-size: 0.8rem;">
-              ${formatDate(ev.date)} · ${t('admin.code')}: <span class="text-gold">${ev.shareCode}</span>
+              ${formatDate(ev.date)} · ${t('admin.code')}: <span class="text-gold">${escapeHtml(ev.shareCode)}</span>
             </p>
           </div>
           <span class="badge ${statusBadgeClass(ev.status)}">${statusLabel(ev.status)}</span>
@@ -223,7 +223,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
         </div>
         <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
           <button class="btn btn-sm btn-secondary admin-view-btn" data-code="${ev.shareCode}">${t('admin.btnView')}</button>
-          <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${ev.name}">${t('admin.btnPlayers')}</button>
+          <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}">${t('admin.btnPlayers')}</button>
           <button class="btn btn-sm btn-secondary admin-cover-btn" data-id="${ev.id}" title="Byt eller lägg till match-omslag">📸 Omslag</button>
           ${ev.status === 'open' ? `
             <button class="btn btn-sm btn-secondary admin-lock-btn" data-id="${ev.id}">${t('admin.btnLock')}</button>
@@ -235,7 +235,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           ${ev.status === 'open' ? `
             <button class="btn btn-sm btn-secondary admin-bets-btn" data-id="${ev.id}" data-code="${ev.shareCode}">${t('admin.btnBets')}</button>
           ` : ''}
-          <button class="btn btn-sm btn-danger admin-delete-btn" data-id="${ev.id}" data-name="${ev.name}" title="${t('admin.btnDelete')}">🗑</button>
+          <button class="btn btn-sm btn-danger admin-delete-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}" title="${t('admin.btnDelete')}">🗑</button>
         </div>
       </div>
     `).join('');
@@ -906,9 +906,9 @@ async function loadAdminTournaments(loggedIn, hasPinSession, user) {
         <div class="card card-clickable tournament-link mb-sm" data-code="${tr.shareCode}">
           <div class="flex-between">
             <div>
-              <h3 style="font-family: var(--font-heading); font-weight: 700;">${tr.name}</h3>
+              <h3 style="font-family: var(--font-heading); font-weight: 700;">${escapeHtml(tr.name)}</h3>
               <p class="text-secondary" style="font-size: 0.8rem;">
-                ${tr.finishedCount}/${tr.roundCount} ${t('admin.roundsFinished')} · ${t('admin.code')}: <span class="text-gold">${tr.shareCode}</span>
+                ${tr.finishedCount}/${tr.roundCount} ${t('admin.roundsFinished')} · ${t('admin.code')}: <span class="text-gold">${escapeHtml(tr.shareCode)}</span>
               </p>
             </div>
             <span class="badge ${tr.status === 'active' ? 'badge-accent' : 'badge-success'}" style="font-size: 0.7rem;">
@@ -1053,15 +1053,15 @@ async function loadAdminUsers(pin) {
             <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm); border-bottom: 1px solid var(--border-glass); flex-wrap: wrap; gap: 8px;">
               <div>
                 <div style="font-weight: 600; font-size: 0.9rem;">
-                  ${u.real_name || u.nickname} 
-                  <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.75rem;">@${u.nickname}</span>
+                  ${escapeHtml(u.real_name || u.nickname)} 
+                  <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.75rem;">@${escapeHtml(u.nickname)}</span>
                 </div>
                 <div class="text-muted" style="font-size: 0.75rem;">
-                  ${u.swish_number ? `📱 Swish: ${u.swish_number}` : 'Inget Swish'} 
+                  ${u.swish_number ? `📱 Swish: ${escapeHtml(u.swish_number)}` : 'Inget Swish'} 
                   ${u.needs_pin_reset ? '· <span class="text-red font-bold">PIN Nollställd</span>' : (u.has_pin ? '· <span class="text-green">PIN Aktiv</span>' : '· Ingen PIN')}
                 </div>
               </div>
-              <button class="btn btn-secondary btn-sm reset-user-pin-btn" data-id="${u.id}" data-name="${u.nickname}" style="font-size: 0.75rem;">
+              <button class="btn btn-secondary btn-sm reset-user-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.nickname)}" style="font-size: 0.75rem;">
                 ${t('admin.resetPinBtn')}
               </button>
             </div>
@@ -1079,8 +1079,12 @@ async function loadAdminUsers(pin) {
         btn.disabled = true;
         btn.textContent = '...';
         try {
-          await api.adminResetUserPin(userId, pin);
-          showToast(t('admin.pinResetToast') || 'PIN nollställd!', 'success');
+          const res = await api.adminResetUserPin(userId, pin);
+          if (res && res.resetCode) {
+            alert(`PIN nollställd för ${userName}!\n\n🔑 Engångskod: ${res.resetCode}\n\nGe denna 6-siffriga kod till användaren så att hen kan logga in och välja en ny PIN.`);
+          } else {
+            showToast(t('admin.pinResetToast') || 'PIN nollställd!', 'success');
+          }
           await loadAdminUsers(pin);
         } catch (err) {
           showToast(err.message, 'error');

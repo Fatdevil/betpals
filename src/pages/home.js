@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments } from '../api.js';
-import { formatCurrency, formatDate, statusLabel, statusBadgeClass } from '../utils.js';
+import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { navigate } from '../main.js';
 import { t } from '../i18n.js';
 
@@ -30,13 +30,13 @@ export async function renderHome() {
           <h2 class="section-title">🏆 ${t('home.tournaments')}</h2>
         </div>
         ${tournaments.map((tr, i) => `
-          <div class="card card-clickable animate-in mb-sm" data-tournament-code="${tr.shareCode}"
+          <div class="card card-clickable animate-in mb-sm" data-tournament-code="${escapeHtml(tr.shareCode)}"
                style="animation-delay: ${i * 0.08}s">
             <div class="flex-between">
               <div>
-                <h3 style="font-family: var(--font-heading); font-weight: 700; font-size: 1.1rem;">${tr.name}</h3>
+                <h3 style="font-family: var(--font-heading); font-weight: 700; font-size: 1.1rem;">${escapeHtml(tr.name)}</h3>
                 <p class="text-secondary" style="font-size: 0.8rem; margin-top: 2px;">
-                  ${tr.finishedCount}/${tr.roundCount} ${t('home.rounds')} · ${t('home.code')}: <span class="text-gold">${tr.shareCode}</span>
+                  ${tr.finishedCount}/${tr.roundCount} ${t('home.rounds')} · ${t('home.code')}: <span class="text-gold">${escapeHtml(tr.shareCode)}</span>
                 </p>
               </div>
               <span class="badge ${tr.status === 'active' ? 'badge-accent' : 'badge-success'}">
@@ -47,8 +47,8 @@ export async function renderHome() {
               <div class="sponsor-carousel mt-sm">
                 ${tr.banners.map(b => `
                   <div class="sponsor-slide">
-                    <img src="${b.imageData}" alt="${b.label || 'Sponsor'}" class="sponsor-img" />
-                    ${b.label ? `<div class="sponsor-label">${b.label}</div>` : ''}
+                    <img src="${b.imageData}" alt="${escapeHtml(b.label || 'Sponsor')}" class="sponsor-img" />
+                    ${b.label ? `<div class="sponsor-label">${escapeHtml(b.label)}</div>` : ''}
                   </div>
                 `).join('')}
               </div>
@@ -89,12 +89,12 @@ export async function renderHome() {
         ? `<div class="section-header"><h2 class="section-title">🎲 ${t('home.events')}</h2></div>` 
         : '';
       document.getElementById('events-list').innerHTML = evHeader + events.map((ev, i) => `
-        <div class="card card-clickable animate-in" data-event-id="${ev.shareCode}"
+        <div class="card card-clickable animate-in" data-event-id="${escapeHtml(ev.shareCode)}"
              style="animation-delay: ${(tournaments.length + i) * 0.08}s">
           <div class="flex-between">
             <div>
               <h3 style="font-family: var(--font-heading); font-weight: 700; font-size: 1.1rem;">
-                ${ev.name}
+                ${escapeHtml(ev.name)}
               </h3>
               <p class="text-secondary" style="font-size: 0.8rem; margin-top: 2px;">
                 ${formatDate(ev.date)} · ${ev.playerCount} ${t('home.players')} · ${ev.betCount} ${t('home.predictions')}
@@ -112,7 +112,7 @@ export async function renderHome() {
               <div class="stat-label">${t('home.payout')}</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value">${ev.shareCode}</div>
+              <div class="stat-value">${escapeHtml(ev.shareCode)}</div>
               <div class="stat-label">${t('home.code')}</div>
             </div>
           </div>

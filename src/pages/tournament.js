@@ -1,5 +1,5 @@
 import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
-import { formatCurrency, showToast, launchConfetti } from '../utils.js';
+import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
@@ -27,12 +27,9 @@ export async function renderTournament(params = {}) {
   content.innerHTML = '<div class="text-center text-muted mt-lg">Laddar turnering...</div>';
 
   try {
-    const [t, photos] = await Promise.all([
-      getTournament(code),
-      getTournamentPhotos(code).catch(e => { console.error('Failed to load photos', e); return []; })
-    ]);
-    const p = await getTournamentPhotos(t.id).catch(e => []);
-    renderTournamentContent(content, t, p);
+    const t = await getTournament(code);
+    const photos = await getTournamentPhotos(t.id).catch(() => []);
+    renderTournamentContent(content, t, photos);
 
     if (t.status === 'settled') {
       launchConfetti();
@@ -73,23 +70,23 @@ function renderTournamentContent(content, t, photos = []) {
   const renderSideBetBadge = (sb) => {
     const modeBadge = sb.betMode === 'self' ? '👤' : '🎲';
     return sb.status === 'finished'
-      ? `<span class="badge badge-success" style="font-size: 0.6rem;">✅ ${sb.winnerName || 'Klar'}</span>`
+      ? `<span class="badge badge-success" style="font-size: 0.6rem;">✅ ${escapeHtml(sb.winnerName || 'Klar')}</span>`
       : sb.status === 'locked'
         ? `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>`
         : `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
   };
 
   const renderSideBetCard = (sb) => `
-    <div class="bet-item card-clickable round-link" data-code="${sb.shareCode}" style="border-left: 3px solid var(--accent); margin-left: var(--space-sm);">
+    <div class="bet-item card-clickable round-link" data-code="${escapeHtml(sb.shareCode)}" style="border-left: 3px solid var(--accent); margin-left: var(--space-sm);">
       <div style="flex: 1;">
-        <div class="bet-item-name">🎯 ${sb.name}</div>
-        <div class="bet-item-player">${sb.players.map(p => p.name).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
+        <div class="bet-item-name">🎯 ${escapeHtml(sb.name)}</div>
+        <div class="bet-item-player">${sb.players.map(p => escapeHtml(p.name)).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
       </div>
       <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
         <div class="bet-item-amount">${formatCurrency(sb.totalPool)}</div>
         <div class="flex gap-xs" style="align-items: center;">
           ${renderSideBetBadge(sb)}
-          ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${sb.name}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort sido-spel">🗑️</button>` : ''}
+          ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort sido-spel">🗑️</button>` : ''}
         </div>
       </div>
     </div>
@@ -102,8 +99,8 @@ function renderTournamentContent(content, t, photos = []) {
       <div class="page-header">
         <div class="flex-between">
           <div>
-            <h1 class="page-title">🏆 ${t.name}</h1>
-            <p class="page-subtitle">${t.rounds.length} ronder · Kod: <strong>${t.shareCode}</strong></p>
+            <h1 class="page-title">🏆 ${escapeHtml(t.name)}</h1>
+            <p class="page-subtitle">${t.rounds.length} ronder · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
           </div>
           <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}">${t.status === 'active' ? 'Pågår' : 'Avräknad'}</span>
         </div>
@@ -125,15 +122,15 @@ function renderTournamentContent(content, t, photos = []) {
       </div>
       <div class="bet-list">
         ${t.rounds.map((r, i) => `
-          <div class="bet-item card-clickable round-link" data-code="${r.shareCode}" id="round-${r.id}">
+          <div class="bet-item card-clickable round-link" data-code="${escapeHtml(r.shareCode)}" id="round-${r.id}">
             <div>
-              <div class="bet-item-name">${r.name}</div>
-              <div class="bet-item-player">${r.players.map(p => p.name).join(', ')} · ${r.betCount} bets</div>
+              <div class="bet-item-name">${escapeHtml(r.name)}</div>
+              <div class="bet-item-player">${r.players.map(p => escapeHtml(p.name)).join(', ')} · ${r.betCount} bets</div>
             </div>
             <div style="text-align: right;">
               <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
               ${r.status === 'finished' 
-                ? '<span class="badge badge-success" style="font-size: 0.6rem;">✅ ' + (r.winnerName || 'Klar') + '</span>'
+                ? '<span class="badge badge-success" style="font-size: 0.6rem;">✅ ' + escapeHtml(r.winnerName || 'Klar') + '</span>'
                 : r.status === 'locked'
                   ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
                   : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
@@ -160,15 +157,17 @@ function renderTournamentContent(content, t, photos = []) {
         </div>
         ${t.banners && t.banners.length > 0 ? `
           <div class="sponsor-carousel">
-            ${t.banners.map(b => `
+            ${t.banners.map(b => {
+              const safeUrl = sanitizeUrl(b.linkUrl);
+              return `
               <div class="sponsor-slide">
-                ${b.linkUrl ? `<a href="${b.linkUrl}" target="_blank" rel="noopener">` : ''}
-                  <img src="${b.imageData}" alt="${b.label || 'Sponsor'}" class="sponsor-img" />
-                ${b.linkUrl ? '</a>' : ''}
-                ${b.label ? `<div class="sponsor-label">${b.label}</div>` : ''}
+                ${safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener">` : ''}
+                  <img src="${b.imageData}" alt="${escapeHtml(b.label || 'Sponsor')}" class="sponsor-img" />
+                ${safeUrl ? '</a>' : ''}
+                ${b.label ? `<div class="sponsor-label">${escapeHtml(b.label)}</div>` : ''}
                 ${isCreator ? `<button class="sponsor-delete-btn" data-banner-id="${b.id}" title="Ta bort">✕</button>` : ''}
               </div>
-            `).join('')}
+            `;}).join('')}
           </div>
         ` : ''}
         ${isCreator ? `
@@ -201,7 +200,7 @@ function renderTournamentContent(content, t, photos = []) {
             ${top3[1] ? `
               <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
                 <div style="font-size: 1.4rem;">🥈</div>
-                <div style="font-weight: 700; font-size: 0.8rem; word-break: break-word;">${top3[1].name}</div>
+                <div style="font-weight: 700; font-size: 0.8rem; word-break: break-word;">${escapeHtml(top3[1].name)}</div>
                 <div class="${top3[1].net >= 0 ? 'text-green' : 'text-red'}" style="font-size: 0.75rem; font-weight: 700;">${top3[1].net >= 0 ? '+' : ''}${formatCurrency(top3[1].net)}</div>
                 <div style="height: 60px; width: 100%; background: linear-gradient(180deg, #b0bec5, #78909c); border-radius: 6px 6px 0 0; margin-top: 6px; display: flex; align-items: center; justify-content: center; color: #111; font-weight: 800;">2</div>
               </div>
@@ -209,7 +208,7 @@ function renderTournamentContent(content, t, photos = []) {
             ${top3[0] ? `
               <div style="flex: 1.2; display: flex; flex-direction: column; align-items: center;">
                 <div style="font-size: 1.8rem; filter: drop-shadow(0 0 8px rgba(255,215,0,0.8));">👑 🥇</div>
-                <div style="font-weight: 800; font-size: 0.9rem; color: var(--gold); word-break: break-word;">${top3[0].name}</div>
+                <div style="font-weight: 800; font-size: 0.9rem; color: var(--gold); word-break: break-word;">${escapeHtml(top3[0].name)}</div>
                 <div class="text-green" style="font-size: 0.8rem; font-weight: 800;">+${formatCurrency(top3[0].net)}</div>
                 <div style="height: 85px; width: 100%; background: linear-gradient(180deg, #ffd700, #ffa000); border-radius: 6px 6px 0 0; margin-top: 6px; display: flex; align-items: center; justify-content: center; color: #111; font-weight: 900; font-size: 1.1rem; box-shadow: 0 0 15px rgba(255,215,0,0.3);">1</div>
               </div>
@@ -217,7 +216,7 @@ function renderTournamentContent(content, t, photos = []) {
             ${top3[2] ? `
               <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
                 <div style="font-size: 1.4rem;">🥉</div>
-                <div style="font-weight: 700; font-size: 0.8rem; word-break: break-word;">${top3[2].name}</div>
+                <div style="font-weight: 700; font-size: 0.8rem; word-break: break-word;">${escapeHtml(top3[2].name)}</div>
                 <div class="${top3[2].net >= 0 ? 'text-green' : 'text-red'}" style="font-size: 0.75rem; font-weight: 700;">${top3[2].net >= 0 ? '+' : ''}${formatCurrency(top3[2].net)}</div>
                 <div style="height: 45px; width: 100%; background: linear-gradient(180deg, #cd7f32, #8d6e63); border-radius: 6px 6px 0 0; margin-top: 6px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800;">3</div>
               </div>
@@ -250,7 +249,7 @@ function renderTournamentContent(content, t, photos = []) {
               .sort((a, b) => b.net - a.net)
               .map(b => `
                 <div class="swish-row">
-                  <div class="swish-name">${b.name}</div>
+                  <div class="swish-name">${escapeHtml(b.name)}</div>
                   <span class="${b.net >= 0 ? 'text-green' : 'text-red'}" style="font-weight: 700;">
                     ${b.net >= 0 ? '+' : ''}${formatCurrency(b.net)}
                   </span>
@@ -280,8 +279,8 @@ function renderTournamentContent(content, t, photos = []) {
                   <div class="swish-row" style="${tr.isPaid ? 'opacity: 0.75; background: rgba(46,204,113,0.06);' : ''}">
                     <div>
                       <div class="swish-name">
-                        ${tr.from} ${isMe ? '<span class="text-gold" style="font-size: 0.7rem;">(du)</span>' : ''}
-                        → ${tr.to} ${isToMe ? '<span class="text-gold" style="font-size: 0.7rem;">(du)</span>' : ''}
+                        ${escapeHtml(tr.from)} ${isMe ? '<span class="text-gold" style="font-size: 0.7rem;">(du)</span>' : ''}
+                        → ${escapeHtml(tr.to)} ${isToMe ? '<span class="text-gold" style="font-size: 0.7rem;">(du)</span>' : ''}
                       </div>
                       <div class="swish-detail">${formatCurrency(tr.amount)}</div>
                     </div>
@@ -294,7 +293,7 @@ function renderTournamentContent(content, t, photos = []) {
                       }
                       ${canToggleReceipt ? `
                         <button type="button" class="btn btn-sm ${tr.isPaid ? 'btn-secondary' : 'btn-primary'} toggle-receipt-btn" 
-                          data-from="${tr.from}" data-to="${tr.to}" data-amount="${tr.amount}" style="font-size: 0.7rem; padding: 4px 8px;">
+                          data-from="${escapeHtml(tr.from)}" data-to="${escapeHtml(tr.to)}" data-amount="${tr.amount}" style="font-size: 0.7rem; padding: 4px 8px;">
                           ${tr.isPaid ? '↩️ Ångra' : 'Mottagen ✅'}
                         </button>
                       ` : ''}
@@ -327,14 +326,14 @@ function renderTournamentContent(content, t, photos = []) {
               <div class="flex" style="align-items: center; gap: 8px;">
                 <div class="avatar-circle" style="width: 28px; height: 28px; font-size: 0.9rem;">${p.uploaderAvatar || '🎲'}</div>
                 <div>
-                  <div style="font-weight: 700; font-size: 0.85rem;">${p.uploaderName}</div>
+                  <div style="font-weight: 700; font-size: 0.85rem;">${escapeHtml(p.uploaderName)}</div>
                   <div class="text-muted" style="font-size: 0.7rem;">${new Date(p.createdAt).toLocaleString('sv-SE', {day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit'})}</div>
                 </div>
               </div>
               ${(user && p.userId === user.id) || isCreator ? `<button class="btn-icon text-red delete-photo-btn" data-id="${p.id}" style="font-size: 0.8rem; background: rgba(255,0,0,0.1); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">✕</button>` : ''}
             </div>
             <img src="${p.url}" class="photo-img" style="width: 100%; border-radius: var(--radius-sm); margin-bottom: var(--space-xs); object-fit: cover; max-height: 500px;" loading="lazy" />
-            ${p.caption ? `<div class="photo-caption text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">${p.caption}</div>` : ''}
+            ${p.caption ? `<div class="photo-caption text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">${escapeHtml(p.caption)}</div>` : ''}
             <div class="photo-actions mt-xs">
               <button class="btn-icon like-btn ${p.userLiked ? 'liked' : ''}" data-id="${p.id}" ${!user ? 'disabled style="opacity: 0.5;" title="Logga in för att gilla"' : ''} style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; background: ${p.userLiked ? 'rgba(255, 60, 60, 0.15)' : 'rgba(255,255,255,0.05)'}; transition: all 0.2s ease;">
                 <span class="heart-icon" style="font-size: 1.1rem; filter: ${p.userLiked ? 'drop-shadow(0 0 4px rgba(255, 60, 60, 0.5))' : 'none'};">${p.userLiked ? '❤️' : '🤍'}</span> 

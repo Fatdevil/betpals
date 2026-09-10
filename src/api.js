@@ -117,8 +117,12 @@ export const registerUser = ({ name, nickname, swishNumber, pin, avatarEmoji }) 
   request('/users/register', { method: 'POST', body: { name, nickname, swishNumber, pin, avatarEmoji } });
 export const loginUser = ({ identifier, pin }) =>
   request('/users/login', { method: 'POST', body: { identifier, pin } });
-export const completePinReset = (userId, newPin) =>
-  request('/users/reset-pin', { method: 'POST', body: { userId, newPin } });
+export const completePinReset = (identifierOrObj, resetCode, newPin) => {
+  const body = typeof identifierOrObj === 'object'
+    ? identifierOrObj
+    : { identifier: identifierOrObj, resetCode, newPin };
+  return request('/users/reset-pin', { method: 'POST', body });
+};
 export const changePin = (currentPin, newPin) =>
   request('/users/change-pin', { method: 'POST', body: { currentPin, newPin } });
 export const getMe = () => request('/users/me');

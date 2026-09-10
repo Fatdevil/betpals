@@ -141,6 +141,8 @@ try { db.exec('ALTER TABLE users ADD COLUMN real_name TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN pin_hash TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN pin_salt TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN needs_pin_reset INTEGER DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN reset_code TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN reset_code_expires TEXT'); } catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_credentials (
@@ -230,8 +232,8 @@ const stmts = {
   getAllUsers: db.prepare('SELECT id, nickname, real_name, swish_number, token, avatar_emoji, avatar_url, email, needs_pin_reset, CASE WHEN pin_hash IS NOT NULL THEN 1 ELSE 0 END as has_pin, created_at FROM users ORDER BY created_at DESC'),
   insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number) VALUES (?, ?, ?, ?, ?, ?)'),
   insertUserWithPin: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number, pin_hash, pin_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
-  setUserPin: db.prepare('UPDATE users SET pin_hash = ?, pin_salt = ?, needs_pin_reset = 0 WHERE id = ?'),
-  resetUserPin: db.prepare('UPDATE users SET pin_hash = NULL, pin_salt = NULL, needs_pin_reset = 1 WHERE id = ?'),
+  setUserPin: db.prepare('UPDATE users SET pin_hash = ?, pin_salt = ?, needs_pin_reset = 0, reset_code = NULL, reset_code_expires = NULL, token = coalesce(?, token) WHERE id = ?'),
+  resetUserPin: db.prepare('UPDATE users SET pin_hash = NULL, pin_salt = NULL, needs_pin_reset = 1, reset_code = ?, reset_code_expires = ? WHERE id = ?'),
   insertGoogleUser: db.prepare('INSERT INTO users (id, nickname, token, google_id, email, avatar_url) VALUES (?, ?, ?, ?, ?, ?)'),
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
   updateUserAvatar: db.prepare('UPDATE users SET avatar_emoji = ? WHERE id = ?'),
@@ -501,14 +503,15 @@ export function verifyUserPin(user, pin) {
   return hash === user.pin_hash;
 }
 
-export function setUserPin(userId, pin) {
+export function setUserPin(userId, pin, newToken = null) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = hashUserPin(pin, salt);
-  stmts.setUserPin.run(hash, salt, userId);
+  stmts.setUserPin.run(hash, salt, newToken, userId);
 }
 
-export function resetUserPin(userId) {
-  stmts.resetUserPin.run(userId);
+export function resetUserPin(userId, resetCode, expiresIso = null) {
+  const expires = expiresIso || new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  stmts.resetUserPin.run(resetCode, expires, userId);
 }
 
 export function getAllUsers() {

@@ -1,6 +1,6 @@
 // ── Page: Event (view + predict + WebSocket live odds + QR) ──
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
@@ -20,7 +20,7 @@ function renderSettlementSection(event, payoutInfo) {
   html += '<div style="font-size: 2rem; margin-bottom: var(--space-xs);">🤝</div>';
   html += `<p class="text-muted" style="font-size: 0.85rem;">${t('event.settleDesc')}</p>`;
   if (event.winnerNickname) {
-    html += `<p class="text-gold" style="font-size: 0.8rem;">${t('event.winner')}: ${event.winnerNickname}</p>`;
+    html += `<p class="text-gold" style="font-size: 0.8rem;">${t('event.winner')}: ${escapeHtml(event.winnerNickname)}</p>`;
   }
   html += '</div>';
 
@@ -32,7 +32,7 @@ function renderSettlementSection(event, payoutInfo) {
 
     html += '<div class="settle-row">';
     html += '<div>';
-    html += '<div class="settle-name">' + b.bettorName;
+    html += '<div class="settle-name">' + escapeHtml(b.bettorName);
     if (isMyBet) html += ` <span class="text-gold" style="font-size: 0.7rem;">(${t('tournament.you')})</span>`;
     html += '</div>';
     html += `<div class="settle-detail">${formatCurrency(b.amount)}</div>`;
@@ -56,7 +56,7 @@ function renderSettlementSection(event, payoutInfo) {
     payoutInfo.payouts.forEach(p => {
       html += '<div class="settle-row">';
       html += '<div>';
-      html += `<div class="settle-name">${p.name}</div>`;
+      html += `<div class="settle-name">${escapeHtml(p.name)}</div>`;
       html += `<div class="settle-detail">${t('event.winnings')}: ${formatCurrency(p.winnings)} (${t('event.profit')}: +${formatCurrency(p.profit)})</div>`;
       html += '</div>';
       html += `<span class="badge badge-success" style="font-size: 0.75rem;">+${formatCurrency(p.profit)}</span>`;
@@ -164,7 +164,7 @@ function renderEventContent(event, content, code) {
     <div class="animate-in">
       ${event.imageUrl ? `
         <div class="event-hero-banner" id="event-hero-banner">
-          <img src="${event.imageUrl}" alt="${event.name}" class="event-hero-img" />
+          <img src="${event.imageUrl}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
           <div class="event-hero-overlay">
             <span class="badge ${statusBadgeClass(event.status)}" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);">${statusLabel(event.status)}</span>
           </div>
@@ -173,7 +173,7 @@ function renderEventContent(event, content, code) {
 
       <div class="page-header">
         <div class="flex-between">
-          <h1 class="page-title">${event.name}</h1>
+          <h1 class="page-title">${escapeHtml(event.name)}</h1>
           <div class="flex gap-sm" style="align-items: center;">
             ${isOpen ? '<span class="live-indicator"><span class="live-dot"></span>LIVE</span>' : ''}
             <span class="badge ${statusBadgeClass(event.status)}">${statusLabel(event.status)}</span>
@@ -186,7 +186,7 @@ function renderEventContent(event, content, code) {
       <div class="share-code-display" style="flex-direction: column; gap: var(--space-md);">
         <div style="text-align: center;">
           <div class="share-code-label">${t('home.code')}</div>
-          <div class="share-code-text">${event.shareCode}</div>
+          <div class="share-code-text">${escapeHtml(event.shareCode)}</div>
         </div>
         <div class="qr-container" id="qr-container">
           <div class="text-muted" style="font-size: 0.8rem;">${t('common.loading')}</div>
@@ -213,11 +213,11 @@ function renderEventContent(event, content, code) {
         <div class="winner-banner">
           ${winner.imageUrl ? `
             <div style="display: flex; justify-content: center; margin-bottom: var(--space-xs);">
-              <img src="${winner.imageUrl}" alt="${winner.name}" class="player-avatar-large" />
+              <img src="${winner.imageUrl}" alt="${escapeHtml(winner.name)}" class="player-avatar-large" />
             </div>
           ` : ''}
           <div class="winner-label">🏆 ${t('event.winner')}</div>
-          <div class="winner-name">${winner.name}</div>
+          <div class="winner-name">${escapeHtml(winner.name)}</div>
           ${event.winnerImageUrl ? `
             <div class="winner-proof-wrapper">
               <div class="winner-proof-card" id="winner-proof-trigger" data-img="${event.winnerImageUrl}" title="Klicka för fullskärm">
@@ -262,22 +262,22 @@ function renderEventContent(event, content, code) {
                 </div>
                 <select class="form-input" id="bet-player" required style="display: none;">
                   <option value="">${t('event.selectPlayer')}</option>
-                  ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                  ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
                 </select>
               ` : `
                 ${hasPlayerImages ? `
                   <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
                     ${event.players.map(p => `
                       <button type="button" class="btn player-quick-btn" data-player-id="${p.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-full); border: 1.5px solid var(--border-light); background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
-                        ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}" class="player-avatar-mini" />` : ''}
-                        <span>${p.name}</span>
+                        ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${escapeHtml(p.name)}" class="player-avatar-mini" />` : ''}
+                        <span>${escapeHtml(p.name)}</span>
                       </button>
                     `).join('')}
                   </div>
                 ` : ''}
                 <select class="form-input" id="bet-player" required>
                   <option value="">${t('event.selectPlayer')}</option>
-                  ${event.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                  ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
                 </select>
               `}
             </div>
@@ -316,7 +316,7 @@ function renderEventContent(event, content, code) {
               <tbody>
                 ${payoutInfo.payouts.map(p => `
                   <tr>
-                    <td>${p.name}</td>
+                    <td>${escapeHtml(p.name)}</td>
                     <td>${formatCurrency(p.bet)}</td>
                     <td class="payout-positive">${formatCurrency(p.winnings)}</td>
                     <td class="${p.profit >= 0 ? 'payout-positive' : 'payout-negative'}">
@@ -343,8 +343,8 @@ function renderEventContent(event, content, code) {
             return `
               <div class="bet-item">
                 <div>
-                  <div class="bet-item-name">${b.bettorName}</div>
-                  <div class="bet-item-player">→ ${player?.name || '?'} · ${formatTime(b.timestamp)}</div>
+                  <div class="bet-item-name">${escapeHtml(b.bettorName)}</div>
+                  <div class="bet-item-player">→ ${escapeHtml(player?.name || '?')} · ${formatTime(b.timestamp)}</div>
                 </div>
                 <div class="bet-item-amount">${formatCurrency(b.amount)}</div>
               </div>
@@ -390,23 +390,6 @@ function renderEventContent(event, content, code) {
       });
     });
 
-    // Winner proof lightbox
-    const proofTrigger = document.getElementById('winner-proof-trigger');
-    if (proofTrigger) {
-      proofTrigger.addEventListener('click', () => {
-        const imgUrl = proofTrigger.dataset.img;
-        const lightbox = document.createElement('div');
-        lightbox.className = 'lightbox';
-        lightbox.innerHTML = `
-          <button class="lightbox-close">&times;</button>
-          <img src="${imgUrl}" alt="Vinnarbevis" />
-          <div class="lightbox-caption">📸 Vinnarbevis / Resultat</div>
-        `;
-        document.body.appendChild(lightbox);
-        lightbox.addEventListener('click', () => lightbox.remove());
-      });
-    }
-
     const form = document.getElementById('bet-form');
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -428,6 +411,23 @@ function renderEventContent(event, content, code) {
         btn.disabled = false;
         btn.textContent = t('event.submit');
       }
+    });
+  }
+
+  // Winner proof lightbox (runs for finished events)
+  const proofTrigger = document.getElementById('winner-proof-trigger');
+  if (proofTrigger) {
+    proofTrigger.addEventListener('click', () => {
+      const imgUrl = proofTrigger.dataset.img;
+      const lightbox = document.createElement('div');
+      lightbox.className = 'lightbox';
+      lightbox.innerHTML = `
+        <button class="lightbox-close">&times;</button>
+        <img src="${imgUrl}" alt="Vinnarbevis" />
+        <div class="lightbox-caption">📸 Vinnarbevis / Resultat</div>
+      `;
+      document.body.appendChild(lightbox);
+      lightbox.addEventListener('click', () => lightbox.remove());
     });
   }
 

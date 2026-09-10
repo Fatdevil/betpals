@@ -1,5 +1,5 @@
 // ── Components: Odds Board ────────────────────────────
-import { formatCurrency, formatOdds } from '../utils.js';
+import { formatCurrency, formatOdds, escapeHtml } from '../utils.js';
 
 export function renderOddsBoard(event) {
   if (!event.players || event.players.length === 0) {
@@ -17,9 +17,9 @@ export function renderOddsBoard(event) {
 
         return `
           <div class="odds-row" data-player-id="${player.id}">
-            <div class="odds-player-name" title="${player.name}">
-              ${player.imageUrl ? `<img src="${player.imageUrl}" alt="${player.name}" class="player-avatar-mini" />` : ''}
-              <span style="overflow: hidden; text-overflow: ellipsis;">${player.name}</span>
+            <div class="odds-player-name" title="${escapeHtml(player.name)}">
+              ${player.imageUrl ? `<img src="${player.imageUrl}" alt="${escapeHtml(player.name)}" class="player-avatar-mini" />` : ''}
+              <span style="overflow: hidden; text-overflow: ellipsis;">${escapeHtml(player.name)}</span>
             </div>
             <div class="odds-bar-container">
               <div class="odds-bar" style="width: ${barWidth}%"></div>
