@@ -9,11 +9,10 @@ export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
     ${renderMinigamesRoller()}
-    <div class="page-header animate-in" style="padding-top: var(--space-xs);">
+    <div class="page-header animate-in" style="padding-top: var(--space-xs); margin-bottom: var(--space-xs);">
       <div class="home-logo-wrap">
         <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
       </div>
-      <p class="page-subtitle text-gold animate-shimmer" style="font-family: var(--font-heading); font-size: 1.1rem; letter-spacing: 1px; text-transform: uppercase; margin-top: 10px; font-weight: 600;">${t('home.subtitle')}</p>
     </div>
     <div id="tournaments-list"></div>
     <div id="events-list">
