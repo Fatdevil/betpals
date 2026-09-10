@@ -231,11 +231,21 @@ function openCoinFlipModal() {
 // ────────────────────────────────────────────────────────
 // 🎰 GAME 2: ENARMAD BANDIT (Vegas 777 Slots)
 // ────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────
+// 🎰 GAME 2: ENARMAD BANDIT (Vegas 777 Slots)
+// ────────────────────────────────────────────────────────
 function openSlotsModal() {
-  const symbols = ['🍒', '🍋', '🍺', '🔔', '💎', '7️⃣', '👑'];
+  const symbols = ['🍒', '🍋', '🍺', '🔔', '💎', '7️⃣', 'MALTA'];
   let currentChips = getChips();
   let currentBet = 10;
   let isSpinning = false;
+
+  function formatSymbol(symbol) {
+    if (symbol === 'MALTA') {
+      return `<img src="/chip-malta.png" alt="Malta Betting" class="slot-chip-img" />`;
+    }
+    return symbol;
+  }
 
   showModal('🎰 Enarmad Bandit 777', `
     <div class="text-center" style="padding: var(--space-xs) 0;">
@@ -253,9 +263,9 @@ function openSlotsModal() {
       <!-- Slots Cabinet -->
       <div class="slots-cabinet mb-md">
         <div class="slots-window">
-          <div class="slot-reel" id="reel-1"><div class="slot-symbol-wrap">7️⃣</div></div>
+          <div class="slot-reel" id="reel-1"><div class="slot-symbol-wrap">${formatSymbol('MALTA')}</div></div>
           <div class="slot-reel" id="reel-2"><div class="slot-symbol-wrap">7️⃣</div></div>
-          <div class="slot-reel" id="reel-3"><div class="slot-symbol-wrap">7️⃣</div></div>
+          <div class="slot-reel" id="reel-3"><div class="slot-symbol-wrap">${formatSymbol('MALTA')}</div></div>
         </div>
       </div>
 
@@ -278,8 +288,13 @@ function openSlotsModal() {
       </button>
 
       <!-- Paytable note -->
-      <div class="text-muted mt-sm" style="font-size: 0.7rem;">
-        👑👑👑 Jackpot 50x · 7️⃣7️⃣7️⃣ 30x · 3 lika 15x · 2 lika 3x
+      <div class="text-muted mt-sm" style="font-size: 0.7rem; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+        <span style="color: var(--gold); font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+          <img src="/chip-malta.png" style="width: 14px; height: 14px; object-fit: contain;" /> x3 Jackpot 50x
+        </span> · 
+        <span>7️⃣7️⃣7️⃣ 30x</span> · 
+        <span>3 lika 15x</span> · 
+        <span>2 lika 3-5x</span>
       </div>
     </div>
   `);
@@ -366,7 +381,7 @@ function openSlotsModal() {
 
   function stopReel(index, symbol) {
     reels[index].classList.remove('spinning');
-    reels[index].querySelector('.slot-symbol-wrap').textContent = symbol;
+    reels[index].querySelector('.slot-symbol-wrap').innerHTML = formatSymbol(symbol);
     playTone(300 + index * 100, 'triangle', 0.1, 0.15);
   }
 
@@ -376,9 +391,9 @@ function openSlotsModal() {
     let winMessage = '';
 
     if (s1 === s2 && s2 === s3) {
-      if (s1 === '👑') {
+      if (s1 === 'MALTA') {
         multiplier = 50;
-        winMessage = `👑 MEGA JACKPOT! +${currentBet * multiplier} MARKER! 👑`;
+        winMessage = `🔥 MALTA BETTING MEGA JACKPOT! +${currentBet * multiplier} MARKER! 🔥`;
       } else if (s1 === '7️⃣') {
         multiplier = 30;
         winMessage = `7️⃣ 7️⃣ 7️⃣ VEGAS JACKPOT! +${currentBet * multiplier} MARKER! 🎉`;
@@ -387,8 +402,9 @@ function openSlotsModal() {
         winMessage = `🎉 TRIPLAR! 3x ${s1}! +${currentBet * multiplier} MARKER!`;
       }
     } else if (s1 === s2 || s2 === s3 || s1 === s3) {
-      multiplier = 3;
-      winMessage = `✨ Par! Vinst +${currentBet * multiplier} marker!`;
+      const match = (s1 === s2) ? s1 : (s2 === s3 ? s2 : s1);
+      multiplier = (match === 'MALTA') ? 5 : 3;
+      winMessage = `✨ Par i ${match === 'MALTA' ? 'Malta-chips' : match}! Vinst +${currentBet * multiplier} marker!`;
     }
 
     if (multiplier > 0) {
