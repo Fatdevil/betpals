@@ -1,6 +1,7 @@
 // ── Components: Minigames Arcade ────────────────────────
 import { showModal } from './modal.js';
-import { launchConfetti } from '../utils.js';
+import { launchConfetti, escapeHtml, showToast } from '../utils.js';
+import { getFriends } from '../api.js';
 
 // ── Web Audio Synth SFX (Zero-dependency & instant) ───────
 let audioCtx = null;
@@ -427,39 +428,103 @@ function openSlotsModal() {
 // 🎡 GAME 3: LYCKOHJULET (Party & Bet Wheel)
 // ────────────────────────────────────────────────────────
 function openWheelModal() {
-  const sectors = [
-    { label: 'Drick 1🍺', color: '#e63946', desc: 'Ta en klunk av valfri dryck!' },
-    { label: 'Dubbla 2x💰', color: '#f59e0b', desc: 'Dubbla din satsning!' },
-    { label: 'Ge bort 2🎯', color: '#10b981', desc: 'Ge bort 2 klunkar till en kompis!' },
-    { label: 'Nollad!💀', color: '#374151', desc: 'Ingen vinst! Bättre lycka nästa gång!' },
-    { label: 'JACKPOT👑', color: '#8b5cf6', desc: 'JACKPOT! Skåla för mästaren!' },
-    { label: 'Sjung🎤', color: '#ec4899', desc: 'Sjung en refräng från valfri låt!' },
-    { label: 'Mästare🌟', color: '#3b82f6', desc: 'Du bestämmer nästa regel!' },
-    { label: 'Snurra igen🔄', color: '#06b6d4', desc: 'Få ett gratissnurr!' }
+  const PALETTE = [
+    '#e63946', '#f59e0b', '#10b981', '#3b82f6', 
+    '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', 
+    '#f97316', '#6366f1', '#14b8a6', '#d946ef'
   ];
 
+  const PRESETS = {
+    beer: {
+      name: '🍻 Vem bjuder på ölen?',
+      items: ['Johan 🍻', 'Sara 🍺', 'Erik 🍻', 'Du 🎯']
+    },
+    party: {
+      name: '🎉 Festutmaningar',
+      items: ['Drick 1🍺', 'Dubbla 2x💰', 'Ge bort 2🎯', 'Nollad!💀', 'JACKPOT👑', 'Sjung🎤', 'Mästare🌟', 'Snurra igen🔄']
+    },
+    food: {
+      name: '🍕 Vad äter vi?',
+      items: ['Pizza 🍕', 'Burgare 🍔', 'Sushi 🍣', 'Tacos 🌮', 'Kebab 🥙', 'Pasta 🍝']
+    },
+    choice: {
+      name: '🪙 Ja eller Nej?',
+      items: ['JA! 🟢', 'NEJ! 🔴']
+    }
+  };
+
+  let activePresetKey = 'beer';
+  let items = [...PRESETS.beer.items];
   let currentRotation = 0;
   let isSpinning = false;
+  let userFriends = null;
+  let showFriendsPicker = false;
 
   showModal('🎡 Lyckohjulet', `
     <div class="text-center" style="padding: var(--space-xs) 0;">
-      <p class="text-muted mb-xs" style="font-size: 0.85rem;">
-        Snurra fest- och bettinghjulet och se vad ödet bestämmer!
-      </p>
+      <!-- Preset pills -->
+      <div class="wheel-preset-pills" id="wheel-presets-container">
+        <button type="button" class="wheel-preset-pill active" data-preset="beer">🍻 Ölrunda</button>
+        <button type="button" class="wheel-preset-pill" data-preset="party">🎉 Festspel</button>
+        <button type="button" class="wheel-preset-pill" data-preset="food">🍕 Matval</button>
+        <button type="button" class="wheel-preset-pill" data-preset="choice">🪙 Ja / Nej</button>
+      </div>
 
+      <!-- Wheel Canvas & Pointer -->
       <div class="wheel-container">
         <div class="wheel-pointer"></div>
         <canvas id="wheel-canvas" width="280" height="280" class="wheel-canvas"></canvas>
         <div class="wheel-center-hub">🎯</div>
       </div>
 
-      <div id="wheel-result-banner" class="mb-md mt-sm" style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; min-height: 28px; color: var(--gold);">
-        Tryck på Snurra Hjulet!
+      <!-- Result Banner -->
+      <div id="wheel-result-banner" class="mb-sm mt-xs" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
+        Snurra för att se vem som bjuder! 🍻
       </div>
 
-      <button type="button" class="btn btn-primary btn-block" id="btn-spin-wheel" style="font-size: 1.1rem; padding: 13px;">
+      <!-- Spin button -->
+      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-spin-wheel" style="font-size: 1.1rem; padding: 12px;">
         🎡 Snurra Hjulet!
       </button>
+
+      <!-- Customization Box -->
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; text-align: left;">
+        <div class="flex-between mb-xs" style="align-items: center;">
+          <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">
+            Alternativ på hjulet (<span id="wheel-items-count">${items.length}</span> st)
+          </span>
+          <button type="button" class="btn btn-ghost btn-xs" id="wheel-clear-btn" style="color: var(--text-muted); font-size: 0.72rem; padding: 2px 6px;">
+            Rensa alla
+          </button>
+        </div>
+
+        <!-- Tags wrap -->
+        <div id="wheel-tags-wrap" class="wheel-tags-wrap" style="justify-content: flex-start; margin-bottom: 8px;"></div>
+
+        <!-- Input & Add Controls -->
+        <div class="flex gap-xs" style="margin-bottom: 6px;">
+          <input type="text" id="wheel-new-item-input" class="form-input" placeholder="Skriv namn eller val..." maxlength="20" style="padding: 6px 10px; font-size: 0.85rem; flex: 1;" />
+          <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap;">
+            ➕ Lägg till
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" id="wheel-toggle-friends-btn" style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap; background: rgba(255,215,0,0.1); border-color: rgba(255,215,0,0.3); color: var(--gold);">
+            👥 Vänner
+          </button>
+        </div>
+
+        <!-- Friends Picker Drawer (Collapsible) -->
+        <div id="wheel-friends-drawer" style="display: none; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,215,0,0.2); border-radius: var(--radius-sm); padding: 8px; margin-top: 6px;">
+          <div class="flex-between mb-xs" style="align-items: center;">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">👥 Välj från dina vänner:</span>
+            <button type="button" class="btn btn-ghost btn-xs" id="wheel-add-all-friends-btn" style="font-size: 0.7rem; padding: 2px 6px; color: var(--gold);">
+              ➕ Lägg till alla
+            </button>
+          </div>
+          <div id="wheel-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 110px; overflow-y: auto;">
+            <span class="text-muted" style="font-size: 0.75rem;">Laddar vänner...</span>
+          </div>
+        </div>
+      </div>
     </div>
   `);
 
@@ -467,83 +532,313 @@ function openWheelModal() {
   const ctx = canvas.getContext('2d');
   const banner = document.getElementById('wheel-result-banner');
   const spinBtn = document.getElementById('btn-spin-wheel');
+  const tagsWrap = document.getElementById('wheel-tags-wrap');
+  const countSpan = document.getElementById('wheel-items-count');
+  const itemInput = document.getElementById('wheel-new-item-input');
+  const addBtn = document.getElementById('wheel-add-item-btn');
+  const clearBtn = document.getElementById('wheel-clear-btn');
+  const friendsBtn = document.getElementById('wheel-toggle-friends-btn');
+  const friendsDrawer = document.getElementById('wheel-friends-drawer');
+  const friendsList = document.getElementById('wheel-friends-list');
+  const addAllFriendsBtn = document.getElementById('wheel-add-all-friends-btn');
+  const presetsContainer = document.getElementById('wheel-presets-container');
+
+  // Pre-load friends in background
+  getFriends().then(friends => {
+    userFriends = friends || [];
+  }).catch(() => {
+    userFriends = [];
+  });
 
   // Draw wheel on canvas
   function drawWheel() {
-    const numSectors = sectors.length;
+    const numSectors = items.length;
+    ctx.clearRect(0, 0, 280, 280);
+
+    if (numSectors === 0) {
+      ctx.beginPath();
+      ctx.fillStyle = '#1f2937';
+      ctx.arc(140, 140, 140, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Lägg till alternativ!', 140, 140);
+      return;
+    }
+
     const arc = (2 * Math.PI) / numSectors;
     const radius = 140;
 
-    ctx.clearRect(0, 0, 280, 280);
-
-    sectors.forEach((sec, i) => {
+    items.forEach((label, i) => {
       const angle = i * arc;
+      const color = PALETTE[i % PALETTE.length];
+
+      // Wedge slice
       ctx.beginPath();
-      ctx.fillStyle = sec.color;
+      ctx.fillStyle = color;
       ctx.moveTo(radius, radius);
       ctx.arc(radius, radius, radius, angle, angle + arc);
       ctx.lineTo(radius, radius);
       ctx.fill();
+
+      // Divider line
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Draw Text
+      // Text label
       ctx.save();
       ctx.translate(radius, radius);
       ctx.rotate(angle + arc / 2);
       ctx.textAlign = 'right';
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.shadowColor = 'rgba(0,0,0,0.8)';
-      ctx.shadowBlur = 3;
-      ctx.fillText(sec.label, radius - 15, 4);
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+      const fontSize = numSectors > 14 ? 10 : (numSectors > 8 ? 11 : 12);
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      const textToDraw = label.length > 13 ? label.slice(0, 12) + '…' : label;
+      ctx.fillText(textToDraw, radius - 16, 4);
       ctx.restore();
+    });
+
+    // Outer gold trim
+    ctx.beginPath();
+    ctx.arc(radius, radius, radius - 2, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255,215,0,0.85)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+
+  // Render tag badges
+  function renderTags() {
+    countSpan.textContent = items.length;
+    tagsWrap.innerHTML = items.map((item, idx) => `
+      <span class="wheel-tag">
+        ${escapeHtml(item)}
+        <button type="button" class="wheel-tag-remove" data-index="${idx}" title="Ta bort">✕</button>
+      </span>
+    `).join('');
+
+    tagsWrap.querySelectorAll('.wheel-tag-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        if (isSpinning) return;
+        const idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
+        items.splice(idx, 1);
+        renderTags();
+        drawWheel();
+        if (showFriendsPicker) renderFriendsList();
+      });
     });
   }
 
+  // Add an item
+  function addItem(rawName) {
+    const name = (rawName || '').trim();
+    if (!name) return;
+    if (items.length >= 20) {
+      showToast('Max 20 alternativ på hjulet!', 'warning');
+      return;
+    }
+    items.push(name);
+    renderTags();
+    drawWheel();
+    itemInput.value = '';
+    itemInput.focus();
+  }
+
+  // Render friends list inside drawer
+  function renderFriendsList() {
+    if (!userFriends || userFriends.length === 0) {
+      friendsList.innerHTML = `<span class="text-muted" style="font-size: 0.75rem;">Inga vänner tillagda än. Lägg till vänner på din profilsida!</span>`;
+      return;
+    }
+
+    friendsList.innerHTML = userFriends.map(f => {
+      const name = f.nickname || f.realName || 'Vän';
+      const isAlreadyIn = items.some(it => it.toLowerCase().startsWith(name.toLowerCase()));
+      return `
+        <button type="button" class="wheel-friend-pick-btn" data-friend="${escapeHtml(name)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isAlreadyIn ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isAlreadyIn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.06)'}; color: ${isAlreadyIn ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer; transition: all 0.2s;">
+          ${f.avatarUrl ? `<img src="${f.avatarUrl}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (f.avatarEmoji || '👤')}
+          <span>${escapeHtml(name)}</span>
+          <span style="font-weight: 700; margin-left: 2px;">${isAlreadyIn ? '✓' : '+'}</span>
+        </button>
+      `;
+    }).join('');
+
+    friendsList.querySelectorAll('.wheel-friend-pick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (isSpinning) return;
+        const friendName = btn.getAttribute('data-friend');
+        const existingIdx = items.findIndex(it => it.toLowerCase().startsWith(friendName.toLowerCase()));
+        if (existingIdx >= 0) {
+          items.splice(existingIdx, 1);
+        } else {
+          if (items.length >= 20) {
+            showToast('Max 20 alternativ!', 'warning');
+            return;
+          }
+          items.push(`${friendName} 🍻`);
+        }
+        renderTags();
+        drawWheel();
+        renderFriendsList();
+      });
+    });
+  }
+
+  // Load friends and open drawer
+  async function toggleFriendsDrawer() {
+    showFriendsPicker = !showFriendsPicker;
+    friendsDrawer.style.display = showFriendsPicker ? 'block' : 'none';
+    if (showFriendsPicker) {
+      if (userFriends === null) {
+        try {
+          userFriends = await getFriends();
+        } catch {
+          userFriends = [];
+        }
+      }
+      renderFriendsList();
+    }
+  }
+
+  // Event Listeners
+  friendsBtn?.addEventListener('click', toggleFriendsDrawer);
+
+  addAllFriendsBtn?.addEventListener('click', () => {
+    if (!userFriends || userFriends.length === 0) return;
+    let addedCount = 0;
+    userFriends.forEach(f => {
+      const name = f.nickname || f.realName;
+      if (!name) return;
+      if (!items.some(it => it.toLowerCase().startsWith(name.toLowerCase()))) {
+        if (items.length < 20) {
+          items.push(`${name} 🍻`);
+          addedCount++;
+        }
+      }
+    });
+    if (addedCount > 0) {
+      renderTags();
+      drawWheel();
+      renderFriendsList();
+    }
+  });
+
+  clearBtn?.addEventListener('click', () => {
+    if (isSpinning) return;
+    items = [];
+    renderTags();
+    drawWheel();
+    if (showFriendsPicker) renderFriendsList();
+    banner.textContent = 'Hjulet är tomt! Lägg till alternativ nedan.';
+    banner.style.color = 'var(--text-muted)';
+  });
+
+  addBtn?.addEventListener('click', () => addItem(itemInput.value));
+  itemInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addItem(itemInput.value);
+    }
+  });
+
+  // Preset pills switcher
+  presetsContainer?.querySelectorAll('.wheel-preset-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      if (isSpinning) return;
+      presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      const presetKey = pill.getAttribute('data-preset');
+      activePresetKey = presetKey;
+
+      if (PRESETS[presetKey]) {
+        items = [...PRESETS[presetKey].items];
+        // If beer preset and user has friends, populate with real friends if available
+        if (presetKey === 'beer' && userFriends && userFriends.length >= 2) {
+          items = userFriends.slice(0, 8).map(f => `${f.nickname || f.realName} 🍻`);
+          if (!items.some(i => i.includes('Du'))) items.push('Du 🎯');
+        }
+        renderTags();
+        drawWheel();
+        if (showFriendsPicker) renderFriendsList();
+
+        if (presetKey === 'beer') {
+          banner.textContent = 'Vem bjuder på nästa bärs? 🍻';
+        } else if (presetKey === 'party') {
+          banner.textContent = 'Tryck på Snurra Hjulet!';
+        } else if (presetKey === 'food') {
+          banner.textContent = 'Vad blir det för käk idag? 🍕';
+        } else if (presetKey === 'choice') {
+          banner.textContent = 'Låt hjulet avgöra: Ja eller Nej? 🪙';
+        }
+        banner.style.color = 'var(--gold)';
+      }
+    });
+  });
+
+  // Initial render
+  renderTags();
   drawWheel();
 
+  // Spin wheel handler
   spinBtn?.addEventListener('click', () => {
     if (isSpinning) return;
+    if (items.length < 2) {
+      showToast('Lägg till minst 2 alternativ för att snurra hjulet!', 'warning');
+      return;
+    }
+
     isSpinning = true;
     spinBtn.disabled = true;
-    banner.textContent = 'Hjulet snurrar... 🎡';
+    banner.textContent = 'Hjulet snurrar för fullt... 🎡';
     banner.style.color = 'var(--text-secondary)';
 
-    const numSectors = sectors.length;
-    const extraRotations = 4 + Math.floor(Math.random() * 3); // 4-6 full turns
+    const numSectors = items.length;
+    const extraRotations = 5 + Math.floor(Math.random() * 3); // 5-7 full turns
     const winningIndex = Math.floor(Math.random() * numSectors);
 
-    // Needle is at TOP (270 degrees or -90 degrees)
-    // Sector angle
+    // Needle is at TOP (270 degrees)
     const arcDeg = 360 / numSectors;
-    // Calculate degree so winningIndex lands at top
-    const targetDeg = (360 - (winningIndex * arcDeg) - (arcDeg / 2)) + 270;
-    const totalRotation = currentRotation + (extraRotations * 360) + (targetDeg % 360);
-    currentRotation = totalRotation;
+    const targetSectorCenter = (winningIndex + 0.5) * arcDeg;
+    const targetOffset = ((270 - targetSectorCenter) % 360 + 360) % 360;
+    const nextRotation = (Math.ceil(currentRotation / 360) + extraRotations) * 360 + targetOffset;
+    currentRotation = nextRotation;
 
-    canvas.style.transform = `rotate(${totalRotation}deg)`;
+    canvas.style.transform = `rotate(${nextRotation}deg)`;
 
     // Audio ticks during spin
     let tickCount = 0;
     const tickInterval = setInterval(() => {
       tickCount++;
-      if (tickCount < 25) playTickSound();
-    }, 150);
+      if (tickCount < 28) playTickSound();
+    }, 140);
 
     setTimeout(() => {
       clearInterval(tickInterval);
       isSpinning = false;
       spinBtn.disabled = false;
 
-      const result = sectors[winningIndex];
-      banner.textContent = `${result.label} — ${result.desc}`;
-      banner.style.color = result.color === '#e63946' ? '#f87171' : 'var(--gold)';
+      const winner = items[winningIndex];
 
-      if (result.label.includes('JACKPOT') || result.label.includes('Dubbla')) {
+      if (activePresetKey === 'beer' || winner.includes('🍻') || winner.includes('🍺')) {
+        const cleanName = winner.replace(/[🍻🍺]/g, '').trim();
+        banner.innerHTML = `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> bjuder på nästa runda! 🍻`;
         playWinSound();
         launchConfetti();
+      } else if (winner.includes('JACKPOT') || winner.includes('Dubbla')) {
+        banner.innerHTML = `👑 <span style="color: #fbbf24;">${escapeHtml(winner)}</span>! STORVINST! ✨`;
+        playWinSound();
+        launchConfetti();
+      } else if (winner.includes('Nollad') || winner.includes('💀')) {
+        banner.innerHTML = `💀 <span style="color: #ef4444;">${escapeHtml(winner)}</span>! Bättre lycka nästa gång!`;
+        playTone(300, 'sawtooth', 0.25, 0.1);
       } else {
-        playTone(500, 'triangle', 0.2, 0.1);
+        banner.innerHTML = `🎉 Resultat: <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(winner)}</span>! 🎯`;
+        playWinSound();
+        launchConfetti();
       }
     }, 4500);
   });
