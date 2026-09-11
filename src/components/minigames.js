@@ -2569,8 +2569,9 @@ export async function openBlind10Modal(initialRoom = null) {
     } else if (data.type === 'party_started' && data.room) {
       currentRoom = data.room;
       runStopwatchGame(data.countdownSec || 3, (time, diff) => {
-        submitPartyTime(currentRoom.id, time).catch(() => {});
         renderWaitingForOthers(time, diff);
+      }, (time) => {
+        submitPartyTime(currentRoom.id, time).catch(() => {});
       });
     } else if (data.type === 'party_player_stopped') {
       const waitingStatus = document.getElementById('party-waiting-status');
@@ -2583,8 +2584,9 @@ export async function openBlind10Modal(initialRoom = null) {
     } else if (data.type === 'party_sudden_death_start' && data.room) {
       currentRoom = data.room;
       runStopwatchGame(data.countdownSec || 3, (time, diff) => {
-        submitPartyTime(currentRoom.id, time).catch(() => {});
         renderWaitingForOthers(time, diff);
+      }, (time) => {
+        submitPartyTime(currentRoom.id, time).catch(() => {});
       });
     }
   }
@@ -2680,7 +2682,7 @@ export async function openBlind10Modal(initialRoom = null) {
   }
 
   // ── VIEW 3: COUNTDOWN & STOPWATCH CHALLENGE ───────────
-  function runStopwatchGame(countdownSec, onFinished) {
+  function runStopwatchGame(countdownSec, onFinished, onImmediateStop) {
     let currentCountdown = countdownSec;
     let gameStartTime = 0;
     let isStopped = false;
@@ -2776,6 +2778,10 @@ export async function openBlind10Modal(initialRoom = null) {
         const stopTimeMs = performance.now();
         finalStoppedTime = Math.round(((stopTimeMs - gameStartTime) / 1000) * 1000) / 1000;
         finalDiff = Math.round(Math.abs(finalStoppedTime - 10.000) * 1000) / 1000;
+
+        if (typeof onImmediateStop === 'function') {
+          onImmediateStop(finalStoppedTime, finalDiff);
+        }
 
         playTone(587.33, 'sine', 0.15, 0.25);
         setTimeout(() => playTone(783.99, 'sine', 0.2, 0.2), 90);

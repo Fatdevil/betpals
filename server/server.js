@@ -38,9 +38,9 @@ wss.on('connection', (ws, req) => {
   const partyId = url.searchParams.get('party');
 
   let boundUserId = null;
-  let boundDuelId = duelId || null;
   let boundEventCode = eventCode || null;
-  let boundPartyId = partyId || null;
+  const subscribedDuels = new Set();
+  const subscribedParties = new Set();
 
   if (userToken) {
     const user = db.getUserByToken(userToken);
@@ -51,19 +51,45 @@ wss.on('connection', (ws, req) => {
     }
   }
 
+  function tryJoinDuel(dId) {
+    if (!dId) return false;
+    const duel = db.getDuelById(dId);
+    if (!duel) return false;
+    // Allow join if duel is table mode or caller is a participant
+    if (duel.mode === 'table' || (boundUserId && (boundUserId === duel.creator_id || boundUserId === duel.opponent_id))) {
+      subscribedDuels.add(dId);
+      if (!duelClients.has(dId)) duelClients.set(dId, new Set());
+      duelClients.get(dId).add(ws);
+      return true;
+    }
+    return false;
+  }
+
+  function tryJoinParty(pId) {
+    if (!pId) return false;
+    const room = partyRooms.get(pId);
+    if (!room) return false;
+    // Allow join if user is in room.players
+    if (boundUserId && room.players.some(p => p.id === boundUserId)) {
+      subscribedParties.add(pId);
+      if (!partyClients.has(pId)) partyClients.set(pId, new Set());
+      partyClients.get(pId).add(ws);
+      return true;
+    }
+    return false;
+  }
+
   if (eventCode) {
     if (!eventClients.has(eventCode)) eventClients.set(eventCode, new Set());
     eventClients.get(eventCode).add(ws);
   }
 
   if (duelId) {
-    if (!duelClients.has(duelId)) duelClients.set(duelId, new Set());
-    duelClients.get(duelId).add(ws);
+    tryJoinDuel(duelId);
   }
 
   if (partyId) {
-    if (!partyClients.has(partyId)) partyClients.set(partyId, new Set());
-    partyClients.get(partyId).add(ws);
+    tryJoinParty(partyId);
   }
 
   ws.on('message', (raw) => {
@@ -76,39 +102,45 @@ wss.on('connection', (ws, req) => {
           if (!userClients.has(user.id)) userClients.set(user.id, new Set());
           userClients.get(user.id).add(ws);
         }
-      } else if (msg.type === 'join_duel' && msg.duelId) {
-        boundDuelId = msg.duelId;
-        if (!duelClients.has(msg.duelId)) duelClients.set(msg.duelId, new Set());
-        duelClients.get(msg.duelId).add(ws);
-      } else if (msg.type === 'leave_duel' && msg.duelId) {
-        duelClients.get(msg.duelId)?.delete(ws);
-        if (boundDuelId === msg.duelId) boundDuelId = null;
-      } else if (msg.type === 'join_party' && msg.partyId) {
-        boundPartyId = msg.partyId;
-        if (!partyClients.has(msg.partyId)) partyClients.set(msg.partyId, new Set());
-        partyClients.get(msg.partyId).add(ws);
-      } else if (msg.type === 'leave_party' && msg.partyId) {
-        partyClients.get(msg.partyId)?.delete(ws);
-        if (boundPartyId === msg.partyId) boundPartyId = null;
+      } else if ((msg.type === 'join_duel' || msg.action === 'join_duel') && (msg.duelId || msg.id)) {
+        const dId = msg.duelId || msg.id;
+        tryJoinDuel(dId);
+      } else if ((msg.type === 'leave_duel' || msg.action === 'leave_duel') && (msg.duelId || msg.id)) {
+        const dId = msg.duelId || msg.id;
+        subscribedDuels.delete(dId);
+        duelClients.get(dId)?.delete(ws);
+        if (duelClients.get(dId)?.size === 0) duelClients.delete(dId);
+      } else if ((msg.type === 'join_party' || msg.action === 'join_party') && (msg.partyId || msg.id)) {
+        const pId = msg.partyId || msg.id;
+        tryJoinParty(pId);
+      } else if ((msg.type === 'leave_party' || msg.action === 'leave_party') && (msg.partyId || msg.id)) {
+        const pId = msg.partyId || msg.id;
+        subscribedParties.delete(pId);
+        partyClients.get(pId)?.delete(ws);
+        if (partyClients.get(pId)?.size === 0) partyClients.delete(pId);
       } else if (msg.type === 'duel_live_roll' && msg.duelId) {
-        // Forward roll animation live to opponent in same duel
-        broadcastToDuel(msg.duelId, {
-          type: 'duel_live_roll',
-          duelId: msg.duelId,
-          rollerId: boundUserId,
-          rollerRole: msg.rollerRole,
-          diceValues: msg.diceValues,
-          total: msg.total
-        }, ws); // exclude sender
+        const duel = db.getDuelById(msg.duelId);
+        if (duel && boundUserId && (boundUserId === duel.creator_id || boundUserId === duel.opponent_id)) {
+          broadcastToDuel(msg.duelId, {
+            type: 'duel_live_roll',
+            duelId: msg.duelId,
+            rollerId: boundUserId,
+            rollerRole: msg.rollerRole,
+            diceValues: msg.diceValues,
+            total: msg.total
+          }, ws); // exclude sender
+        }
       } else if (msg.type === 'duel_live_flip' && msg.duelId) {
-        // Forward coin flip animation live to opponent in same duel
-        broadcastToDuel(msg.duelId, {
-          type: 'duel_live_flip',
-          duelId: msg.duelId,
-          flipperId: boundUserId,
-          outcome: msg.outcome,
-          targetDeg: msg.targetDeg
-        }, ws); // exclude sender
+        const duel = db.getDuelById(msg.duelId);
+        if (duel && boundUserId && (boundUserId === duel.creator_id || boundUserId === duel.opponent_id)) {
+          broadcastToDuel(msg.duelId, {
+            type: 'duel_live_flip',
+            duelId: msg.duelId,
+            flipperId: boundUserId,
+            outcome: msg.outcome,
+            targetDeg: msg.targetDeg
+          }, ws); // exclude sender
+        }
       }
     } catch (e) {}
   });
@@ -122,14 +154,17 @@ wss.on('connection', (ws, req) => {
       userClients.get(boundUserId)?.delete(ws);
       if (userClients.get(boundUserId)?.size === 0) userClients.delete(boundUserId);
     }
-    if (boundDuelId) {
-      duelClients.get(boundDuelId)?.delete(ws);
-      if (duelClients.get(boundDuelId)?.size === 0) duelClients.delete(boundDuelId);
+    for (const dId of subscribedDuels) {
+      duelClients.get(dId)?.delete(ws);
+      if (duelClients.get(dId)?.size === 0) duelClients.delete(dId);
     }
-    if (boundPartyId) {
-      partyClients.get(boundPartyId)?.delete(ws);
-      if (partyClients.get(boundPartyId)?.size === 0) partyClients.delete(boundPartyId);
+    subscribedDuels.clear();
+
+    for (const pId of subscribedParties) {
+      partyClients.get(pId)?.delete(ws);
+      if (partyClients.get(pId)?.size === 0) partyClients.delete(pId);
     }
+    subscribedParties.clear();
   });
 
   ws.on('error', () => {});
@@ -1758,7 +1793,10 @@ app.post('/api/minigames/party/:id/start', (req, res) => {
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
   if (room.hostId !== user.id) return res.status(403).json({ error: 'Endast hosten kan starta spelet' });
 
+  const countdownSec = 3;
   room.status = 'running';
+  room.countdownSec = countdownSec;
+  room.startTime = Date.now() + (countdownSec * 1000);
   room.results = [];
   room.tiedPlayerIds = [];
   for (const p of room.players) {
@@ -1770,7 +1808,8 @@ app.post('/api/minigames/party/:id/start', (req, res) => {
   broadcastToParty(room.id, {
     type: 'party_started',
     room,
-    countdownSec: 3
+    countdownSec,
+    startTime: room.startTime
   });
 
   res.json({ ok: true, room });
@@ -1783,15 +1822,40 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
   const room = partyRooms.get(req.params.id);
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
 
-  const { stoppedTime } = req.body;
-  const time = typeof stoppedTime === 'number' ? stoppedTime : parseFloat(stoppedTime) || 0;
-  const diff = Math.round(Math.abs(time - 10.000) * 1000) / 1000;
-
   const player = room.players.find(p => p.id === user.id);
-  if (player) {
-    player.stoppedTime = time;
-    player.diff = diff;
+  if (!player) {
+    return res.status(403).json({ error: 'Du deltar inte i detta rum' });
   }
+
+  if (room.status !== 'running') {
+    return res.status(400).json({ error: 'Spelet pågår inte just nu' });
+  }
+
+  if (player.stoppedTime !== null) {
+    return res.status(400).json({ error: 'Du har redan stoppat klockan' });
+  }
+
+  // Authoritative server-measured elapsed time
+  const now = Date.now();
+  const rawElapsed = (now - (room.startTime || now)) / 1000;
+  const elapsedSec = Math.max(0, rawElapsed);
+
+  let finalTime;
+  if (typeof req.body.stoppedTime === 'number' && req.body.stoppedTime > 0) {
+    const clientTime = Math.round(req.body.stoppedTime * 1000) / 1000;
+    // Tolerance window for network transit (1.5s). If client sends wildly manipulated time, force server time
+    if (Math.abs(clientTime - elapsedSec) <= 1.5) {
+      finalTime = clientTime;
+    } else {
+      finalTime = Math.round(elapsedSec * 1000) / 1000;
+    }
+  } else {
+    finalTime = Math.round(elapsedSec * 1000) / 1000;
+  }
+
+  const diff = Math.round(Math.abs(finalTime - 10.000) * 1000) / 1000;
+  player.stoppedTime = finalTime;
+  player.diff = diff;
 
   broadcastToParty(room.id, {
     type: 'party_player_stopped',
@@ -1863,7 +1927,7 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     }
   }
 
-  res.json({ ok: true, room });
+  res.json({ ok: true, room, stoppedTime: finalTime, diff });
 });
 
 app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
@@ -1873,10 +1937,17 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
   const room = partyRooms.get(req.params.id);
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
 
+  if (room.hostId !== user.id) {
+    return res.status(403).json({ error: 'Endast hosten kan avgöra oavgjort' });
+  }
+
   const { decision } = req.body;
 
   if (decision === 'sudden_death') {
+    const countdownSec = 3;
     room.status = 'running';
+    room.countdownSec = countdownSec;
+    room.startTime = Date.now() + (countdownSec * 1000);
     for (const p of room.players) {
       if (room.tiedPlayerIds.includes(p.id)) {
         p.stoppedTime = null;
@@ -1886,7 +1957,8 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
     broadcastToParty(room.id, {
       type: 'party_sudden_death_start',
       room,
-      countdownSec: 3
+      countdownSec,
+      startTime: room.startTime
     });
     res.json({ ok: true, room });
   } else {
