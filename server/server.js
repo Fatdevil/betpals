@@ -419,76 +419,27 @@ app.post('/api/users/change-pin', (req, res) => {
   res.json({ ok: true, message: 'PIN-koden har ändrats! 🔒' });
 });
 
-// WebAuthn / FaceID / TouchID
+// WebAuthn / FaceID / TouchID (Disabled temporarily for security hardening)
 const webauthnChallenges = new Map();
 
 app.post('/api/auth/webauthn/register-options', (req, res) => {
-  const token = req.headers['x-user-token'];
-  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
-  const user = db.getUserByToken(token);
-  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
-
-  const challenge = crypto.randomBytes(32).toString('base64url');
-  webauthnChallenges.set(user.id, { challenge, expires: Date.now() + 120000 });
-
-  res.json({
-    challenge,
-    userId: user.id,
-    nickname: user.nickname,
-    realName: user.real_name || user.nickname
-  });
+  res.status(503).json({ error: 'Biometrisk registrering (FaceID / TouchID) uppdateras för utökad FIDO2-säkerhet och är tillfälligt inaktiverad. Använd PIN-kod.' });
 });
 
 app.post('/api/auth/webauthn/register-verify', (req, res) => {
-  const token = req.headers['x-user-token'];
-  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
-  const user = db.getUserByToken(token);
-  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
-
-  const { credentialId, publicKey } = req.body;
-  if (!credentialId) return res.status(400).json({ error: 'Credential ID saknas' });
-
-  db.saveCredential(generateId(), user.id, credentialId, publicKey || 'device_key');
-  res.json({ ok: true, message: 'FaceID / TouchID har aktiverats! 📸' });
+  res.status(503).json({ error: 'Biometrisk registrering är tillfälligt inaktiverad av säkerhetsskäl.' });
 });
 
 app.post('/api/auth/webauthn/login-options', (req, res) => {
-  const challenge = crypto.randomBytes(32).toString('base64url');
-  const tempId = crypto.randomBytes(16).toString('hex');
-  webauthnChallenges.set(tempId, { challenge, expires: Date.now() + 120000 });
-
-  res.json({ challenge, sessionId: tempId });
+  res.status(503).json({ error: 'Biometrisk inloggning är tillfälligt inaktiverad av säkerhetsskäl.' });
 });
 
 app.post('/api/auth/webauthn/login-verify', (req, res) => {
-  const { credentialId } = req.body;
-  if (!credentialId) return res.status(400).json({ error: 'Credential ID saknas' });
-
-  const cred = db.getCredentialById(credentialId);
-  if (!cred) {
-    return res.status(404).json({ error: 'Ingen enhet eller FaceID hittades för detta konto. Logga in med PIN istället!' });
-  }
-
-  res.json({
-    id: cred.user_id,
-    nickname: cred.nickname,
-    realName: cred.real_name,
-    swishNumber: cred.swish_number,
-    token: cred.token,
-    avatar: cred.avatar_emoji,
-    avatarUrl: cred.avatar_url,
-    email: cred.email
-  });
+  res.status(503).json({ error: 'Biometrisk inloggning (FaceID / TouchID) uppdateras för högre säkerhet och är tillfälligt inaktiverad. Vänligen logga in med din 4-siffriga PIN-kod eller lösenord.' });
 });
 
 app.get('/api/users/me/credentials', (req, res) => {
-  const token = req.headers['x-user-token'];
-  if (!token) return res.status(401).json({ error: 'Ej inloggad' });
-  const user = db.getUserByToken(token);
-  if (!user) return res.status(401).json({ error: 'Ogiltig token' });
-
-  const creds = db.getCredentialsByUser(user.id);
-  res.json({ count: creds.length, hasBiometric: creds.length > 0 });
+  res.json({ count: 0, hasBiometric: false, disabledForSecurity: true });
 });
 
 app.put('/api/users/me/profile', (req, res) => {
@@ -1498,6 +1449,17 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   }
 
   if (receiptId) {
+    const existing = db.getSettlementReceiptById(receiptId);
+    if (!existing || existing.tournament_id !== tournament.id) {
+      return res.status(404).json({ error: 'Kvittot hittades inte i denna turnering' });
+    }
+
+    const isReceiptCreditor = user && (user.nickname === existing.to_name || user.real_name === existing.to_name);
+    const isReceiptDebtor = user && (user.nickname === existing.from_name || user.real_name === existing.from_name);
+    if (!isCreator && !isReceiptCreditor && !isReceiptDebtor && !hasPin) {
+      return res.status(403).json({ error: 'Ingen behörighet att ta bort detta kvitto' });
+    }
+
     db.deleteSettlementReceiptById(receiptId);
     broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
     return res.json({ ok: true, isPaid: false });
@@ -1510,7 +1472,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   const result = db.toggleSettlementReceipt(generateId(), tournament.id, fromName, toName, Number(amount) || 0);
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
-  res.json({ ok: true, isPaid: result.isPaid });
+  res.json({ ok: true, isPaid: result.isPaid, receiptId: result.id });
 });
 
 // ── Minigame Duels API ──────────────────────────────
@@ -1588,15 +1550,36 @@ app.post('/api/duels/:id/respond', (req, res) => {
 });
 
 app.post('/api/duels/:id/roll', (req, res) => {
-  const { creatorScore, opponentScore, winnerId } = req.body;
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
   const duel = db.getDuelById(req.params.id);
   if (!duel) return res.status(404).json({ error: 'Duell hittades inte' });
 
+  if (user.id !== duel.creator_id && user.id !== duel.opponent_id) {
+    return res.status(403).json({ error: 'Du deltar inte i denna duell' });
+  }
+
+  if (duel.status !== 'active') {
+    return res.status(400).json({ error: 'Endast aktiva dueller kan registreras' });
+  }
+
+  const { creatorScore, opponentScore, winnerId } = req.body;
+
+  // Validate winnerId is a legitimate participant or null
+  const validWinner = winnerId === duel.creator_id || winnerId === duel.opponent_id || winnerId === null;
+  if (!validWinner) {
+    return res.status(400).json({ error: 'Ogiltig vinnare angiven' });
+  }
+
+  const parsedCreatorScore = typeof creatorScore === 'number' ? creatorScore : Number(creatorScore) || 0;
+  const parsedOpponentScore = typeof opponentScore === 'number' ? opponentScore : Number(opponentScore) || 0;
+
   const updated = db.submitDuelResult({
     duelId: req.params.id,
-    creatorScore,
-    opponentScore,
-    winnerId
+    creatorScore: parsedCreatorScore,
+    opponentScore: parsedOpponentScore,
+    winnerId: winnerId || null
   });
 
   broadcastToDuel(req.params.id, {
@@ -1611,6 +1594,17 @@ app.post('/api/duels/:id/settle', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
+  const duel = db.getDuelById(req.params.id);
+  if (!duel) return res.status(404).json({ error: 'Duell hittades inte' });
+
+  if (user.id !== duel.creator_id && user.id !== duel.opponent_id) {
+    return res.status(403).json({ error: 'Du deltar inte i denna duell' });
+  }
+
+  if (duel.status !== 'completed') {
+    return res.status(400).json({ error: 'Endast avslutade dueller kan kvitteras' });
+  }
+
   db.settleDuelById(req.params.id);
   broadcastToDuel(req.params.id, {
     type: 'duel_settled',
@@ -1624,8 +1618,18 @@ app.post('/api/duels/settle-with/:friendId', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  db.settleDuelsBetweenUsers(user.id, req.params.friendId);
-  broadcastToUser(req.params.friendId, {
+  const friendId = req.params.friendId;
+  if (!friendId || friendId === user.id) {
+    return res.status(400).json({ error: 'Ogiltig vän angiven' });
+  }
+
+  const friend = db.getUserById(friendId);
+  if (!friend) {
+    return res.status(404).json({ error: 'Användaren hittades inte' });
+  }
+
+  db.settleDuelsBetweenUsers(user.id, friendId);
+  broadcastToUser(friendId, {
     type: 'duels_settled',
     friendId: user.id
   });

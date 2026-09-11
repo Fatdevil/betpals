@@ -409,11 +409,9 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
           <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border-glass);">
             <div>
               <div style="font-weight: 600; font-size: 0.9rem;">FaceID / TouchID</div>
-              <div class="text-muted" style="font-size: 0.75rem;">Logga in med ansiktet eller fingret</div>
+              <div class="text-muted" style="font-size: 0.75rem;">Uppgraderas för utökad säkerhet (snart tillbaka)</div>
             </div>
-            <button class="btn btn-sm ${isBiometricActive ? 'btn-secondary' : 'btn-accent'}" id="btn-toggle-biometric">
-              ${isBiometricActive ? t('profile.biometricActive') : t('profile.enableBiometric')}
-            </button>
+            <span class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted); font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">Under uppdatering</span>
           </div>
         ` : ''}
 

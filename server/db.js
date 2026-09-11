@@ -1177,6 +1177,10 @@ export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amou
   }
 }
 
+export function getSettlementReceiptById(receiptId) {
+  return stmts.getSettlementReceiptById.get(receiptId);
+}
+
 export function deleteSettlementReceiptById(receiptId) {
   return stmts.deleteSettlementReceiptById.run(receiptId);
 }
