@@ -346,6 +346,69 @@ app.post('/api/users/register', (req, res) => {
   });
 });
 
+// Rate limiting for PIN verification (in-memory tracker with 15 min lockout after 5 fails)
+const pinAttempts = new Map(); // userId -> { count: number, lockedUntil: number }
+
+function checkPinRateLimit(userId) {
+  const record = pinAttempts.get(userId);
+  if (!record) return { allowed: true };
+  if (record.lockedUntil && Date.now() < record.lockedUntil) {
+    const minutesLeft = Math.max(1, Math.ceil((record.lockedUntil - Date.now()) / 60000));
+    return { allowed: false, minutesLeft };
+  }
+  if (record.lockedUntil && Date.now() >= record.lockedUntil) {
+    pinAttempts.delete(userId);
+    return { allowed: true };
+  }
+  return { allowed: true, count: record.count };
+}
+
+function recordFailedPinAttempt(userId) {
+  const record = pinAttempts.get(userId) || { count: 0, lockedUntil: 0 };
+  record.count++;
+  if (record.count >= 5) {
+    record.lockedUntil = Date.now() + 15 * 60 * 1000;
+  }
+  pinAttempts.set(userId, record);
+  return record;
+}
+
+function clearPinAttempts(userId) {
+  pinAttempts.delete(userId);
+}
+
+// URL & Image Sanitization Helpers
+function isValidImageUrl(str) {
+  if (typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s.startsWith('data:image/')) {
+    return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s);
+  }
+  if (s.startsWith('http://') || s.startsWith('https://')) {
+    try {
+      const u = new URL(s);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function isValidHttpUrl(str) {
+  if (typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s.startsWith('http://') || s.startsWith('https://')) {
+    try {
+      const u = new URL(s);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+
 app.post('/api/users/login', (req, res) => {
   const { identifier, nickname, swishNumber, pin } = req.body;
   const query = (identifier || nickname || swishNumber || '').trim();
@@ -369,9 +432,24 @@ app.post('/api/users/login', (req, res) => {
 
   // Check PIN if user has a PIN configured
   if (user.pin_hash) {
+    const limitCheck = checkPinRateLimit(user.id);
+    if (!limitCheck.allowed) {
+      return res.status(429).json({
+        error: `För många felaktiga PIN-försök. Kontot är tillfälligt spärrat i ${limitCheck.minutesLeft} minuter.`
+      });
+    }
+
     if (!pin || !db.verifyUserPin(user, pin)) {
+      const rec = recordFailedPinAttempt(user.id);
+      if (rec.count >= 5) {
+        return res.status(429).json({
+          error: 'För många felaktiga PIN-försök. Kontot har spärrats i 15 minuter.'
+        });
+      }
       return res.status(401).json({ error: 'Felaktig 4-siffrig PIN-kod. Försök igen!' });
     }
+
+    clearPinAttempts(user.id);
   }
 
   res.json({
@@ -421,6 +499,7 @@ app.post('/api/users/reset-pin', (req, res) => {
 
   const newToken = crypto.randomUUID();
   db.setUserPin(user.id, cleanPin, newToken);
+  clearPinAttempts(user.id);
   const updated = db.getUserById(user.id);
   res.json({
     id: updated.id,
@@ -446,8 +525,25 @@ app.post('/api/users/change-pin', (req, res) => {
     return res.status(400).json({ error: 'Ny PIN måste vara exakt 4 siffror' });
   }
 
-  if (user.pin_hash && (!currentPin || !db.verifyUserPin(user, currentPin))) {
-    return res.status(401).json({ error: 'Nuvarande PIN-kod är felaktig' });
+  if (user.pin_hash) {
+    const limitCheck = checkPinRateLimit(user.id);
+    if (!limitCheck.allowed) {
+      return res.status(429).json({
+        error: `För många felaktiga PIN-försök. Kontot är tillfälligt spärrat i ${limitCheck.minutesLeft} minuter.`
+      });
+    }
+
+    if (!currentPin || !db.verifyUserPin(user, currentPin)) {
+      const rec = recordFailedPinAttempt(user.id);
+      if (rec.count >= 5) {
+        return res.status(429).json({
+          error: 'För många felaktiga PIN-försök. Kontot har spärrats i 15 minuter.'
+        });
+      }
+      return res.status(401).json({ error: 'Nuvarande PIN-kod är felaktig' });
+    }
+
+    clearPinAttempts(user.id);
   }
 
   db.setUserPin(user.id, newPin);
@@ -494,9 +590,18 @@ app.put('/api/users/me/profile', (req, res) => {
     }
     db.updateUserNickname(user.id, nickname.trim());
   }
-  if (swishNumber !== undefined) {
-    const cleanSwish = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null;
+  if (swishNumber !== undefined && swishNumber !== null && String(swishNumber).trim() !== '') {
+    const cleanSwish = String(swishNumber).replace(/[^0-9]/g, '');
+    if (cleanSwish.length < 8) {
+      return res.status(400).json({ error: 'Ogiltigt Swish-nummer (minst 8 siffror)' });
+    }
+    const existingSwish = db.getUserBySwish(cleanSwish);
+    if (existingSwish && existingSwish.id !== user.id) {
+      return res.status(400).json({ error: 'Detta Swish-nummer är redan registrerat på en annan användare' });
+    }
     db.updateUserSwish(user.id, cleanSwish);
+  } else if (swishNumber === null || (swishNumber !== undefined && String(swishNumber).trim() === '')) {
+    db.updateUserSwish(user.id, null);
   }
 
   const updated = db.getUserById(user.id);
@@ -519,9 +624,22 @@ app.put('/api/users/me/swish', (req, res) => {
   const user = db.getUserByToken(token);
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
 
-  const swishNumber = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : null;
-  db.updateUserSwish(user.id, swishNumber);
-  res.json({ ok: true, swishNumber });
+  const raw = req.body.swishNumber;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+    const cleanSwish = String(raw).replace(/[^0-9]/g, '');
+    if (cleanSwish.length < 8) {
+      return res.status(400).json({ error: 'Ogiltigt Swish-nummer (minst 8 siffror)' });
+    }
+    const existingSwish = db.getUserBySwish(cleanSwish);
+    if (existingSwish && existingSwish.id !== user.id) {
+      return res.status(400).json({ error: 'Detta Swish-nummer är redan registrerat på en annan användare' });
+    }
+    db.updateUserSwish(user.id, cleanSwish);
+    res.json({ ok: true, swishNumber: cleanSwish });
+  } else {
+    db.updateUserSwish(user.id, null);
+    res.json({ ok: true, swishNumber: null });
+  }
 });
 
 app.get('/api/users/me', (req, res) => {
@@ -567,6 +685,9 @@ app.put('/api/users/me/avatar', async (req, res) => {
 
   const { imageData } = req.body;
   if (!imageData) return res.status(400).json({ error: 'Bilddata saknas' });
+  if (!isValidImageUrl(imageData)) {
+    return res.status(400).json({ error: 'Ogiltigt bildformat. Måste vara data:image/ eller giltig http/https-URL.' });
+  }
 
   try {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
@@ -644,6 +765,9 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
 
   const { imageData, caption } = req.body;
   if (!imageData) return res.status(400).json({ error: 'Ingen bild skickades' });
+  if (!isValidImageUrl(imageData)) {
+    return res.status(400).json({ error: 'Ogiltigt bildformat. Måste vara data:image/ eller giltig http/https-URL.' });
+  }
 
   try {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
@@ -1427,6 +1551,12 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
 
   const { imageData, linkUrl, label } = req.body;
   if (!imageData) return res.status(400).json({ error: 'Bild krävs' });
+  if (!isValidImageUrl(imageData)) {
+    return res.status(400).json({ error: 'Ogiltigt bildformat. Måste vara data:image/ eller giltig http/https-URL.' });
+  }
+  if (linkUrl && !isValidHttpUrl(linkUrl)) {
+    return res.status(400).json({ error: 'Ogiltig länk-URL. Måste börja med http:// eller https://' });
+  }
 
   const id = generateId();
   const banners = db.getBanners(tournament.id);

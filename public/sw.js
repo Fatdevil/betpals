@@ -1,24 +1,26 @@
-const CACHE_NAME = 'betpals-v2';
+const CACHE_NAME = 'betpals-v3';
 const STATIC_ASSETS = [
   '/',
-  '/src/style.css',
-  '/src/main.js',
-  '/src/api.js',
-  '/src/utils.js',
-  '/src/pages/home.js',
-  '/src/pages/event.js',
-  '/src/pages/join.js',
-  '/src/pages/admin.js',
-  '/src/components/navbar.js',
-  '/src/components/modal.js',
-  '/src/components/odds-board.js'
+  '/index.html',
+  '/manifest.json',
+  '/favicon.svg',
+  '/favicon.png',
+  '/dice-gold.png',
+  '/coin-gold.png',
+  '/slots-gold.png',
+  '/wheel-gold.png',
+  '/stopwatch-gold.png'
 ];
 
-// Install — cache static assets
+// Install — cache static assets safely
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(STATIC_ASSETS);
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const asset of STATIC_ASSETS) {
+        try {
+          await cache.add(asset);
+        } catch (e) {}
+      }
     })
   );
   self.skipWaiting();
