@@ -1119,8 +1119,7 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
     return res.status(400).json({ error: 'Bettning är stängd för detta event' });
   }
 
-  const { bettorName, playerId, amount } = req.body;
-  if (!bettorName) return res.status(400).json({ error: 'Ditt namn krävs' });
+  const { playerId, amount } = req.body;
   if (!playerId) return res.status(400).json({ error: 'Välj en spelare' });
   if (!event.players.find(p => p.id === playerId)) {
     return res.status(400).json({ error: 'Spelare finns inte' });
@@ -1131,25 +1130,21 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
   if (betAmount < event.minBet) return res.status(400).json({ error: `Minsta insats är ${event.minBet} kr` });
   if (betAmount > event.maxBet) return res.status(400).json({ error: `Högsta insats är ${event.maxBet} kr` });
 
-  // Get user from token if provided
-  let userId = null;
-  let loggedInUser = null;
-  const token = req.headers['x-user-token'];
-  if (token) {
-    loggedInUser = db.getUserByToken(token);
-    if (loggedInUser) userId = loggedInUser.id;
+  // Require user authentication
+  const loggedInUser = getUserFromToken(req);
+  if (!loggedInUser) {
+    return res.status(401).json({ error: 'Du måste vara inloggad för att lägga ett bet' });
   }
 
-  // Name protection: check if bettorName belongs to a registered user
-  const cleanBettor = (bettorName || '').trim();
-  const registeredUser = db.getUserByNickname(cleanBettor);
-  if (registeredUser) {
-    if (!loggedInUser || loggedInUser.id !== registeredUser.id) {
-      return res.status(403).json({
-        error: `🛑 Bettarnamnet "${cleanBettor}" tillhör en registrerad profil. Logga in för att lägga bets som ${cleanBettor}!`
-      });
-    }
+  if (!loggedInUser.swish_number) {
+    return res.status(400).json({ error: 'Du behöver ange ett Swish-nummer i din profil för att kunna lägga bets' });
   }
+
+  const cleanBettor = (loggedInUser.real_name || loggedInUser.nickname || '').trim();
+  if (!cleanBettor) {
+    return res.status(400).json({ error: 'Profilen saknar namn' });
+  }
+  const userId = loggedInUser.id;
 
   const betId = generateId();
   db.addBet(betId, event.id, cleanBettor, playerId, betAmount, userId);
@@ -1337,7 +1332,8 @@ app.delete('/api/events/:id', (req, res) => {
 });
 // ── Tournaments ──────────────────────────────────────
 app.get('/api/tournaments', (req, res) => {
-  res.json(db.getAllTournaments());
+  const user = getUserFromToken(req);
+  res.json(db.getAllTournaments(user ? user.id : null));
 });
 
 app.post('/api/tournaments', (req, res) => {
@@ -1366,9 +1362,12 @@ app.post('/api/tournaments', (req, res) => {
   const max = Math.max(min, Number(req.body.maxBet) || 10000);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
+  const allowedVisibilities = ['public', 'friends', 'private'];
+  const visibility = allowedVisibilities.includes(req.body.visibility) ? req.body.visibility : 'friends';
+
   const id = generateId();
   const shareCode = generateShareCode();
-  db.createTournament(id, finalName, shareCode, user ? user.id : null);
+  db.createTournament(id, finalName, shareCode, user ? user.id : null, visibility);
 
   // Create first round automatically
   const eventData = {

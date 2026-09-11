@@ -1053,6 +1053,31 @@ function showCreateTournamentModal() {
         </div>
         <div id="tournament-player-list" class="mt-sm"></div>
       </div>
+
+      <div class="form-group">
+        <label class="form-label">${t('admin.tournamentVisibility')}</label>
+        <div class="visibility-picker" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+          <label class="visibility-card selected" id="vis-card-friends" style="cursor: pointer; border: 1.5px solid var(--gold); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; background: rgba(245, 166, 35, 0.12); transition: all 0.2s;">
+            <input type="radio" name="tournament-visibility" value="friends" checked style="display: none;" />
+            <div style="font-size: 1.25rem;">👥</div>
+            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visFriends')}</div>
+            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visFriendsDesc')}</div>
+          </label>
+          <label class="visibility-card" id="vis-card-public" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
+            <input type="radio" name="tournament-visibility" value="public" style="display: none;" />
+            <div style="font-size: 1.25rem;">🌐</div>
+            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visPublic')}</div>
+            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visPublicDesc')}</div>
+          </label>
+          <label class="visibility-card" id="vis-card-private" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
+            <input type="radio" name="tournament-visibility" value="private" style="display: none;" />
+            <div style="font-size: 1.25rem;">🔒</div>
+            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visPrivate')}</div>
+            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visPrivateDesc')}</div>
+          </label>
+        </div>
+      </div>
+
       <button type="submit" class="btn btn-primary btn-block">${t('admin.submitCreateTournament')}</button>
     </form>
   `);
@@ -1124,6 +1149,21 @@ function showCreateTournamentModal() {
     tFriendsDrawer.style.display = 'none';
   });
 
+  document.querySelectorAll('.visibility-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.visibility-card').forEach(c => {
+        c.style.border = '1.5px solid var(--border-light)';
+        c.style.background = 'var(--bg-card)';
+        c.classList.remove('selected');
+      });
+      card.style.border = '1.5px solid var(--gold)';
+      card.style.background = 'rgba(245, 166, 35, 0.12)';
+      card.classList.add('selected');
+      const radio = card.querySelector('input[type="radio"]');
+      if (radio) radio.checked = true;
+    });
+  });
+
   function renderPlayers() {
     const list = document.getElementById('tournament-player-list');
     if (!list) return;
@@ -1141,31 +1181,33 @@ function showCreateTournamentModal() {
     });
   }
 
-  document.getElementById('tournament-add-player-btn').addEventListener('click', () => {
+  document.getElementById('tournament-add-player-btn')?.addEventListener('click', () => {
     const input = document.getElementById('tournament-player-input');
-    const name = input.value.trim();
-    if (name && !players.includes(name)) {
-      players.push(name);
-      input.value = '';
+    const val = input.value.trim();
+    if (val && !players.includes(val)) {
+      players.push(val);
       renderPlayers();
+      input.value = '';
+      input.focus();
     }
-    input.focus();
   });
 
-  document.getElementById('tournament-player-input').addEventListener('keydown', (e) => {
+  document.getElementById('tournament-player-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      document.getElementById('tournament-add-player-btn').click();
+      document.getElementById('tournament-add-player-btn')?.click();
     }
   });
 
-  document.getElementById('create-tournament-form').addEventListener('submit', async (e) => {
+  document.getElementById('create-tournament-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+
+    // If input has text, add it first
     const pInput = document.getElementById('tournament-player-input');
     if (pInput && pInput.value.trim()) {
-      const pName = pInput.value.trim();
-      if (!players.includes(pName)) {
-        players.push(pName);
+      const val = pInput.value.trim();
+      if (!players.includes(val)) {
+        players.push(val);
         renderPlayers();
       }
       pInput.value = '';
@@ -1182,6 +1224,8 @@ function showCreateTournamentModal() {
       return;
     }
 
+    const visibility = document.querySelector('input[name="tournament-visibility"]:checked')?.value || 'friends';
+
     const submitBtn = e.target.querySelector('button[type="submit"]');
     if (submitBtn) {
       submitBtn.disabled = true;
@@ -1190,7 +1234,7 @@ function showCreateTournamentModal() {
 
     try {
       const pin = getPin();
-      const result = await api.createTournament({ name, players, pin });
+      const result = await api.createTournament({ name, players, pin, visibility });
       closeModal();
       showToast(t('admin.toastTournamentCreated'), 'success');
       navigate('tournament', { code: result.shareCode });

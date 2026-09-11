@@ -68,7 +68,13 @@ export const en = {
     markSettled: "I've settled up ✅",
     allBets: 'All bets placed',
     noBets: 'No bets yet — be the first to bet!',
-    notFound: 'Match not found'
+    notFound: 'Match not found',
+    loginRequiredTitle: 'Log in to place a bet',
+    loginRequiredDesc: 'To place a bet and ensure smooth settlements via Swish, you need an active logged-in profile.',
+    loginOrRegister: 'Log in / Create Profile',
+    swishMissingTitle: 'Swish number missing',
+    swishMissingDesc: 'You need to add your Swish phone number in your profile before placing bets so settlements can be completed.',
+    goToProfileSwish: 'Go to Profile & add Swish ⚙️'
   },
   admin: {
     title: 'Admin',
@@ -127,6 +133,13 @@ export const en = {
     tournamentNamePlaceholder: 'E.g. Golf Weekend 2026',
     tournamentPlayers: 'Participants / Teams',
     tournamentPlayerPlaceholder: 'Add participant',
+    tournamentVisibility: 'Visibility in Start Feed',
+    visFriends: 'Friends only',
+    visFriendsDesc: 'Friends & participants',
+    visPublic: 'Open to all',
+    visPublicDesc: 'Visible in start feed',
+    visPrivate: 'Private link',
+    visPrivateDesc: 'Direct link only',
     submitCreateTournament: 'Create Tournament 🏆',
     tournamentsTitle: '🏆 Tournaments',
     roundsFinished: 'rounds completed',

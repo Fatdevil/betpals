@@ -68,7 +68,13 @@ export const sv = {
     markSettled: 'Jag har swishat / gjort rätt för mig ✅',
     allBets: 'Alla lagda bets',
     noBets: 'Inga bets ännu — lägg första spelet!',
-    notFound: 'Matchen hittades inte'
+    notFound: 'Matchen hittades inte',
+    loginRequiredTitle: 'Logga in för att betta',
+    loginRequiredDesc: 'För att lägga ett bet och garantera säkra Swish-utbetalningar behöver du vara inloggad.',
+    loginOrRegister: 'Logga in / Skapa profil',
+    swishMissingTitle: 'Swish-nummer saknas',
+    swishMissingDesc: 'Du behöver ange ditt Swish-nummer i din profil innan du kan lägga bets så att vinster och förluster kan regleras.',
+    goToProfileSwish: 'Gå till profil & fyll i Swish ⚙️'
   },
   admin: {
     title: 'Admin',
@@ -127,6 +133,13 @@ export const sv = {
     tournamentNamePlaceholder: 'T.ex. Golfhelgen 2026',
     tournamentPlayers: 'Deltagare / Lag',
     tournamentPlayerPlaceholder: 'Lägg till deltagare',
+    tournamentVisibility: 'Synlighet i startflödet',
+    visFriends: 'Bara vänner',
+    visFriendsDesc: 'Vänner & deltagare',
+    visPublic: 'Öppen för alla',
+    visPublicDesc: 'Syns i startflödet',
+    visPrivate: 'Privat länk',
+    visPrivateDesc: 'Endast med direktlänk',
     submitCreateTournament: 'Skapa turnering 🏆',
     tournamentsTitle: '🏆 Turneringar',
     roundsFinished: 'ronder klara',

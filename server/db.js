@@ -61,6 +61,7 @@ db.exec(`
     share_code TEXT UNIQUE NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     creator_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'friends',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE SET NULL
   );
@@ -131,6 +132,7 @@ db.exec(`
 `);
 
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec("ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'friends'"); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN image_url TEXT'); } catch {}
@@ -351,7 +353,7 @@ const stmts = {
   deletePhotoLike: db.prepare('DELETE FROM tournament_photo_likes WHERE photo_id = ? AND user_id = ?'),
 
   // Tournaments
-  insertTournament: db.prepare('INSERT INTO tournaments (id, name, share_code, creator_id) VALUES (?, ?, ?, ?)'),
+  insertTournament: db.prepare('INSERT INTO tournaments (id, name, share_code, creator_id, visibility) VALUES (?, ?, ?, ?, ?)'),
   getTournamentById: db.prepare('SELECT * FROM tournaments WHERE id = ?'),
   getTournamentByCode: db.prepare('SELECT * FROM tournaments WHERE share_code = ?'),
   getAllTournaments: db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC'),
@@ -884,8 +886,8 @@ export function getBanners(tournamentId) {
 }
 
 // ── Tournaments ─────────────────────────────────────
-export function createTournament(id, name, shareCode, creatorId) {
-  stmts.insertTournament.run(id, name, shareCode, creatorId);
+export function createTournament(id, name, shareCode, creatorId, visibility = 'friends') {
+  stmts.insertTournament.run(id, name, shareCode, creatorId, visibility);
 }
 
 export function getTournamentByCode(code) {
@@ -896,8 +898,37 @@ export function getTournamentById(id) {
   return stmts.getTournamentById.get(id);
 }
 
-export function getAllTournaments() {
-  const tournaments = stmts.getAllTournaments.all();
+export function getAllTournaments(userId = null) {
+  let tournaments;
+  if (!userId) {
+    tournaments = db.prepare(`
+      SELECT * FROM tournaments 
+      WHERE COALESCE(visibility, 'friends') = 'public' 
+      ORDER BY created_at DESC
+    `).all();
+  } else {
+    tournaments = db.prepare(`
+      SELECT DISTINCT t.* FROM tournaments t
+      WHERE COALESCE(t.visibility, 'friends') = 'public'
+         OR t.creator_id = ?
+         OR (
+           COALESCE(t.visibility, 'friends') = 'friends' AND (
+             t.creator_id IN (SELECT friend_id FROM friends WHERE user_id = ?)
+             OR t.id IN (
+               SELECT e.tournament_id FROM events e
+               JOIN players p ON p.event_id = e.id
+               JOIN users u ON (
+                 LOWER(p.name) = LOWER(u.real_name) 
+                 OR LOWER(p.name) = LOWER(u.nickname)
+               )
+               WHERE u.id = ?
+             )
+           )
+         )
+      ORDER BY t.created_at DESC
+    `).all(userId, userId, userId);
+  }
+
   return tournaments.map(t => {
     const rounds = stmts.getEventsByTournament.all(t.id);
     const mainRounds = rounds.filter(r => !r.is_side_bet);
@@ -909,6 +940,7 @@ export function getAllTournaments() {
       shareCode: t.share_code,
       status: t.status,
       creatorId: t.creator_id,
+      visibility: t.visibility || 'friends',
       createdAt: t.created_at,
       roundCount: mainRounds.length,
       finishedCount: finishedRounds.length,
@@ -964,6 +996,7 @@ export function getFullTournament(idOrCode) {
     shareCode: tournament.share_code,
     status: tournament.status,
     creatorId: tournament.creator_id,
+    visibility: tournament.visibility || 'friends',
     createdAt: tournament.created_at,
     rounds,
     sideBets,

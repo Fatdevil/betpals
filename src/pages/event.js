@@ -159,6 +159,8 @@ function renderEventContent(event, content, code) {
   }
 
   const hasPlayerImages = event.players.some(p => p.imageUrl);
+  const loggedIn = isLoggedIn();
+  const currentUser = getStoredUser();
 
   content.innerHTML = `
     <div class="animate-in">
@@ -239,59 +241,95 @@ function renderEventContent(event, content, code) {
       </div>
 
       ${isOpen ? `
-        <!-- Prediction Form -->
+        <!-- Prediction Section -->
         <div class="section-header">
           <h2 class="section-title">🎯 ${t('event.placePrediction')}</h2>
         </div>
-        <div class="card">
-          <form id="bet-form">
-            <div class="form-group">
-              <label class="form-label">${t('event.yourName')}</label>
-              <input type="text" class="form-input" id="bet-name" placeholder="${t('event.yourName')}" required />
-            </div>
-            <div class="form-group">
-              <label class="form-label">${t('event.choosePlayer')}</label>
-              ${isYesNo ? `
-                <div class="flex gap-sm mb-xs">
-                  <button type="button" class="btn yesno-choice-btn" data-player-id="${jaPlayer.id}" style="flex: 1; padding: 12px; background: rgba(46,204,113,0.15); border: 2px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-                    👍 JA
-                  </button>
-                  <button type="button" class="btn yesno-choice-btn" data-player-id="${nejPlayer.id}" style="flex: 1; padding: 12px; background: rgba(231,76,60,0.15); border: 2px solid #e74c3c; color: #e74c3c; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-                    👎 NEJ
-                  </button>
-                </div>
-                <select class="form-input" id="bet-player" required style="display: none;">
-                  <option value="">${t('event.selectPlayer')}</option>
-                  ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-                </select>
-              ` : `
-                ${hasPlayerImages ? `
-                  <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
-                    ${event.players.map(p => `
-                      <button type="button" class="btn player-quick-btn" data-player-id="${p.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-full); border: 1.5px solid var(--border-light); background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
-                        ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${escapeHtml(p.name)}" class="player-avatar-mini" />` : ''}
-                        <span>${escapeHtml(p.name)}</span>
-                      </button>
-                    `).join('')}
+
+        ${!loggedIn ? `
+          <div class="card text-center" style="padding: var(--space-lg) var(--space-md);">
+            <div style="font-size: 2.4rem; margin-bottom: var(--space-xs);">🔐</div>
+            <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: var(--space-xs);">${t('event.loginRequiredTitle')}</h3>
+            <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-md); max-width: 320px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+              ${t('event.loginRequiredDesc')}
+            </p>
+            <a href="#profile" class="btn btn-primary" style="display: inline-block; padding: 10px 24px; text-decoration: none;">
+              🔑 ${t('event.loginOrRegister')}
+            </a>
+          </div>
+        ` : !currentUser?.swishNumber ? `
+          <div class="card" style="padding: var(--space-md); border: 1.5px solid #e67e22; background: rgba(230, 126, 34, 0.08); text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📱</div>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #e67e22; margin-bottom: var(--space-xs);">${t('event.swishMissingTitle')}</h3>
+            <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-md); max-width: 340px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+              ${t('event.swishMissingDesc')}
+            </p>
+            <a href="#profile" class="btn btn-secondary" style="display: inline-block; text-decoration: none;">
+              ${t('event.goToProfileSwish')}
+            </a>
+          </div>
+        ` : `
+          <div class="card">
+            <form id="bet-form">
+              <div class="form-group">
+                <label class="form-label">${t('event.yourName')}</label>
+                <div class="bettor-profile-badge" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-light); border-radius: var(--radius-md);">
+                  <span style="font-size: 1.4rem;">${currentUser.avatar || '👤'}</span>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      ${escapeHtml(currentUser.realName || currentUser.nickname)}
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">
+                      📱 Swish: ${escapeHtml(currentUser.swishNumber)}
+                    </div>
                   </div>
-                ` : ''}
-                <select class="form-input" id="bet-player" required>
-                  <option value="">${t('event.selectPlayer')}</option>
-                  ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-                </select>
-              `}
-            </div>
-            <div class="form-group">
-              <label class="form-label">${t('event.stake')} (${formatCurrency(event.minBet)} – ${formatCurrency(event.maxBet)})</label>
-              <input type="number" class="form-input" id="bet-amount"
-                     min="${event.minBet}" max="${event.maxBet}" step="1"
-                     placeholder="${event.minBet}" required />
-            </div>
-            <button type="submit" class="btn btn-primary btn-block" id="bet-submit-btn">
-              ${t('event.submit')}
-            </button>
-          </form>
-        </div>
+                  <span class="badge" style="font-size: 0.7rem; background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3);">Verifierad</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">${t('event.choosePlayer')}</label>
+                ${isYesNo ? `
+                  <div class="flex gap-sm mb-xs">
+                    <button type="button" class="btn yesno-choice-btn" data-player-id="${jaPlayer.id}" style="flex: 1; padding: 12px; background: rgba(46,204,113,0.15); border: 2px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                      👍 JA
+                    </button>
+                    <button type="button" class="btn yesno-choice-btn" data-player-id="${nejPlayer.id}" style="flex: 1; padding: 12px; background: rgba(231,76,60,0.15); border: 2px solid #e74c3c; color: #e74c3c; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                      👎 NEJ
+                    </button>
+                  </div>
+                  <select class="form-input" id="bet-player" required style="display: none;">
+                    <option value="">${t('event.selectPlayer')}</option>
+                    ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+                  </select>
+                ` : `
+                  ${hasPlayerImages ? `
+                    <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
+                      ${event.players.map(p => `
+                        <button type="button" class="btn player-quick-btn" data-player-id="${p.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-full); border: 1.5px solid var(--border-light); background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                          ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${escapeHtml(p.name)}" class="player-avatar-mini" />` : ''}
+                          <span>${escapeHtml(p.name)}</span>
+                        </button>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+                  <select class="form-input" id="bet-player" required>
+                    <option value="">${t('event.selectPlayer')}</option>
+                    ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+                  </select>
+                `}
+              </div>
+              <div class="form-group">
+                <label class="form-label">${t('event.stake')} (${formatCurrency(event.minBet)} – ${formatCurrency(event.maxBet)})</label>
+                <input type="number" class="form-input" id="bet-amount"
+                       min="${event.minBet}" max="${event.maxBet}" step="1"
+                       placeholder="${event.minBet}" required />
+              </div>
+              <button type="submit" class="btn btn-primary btn-block" id="bet-submit-btn">
+                ${t('event.submit')}
+              </button>
+            </form>
+          </div>
+        `}
       ` : ''}
 
       ${isFinished && payoutInfo ? `
@@ -399,7 +437,6 @@ function renderEventContent(event, content, code) {
 
       try {
         await placeBet(code, {
-          bettorName: document.getElementById('bet-name').value.trim(),
           playerId: document.getElementById('bet-player').value,
           amount: Number(document.getElementById('bet-amount').value)
         });
