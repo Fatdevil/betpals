@@ -440,6 +440,8 @@ function clearPinAttempts(userId) {
 function isValidImageUrl(str) {
   if (typeof str !== 'string') return false;
   const s = str.trim();
+  if (!s || s.length > 2000000) return false;
+  if (/[<>"'\r\n\0]/.test(s)) return false;
   if (s.startsWith('data:image/')) {
     return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s);
   }
@@ -1016,12 +1018,19 @@ app.post('/api/events', (req, res) => {
     return res.status(400).json({ error: 'Ett matchnamn krävs (minst 2 tecken)' });
   }
 
+  if (imageUrl && !isValidImageUrl(imageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för matchen' });
+  }
+
   // Parse and deduplicate players (supports both string names and objects with imageUrl)
   const playerData = [];
   const seenNames = new Set();
   for (const p of (players || [])) {
     const pName = (typeof p === 'string' ? p : (p?.name || '')).trim();
     const pImg = (typeof p === 'object' && p?.imageUrl) ? p.imageUrl : null;
+    if (pImg && !isValidImageUrl(pImg)) {
+      return res.status(400).json({ error: 'Ogiltig bild-URL för deltagare' });
+    }
     if (pName && !seenNames.has(pName.toLowerCase())) {
       seenNames.add(pName.toLowerCase());
       playerData.push({ id: generateId(), name: pName, imageUrl: pImg });
@@ -1117,6 +1126,10 @@ app.post('/api/events/:id/players', (req, res) => {
   const cleanName = (name || '').trim();
   if (!cleanName) return res.status(400).json({ error: 'Spelarnamn krävs' });
 
+  if (imageUrl && !isValidImageUrl(imageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för spelare' });
+  }
+
   const existingPlayers = db.getPlayersByEvent(event.id);
   if (existingPlayers.some(p => p.name.toLowerCase() === cleanName.toLowerCase())) {
     return res.status(400).json({ error: 'En spelare med detta namn finns redan i matchen' });
@@ -1138,6 +1151,10 @@ app.put('/api/events/:id/players/:playerId/image', (req, res) => {
   if (!player || player.event_id !== event.id) return res.status(404).json({ error: 'Spelaren hittades inte' });
 
   const { imageUrl } = req.body;
+  if (imageUrl && !isValidImageUrl(imageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för spelare' });
+  }
+
   db.updatePlayerImage(player.id, imageUrl || null);
 
   broadcastToEvent(event.share_code, { type: 'player_updated', eventCode: event.share_code });
@@ -1318,6 +1335,10 @@ app.put('/api/events/:id/image', (req, res) => {
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
   const { imageUrl } = req.body;
+  if (imageUrl && !isValidImageUrl(imageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för matchen' });
+  }
+
   db.updateEventImage(event.id, imageUrl || null);
 
   broadcastToEvent(event.share_code, { type: 'event_updated', eventCode: event.share_code });
@@ -1334,6 +1355,10 @@ app.post('/api/events/:id/finish', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  if (winnerImageUrl && !isValidImageUrl(winnerImageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för vinnaren' });
+  }
 
   const winnerPlayer = db.getPlayerById(winnerId);
   if (!winnerPlayer || winnerPlayer.event_id !== event.id) {
@@ -1539,6 +1564,10 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   const finalName = (name || '').trim();
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
+  }
+
+  if (imageUrl && !isValidImageUrl(imageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för sido-spel' });
   }
 
   const cleanPlayers = [...new Set((players || [])
@@ -2318,10 +2347,29 @@ app.get('/api/anybets', (req, res) => {
 });
 
 app.get('/api/anybets/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
   try {
     const bet = db.getAnyBetById(req.params.id);
     if (!bet) return res.status(404).json({ error: 'Bettet hittades inte' });
-    res.json({ bet });
+
+    const isParticipant = bet.creator_id === user.id ||
+                          bet.judge_id === user.id ||
+                          (bet.participants && bet.participants.some(p => p.user_id === user.id));
+
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'Behörighet saknas. Du deltar inte i detta AnyBet.' });
+    }
+
+    // Sanitize participants: do not leak Swish numbers to other participants
+    const sanitizedParticipants = (bet.participants || []).map(p => {
+      if (p.user_id === user.id) return p;
+      const { swish_number, ...safeP } = p;
+      return safeP;
+    });
+
+    res.json({ bet: { ...bet, participants: sanitizedParticipants } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2345,6 +2393,11 @@ app.post('/api/anybets/:id/settle', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { winnerId, winningSide, proofImageUrl } = req.body;
+
+  if (proofImageUrl && !isValidImageUrl(proofImageUrl)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för bevis' });
+  }
+
   try {
     const settledBet = db.settleAnyBet({
       betId: req.params.id,
@@ -2545,15 +2598,40 @@ app.post('/api/tab/expenses', async (req, res) => {
 
   const { title, notes, totalAmount, mode, participantIds, loserId, receiptImage, customShares } = req.body || {};
 
+  if (receiptImage && !isValidImageUrl(receiptImage)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för kvitto' });
+  }
+
+  const rawParticipants = Array.isArray(participantIds) ? participantIds.map(String) : [];
+  const userFriends = db.getFriends(user.id);
+  const friendIdSet = new Set(userFriends.map(f => String(f.id)));
+  for (const pid of rawParticipants) {
+    if (pid !== user.id && !friendIdSet.has(pid)) {
+      return res.status(403).json({ error: 'Alla deltagare på en nota måste finnas i din vänlista' });
+    }
+  }
+
   try {
+    const allParticipantSet = new Set(rawParticipants);
+    allParticipantSet.add(String(user.id));
+    const allParticipants = Array.from(allParticipantSet);
+    if (allParticipants.length < 2) {
+      return res.status(400).json({ error: 'Minst 2 personer krävs för att dela eller spela om en nota' });
+    }
+
+    // For roulette: server-authoritative fair random selection of loser
+    const actualLoserId = mode === 'roulette' 
+      ? allParticipants[crypto.randomInt(0, allParticipants.length)]
+      : null;
+
     const expense = db.createTabExpense({
       payerId: user.id,
       title,
       notes,
       totalAmount,
       mode,
-      participantIds: Array.isArray(participantIds) ? participantIds : [],
-      loserId,
+      participantIds: allParticipants,
+      loserId: actualLoserId,
       receiptImage,
       customShares
     });
@@ -2564,7 +2642,6 @@ app.post('/api/tab/expenses', async (req, res) => {
 
     // Send push notifications (category: 'duels')
     if (expense.mode === 'roulette') {
-      const actualLoserId = expense.loser_id;
       if (actualLoserId && actualLoserId !== user.id) {
         // Loser push
         sendPushToUsers([actualLoserId], {
@@ -2636,6 +2713,14 @@ app.get('/api/tab/expenses/:id', (req, res) => {
   const expense = db.getTabExpenseById(req.params.id);
   if (!expense) return res.status(404).json({ error: 'Kvitto / nota hittades inte' });
 
+  const isParticipant = expense.payer_id === user.id || 
+                        expense.loser_id === user.id || 
+                        (expense.participants && expense.participants.some(p => p.user_id === user.id));
+
+  if (!isParticipant) {
+    return res.status(403).json({ error: 'Behörighet saknas. Du deltar inte i denna nota.' });
+  }
+
   res.json(expense);
 });
 
@@ -2645,8 +2730,20 @@ app.post('/api/tab/roulette/live-spin', async (req, res) => {
 
   const { title, notes, totalAmount, participantIds, receiptImage, loserId } = req.body || {};
 
+  if (receiptImage && !isValidImageUrl(receiptImage)) {
+    return res.status(400).json({ error: 'Ogiltig bild-URL för kvitto' });
+  }
+
   try {
     const rawParticipants = Array.isArray(participantIds) ? participantIds.map(String) : [];
+    const userFriends = db.getFriends(user.id);
+    const friendIdSet = new Set(userFriends.map(f => String(f.id)));
+    for (const pid of rawParticipants) {
+      if (pid !== user.id && !friendIdSet.has(pid)) {
+        return res.status(403).json({ error: 'Alla deltagare på en nota måste finnas i din vänlista' });
+      }
+    }
+
     const allParticipantSet = new Set(rawParticipants);
     allParticipantSet.add(String(user.id));
     const allParticipants = Array.from(allParticipantSet);
@@ -2655,10 +2752,8 @@ app.post('/api/tab/roulette/live-spin', async (req, res) => {
       return res.status(400).json({ error: 'Minst 2 personer krävs för Not-Roulette' });
     }
 
-    // Pick loser if not designated
-    const actualLoserId = (loserId && allParticipants.includes(String(loserId)))
-      ? String(loserId)
-      : allParticipants[Math.floor(Math.random() * allParticipants.length)];
+    // Authoritative server-side loser selection using crypto.randomInt
+    const actualLoserId = allParticipants[crypto.randomInt(0, allParticipants.length)];
 
     const expense = db.createTabExpense({
       payerId: user.id,
