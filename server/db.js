@@ -148,6 +148,9 @@ try { db.exec('ALTER TABLE users ADD COLUMN reset_code_expires TEXT'); } catch {
 try { db.exec('ALTER TABLE users ADD COLUMN notify_flashbets INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_duels INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_tournaments INTEGER DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN expense_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN custom_title TEXT'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN receipt_image TEXT'); } catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_credentials (
@@ -300,6 +303,36 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_flash_entries_bet ON flash_bet_entries(flash_bet_id);
     CREATE INDEX IF NOT EXISTS idx_flash_entries_user ON flash_bet_entries(user_id);
+  `);
+} catch {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tab_expenses (
+      id TEXT PRIMARY KEY,
+      payer_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      notes TEXT,
+      total_amount REAL NOT NULL,
+      mode TEXT NOT NULL,
+      loser_id TEXT,
+      receipt_image TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (payer_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (loser_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tab_exp_payer ON tab_expenses(payer_id);
+
+    CREATE TABLE IF NOT EXISTS tab_expense_participants (
+      id TEXT PRIMARY KEY,
+      expense_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      amount REAL NOT NULL,
+      FOREIGN KEY (expense_id) REFERENCES tab_expenses(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_tab_part_exp ON tab_expense_participants(expense_id);
+    CREATE INDEX IF NOT EXISTS idx_tab_part_user ON tab_expense_participants(user_id);
   `);
 } catch {}
 
@@ -616,6 +649,48 @@ const stmts = {
   `),
   getFlashBetEntryForUser: db.prepare(`
     SELECT * FROM flash_bet_entries WHERE flash_bet_id = ? AND user_id = ?
+  `),
+
+  // Tab Expenses & Even Steven
+  insertTabExpense: db.prepare(`
+    INSERT INTO tab_expenses (id, payer_id, title, notes, total_amount, mode, loser_id, receipt_image)
+    VALUES (@id, @payer_id, @title, @notes, @total_amount, @mode, @loser_id, @receipt_image)
+  `),
+  insertTabExpenseParticipant: db.prepare(`
+    INSERT INTO tab_expense_participants (id, expense_id, user_id, amount)
+    VALUES (@id, @expense_id, @user_id, @amount)
+  `),
+  insertTabExpenseDuel: db.prepare(`
+    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status, winner_id, creator_score, opponent_score, is_settled, expense_id, custom_title, receipt_image)
+    VALUES (@id, @game_type, @creator_id, @opponent_id, @stake_amount, @mode, 'completed', @winner_id, 1, 0, 0, @expense_id, @custom_title, @receipt_image)
+  `),
+  getTabExpenseById: db.prepare(`
+    SELECT e.*,
+           p.nickname as payer_nickname, p.real_name as payer_real_name, p.avatar_emoji as payer_avatar_emoji, p.avatar_url as payer_avatar_url, p.swish_number as payer_swish,
+           l.nickname as loser_nickname, l.real_name as loser_real_name, l.avatar_emoji as loser_avatar_emoji, l.avatar_url as loser_avatar_url
+    FROM tab_expenses e
+    LEFT JOIN users p ON e.payer_id = p.id
+    LEFT JOIN users l ON e.loser_id = l.id
+    WHERE e.id = ?
+  `),
+  getTabExpenseParticipants: db.prepare(`
+    SELECT ep.*,
+           u.nickname, u.real_name, u.avatar_emoji, u.avatar_url, u.swish_number
+    FROM tab_expense_participants ep
+    LEFT JOIN users u ON ep.user_id = u.id
+    WHERE ep.expense_id = ?
+  `),
+  getTabExpensesForUser: db.prepare(`
+    SELECT DISTINCT e.*,
+           p.nickname as payer_nickname, p.real_name as payer_real_name, p.avatar_emoji as payer_avatar_emoji, p.avatar_url as payer_avatar_url,
+           l.nickname as loser_nickname, l.real_name as loser_real_name
+    FROM tab_expenses e
+    LEFT JOIN users p ON e.payer_id = p.id
+    LEFT JOIN users l ON e.loser_id = l.id
+    LEFT JOIN tab_expense_participants ep ON ep.expense_id = e.id
+    WHERE e.payer_id = ? OR ep.user_id = ? OR e.loser_id = ?
+    ORDER BY e.created_at DESC
+    LIMIT 30
   `),
 };
 
@@ -1614,15 +1689,35 @@ export function getDuelSettlementSummary(userId) {
         friendAvatarUrl,
         netAmount: 0,
         duelsCount: 0,
-        duelIds: []
+        duelIds: [],
+        duels: [],
+        expenseIds: []
       });
     }
 
     const item = friendsMap.get(friendId);
     item.duelsCount++;
     item.duelIds.push(d.id);
+    if (!item.duels) item.duels = [];
+    if (!item.expenseIds) item.expenseIds = [];
 
     const youWon = d.winner_id === userId;
+    item.duels.push({
+      id: d.id,
+      gameType: d.game_type,
+      stakeAmount: Number(d.stake_amount) || 0,
+      winnerId: d.winner_id,
+      youWon,
+      expenseId: d.expense_id || null,
+      customTitle: d.custom_title || null,
+      hasReceipt: !!d.receipt_image,
+      createdAt: d.created_at
+    });
+
+    if (d.expense_id && !item.expenseIds.includes(d.expense_id)) {
+      item.expenseIds.push(d.expense_id);
+    }
+
     if (youWon) {
       item.netAmount += Number(d.stake_amount) || 0;
     } else {
@@ -2016,4 +2111,122 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
 
   return getFlashBet(flashBetId, settleUserId);
 }
+
+// ── Tab Expenses & Even Steven Public API ─────────────
+
+export function createTabExpense({ payerId, title, notes, totalAmount, mode, participantIds = [], loserId = null, receiptImage = null }) {
+  if (!payerId) throw new Error('Payer is required');
+  const amount = parseFloat(totalAmount);
+  if (isNaN(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
+  
+  const cleanTitle = (title && title.trim()) ? title.trim() : (mode === 'roulette' ? 'Not-Roulette' : 'Dela nota');
+  const cleanNotes = (notes && notes.trim()) ? notes.trim() : null;
+  const expenseId = crypto.randomUUID();
+
+  // Ensure unique list of participant user IDs including the payer
+  const allParticipantSet = new Set(participantIds.map(String));
+  allParticipantSet.add(String(payerId));
+  const allParticipants = Array.from(allParticipantSet);
+
+  if (allParticipants.length < 2) {
+    throw new Error('Minst 2 personer krävs för att dela eller spela om en nota');
+  }
+
+  const tx = db.transaction(() => {
+    // 1. Insert tab expense record
+    stmts.insertTabExpense.run({
+      id: expenseId,
+      payer_id: payerId,
+      title: cleanTitle,
+      notes: cleanNotes,
+      total_amount: amount,
+      mode: mode === 'roulette' ? 'roulette' : 'even_steven',
+      loser_id: mode === 'roulette' ? (loserId ? String(loserId) : null) : null,
+      receipt_image: receiptImage || null
+    });
+
+    if (mode === 'roulette') {
+      const actualLoser = loserId ? String(loserId) : null;
+      if (!actualLoser) throw new Error('En förlorare måste väljas för Not-Roulette');
+
+      // Record participants
+      for (const uid of allParticipants) {
+        stmts.insertTabExpenseParticipant.run({
+          id: crypto.randomUUID(),
+          expense_id: expenseId,
+          user_id: uid,
+          amount: uid === actualLoser ? amount : 0
+        });
+      }
+
+      // If loser is not the payer, create debt duel where payer is winner and loser is opponent
+      if (actualLoser !== String(payerId)) {
+        const duelId = crypto.randomUUID();
+        stmts.insertTabExpenseDuel.run({
+          id: duelId,
+          game_type: 'not_roulette',
+          creator_id: payerId,
+          opponent_id: actualLoser,
+          stake_amount: amount,
+          mode: 'roulette',
+          winner_id: payerId,
+          expense_id: expenseId,
+          custom_title: cleanTitle,
+          receipt_image: receiptImage || null
+        });
+      }
+    } else {
+      // Even Steven: split evenly
+      const splitAmount = Math.round((amount / allParticipants.length) * 100) / 100;
+
+      for (const uid of allParticipants) {
+        stmts.insertTabExpenseParticipant.run({
+          id: crypto.randomUUID(),
+          expense_id: expenseId,
+          user_id: uid,
+          amount: splitAmount
+        });
+
+        // For every participant who is NOT the payer, create debt duel to payer
+        if (uid !== String(payerId)) {
+          const duelId = crypto.randomUUID();
+          stmts.insertTabExpenseDuel.run({
+            id: duelId,
+            game_type: 'even_steven',
+            creator_id: payerId,
+            opponent_id: uid,
+            stake_amount: splitAmount,
+            mode: 'even_steven',
+            winner_id: payerId,
+            expense_id: expenseId,
+            custom_title: cleanTitle,
+            receipt_image: receiptImage || null
+          });
+        }
+      }
+    }
+
+    return expenseId;
+  });
+
+  const createdId = tx();
+  return getTabExpenseById(createdId);
+}
+
+export function getTabExpenseById(id) {
+  if (!id) return null;
+  const expense = stmts.getTabExpenseById.get(id);
+  if (!expense) return null;
+  const participants = stmts.getTabExpenseParticipants.all(id);
+  return {
+    ...expense,
+    participants
+  };
+}
+
+export function getTabExpensesForUser(userId) {
+  if (!userId) return [];
+  return stmts.getTabExpensesForUser.all(userId, userId, userId);
+}
+
 

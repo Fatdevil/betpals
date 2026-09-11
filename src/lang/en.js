@@ -446,6 +446,15 @@ export const en = {
     pushEnableBtn: '🔔 Enable Push Notifications',
     pushEnabledBadge: '🔔 Push Notifications active',
     pushEnablePrompt: 'Get notified instantly on your phone when friends launch a FlashBet!',
-    pushIOSNotice: '💡 On iPhone: Tap Share and select "Add to Home Screen" to receive alerts when the app is closed.'
+    pushIOSNotice: '💡 On iPhone: Tap Share and select "Add to Home Screen" to receive alerts when the app is closed.',
+    notanRoulette: 'Tab Roulette',
+    notanRouletteTag: 'Who pays the tab?',
+    notanRouletteTitle: '🎰 Tab Roulette & Even Steven',
+    notanRouletteDesc: 'Let fate decide who pays the whole tab, or split it fairly with Even Steven!',
+    evenSteven: 'Even Steven',
+    evenStevenBtn: '⚖️ Even Steven (Split evenly)',
+    takeTheTab: '🎰 Play Tab Roulette!',
+    viewReceipt: '🧾 Receipt',
+    addExpenseBtn: '➕ Split Tab / Expense'
   }
 };

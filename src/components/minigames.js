@@ -27,8 +27,12 @@ import {
   getFlashBet,
   placeFlashBet,
   settleFlashBet,
-  getTournaments
+  getTournaments,
+  createTabExpense,
+  getTabExpense,
+  getMyTabExpenses
 } from '../api.js';
+import { compressImage } from '../imageUtils.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
@@ -147,12 +151,19 @@ export function renderMinigamesRoller() {
       tag: t('arcade.flashbetTag'),
       title: t('arcade.flashbetTitle'),
       iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.8));">⚡</span>`
+    },
+    {
+      id: 'notan-roulette',
+      name: t('arcade.notanRoulette'),
+      tag: t('arcade.notanRouletteTag'),
+      title: t('arcade.notanRouletteTitle'),
+      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(245,158,11,0.8));">🧾</span>`
     }
   ];
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' || g.id === 'anybet' || g.id === 'flashbet' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' || g.id === 'anybet' || g.id === 'flashbet' || g.id === 'notan-roulette' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -217,6 +228,7 @@ export function attachMinigamesListeners() {
       else if (game === 'blind10') openBlind10Modal();
       else if (game === 'anybet') openAnyBetModal();
       else if (game === 'flashbet') openFlashBetModal();
+      else if (game === 'notan-roulette') openNotanRouletteModal();
     });
   }
 
@@ -4611,4 +4623,893 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
   // Initial render
   renderActiveTab();
 }
+
+// ────────────────────────────────────────────────────────
+// 🎰 GAME 8: NOT-ROULETTE & ⚖️ EVEN STEVEN
+// ────────────────────────────────────────────────────────
+
+export async function openReceiptModal(expenseId) {
+  const isEn = getLang() === 'en';
+  try {
+    const expense = await getTabExpense(expenseId);
+    if (!expense) {
+      showToast(isEn ? 'Receipt not found' : 'Kvittot hittades inte', 'error');
+      return;
+    }
+
+    const dateStr = expense.created_at ? new Date(expense.created_at + (expense.created_at.includes('Z') ? '' : 'Z')).toLocaleString(isEn ? 'en-US' : 'sv-SE', {
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    }) : '';
+
+    const isRoulette = expense.mode === 'roulette';
+    const payerName = expense.payer_real_name || expense.payer_nickname || (isEn ? 'A friend' : 'En vän');
+
+    showModal(`
+      <div class="notan-receipt-viewer animate-in" style="max-width: 420px; margin: 0 auto; text-align: left;">
+        <div class="flex-between mb-sm" style="align-items: center;">
+          <span class="badge ${isRoulette ? 'badge-danger' : 'badge-primary'}" style="font-size: 0.75rem; font-weight: 800; padding: 4px 8px;">
+            ${isRoulette ? '🎰 NOT-ROULETTE' : '⚖️ EVEN STEVEN'}
+          </span>
+          <span class="text-muted" style="font-size: 0.75rem;">${dateStr}</span>
+        </div>
+
+        <h3 class="font-heading" style="color: var(--gold); margin: 0 0 4px; font-size: 1.25rem;">
+          ${escapeHtml(expense.title || (isRoulette ? 'Not-Roulette' : 'Dela nota'))}
+        </h3>
+        
+        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
+          ${isEn ? 'Paid by' : 'Betalades av'}: <strong style="color: #fff;">${escapeHtml(payerName)}</strong>
+        </div>
+
+        <!-- Total Amount Card -->
+        <div class="card mb-sm text-center" style="background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.3); padding: 12px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); text-transform: uppercase;">
+            ${isEn ? 'Total Tab' : 'Total Krognota'}
+          </div>
+          <div style="font-size: 1.6rem; font-weight: 900; color: var(--gold);">
+            ${Math.round(expense.total_amount)} kr
+          </div>
+        </div>
+
+        ${expense.notes ? `
+          <div class="card mb-sm" style="padding: 10px 12px; background: rgba(255,255,255,0.03); font-size: 0.85rem;">
+            <div style="font-weight: 700; color: var(--text-muted); font-size: 0.75rem; margin-bottom: 4px;">📝 ${isEn ? 'Notes' : 'Anteckning'}:</div>
+            <div style="white-space: pre-wrap; color: var(--text-secondary);">${escapeHtml(expense.notes)}</div>
+          </div>
+        ` : ''}
+
+        <!-- Attached Receipt Photo -->
+        ${expense.receipt_image ? `
+          <div class="mb-md">
+            <div style="font-weight: 700; font-size: 0.8rem; color: var(--gold); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>🧾 ${isEn ? 'Receipt Photo' : 'Fotat Kvitto'}</span>
+            </div>
+            <div style="position: relative; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-glass); background: #000; cursor: pointer;" id="receipt-photo-container">
+              <img src="${expense.receipt_image}" alt="Kvitto" style="width: 100%; max-height: 280px; object-fit: contain; display: block; background: #0d1117;" />
+              <div style="position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.75); color: #fff; font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; pointer-events: none;">
+                🔍 ${isEn ? 'Click to zoom' : 'Klicka för fullskärm'}
+              </div>
+            </div>
+          </div>
+        ` : `
+          <div class="text-muted text-center mb-md" style="font-size: 0.8rem; font-style: italic; padding: 8px;">
+            ${isEn ? 'No receipt photo attached' : 'Inget kvittofoto bifogat'}
+          </div>
+        `}
+
+        <!-- Participants & Debts -->
+        <div class="mb-md">
+          <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">
+            👥 ${isEn ? 'Participants & Breakdown' : 'Deltagare & Fördelning'}:
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${(expense.participants || []).map(p => {
+              const isPayer = p.user_id === expense.payer_id;
+              const isLoser = isRoulette && p.user_id === expense.loser_id;
+              const name = p.real_name || p.nickname || (isEn ? 'Participant' : 'Deltagare');
+              
+              let amountText = '';
+              let badgeColor = 'var(--text-muted)';
+              if (isRoulette) {
+                if (isLoser) {
+                  amountText = isPayer ? `Förlorade (${Math.round(expense.total_amount)} kr)` : `Tog hela notan (${Math.round(expense.total_amount)} kr)`;
+                  badgeColor = '#ef4444';
+                } else {
+                  amountText = 'Klarade sig (0 kr) 🎉';
+                  badgeColor = '#4ade80';
+                }
+              } else {
+                amountText = isPayer ? `Lade ut (${Math.round(p.amount)} kr egen del)` : `Skyldig ${Math.round(p.amount)} kr`;
+                badgeColor = isPayer ? '#4ade80' : 'var(--gold)';
+              }
+
+              return `
+                <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border-left: 3px solid ${badgeColor}; font-size: 0.85rem;">
+                  <div class="flex align-center gap-xs">
+                    <span>${escapeHtml(p.avatar_emoji || '👤')}</span>
+                    <span style="font-weight: 600;">${escapeHtml(name)}</span>
+                    ${isPayer ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
+                    ${isLoser ? `<span class="badge badge-danger" style="font-size: 0.65rem; padding: 1px 4px;">💸 ${isEn ? 'Lost' : 'Tog notan'}</span>` : ''}
+                  </div>
+                  <div style="font-weight: 700; color: ${badgeColor}; font-size: 0.8rem;">
+                    ${amountText}
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-secondary btn-block" id="btn-close-receipt-modal" style="padding: 10px; font-weight: 700;">
+          ${isEn ? 'Close' : 'Stäng'}
+        </button>
+      </div>
+    `);
+
+    document.getElementById('btn-close-receipt-modal')?.addEventListener('click', () => {
+      closeModal();
+    });
+
+    // Zoom receipt modal
+    document.getElementById('receipt-photo-container')?.addEventListener('click', () => {
+      showModal(`
+        <div style="text-align: center;">
+          <img src="${expense.receipt_image}" alt="Kvitto Fullskärm" style="max-width: 100%; max-height: 80vh; border-radius: var(--radius-md); object-fit: contain;" />
+          <div class="mt-sm">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-close-zoom-receipt">${isEn ? 'Close' : 'Stäng'}</button>
+          </div>
+        </div>
+      `);
+      document.getElementById('btn-close-zoom-receipt')?.addEventListener('click', () => {
+        openReceiptModal(expenseId);
+      });
+    });
+
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+export async function openNotanRouletteModal(initialMode = 'roulette') {
+  const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+
+  if (!currentUser) {
+    showToast(isEn ? 'Please log in to use Not-Roulette or split bills!' : 'Logga in för att köra Not-Roulette eller dela notor!', 'warning');
+    return;
+  }
+
+  const PALETTE = [
+    '#e63946', '#f59e0b', '#10b981', '#3b82f6', 
+    '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', 
+    '#f97316', '#6366f1', '#14b8a6', '#d946ef'
+  ];
+
+  let activeMode = initialMode === 'even_steven' ? 'even_steven' : 'roulette';
+  let totalAmount = 0;
+  let customTitle = '';
+  let customNotes = '';
+  let receiptBase64 = null;
+  let friends = [];
+  let selectedFriendIds = new Set();
+  let isSpinning = false;
+  let currentRotation = 0;
+
+  try {
+    friends = await getFriends();
+    // Default: select up to 5 friends automatically so roulette is ready to go
+    if (friends && friends.length > 0) {
+      friends.slice(0, 5).forEach(f => selectedFriendIds.add(String(f.id)));
+    }
+  } catch (e) {
+    friends = [];
+  }
+
+  function getActiveParticipants() {
+    const userItem = {
+      id: String(currentUser.id),
+      name: isEn ? 'You 🎯' : 'Du 🎯',
+      nickname: currentUser.nickname || 'Du',
+      avatarEmoji: currentUser.avatar_emoji || '👤',
+      isMe: true
+    };
+    const chosenFriends = (friends || [])
+      .filter(f => selectedFriendIds.has(String(f.id)))
+      .map(f => ({
+        id: String(f.id),
+        name: f.realName || f.nickname || f.real_name,
+        nickname: f.nickname || f.realName,
+        avatarEmoji: f.avatar_emoji || f.avatarEmoji || '🍻',
+        isMe: false
+      }));
+    return [userItem, ...chosenFriends];
+  }
+
+  function renderModal() {
+    const participants = getActiveParticipants();
+    const splitEach = participants.length > 0 && totalAmount > 0 
+      ? Math.round((totalAmount / participants.length) * 100) / 100 
+      : 0;
+
+    showModal(`
+      <div class="notan-roulette-modal animate-in" style="max-width: 440px; margin: 0 auto; text-align: left;">
+        
+        <!-- Mode Switcher Tabs -->
+        <div class="flex gap-xs mb-md" style="background: rgba(0,0,0,0.35); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+          <button type="button" class="btn btn-sm btn-mode-tab ${activeMode === 'roulette' ? 'btn-primary' : 'btn-ghost'}" data-mode="roulette" style="flex: 1; font-weight: 800; font-size: 0.85rem; padding: 8px 6px;">
+            🎰 Not-Roulette
+          </button>
+          <button type="button" class="btn btn-sm btn-mode-tab ${activeMode === 'even_steven' ? 'btn-primary' : 'btn-ghost'}" data-mode="even_steven" style="flex: 1; font-weight: 800; font-size: 0.85rem; padding: 8px 6px;">
+            ⚖️ Even Steven
+          </button>
+        </div>
+
+        <!-- Mode Subtitle / Intro -->
+        <div class="mb-sm text-center">
+          <p class="text-muted" style="font-size: 0.8rem; margin: 0;">
+            ${activeMode === 'roulette' 
+              ? (isEn ? 'Spun the wheel! One unlucky person takes the ENTIRE tab! 💸' : 'Snurra hjulet! En otursfågel tar HELA krognotan! 💸') 
+              : (isEn ? 'Fair and square: Split the bill evenly among everyone at the table! ⚖️' : 'Rättvist och schysst: Splitta notan rakt av mellan alla runt bordet! ⚖️')}
+          </p>
+        </div>
+
+        <!-- Inputs: Amount & Title -->
+        <div class="card mb-sm" style="padding: 12px; background: rgba(255,255,255,0.02);">
+          
+          <!-- Amount Input -->
+          <div class="mb-xs">
+            <label style="font-size: 0.75rem; font-weight: 700; color: var(--gold); text-transform: uppercase;">
+              ${isEn ? 'Total Amount (SEK)' : 'Totalt Belopp (kr)'} *
+            </label>
+            <div class="flex align-center gap-xs mt-xs">
+              <input type="number" id="notan-amount-input" class="form-input" placeholder="0" min="1" step="1" value="${totalAmount > 0 ? totalAmount : ''}" style="font-size: 1.3rem; font-weight: 900; color: var(--gold); text-align: center; padding: 8px;" />
+              <span style="font-weight: 800; font-size: 1.1rem; color: var(--text-muted);">kr</span>
+            </div>
+          </div>
+
+          <!-- Amount Quick Buttons -->
+          <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary btn-xs btn-quick-amount" data-add="100">+100</button>
+            <button type="button" class="btn btn-secondary btn-xs btn-quick-amount" data-add="200">+200</button>
+            <button type="button" class="btn btn-secondary btn-xs btn-quick-amount" data-add="500">+500</button>
+            <button type="button" class="btn btn-secondary btn-xs btn-quick-amount" data-add="1000">+1000</button>
+            <button type="button" class="btn btn-ghost btn-xs btn-quick-amount" data-clear="true" style="color: #ef4444; font-size: 0.7rem;">${isEn ? 'Clear' : 'Rensa'}</button>
+          </div>
+
+          <!-- Description Input -->
+          <div class="mb-xs">
+            <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary);">
+              ${isEn ? 'Bar / Description' : 'Krog / Beskrivning'}
+            </label>
+            <input type="text" id="notan-title-input" class="form-input mt-xs" placeholder="${isEn ? 'e.g. 4x Draft beer & nachos at Bishops' : 't.ex. 4x Stor stark & nachos på Bishops'}" maxlength="60" value="${escapeHtml(customTitle)}" style="padding: 7px 10px; font-size: 0.85rem;" />
+          </div>
+
+          <!-- Receipt Photo Attachment -->
+          <div class="mt-xs">
+            <input type="file" id="notan-receipt-file" accept="image/*" capture="environment" style="display: none;" />
+            <div class="flex-between align-center">
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-trigger-receipt-file" style="font-size: 0.75rem; padding: 5px 10px; border-color: rgba(255,215,0,0.3); color: var(--gold);">
+                📷 ${receiptBase64 ? (isEn ? 'Change Receipt Photo' : 'Byt Kvittofoto') : (isEn ? 'Take Photo / Attach Receipt' : 'Fota / Bifoga kvitto')}
+              </button>
+              ${receiptBase64 ? `
+                <button type="button" class="btn btn-ghost btn-xs" id="btn-remove-receipt-file" style="color: #ef4444; font-size: 0.72rem;">
+                  ✕ ${isEn ? 'Remove photo' : 'Ta bort foto'}
+                </button>
+              ` : ''}
+            </div>
+
+            <!-- Receipt Thumbnail Preview -->
+            ${receiptBase64 ? `
+              <div class="mt-xs flex align-center gap-xs" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 6px 10px;">
+                <img src="${receiptBase64}" alt="Förhandsgranskning" style="width: 42px; height: 42px; object-fit: cover; border-radius: 4px; border: 1px solid var(--gold);" />
+                <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.2;">
+                  <strong style="color: #4ade80;">✓ ${isEn ? 'Receipt attached' : 'Kvitto bifogat'}</strong><br/>
+                  <span class="text-muted">${isEn ? 'Visible to all participants in Swish list' : 'Syns för alla deltagare i Swishlistan'}</span>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Participants Selector -->
+        <div class="card mb-md" style="padding: 12px; background: rgba(255,255,255,0.02);">
+          <div class="flex-between mb-xs" style="align-items: center;">
+            <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary);">
+              👥 ${isEn ? 'Friends at the table' : 'Vilka är med runt bordet?'} (${participants.length} ${isEn ? 'pers' : 'pers'})
+            </label>
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-toggle-all-friends" style="font-size: 0.7rem; color: var(--gold); padding: 2px 6px;">
+              ${selectedFriendIds.size === friends.length ? (isEn ? 'Uncheck all' : 'Avmarkera alla') : (isEn ? 'Check all' : 'Markera alla')}
+            </button>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto; padding: 4px 0;">
+            <!-- Payer / You (Always included) -->
+            <span class="badge" style="background: rgba(74, 222, 128, 0.15); border: 1px solid #4ade80; color: #4ade80; font-weight: 700; padding: 4px 8px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;">
+              ${escapeHtml(currentUser.avatar_emoji || '👤')} ${isEn ? 'You (Payer)' : 'Du (Lade ut)'}
+            </span>
+
+            ${friends.length === 0 ? `
+              <span class="text-muted" style="font-size: 0.75rem; font-style: italic;">
+                ${isEn ? 'No friends added yet. Add friends under Profile!' : 'Inga vänner tillagda än. Lägg till vänner i profilen!'}
+              </span>
+            ` : friends.map(f => {
+              const isSelected = selectedFriendIds.has(String(f.id));
+              const name = f.realName || f.nickname || f.real_name;
+              return `
+                <button type="button" class="btn-friend-pill" data-friend-id="${f.id}" style="border: 1px solid ${isSelected ? 'var(--gold)' : 'rgba(255,255,255,0.1)'}; background: ${isSelected ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0,0,0,0.2)'}; color: ${isSelected ? 'var(--gold)' : 'var(--text-muted)'}; font-size: 0.75rem; font-weight: ${isSelected ? '700' : '500'}; padding: 4px 8px; border-radius: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s ease;">
+                  <span>${escapeHtml(f.avatar_emoji || f.avatarEmoji || '🍻')}</span>
+                  <span>${escapeHtml(name)}</span>
+                  <span style="font-size: 0.65rem;">${isSelected ? '✓' : '+'}</span>
+                </button>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- MODE SPECIFIC SECTION -->
+
+        ${activeMode === 'roulette' ? `
+          <!-- ROULETTE WHEEL VIEW -->
+          <div class="roulette-wheel-container text-center mb-md" style="position: relative; display: flex; flex-direction: column; align-items: center;">
+            
+            <!-- Wheel Arrow Pointer -->
+            <div style="position: relative; z-index: 10; width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 22px solid #ef4444; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); margin-bottom: -10px;"></div>
+
+            <!-- Canvas Wheel -->
+            <canvas id="notan-wheel-canvas" width="280" height="280" style="max-width: 280px; max-height: 280px; width: 100%; border-radius: 50%; box-shadow: 0 4px 20px rgba(0,0,0,0.6);"></canvas>
+
+            <!-- Result Banner -->
+            <div id="notan-roulette-banner" class="mt-sm mb-xs" style="font-family: var(--font-heading); font-size: 1rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
+              ${participants.length < 2 
+                ? (isEn ? '⚠️ Select at least 1 friend!' : '⚠️ Välj minst 1 kompis runt bordet!') 
+                : (totalAmount <= 0 
+                  ? (isEn ? 'Ange belopp ovanför för att snurra!' : 'Ange belopp ovanför för att snurra!') 
+                  : (isEn ? `Ready! Who pays ${totalAmount} kr? 🎰` : `Klara! Vem tar notan på ${totalAmount} kr? 🎰`))}
+            </div>
+
+            <!-- Spin Button -->
+            <button type="button" class="btn btn-primary btn-block mb-xs" id="btn-spin-notan-roulette" ${participants.length < 2 || totalAmount <= 0 ? 'disabled' : ''} style="font-size: 1.15rem; font-weight: 900; padding: 14px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; box-shadow: 0 6px 20px rgba(245,158,11,0.4);">
+              🎰 ${isEn ? 'SPIN NOT-ROULETTE!' : 'SNURRA NOT-ROULETTE!'}
+            </button>
+
+            <!-- Chicken out link -->
+            <div class="text-center mt-xs">
+              <a href="#" id="link-switch-to-even" style="font-size: 0.8rem; color: var(--text-muted); text-decoration: underline;">
+                ${isEn ? '🐔 Chicken out? Split evenly with Even Steven' : '🐔 Fega ur? Dela rakt med Even Steven istället'}
+              </a>
+            </div>
+          </div>
+        ` : `
+          <!-- EVEN STEVEN VIEW -->
+          <div class="even-steven-container mb-md">
+            
+            <!-- Calculation Card -->
+            <div class="card mb-sm text-center" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.3); padding: 14px;">
+              <div style="font-size: 0.75rem; font-weight: 700; color: #4ade80; text-transform: uppercase;">
+                ${isEn ? 'Fair Split (Per Person)' : 'Rättvis Fördelning (Per Person)'}
+              </div>
+              <div style="font-size: 1.8rem; font-weight: 900; color: #4ade80; margin: 4px 0;">
+                ${splitEach} kr <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">/ pers</span>
+              </div>
+              <div class="text-muted" style="font-size: 0.75rem;">
+                ${totalAmount} kr / ${participants.length} ${isEn ? 'people' : 'personer'}
+              </div>
+            </div>
+
+            <!-- Breakdown List -->
+            <div class="mb-sm" style="display: flex; flex-direction: column; gap: 4px;">
+              ${participants.map(p => {
+                return `
+                  <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.8rem;">
+                    <div class="flex align-center gap-xs">
+                      <span>${escapeHtml(p.avatarEmoji)}</span>
+                      <span style="font-weight: 600;">${escapeHtml(p.name)}</span>
+                      ${p.isMe ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
+                    </div>
+                    <div style="font-weight: 700; color: ${p.isMe ? '#4ade80' : 'var(--gold)'};">
+                      ${p.isMe ? `${isEn ? 'Paid' : 'Lade ut'} ${totalAmount} kr` : `${isEn ? 'Owes you' : 'Ska swisha dig'} ${splitEach} kr`}
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>
+
+            <!-- Submit Even Steven Button -->
+            <button type="button" class="btn btn-primary btn-block" id="btn-submit-even-steven" ${participants.length < 2 || totalAmount <= 0 ? 'disabled' : ''} style="font-size: 1.1rem; font-weight: 800; padding: 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 16px rgba(16,185,129,0.3);">
+              ⚖️ ${isEn ? `SPLIT TAB (${splitEach} kr each)` : `DELA NOTAN (${splitEach} kr var)`}
+            </button>
+          </div>
+        `}
+
+        <div class="text-center mt-sm">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-notan-roulette" style="color: var(--text-muted); font-size: 0.8rem;">
+            ${isEn ? 'Cancel' : 'Avbryt'}
+          </button>
+        </div>
+
+      </div>
+    `);
+
+    // Attach listeners
+    attachListeners();
+  }
+
+  function drawWheel(rotation = currentRotation) {
+    const canvas = document.getElementById('notan-wheel-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const participants = getActiveParticipants();
+    const numSectors = participants.length;
+
+    ctx.clearRect(0, 0, 280, 280);
+
+    if (numSectors < 2) {
+      ctx.beginPath();
+      ctx.fillStyle = '#1f2937';
+      ctx.arc(140, 140, 138, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isEn ? 'Select at least 2 friends!' : 'Välj minst 2 deltagare!', 140, 140);
+      return;
+    }
+
+    const arc = (2 * Math.PI) / numSectors;
+    const radius = 138;
+
+    ctx.save();
+    ctx.translate(140, 140);
+    ctx.rotate(rotation);
+
+    participants.forEach((p, i) => {
+      const angle = i * arc;
+      const color = PALETTE[i % PALETTE.length];
+
+      // Slice
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, radius, angle, angle + arc);
+      ctx.lineTo(0, 0);
+      ctx.fill();
+
+      // Border
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Label & Emoji
+      ctx.save();
+      ctx.rotate(angle + arc / 2);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+      const fontSize = numSectors > 8 ? 11 : 13;
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      const textToDraw = `${p.avatarEmoji} ${p.nickname}`;
+      const trimmed = textToDraw.length > 12 ? textToDraw.slice(0, 11) + '…' : textToDraw;
+      ctx.fillText(trimmed, radius - 14, 4);
+      ctx.restore();
+    });
+
+    // Outer gold ring
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 2, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255,215,0,0.9)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Center hub
+    ctx.beginPath();
+    ctx.fillStyle = '#111827';
+    ctx.arc(0, 0, 20, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = 'var(--gold)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🎰', 0, 0);
+
+    ctx.restore();
+  }
+
+  function attachListeners() {
+    // Mode tabs
+    document.querySelectorAll('.btn-mode-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (isSpinning) return;
+        activeMode = btn.getAttribute('data-mode');
+        renderModal();
+        if (activeMode === 'roulette') drawWheel();
+      });
+    });
+
+    // Chicken out link in roulette
+    document.getElementById('link-switch-to-even')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isSpinning) return;
+      activeMode = 'even_steven';
+      renderModal();
+    });
+
+    // Amount input
+    const amountInput = document.getElementById('notan-amount-input');
+    amountInput?.addEventListener('input', () => {
+      totalAmount = Math.max(0, parseFloat(amountInput.value) || 0);
+      updateButtonsAndBanner();
+    });
+
+    // Quick amount buttons
+    document.querySelectorAll('.btn-quick-amount').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (isSpinning) return;
+        if (btn.getAttribute('data-clear') === 'true') {
+          totalAmount = 0;
+        } else {
+          const add = parseFloat(btn.getAttribute('data-add')) || 0;
+          totalAmount += add;
+        }
+        if (amountInput) amountInput.value = totalAmount > 0 ? totalAmount : '';
+        updateButtonsAndBanner();
+        if (activeMode === 'even_steven') {
+          renderModal();
+        }
+      });
+    });
+
+    // Title input
+    const titleInput = document.getElementById('notan-title-input');
+    titleInput?.addEventListener('input', () => {
+      customTitle = titleInput.value;
+    });
+
+    // Receipt photo triggers
+    const receiptFileInput = document.getElementById('notan-receipt-file');
+    document.getElementById('btn-trigger-receipt-file')?.addEventListener('click', () => {
+      if (isSpinning) return;
+      receiptFileInput?.click();
+    });
+
+    receiptFileInput?.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        showToast(isEn ? 'Compressing receipt photo... 📷' : 'Komprimerar kvittofoto... 📷', 'info');
+        receiptBase64 = await compressImage(file, 1000, 0.8);
+        showToast(isEn ? 'Receipt photo attached! 🧾' : 'Kvitto bifogat! 🧾', 'success');
+        renderModal();
+        if (activeMode === 'roulette') drawWheel();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    document.getElementById('btn-remove-receipt-file')?.addEventListener('click', () => {
+      if (isSpinning) return;
+      receiptBase64 = null;
+      renderModal();
+      if (activeMode === 'roulette') drawWheel();
+    });
+
+    // Friend selection toggles
+    document.querySelectorAll('.btn-friend-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (isSpinning) return;
+        const friendId = btn.getAttribute('data-friend-id');
+        if (selectedFriendIds.has(friendId)) {
+          selectedFriendIds.delete(friendId);
+        } else {
+          selectedFriendIds.add(friendId);
+        }
+        renderModal();
+        if (activeMode === 'roulette') drawWheel();
+      });
+    });
+
+    // Toggle all friends
+    document.getElementById('btn-toggle-all-friends')?.addEventListener('click', () => {
+      if (isSpinning) return;
+      if (selectedFriendIds.size === friends.length) {
+        selectedFriendIds.clear();
+      } else {
+        friends.forEach(f => selectedFriendIds.add(String(f.id)));
+      }
+      renderModal();
+      if (activeMode === 'roulette') drawWheel();
+    });
+
+    // Cancel button
+    document.getElementById('btn-cancel-notan-roulette')?.addEventListener('click', () => {
+      if (!isSpinning) closeModal();
+    });
+
+    // Spin Roulette Button
+    document.getElementById('btn-spin-notan-roulette')?.addEventListener('click', () => {
+      if (isSpinning) return;
+      handleSpinRoulette();
+    });
+
+    // Submit Even Steven Button
+    document.getElementById('btn-submit-even-steven')?.addEventListener('click', () => {
+      handleSubmitEvenSteven();
+    });
+  }
+
+  function updateButtonsAndBanner() {
+    const participants = getActiveParticipants();
+    const canProceed = participants.length >= 2 && totalAmount > 0;
+
+    const spinBtn = document.getElementById('btn-spin-notan-roulette');
+    if (spinBtn) spinBtn.disabled = !canProceed;
+
+    const evenBtn = document.getElementById('btn-submit-even-steven');
+    if (evenBtn) evenBtn.disabled = !canProceed;
+
+    const banner = document.getElementById('notan-roulette-banner');
+    if (banner) {
+      if (participants.length < 2) {
+        banner.textContent = isEn ? '⚠️ Select at least 1 friend!' : '⚠️ Välj minst 1 kompis runt bordet!';
+        banner.style.color = '#ef4444';
+      } else if (totalAmount <= 0) {
+        banner.textContent = isEn ? 'Ange belopp ovanför för att snurra!' : 'Ange belopp ovanför för att snurra!';
+        banner.style.color = 'var(--text-muted)';
+      } else {
+        banner.textContent = isEn ? `Ready! Who pays ${totalAmount} kr? 🎰` : `Klara! Vem tar notan på ${totalAmount} kr? 🎰`;
+        banner.style.color = 'var(--gold)';
+      }
+    }
+  }
+
+  // ── Handle Spin Roulette ─────────────────────────────
+  async function handleSpinRoulette() {
+    const participants = getActiveParticipants();
+    if (participants.length < 2 || totalAmount <= 0) return;
+
+    isSpinning = true;
+    const spinBtn = document.getElementById('btn-spin-notan-roulette');
+    const banner = document.getElementById('notan-roulette-banner');
+    if (spinBtn) {
+      spinBtn.disabled = true;
+      spinBtn.innerHTML = `🌀 ${isEn ? 'SPINNING... HOLD YOUR BREATH!' : 'SNURRAR... HÅLL ANDAN!'}`;
+    }
+
+    // Pick random loser
+    const loserIndex = Math.floor(Math.random() * participants.length);
+    const loser = participants[loserIndex];
+
+    const numSectors = participants.length;
+    const arc = (2 * Math.PI) / numSectors;
+
+    // Arrow is at top (angle -PI/2)
+    // We want the loser slice to stop under the arrow
+    // Loser slice center is loserIndex * arc + arc/2
+    const targetSliceAngle = loserIndex * arc + arc / 2;
+    const arrowAngle = 3 * Math.PI / 2; // 270 deg (top pointer)
+    const normalizedTarget = (arrowAngle - targetSliceAngle + 2 * Math.PI) % (2 * Math.PI);
+
+    // Add 5 to 7 full rotations
+    const fullSpins = 5 + Math.floor(Math.random() * 3);
+    const targetRotation = currentRotation + (fullSpins * 2 * Math.PI) + ((normalizedTarget - (currentRotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
+
+    const duration = 4200; // ms
+    const startTime = performance.now();
+    const startRotation = currentRotation;
+    let lastTickSector = -1;
+
+    function easeOutCubic(x) {
+      return 1 - Math.pow(1 - x, 3);
+    }
+
+    function animateSpin(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const eased = easeOutCubic(progress);
+
+      currentRotation = startRotation + (targetRotation - startRotation) * eased;
+      drawWheel(currentRotation);
+
+      // Sound tick on sector crossing
+      const currentAngleNorm = (arrowAngle - currentRotation) % (2 * Math.PI);
+      const positiveAngle = (currentAngleNorm + 2 * Math.PI) % (2 * Math.PI);
+      const currentSector = Math.floor(positiveAngle / arc) % numSectors;
+
+      if (currentSector !== lastTickSector) {
+        playTickSound();
+        lastTickSector = currentSector;
+      }
+
+      if (progress < 1) {
+        requestAnimationFrame(animateSpin);
+      } else {
+        // Spin finished!
+        isSpinning = false;
+        finishRoulette(loser, participants);
+      }
+    }
+
+    requestAnimationFrame(animateSpin);
+  }
+
+  async function finishRoulette(loser, participants) {
+    const banner = document.getElementById('notan-roulette-banner');
+    playWinSound();
+    launchConfetti();
+
+    const isMeLoser = loser.id === String(currentUser.id);
+    const cleanTitle = (customTitle && customTitle.trim()) ? customTitle.trim() : (isEn ? 'Tab Roulette' : 'Not-Roulette');
+
+    if (banner) {
+      banner.style.color = isMeLoser ? '#ef4444' : 'var(--gold)';
+      banner.innerHTML = isMeLoser 
+        ? `💸 ${isEn ? 'YOU LOST! You pay the whole tab of' : 'DU FÖRLORADE! Du tar hela notan på'} ${totalAmount} kr! 🍻` 
+        : `🎉 ${escapeHtml(loser.name)} ${isEn ? 'lost and pays the whole tab of' : 'förlorade och tar hela notan på'} ${totalAmount} kr!`;
+    }
+
+    // Call API to persist expense and debt
+    try {
+      showToast(isEn ? 'Saving tab & debts...' : 'Sparar nota & skulder...', 'info');
+      
+      const participantIds = participants.map(p => p.id);
+      const createdExpense = await createTabExpense({
+        title: cleanTitle,
+        notes: customNotes || null,
+        totalAmount,
+        mode: 'roulette',
+        participantIds,
+        loserId: loser.id,
+        receiptImage: receiptBase64
+      });
+
+      // Show completed modal view
+      showModal(`
+        <div class="animate-in text-center" style="max-width: 420px; margin: 0 auto; padding: 10px 0;">
+          <div style="font-size: 3.5rem; margin-bottom: 8px;">${isMeLoser ? '🍻' : '💸'}</div>
+          
+          <span class="badge badge-danger mb-xs" style="font-size: 0.8rem; font-weight: 800; padding: 4px 10px;">
+            🎰 NOT-ROULETTE AVGJORD!
+          </span>
+
+          <h2 class="font-heading" style="color: var(--gold); margin: 8px 0 6px; font-size: 1.4rem;">
+            ${isMeLoser 
+              ? (isEn ? 'You took the tab!' : 'Du åkte på hela notan!') 
+              : (isEn ? `${escapeHtml(loser.name)} pays the tab!` : `${escapeHtml(loser.name)} tar hela notan!`)}
+          </h2>
+
+          <div class="card my-md" style="padding: 14px; background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.3);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); text-transform: uppercase;">
+              ${escapeHtml(cleanTitle)}
+            </div>
+            <div style="font-size: 1.8rem; font-weight: 900; color: var(--gold); margin: 4px 0;">
+              ${totalAmount} kr
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+              ${isMeLoser 
+                ? (isEn ? 'You paid and lost the roulette. Cheers to you!' : 'Du lade ut och förlorade rouletten. Du bjöd hela bordet!') 
+                : (isEn ? `${escapeHtml(loser.name)} is now registered as owing you ${totalAmount} kr in your Swish list!` : `${escapeHtml(loser.name)} är nu skyldig dig ${totalAmount} kr i din Swishlista!`)}
+            </div>
+          </div>
+
+          ${receiptBase64 ? `
+            <div class="mb-md flex align-center justify-center gap-xs" style="font-size: 0.8rem; color: #4ade80;">
+              <span>🧾 ${isEn ? 'Receipt photo saved & attached' : 'Kvittofoto sparat och bifogat'}</span>
+            </div>
+          ` : ''}
+
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-primary btn-block" id="btn-done-goto-swish" style="font-weight: 800; padding: 12px;">
+              📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-done-close" style="padding: 12px;">
+              ${isEn ? 'Done' : 'Klar'}
+            </button>
+          </div>
+        </div>
+      `);
+
+      document.getElementById('btn-done-goto-swish')?.addEventListener('click', () => {
+        closeModal();
+        window.location.hash = '#leaderboard';
+      });
+
+      document.getElementById('btn-done-close')?.addEventListener('click', () => {
+        closeModal();
+      });
+
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  // ── Handle Submit Even Steven ────────────────────────
+  async function handleSubmitEvenSteven() {
+    const participants = getActiveParticipants();
+    if (participants.length < 2 || totalAmount <= 0) return;
+
+    const splitEach = Math.round((totalAmount / participants.length) * 100) / 100;
+    const cleanTitle = (customTitle && customTitle.trim()) ? customTitle.trim() : (isEn ? 'Even Steven' : 'Dela nota');
+
+    const submitBtn = document.getElementById('btn-submit-even-steven');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = isEn ? 'Registering...' : 'Registrerar nota...';
+    }
+
+    try {
+      const participantIds = participants.map(p => p.id);
+      await createTabExpense({
+        title: cleanTitle,
+        notes: customNotes || null,
+        totalAmount,
+        mode: 'even_steven',
+        participantIds,
+        receiptImage: receiptBase64
+      });
+
+      playWinSound();
+      launchConfetti();
+
+      showModal(`
+        <div class="animate-in text-center" style="max-width: 400px; margin: 0 auto; padding: 10px 0;">
+          <div style="font-size: 3.2rem; margin-bottom: 8px;">⚖️</div>
+          
+          <span class="badge badge-primary mb-xs" style="font-size: 0.8rem; font-weight: 800; padding: 4px 10px;">
+            EVEN STEVEN REGISTRERAD!
+          </span>
+
+          <h2 class="font-heading" style="color: #4ade80; margin: 8px 0 6px; font-size: 1.35rem;">
+            ${isEn ? 'Bill Split Evenly!' : 'Notan är delad rakt av!'}
+          </h2>
+
+          <div class="card my-md" style="padding: 14px; background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.3);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #4ade80; text-transform: uppercase;">
+              ${escapeHtml(cleanTitle)}
+            </div>
+            <div style="font-size: 1.8rem; font-weight: 900; color: #4ade80; margin: 4px 0;">
+              ${splitEach} kr <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">/ pers</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+              ${isEn ? `Registered ${participants.length - 1} friend debts in your Swish list.` : `Registrerade ${participants.length - 1} polares skulder i din Swishlista.`}
+            </div>
+          </div>
+
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-primary btn-block" id="btn-even-goto-swish" style="font-weight: 800; padding: 12px; background: #10b981;">
+              📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-even-close" style="padding: 12px;">
+              ${isEn ? 'Done' : 'Klar'}
+            </button>
+          </div>
+        </div>
+      `);
+
+      document.getElementById('btn-even-goto-swish')?.addEventListener('click', () => {
+        closeModal();
+        window.location.hash = '#leaderboard';
+      });
+
+      document.getElementById('btn-even-close')?.addEventListener('click', () => {
+        closeModal();
+      });
+
+    } catch (err) {
+      showToast(err.message, 'error');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = `⚖️ ${isEn ? `SPLIT TAB (${splitEach} kr each)` : `DELA NOTAN (${splitEach} kr var)`}`;
+      }
+    }
+  }
+
+  // Initial render
+  renderModal();
+  if (activeMode === 'roulette') {
+    drawWheel();
+  }
+}
+
 

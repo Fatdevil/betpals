@@ -9,6 +9,7 @@ import {
 import { formatCurrency, showToast, escapeHtml, createSwishUrl } from '../utils.js';
 import { t, getLang } from '../i18n.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
+import { openNotanRouletteModal, openReceiptModal } from '../components/minigames.js';
 
 let activeTab = 'tournaments'; // 'tournaments' | 'swishlist' | 'history'
 let currentTournamentCode = null;
@@ -527,7 +528,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
   container.innerHTML = `
     <div class="animate-in">
       <!-- Balance Hero Cards -->
-      <div class="grid grid-2 gap-sm mb-md">
+      <div class="grid grid-2 gap-sm mb-sm">
         <div class="card text-center" style="padding: 14px; background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.3);">
           <div style="font-size: 0.75rem; font-weight: 700; color: #4ade80; text-transform: uppercase;">
             ${isEn ? 'To Collect' : 'Att Kräva In'}
@@ -546,6 +547,16 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </div>
       </div>
 
+      <!-- Tab Actions: Dela nota / Not-Roulette -->
+      <div class="flex gap-xs mb-md">
+        <button type="button" class="btn btn-primary btn-block" id="btn-swish-split-tab" style="padding: 10px 14px; font-weight: 800; font-size: 0.85rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.25);">
+          ➕ ${isEn ? 'Split Tab (Even Steven)' : 'Dela nota / Krogutlägg'}
+        </button>
+        <button type="button" class="btn btn-secondary" id="btn-swish-roulette" style="padding: 10px 14px; font-weight: 800; font-size: 0.85rem; border-color: rgba(245,158,11,0.4);" title="${isEn ? 'Play Not-Roulette' : 'Kör Not-Roulette'}">
+          🎰 Not-Roulette
+        </button>
+      </div>
+
       <!-- Friends Settlement List -->
       <div class="section-header mb-sm">
         <h3 class="section-title" style="font-size: 0.95rem;">
@@ -556,7 +567,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
       ${friends.length === 0 ? `
         <div class="card text-center text-muted" style="padding: 24px;">
           <p style="margin: 0; font-size: 0.85rem;">
-            ${isEn ? 'No unsettled duels found! Challenge a friend in the Arcade! 🎲' : 'Inga oreglerade dueller! Utmana en kompis i Arkaden! 🎲'}
+            ${isEn ? 'No unsettled duels found! Challenge a friend in the Arcade or split a bill! 🎲' : 'Inga oreglerade dueller! Utmana en kompis i Arkaden eller dela en nota! 🎲'}
           </p>
         </div>
       ` : friends.map(f => {
@@ -568,6 +579,15 @@ function renderSwishlistTab(container, duelSettlement, user) {
           message: 'Betpals Duell'
         }) : '#';
 
+        const hasExpenseReceipt = (f.expenseIds && f.expenseIds.length > 0) || (f.duels && f.duels.some(d => d.expenseId || d.hasReceipt));
+        const firstExpenseId = (f.expenseIds && f.expenseIds[0]) || (f.duels && f.duels.find(d => d.expenseId)?.expenseId);
+        
+        // Find custom titles if any
+        const titles = (f.duels || [])
+          .filter(d => d.customTitle)
+          .map(d => d.customTitle);
+        const uniqueTitles = Array.from(new Set(titles)).slice(0, 2);
+
         return `
           <div class="swish-settlement-item" style="border-left: 3px solid ${owesYou ? '#4ade80' : '#ef4444'};">
             <div>
@@ -578,8 +598,18 @@ function renderSwishlistTab(container, duelSettlement, user) {
                   : (isEn ? `You owe ${absAmount} kr` : `Du ska swisha ${absAmount} kr`)}
                 · ${f.duelsCount || f.duelCount || 1} ${isEn ? 'duels' : 'dueller'}
               </div>
+              ${uniqueTitles.length > 0 ? `
+                <div style="font-size: 0.72rem; color: var(--gold); margin-top: 2px;">
+                  🧾 ${escapeHtml(uniqueTitles.join(' · '))}
+                </div>
+              ` : ''}
             </div>
             <div class="flex align-center gap-xs">
+              ${hasExpenseReceipt && firstExpenseId ? `
+                <button type="button" class="btn btn-secondary btn-xs btn-view-tab-receipt" data-expense-id="${firstExpenseId}" style="padding: 5px 8px; font-size: 0.75rem; border-color: rgba(245,158,11,0.4); color: var(--gold); font-weight: 700;" title="${isEn ? 'View attached receipt' : 'Visa kvitto'}">
+                  🧾 ${isEn ? 'Receipt' : 'Kvitto'}
+                </button>
+              ` : ''}
               ${!owesYou && f.friendSwish ? `
                 <a href="${swishUrl}" target="_blank" class="btn btn-primary btn-xs" style="background: #2ecc71; border: none; font-weight: 700; padding: 5px 8px; font-size: 0.75rem;">
                   📱 ${isEn ? 'Swish' : 'Swisha'} ${absAmount} kr
@@ -604,6 +634,25 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </a>
       </div>
     </div>`;
+
+  // Attach split tab action listeners
+  container.querySelector('#btn-swish-split-tab')?.addEventListener('click', () => {
+    openNotanRouletteModal('even_steven');
+  });
+
+  container.querySelector('#btn-swish-roulette')?.addEventListener('click', () => {
+    openNotanRouletteModal('roulette');
+  });
+
+  // Attach receipt modal viewer listener
+  container.querySelectorAll('.btn-view-tab-receipt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const expenseId = btn.getAttribute('data-expense-id');
+      if (expenseId) {
+        openReceiptModal(expenseId);
+      }
+    });
+  });
 
   // Attach friend settle listener
   container.querySelectorAll('.btn-settle-duel-friend').forEach(btn => {

@@ -446,6 +446,15 @@ export const sv = {
     pushEnableBtn: '🔔 Aktivera Pushnotiser',
     pushEnabledBadge: '🔔 Pushnotiser aktiva',
     pushEnablePrompt: 'Få en notis i mobilen när vänner startar ett BlixtBet!',
-    pushIOSNotice: '💡 På iPhone: Tryck på Dela-knappen och välj "Lägg till på hemskärmen" för att få notiser när appen är stängd.'
+    pushIOSNotice: '💡 På iPhone: Tryck på Dela-knappen och välj "Lägg till på hemskärmen" för att få notiser när appen är stängd.',
+    notanRoulette: 'Not-Roulette',
+    notanRouletteTag: 'Vem tar notan?',
+    notanRouletteTitle: '🎰 Not-Roulette & Even Steven',
+    notanRouletteDesc: 'Låt slumpen avgöra vem som tar hela krognotan, eller dela den rättvist med Even Steven!',
+    evenSteven: 'Even Steven',
+    evenStevenBtn: '⚖️ Even Steven (Splitta rakt)',
+    takeTheTab: '🎰 Kör Not-Roulette!',
+    viewReceipt: '🧾 Kvitto',
+    addExpenseBtn: '➕ Dela nota / Krogutlägg'
   }
 };

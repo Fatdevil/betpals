@@ -235,4 +235,9 @@ export const settleFlashBet = (id, winningChoice) => request('/flashbets/' + id 
 export const getNotificationPrefs = () => request('/users/notification-prefs');
 export const updateNotificationPrefs = (prefs) => request('/users/notification-prefs', { method: 'PUT', body: prefs });
 
+// ── Tab Expenses & Not-Roulette ──────────────────────
+export const createTabExpense = (data) => request('/tab/expenses', { method: 'POST', body: data });
+export const getMyTabExpenses = () => request('/tab/expenses/my');
+export const getTabExpense = (id) => request('/tab/expenses/' + id);
+
 

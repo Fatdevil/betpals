@@ -2538,6 +2538,107 @@ app.post('/api/flashbets/:id/settle', (req, res) => {
   }
 });
 
+// ── Tab Expenses & Not-Roulette Routes ────────────────
+app.post('/api/tab/expenses', async (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { title, notes, totalAmount, mode, participantIds, loserId, receiptImage } = req.body || {};
+
+  try {
+    const expense = db.createTabExpense({
+      payerId: user.id,
+      title,
+      notes,
+      totalAmount,
+      mode,
+      participantIds: Array.isArray(participantIds) ? participantIds : [],
+      loserId,
+      receiptImage
+    });
+
+    const payerName = user.real_name || user.nickname || 'En vän';
+    const cleanTitle = expense.title;
+    const amount = expense.total_amount;
+
+    // Send push notifications (category: 'duels')
+    if (expense.mode === 'roulette') {
+      const actualLoserId = expense.loser_id;
+      if (actualLoserId && actualLoserId !== user.id) {
+        // Loser push
+        sendPushToUsers([actualLoserId], {
+          title: `💸 Du tog notan!`,
+          body: `Du förlorade Not-Rouletten! Du är skyldig ${payerName} ${amount} kr för "${cleanTitle}".`,
+          url: '/#leaderboard'
+        }, 'duels').catch(() => {});
+
+        // Other participants
+        const otherParticipants = (expense.participants || [])
+          .map(p => p.user_id)
+          .filter(uid => uid !== user.id && uid !== actualLoserId);
+
+        if (otherParticipants.length > 0) {
+          const loserObj = expense.participants?.find(p => p.user_id === actualLoserId);
+          const loserName = loserObj?.real_name || loserObj?.nickname || 'Någon';
+          sendPushToUsers(otherParticipants, {
+            title: `🎉 Du klarade dig!`,
+            body: `${loserName} tog hela notan på ${amount} kr för "${cleanTitle}".`,
+            url: '/#leaderboard'
+          }, 'duels').catch(() => {});
+        }
+      } else if (actualLoserId === user.id) {
+        // Payer lost their own roulette!
+        const others = (expense.participants || [])
+          .map(p => p.user_id)
+          .filter(uid => uid !== user.id);
+        if (others.length > 0) {
+          sendPushToUsers(others, {
+            title: `🍻 Bjudrunda!`,
+            body: `${payerName} förlorade Not-Rouletten och bjuder alla på "${cleanTitle}" (${amount} kr)!`,
+            url: '/#leaderboard'
+          }, 'duels').catch(() => {});
+        }
+      }
+    } else {
+      // Even Steven
+      const splitAmount = expense.participants?.[0]?.amount || Math.round((amount / (expense.participants?.length || 1)) * 100) / 100;
+      const otherParticipants = (expense.participants || [])
+        .map(p => p.user_id)
+        .filter(uid => uid !== user.id);
+
+      if (otherParticipants.length > 0) {
+        sendPushToUsers(otherParticipants, {
+          title: `🧾 Ny nota delad (${splitAmount} kr)`,
+          body: `${payerName} har delat "${cleanTitle}". Kvitto finns i Swishlistan.`,
+          url: '/#leaderboard'
+        }, 'duels').catch(() => {});
+      }
+    }
+
+    res.json(expense);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/tab/expenses/my', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const expenses = db.getTabExpensesForUser(user.id);
+  res.json(expenses);
+});
+
+app.get('/api/tab/expenses/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const expense = db.getTabExpenseById(req.params.id);
+  if (!expense) return res.status(404).json({ error: 'Kvitto / nota hittades inte' });
+
+  res.json(expense);
+});
+
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';
 const indexHtml = path.join(distPath, 'index.html');
