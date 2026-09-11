@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
+import webpush from 'web-push';
 import * as db from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -206,6 +207,58 @@ function broadcastToParty(partyId, message, excludeWs = null) {
   }
 }
 
+function broadcastGlobal(message) {
+  const data = JSON.stringify(message);
+  for (const client of wss.clients) {
+    if (client.readyState === 1) {
+      try { client.send(data); } catch {}
+    }
+  }
+}
+
+// ── Web Push Setup (VAPID) ───────────────────────────
+let vapidPublicKey = db.getSetting('vapid_public_key');
+let vapidPrivateKey = db.getSetting('vapid_private_key');
+
+if (!vapidPublicKey || !vapidPrivateKey) {
+  const generated = webpush.generateVAPIDKeys();
+  vapidPublicKey = generated.publicKey;
+  vapidPrivateKey = generated.privateKey;
+  db.setSetting('vapid_public_key', vapidPublicKey);
+  db.setSetting('vapid_private_key', vapidPrivateKey);
+}
+
+webpush.setVapidDetails(
+  'mailto:support@betpals.se',
+  vapidPublicKey,
+  vapidPrivateKey
+);
+
+async function sendPushToUsers(userIds, payload) {
+  if (!userIds || userIds.length === 0) return;
+  const subscriptions = db.getPushSubscriptionsForUsers(userIds);
+  if (!subscriptions || subscriptions.length === 0) return;
+
+  const jsonPayload = JSON.stringify(payload);
+
+  for (const sub of subscriptions) {
+    const pushSub = {
+      endpoint: sub.endpoint,
+      keys: {
+        p256dh: sub.p256dh,
+        auth: sub.auth
+      }
+    };
+    try {
+      await webpush.sendNotification(pushSub, jsonPayload);
+    } catch (err) {
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        db.deletePushSubscriptionByEndpoint(sub.endpoint);
+      }
+    }
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────
 function generateId() {
   return crypto.randomBytes(8).toString('hex');
@@ -226,7 +279,13 @@ function verifyPin(pin) {
 
 // Get user from request token
 function getUserFromToken(req) {
-  const token = req.headers['x-user-token'];
+  let token = req.headers['x-user-token'];
+  if (!token && req.headers['authorization']) {
+    const parts = req.headers['authorization'].split(' ');
+    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+      token = parts[1];
+    }
+  }
   if (!token) return null;
   return db.getUserByToken(token);
 }
@@ -2237,6 +2296,161 @@ app.post('/api/anybets/:id/settle', (req, res) => {
   }
 });
 
+// ── Web Push API Endpoints ───────────────────────────
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapidPublicKey });
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+  const sub = req.body?.subscription || req.body || {};
+  const { endpoint, keys } = sub;
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Ogiltiga push-uppgifter' });
+  }
+  const id = generateId();
+  db.savePushSubscription(id, user.id, endpoint, keys.p256dh, keys.auth);
+  res.json({ ok: true });
+});
+
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  if (endpoint) {
+    db.deletePushSubscriptionByEndpoint(endpoint);
+  }
+  res.json({ ok: true });
+});
+
+// ── Flash Bets (BlixtBet) API Endpoints ───────────────
+app.post('/api/flashbets', async (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Du måste vara inloggad för att starta ett BlixtBet' });
+  if (!user.swish_number) {
+    return res.status(400).json({ error: 'Du behöver ange ett Swish-nummer i din profil innan du kan starta ett BlixtBet' });
+  }
+
+  const { question, title, durationSeconds, stakeAmount, stake: rawStake, tournamentId, initialChoice, myChoice } = req.body || {};
+  const finalQuestion = (question || title || '').trim();
+  if (!finalQuestion || finalQuestion.length < 3) {
+    return res.status(400).json({ error: 'Ange en fråga (minst 3 tecken)' });
+  }
+
+  const duration = Math.max(1, Math.min(600, Number(durationSeconds) || 60));
+  const stake = Math.max(5, Math.min(5000, Number(stakeAmount || rawStake) || 20));
+  const choice = initialChoice || myChoice;
+  const expiresAt = new Date(Date.now() + duration * 1000).toISOString();
+
+  const id = generateId();
+  db.createFlashBet(id, user.id, tournamentId, finalQuestion, duration, expiresAt, stake);
+
+  if (choice === 'yes' || choice === 'no') {
+    const entryId = generateId();
+    db.placeFlashBetEntry(entryId, id, user.id, choice, stake);
+  }
+
+  const created = db.getFlashBet(id, user.id);
+
+  // Broadcast WebSocket event
+  broadcastGlobal({
+    type: 'flash_bet_created',
+    flashBet: created
+  });
+
+  // Target users for Web Push
+  let targetUserIds = [];
+  try {
+    const friends = db.getFriends(user.id);
+    targetUserIds = friends.map(f => f.id);
+    if (tournamentId) {
+      const t = db.getFullTournament(tournamentId);
+      if (t && t.creatorId && !targetUserIds.includes(t.creatorId)) {
+        targetUserIds.push(t.creatorId);
+      }
+    }
+  } catch {}
+
+  sendPushToUsers(targetUserIds, {
+    title: `⚡ BLIXTBET (${duration}s kvar!)`,
+    body: `${user.real_name || user.nickname}: "${finalQuestion}"`,
+    url: tournamentId ? `/#tournament/${tournamentId}` : `/#arcade`
+  }).catch(() => {});
+
+  res.json(created);
+});
+
+app.get('/api/flashbets/active', (req, res) => {
+  const user = getUserFromToken(req);
+  res.json(db.getActiveFlashBets(user ? user.id : null));
+});
+
+app.get('/api/flashbets/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  const fb = db.getFlashBet(req.params.id, user ? user.id : null);
+  if (!fb) return res.status(404).json({ error: 'BlixtBet hittades inte' });
+  res.json(fb);
+});
+
+app.post('/api/flashbets/:id/bet', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Du måste vara inloggad för att rösta' });
+  if (!user.swish_number) {
+    return res.status(400).json({ error: 'Du behöver ange ett Swish-nummer i din profil innan du kan rösta' });
+  }
+
+  const { choice } = req.body || {};
+  if (choice !== 'yes' && choice !== 'no') {
+    return res.status(400).json({ error: 'Välj JA eller NEJ' });
+  }
+
+  const fb = db.getFlashBet(req.params.id);
+  if (!fb) return res.status(404).json({ error: 'BlixtBet hittades inte' });
+
+  try {
+    const entryId = generateId();
+    const updated = db.placeFlashBetEntry(entryId, fb.id, user.id, choice, fb.stakeAmount);
+
+    broadcastGlobal({
+      type: 'flash_bet_updated',
+      flashBet: updated
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/flashbets/:id/settle', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+
+  const winnerChoice = req.body?.winningChoice || req.body?.winner;
+  if (winnerChoice !== 'yes' && winnerChoice !== 'no') {
+    return res.status(400).json({ error: 'Välj om JA eller NEJ vann' });
+  }
+
+  try {
+    const settled = db.settleFlashBet(req.params.id, winnerChoice, user.id);
+
+    broadcastGlobal({
+      type: 'flash_bet_settled',
+      flashBet: settled
+    });
+
+    const participantUserIds = settled.entries.map(e => e.userId).filter(uid => uid !== user.id);
+    sendPushToUsers(participantUserIds, {
+      title: `🏁 BlixtBet avgjort!`,
+      body: `"${settled.question}" vanns av ${winnerChoice === 'yes' ? '👍 JA' : '👎 NEJ'}!`,
+      url: settled.tournamentId ? `/#tournament/${settled.tournamentId}` : `/#arcade`
+    }).catch(() => {});
+
+    res.json(settled);
+  } catch (err) {
+    const isForbidden = err.message.includes('skaparen');
+    res.status(isForbidden ? 403 : 400).json({ error: err.message });
+  }
+});
 
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';

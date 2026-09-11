@@ -219,3 +219,16 @@ export const getAnyBet = (id) => request('/anybets/' + id);
 export const joinAnyBet = (id, choice) => request('/anybets/' + id + '/join', { method: 'POST', body: { choice } });
 export const settleAnyBet = (id, data) => request('/anybets/' + id + '/settle', { method: 'POST', body: data });
 
+// ── Web Push API ──────────────────────────────────────
+export const getVapidPublicKey = () => request('/push/vapid-public-key');
+export const subscribePush = (data) => request('/push/subscribe', { method: 'POST', body: data });
+export const unsubscribePush = (data) => request('/push/unsubscribe', { method: 'POST', body: data });
+
+// ── BlixtBet (FlashBet) ──────────────────────────────
+export const createFlashBet = (data) => request('/flashbets', { method: 'POST', body: data });
+export const getActiveFlashBets = () => request('/flashbets/active');
+export const getFlashBet = (id) => request('/flashbets/' + id);
+export const placeFlashBet = (id, choice) => request('/flashbets/' + id + '/bet', { method: 'POST', body: { choice } });
+export const settleFlashBet = (id, winningChoice) => request('/flashbets/' + id + '/settle', { method: 'POST', body: { winningChoice } });
+
+

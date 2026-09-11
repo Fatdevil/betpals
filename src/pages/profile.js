@@ -5,6 +5,7 @@ import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, e
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
+import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush } from '../push.js';
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -314,6 +315,10 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
   const hasBiometric = isWebAuthnSupported();
   const isBiometricActive = creds?.hasBiometric || false;
 
+  const pushSupported = isPushSupported();
+  const pushPerm = pushSupported ? getPushPermissionState() : 'unsupported';
+  const isPushActive = pushSupported && pushPerm === 'granted';
+
   content.innerHTML = `
     <div class="animate-in">
       <div class="page-header">
@@ -438,6 +443,41 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
             <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-change-pin" style="flex: 1;">Avbryt</button>
           </div>
         </form>
+      </div>
+
+      <!-- Web Push Notifications Card -->
+      <div class="card mt-md" id="push-notifications-card">
+        <div class="flex-between" style="align-items: center; margin-bottom: var(--space-sm);">
+          <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 6px;">
+            <span>🔔</span> <span>Pushnotiser (Web Push)</span>
+          </div>
+          ${!pushSupported 
+            ? `<span class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted); font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">Ej stödd</span>`
+            : isPushActive
+              ? `<span class="badge badge-success" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">🔔 Aktiv</span>`
+              : pushPerm === 'denied'
+                ? `<span class="badge badge-danger" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">Blockerad</span>`
+                : `<span class="badge badge-warning" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">Inaktiv</span>`
+          }
+        </div>
+
+        <p class="text-muted" style="font-size: 0.8rem; line-height: 1.4; margin-bottom: var(--space-sm);">
+          Få realtidsnotiser i mobilen när någon startar ett <strong>⚡ BlixtBet</strong> eller utmanar dig på duell – även när appen är stängd!
+        </p>
+
+        ${pushSupported ? `
+          <button type="button" class="btn ${isPushActive ? 'btn-secondary' : 'btn-primary'} btn-sm btn-block" id="btn-toggle-push" style="${!isPushActive ? 'background: linear-gradient(135deg, var(--gold), #e67e22); border: none; font-weight: 700;' : ''}">
+            ${isPushActive ? '🔕 Inaktivera pushnotiser på denna enhet' : '🔔 Aktivera pushnotiser nu'}
+          </button>
+        ` : `
+          <div class="badge badge-warning" style="font-size: 0.75rem; padding: 6px 10px; width: 100%; text-align: center;">
+            ⚠️ Web Push stöds inte i denna webbläsare
+          </div>
+        `}
+
+        <div style="margin-top: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border: 1px solid var(--border-glass); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.35;">
+          💡 <strong>Tips för iPhone / iPad (iOS 16.4+):</strong> Tryck på Dela-knappen i Safari (fyrkanten med pil uppåt) och välj <em>"Lägg till på hemskärmen"</em>. Öppna sedan appen från hemskärmen och slå på notiser här!
+        </div>
       </div>
 
       <!-- Edit profile details -->
@@ -614,6 +654,27 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
       changePinForm.style.display = 'none';
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  });
+
+  // Push Notification Toggle
+  document.getElementById('btn-toggle-push')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-toggle-push');
+    btn.disabled = true;
+    btn.textContent = 'Bearbetar...';
+    try {
+      if (isPushActive) {
+        await unsubscribeFromPush();
+        showToast('🔕 Pushnotiser inaktiverade på denna enhet', 'info');
+      } else {
+        await subscribeToPush();
+        showToast('🔔 Pushnotiser aktiverade! Du får nu blixtsnabba notiser.', 'success');
+      }
+      renderProfile();
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = isPushActive ? '🔕 Inaktivera pushnotiser' : '🔔 Aktivera pushnotiser nu';
     }
   });
 

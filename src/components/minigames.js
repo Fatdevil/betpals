@@ -21,8 +21,15 @@ import {
   getAnyBets,
   getAnyBet,
   joinAnyBet,
-  settleAnyBet
+  settleAnyBet,
+  createFlashBet,
+  getActiveFlashBets,
+  getFlashBet,
+  placeFlashBet,
+  settleFlashBet,
+  getTournaments
 } from '../api.js';
+import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
 
@@ -133,12 +140,19 @@ export function renderMinigamesRoller() {
       tag: t('arcade.anybetTag'),
       title: t('arcade.anybetTitle'),
       iconHtml: `<img src="/handshake-gold.png" alt="${t('arcade.anybet')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'flashbet',
+      name: t('arcade.flashbet'),
+      tag: t('arcade.flashbetTag'),
+      title: t('arcade.flashbetTitle'),
+      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.8));">⚡</span>`
     }
   ];
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' || g.id === 'anybet' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' || g.id === 'anybet' || g.id === 'flashbet' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -202,6 +216,7 @@ export function attachMinigamesListeners() {
       else if (game === 'dice') openDiceModal();
       else if (game === 'blind10') openBlind10Modal();
       else if (game === 'anybet') openAnyBetModal();
+      else if (game === 'flashbet') openFlashBetModal();
     });
   }
 
@@ -4177,3 +4192,423 @@ function showIncomingDuelModal(duel) {
     }
   });
 }
+
+// ── ⚡ BLIXTBET (FLASHBET) MODAL & LOGIC ──────────────────
+let flashBetTimerInterval = null;
+
+export async function openFlashBetModal(initialFlashBetId = null, defaultTournamentId = null) {
+  const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+  let activeTab = initialFlashBetId ? 'active' : 'active';
+  let countdowns = new Map(); // id -> secondsLeft
+
+  function cleanupTimer() {
+    if (flashBetTimerInterval) {
+      clearInterval(flashBetTimerInterval);
+      flashBetTimerInterval = null;
+    }
+  }
+
+  showModal(`⚡ ${t('arcade.flashbet')}`, `
+    <div id="flashbet-container" style="padding: 2px 0; min-height: 380px;">
+      <!-- Push Permission Banner if not enabled -->
+      ${isPushSupported() && getPushPermissionState() !== 'granted' ? `
+        <div id="flashbet-push-banner" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 12px; background: rgba(245, 166, 35, 0.12); border: 1px solid var(--gold); border-radius: var(--radius-md);">
+          <div style="font-size: 0.78rem; line-height: 1.3;">
+            🔔 <strong>${t('arcade.pushEnablePrompt')}</strong>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-flashbet-enable-push" style="flex-shrink: 0; padding: 4px 10px; font-size: 0.75rem;">
+            ${t('arcade.pushEnableBtn')}
+          </button>
+        </div>
+      ` : ''}
+
+      <!-- Nav Tabs -->
+      <div class="tab-nav mb-md" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button type="button" class="btn ${activeTab === 'active' ? 'btn-primary' : 'btn-secondary'} btn-sm" id="tab-flashbet-active" style="font-weight: 700;">
+          ${t('arcade.flashbetActiveTitle')}
+        </button>
+        <button type="button" class="btn ${activeTab === 'create' ? 'btn-primary' : 'btn-secondary'} btn-sm" id="tab-flashbet-create" style="font-weight: 700;">
+          ➕ ${t('arcade.flashbetCreateBtn')}
+        </button>
+      </div>
+
+      <div id="flashbet-tab-content"></div>
+    </div>
+  `);
+
+  // Wire push enable button
+  document.getElementById('btn-flashbet-enable-push')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-flashbet-enable-push');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+      await subscribeToPush();
+      showToast('🔔 Pushnotiser aktiverade!', 'success');
+      document.getElementById('flashbet-push-banner')?.remove();
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = t('arcade.pushEnableBtn');
+    }
+  });
+
+  const tabContent = document.getElementById('flashbet-tab-content');
+
+  document.getElementById('tab-flashbet-active')?.addEventListener('click', () => {
+    activeTab = 'active';
+    updateTabs();
+    renderActiveTab();
+  });
+
+  document.getElementById('tab-flashbet-create')?.addEventListener('click', () => {
+    activeTab = 'create';
+    updateTabs();
+    renderCreateTab();
+  });
+
+  function updateTabs() {
+    const btnActive = document.getElementById('tab-flashbet-active');
+    const btnCreate = document.getElementById('tab-flashbet-create');
+    if (activeTab === 'active') {
+      btnActive.className = 'btn btn-primary btn-sm';
+      btnCreate.className = 'btn btn-secondary btn-sm';
+    } else {
+      btnActive.className = 'btn btn-secondary btn-sm';
+      btnCreate.className = 'btn btn-primary btn-sm';
+    }
+  }
+
+  // ── Render Active Tab ──────────────────────────────
+  async function renderActiveTab() {
+    cleanupTimer();
+    tabContent.innerHTML = `<div class="text-center text-muted" style="padding: 30px;">Laddar BlixtBets... ⚡</div>`;
+
+    try {
+      const flashBets = await getActiveFlashBets();
+      countdowns.clear();
+
+      if (!flashBets || flashBets.length === 0) {
+        tabContent.innerHTML = `
+          <div class="card text-center" style="padding: 30px 16px;">
+            <div style="font-size: 2.8rem; margin-bottom: 8px;">⚡</div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">${t('arcade.flashbet')}</h3>
+            <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px; max-width: 280px; margin-left: auto; margin-right: auto;">
+              ${t('arcade.flashbetNoActive')}
+            </p>
+            <button type="button" class="btn btn-primary btn-block" id="btn-empty-start-flashbet">
+              ⚡ ${t('arcade.flashbetCreateBtn')}
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-empty-start-flashbet')?.addEventListener('click', () => {
+          activeTab = 'create';
+          updateTabs();
+          renderCreateTab();
+        });
+        return;
+      }
+
+      flashBets.forEach(fb => {
+        countdowns.set(fb.id, fb.secondsLeft);
+      });
+
+      tabContent.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          ${flashBets.map(fb => renderFlashBetCard(fb)).join('')}
+        </div>
+      `;
+
+      attachActiveCardHandlers();
+      startCountdownLoop();
+    } catch (err) {
+      tabContent.innerHTML = `<div class="text-red text-center" style="padding: 20px;">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderFlashBetCard(fb) {
+    const isCreator = currentUser && fb.creatorId === currentUser.id;
+    const hasVoted = !!fb.myEntry;
+    const seconds = countdowns.get(fb.id) ?? fb.secondsLeft;
+    const isExpired = seconds <= 0 || fb.status !== 'open';
+
+    const formatSeconds = (s) => {
+      const m = Math.floor(s / 60);
+      const rem = s % 60;
+      return `${m}:${rem < 10 ? '0' : ''}${rem}`;
+    };
+
+    return `
+      <div class="card flashbet-card" data-fb-id="${fb.id}" style="border: 1.5px solid ${isExpired ? 'var(--border-light)' : 'var(--gold)'}; background: var(--bg-card); position: relative; overflow: hidden; padding: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.3rem;">${escapeHtml(fb.creatorAvatar || '👤')}</span>
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem;">${escapeHtml(fb.creatorRealName || fb.creatorNickname)}</div>
+              <div style="font-size: 0.7rem; color: var(--text-muted);">Insats: <strong>${fb.stakeAmount} kr</strong></div>
+            </div>
+          </div>
+          <div class="flashbet-timer-badge" id="timer-${fb.id}" style="padding: 4px 10px; border-radius: var(--radius-full); font-size: 0.82rem; font-weight: 800; font-family: monospace; letter-spacing: 0.05em; background: ${seconds <= 15 ? 'rgba(231,76,60,0.2)' : 'rgba(245,166,35,0.15)'}; color: ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'}; border: 1px solid ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'};">
+            ⏱️ ${formatSeconds(seconds)}
+          </div>
+        </div>
+
+        <div style="font-size: 1.1rem; font-weight: 800; line-height: 1.3; margin-bottom: 12px; color: var(--text-primary);">
+          "${escapeHtml(fb.question)}"
+        </div>
+
+        <!-- Votes & Pool Bar -->
+        <div style="margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 700; margin-bottom: 4px;">
+            <span style="color: #2ecc71;">👍 JA: ${fb.yesCount}</span>
+            <span style="color: var(--text-muted);">Pott: ${fb.totalPool} kr</span>
+            <span style="color: #e74c3c;">👎 NEJ: ${fb.noCount}</span>
+          </div>
+          <div style="height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; display: flex;">
+            <div style="height: 100%; width: ${fb.entriesCount > 0 ? (fb.yesCount / fb.entriesCount * 100) : 50}%; background: #2ecc71; transition: width 0.3s;"></div>
+            <div style="height: 100%; width: ${fb.entriesCount > 0 ? (fb.noCount / fb.entriesCount * 100) : 50}%; background: #e74c3c; transition: width 0.3s;"></div>
+          </div>
+        </div>
+
+        <!-- User Voting Controls -->
+        ${hasVoted ? `
+          <div style="padding: 10px; border-radius: var(--radius-md); background: rgba(255,255,255,0.04); text-align: center; font-size: 0.85rem; font-weight: 700;">
+            ${fb.myEntry.choice === 'yes' ? '✅ Du röstade: <span style="color: #2ecc71;">👍 JA</span>' : '✅ Du röstade: <span style="color: #e74c3c;">👎 NEJ</span>'}
+          </div>
+        ` : !isExpired ? `
+          <div class="flex gap-sm" style="margin-top: 6px;">
+            <button type="button" class="btn btn-block flashbet-vote-btn" data-fb-id="${fb.id}" data-choice="yes" style="flex: 1; padding: 10px; background: rgba(46,204,113,0.15); border: 1.5px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 0.95rem;">
+              👍 JA (${fb.stakeAmount} kr)
+            </button>
+            <button type="button" class="btn btn-block flashbet-vote-btn" data-fb-id="${fb.id}" data-choice="no" style="flex: 1; padding: 10px; background: rgba(231,76,60,0.15); border: 1.5px solid #e74c3c; color: #e74c3c; font-weight: 800; font-size: 0.95rem;">
+              👎 NEJ (${fb.stakeAmount} kr)
+            </button>
+          </div>
+        ` : `
+          <div style="padding: 8px; text-align: center; font-size: 0.8rem; color: var(--text-muted); background: rgba(255,255,255,0.02); border-radius: var(--radius-sm);">
+            ${t('arcade.flashbetTimeExpired')}
+          </div>
+        `}
+
+        <!-- Settle Controls (Only for creator) -->
+        ${isCreator && fb.status !== 'settled' ? `
+          <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-glass);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 6px; text-align: center;">
+              ⚖️ ${t('arcade.flashbetSettlePrompt')}
+            </div>
+            <div class="flex gap-xs">
+              <button type="button" class="btn btn-sm flashbet-settle-btn" data-fb-id="${fb.id}" data-winner="yes" style="flex: 1; background: #2ecc71; color: #000; font-weight: 700; padding: 6px;">
+                ${t('arcade.flashbetSettleYes')}
+              </button>
+              <button type="button" class="btn btn-sm flashbet-settle-btn" data-fb-id="${fb.id}" data-winner="no" style="flex: 1; background: #e74c3c; color: #fff; font-weight: 700; padding: 6px;">
+                ${t('arcade.flashbetSettleNo')}
+              </button>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function startCountdownLoop() {
+    flashBetTimerInterval = setInterval(() => {
+      let anyOpen = false;
+      for (const [id, seconds] of countdowns.entries()) {
+        const next = Math.max(0, seconds - 1);
+        countdowns.set(id, next);
+        if (next > 0) anyOpen = true;
+
+        const badge = document.getElementById(`timer-${id}`);
+        if (badge) {
+          const m = Math.floor(next / 60);
+          const rem = next % 60;
+          badge.textContent = `⏱️ ${m}:${rem < 10 ? '0' : ''}${rem}`;
+          if (next <= 15) {
+            badge.style.background = 'rgba(231,76,60,0.2)';
+            badge.style.color = '#e74c3c';
+            badge.style.borderColor = '#e74c3c';
+          }
+          if (next === 0) {
+            badge.textContent = '⏱️ STÄNGT';
+            badge.style.opacity = '0.7';
+            // Disable voting buttons
+            document.querySelectorAll(`.flashbet-vote-btn[data-fb-id="${id}"]`).forEach(b => {
+              b.disabled = true;
+              b.style.opacity = '0.5';
+            });
+          }
+        }
+      }
+      if (!anyOpen) cleanupTimer();
+    }, 1000);
+  }
+
+  function attachActiveCardHandlers() {
+    // Voting
+    document.querySelectorAll('.flashbet-vote-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fbId = btn.dataset.fbId;
+        const choice = btn.dataset.choice;
+        btn.disabled = true;
+        btn.textContent = '...';
+
+        try {
+          await placeFlashBet(fbId, choice);
+          showToast(choice === 'yes' ? '👍 Röst lagd på JA!' : '👎 Röst lagd på NEJ!', 'success');
+          renderActiveTab();
+        } catch (err) {
+          showToast(err.message, 'error');
+          renderActiveTab();
+        }
+      });
+    });
+
+    // Settling
+    document.querySelectorAll('.flashbet-settle-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fbId = btn.dataset.fbId;
+        const winner = btn.dataset.winner;
+        if (!confirm(`Är du säker på att ${winner === 'yes' ? 'JA' : 'NEJ'} vann? Vinsterna fördelas direkt!`)) return;
+
+        btn.disabled = true;
+        try {
+          await settleFlashBet(fbId, winner);
+          launchConfetti();
+          showToast(`🏁 BlixtBet avgjort! ${winner === 'yes' ? 'JA' : 'NEJ'} vann!`, 'success');
+          renderActiveTab();
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  // ── Render Create Tab ──────────────────────────────
+  async function renderCreateTab() {
+    cleanupTimer();
+    let selectedDuration = 60;
+    let selectedStake = 20;
+    let selectedMyChoice = 'yes';
+    let tournaments = [];
+
+    try {
+      tournaments = await getTournaments().catch(() => []);
+    } catch {}
+
+    tabContent.innerHTML = `
+      <form id="create-flashbet-form" style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="form-group mb-xs">
+          <label class="form-label" style="font-weight: 700; font-size: 0.85rem;">⚡ Vad gäller bettet?</label>
+          <input type="text" class="form-input" id="fb-question-input" placeholder="${t('arcade.flashbetQuestionPlaceholder')}" required maxlength="120" style="padding: 10px 12px; font-weight: 700; font-size: 0.95rem;" />
+        </div>
+
+        <!-- Duration Picker -->
+        <div class="form-group mb-xs">
+          <label class="form-label" style="font-size: 0.8rem;">⏱️ ${t('arcade.flashbetDurationLabel')}</label>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+            <button type="button" class="btn btn-sm fb-duration-btn" data-sec="30" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">30s</button>
+            <button type="button" class="btn btn-sm btn-primary fb-duration-btn" data-sec="60" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">60s</button>
+            <button type="button" class="btn btn-sm fb-duration-btn" data-sec="120" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">2 min</button>
+            <button type="button" class="btn btn-sm fb-duration-btn" data-sec="300" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">5 min</button>
+          </div>
+        </div>
+
+        <!-- Stake Picker -->
+        <div class="form-group mb-xs">
+          <label class="form-label" style="font-size: 0.8rem;">💰 ${t('arcade.flashbetStakeLabel')}</label>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+            <button type="button" class="btn btn-sm fb-stake-btn" data-stake="10" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">10 kr</button>
+            <button type="button" class="btn btn-sm btn-primary fb-stake-btn" data-stake="20" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">20 kr</button>
+            <button type="button" class="btn btn-sm fb-stake-btn" data-stake="50" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">50 kr</button>
+            <button type="button" class="btn btn-sm fb-stake-btn" data-stake="100" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">100 kr</button>
+          </div>
+        </div>
+
+        <!-- Creator's Own Choice -->
+        <div class="form-group mb-xs">
+          <label class="form-label" style="font-size: 0.8rem;">🎯 Ditt eget val direkt:</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button type="button" class="btn btn-sm fb-choice-btn btn-primary" data-choice="yes" style="padding: 8px; font-weight: 800; font-size: 0.88rem;">👍 JA</button>
+            <button type="button" class="btn btn-sm fb-choice-btn btn-secondary" data-choice="no" style="padding: 8px; font-weight: 800; font-size: 0.88rem;">👎 NEJ</button>
+          </div>
+        </div>
+
+        <!-- Optional Tournament Link -->
+        ${tournaments && tournaments.length > 0 ? `
+          <div class="form-group mb-xs">
+            <label class="form-label" style="font-size: 0.8rem;">🏆 ${t('arcade.flashbetTournamentLink')}</label>
+            <select class="form-input" id="fb-tournament-select" style="font-size: 0.85rem; padding: 8px 10px;">
+              <option value="">— Fristående (Arcade / Vänner) —</option>
+              ${tournaments.map(t => `<option value="${t.id}" ${defaultTournamentId === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
+
+        <button type="submit" class="btn btn-primary btn-block mt-xs" id="btn-submit-flashbet" style="padding: 12px; font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, var(--gold), #e67e22); border: none;">
+          ⚡ Starta BlixtBet & Skicka Notis!
+        </button>
+      </form>
+    `;
+
+    // Duration buttons
+    document.querySelectorAll('.fb-duration-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.fb-duration-btn').forEach(b => b.className = 'btn btn-sm fb-duration-btn');
+        btn.className = 'btn btn-sm btn-primary fb-duration-btn';
+        selectedDuration = Number(btn.dataset.sec);
+      });
+    });
+
+    // Stake buttons
+    document.querySelectorAll('.fb-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.fb-stake-btn').forEach(b => b.className = 'btn btn-sm fb-stake-btn');
+        btn.className = 'btn btn-sm btn-primary fb-stake-btn';
+        selectedStake = Number(btn.dataset.stake);
+      });
+    });
+
+    // Creator choice buttons
+    document.querySelectorAll('.fb-choice-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.fb-choice-btn').forEach(b => b.className = 'btn btn-sm fb-choice-btn btn-secondary');
+        btn.className = 'btn btn-sm fb-choice-btn btn-primary';
+        selectedMyChoice = btn.dataset.choice;
+      });
+    });
+
+    // Form submit
+    document.getElementById('create-flashbet-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const question = document.getElementById('fb-question-input').value.trim();
+      const tournamentId = document.getElementById('fb-tournament-select')?.value || defaultTournamentId || null;
+      const submitBtn = document.getElementById('btn-submit-flashbet');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Skapar BlixtBet... ⚡';
+
+      try {
+        await createFlashBet({
+          question,
+          durationSeconds: selectedDuration,
+          stakeAmount: selectedStake,
+          tournamentId,
+          initialChoice: selectedMyChoice
+        });
+
+        showToast('⚡ BlixtBet startat! Klockan tickar!', 'success');
+        activeTab = 'active';
+        updateTabs();
+        renderActiveTab();
+      } catch (err) {
+        showToast(err.message, 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = '⚡ Starta BlixtBet & Skicka Notis!';
+      }
+    });
+  }
+
+  // Initial render
+  renderActiveTab();
+}
+

@@ -19,6 +19,7 @@
     "express": "^5.2.1",
     "google-auth-library": "^10.6.2",
     "qrcode": "^1.5.4",
+    "web-push": "^3.6.7",
     "ws": "^8.19.0"
   },
   "engines": {

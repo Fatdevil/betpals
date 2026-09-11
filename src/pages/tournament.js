@@ -1,7 +1,8 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
 import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
+import { openFlashBetModal } from '../components/minigames.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 
@@ -28,8 +29,12 @@ export async function renderTournament(params = {}) {
 
   try {
     const t = await getTournament(code);
-    const photos = await getTournamentPhotos(t.id).catch(() => []);
-    renderTournamentContent(content, t, photos);
+    const [photos, activeFlashBets] = await Promise.all([
+      getTournamentPhotos(t.id).catch(() => []),
+      getActiveFlashBets().catch(() => [])
+    ]);
+    const tournamentFlashBets = (activeFlashBets || []).filter(fb => fb.tournament_id === t.id);
+    renderTournamentContent(content, t, photos, tournamentFlashBets);
 
     if (t.status === 'settled') {
       launchConfetti();
@@ -37,7 +42,7 @@ export async function renderTournament(params = {}) {
 
     connectWebSocket(t.shareCode);
     wsUnsubscribe = onWebSocketMessage((msg) => {
-      if (msg.type === 'tournament_updated') {
+      if (msg.type === 'tournament_updated' || msg.type === 'flash_bet_created' || msg.type === 'flash_bet_settled') {
         renderTournament(params);
       }
     });
@@ -47,7 +52,7 @@ export async function renderTournament(params = {}) {
   }
 }
 
-function renderTournamentContent(content, t, photos = []) {
+function renderTournamentContent(content, t, photos = [], tournamentFlashBets = []) {
   const user = getStoredUser();
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
   const isCreator = (user && t.creatorId === user.id) || hasPinSession;
@@ -115,6 +120,29 @@ function renderTournamentContent(content, t, photos = []) {
           ` : ''}
         </div>
       </div>
+
+      ${tournamentFlashBets.length > 0 ? `
+        <!-- Active FlashBet Live Banner -->
+        <div class="card card-pulse mb-md" id="active-tournament-flashbet" style="border: 2px solid var(--accent); background: linear-gradient(135deg, rgba(245, 166, 35, 0.18) 0%, rgba(20, 24, 39, 0.95) 100%); cursor: pointer; padding: 12px 14px; margin-top: var(--space-md);">
+          <div class="flex-between" style="align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.8rem; animation: pulse 1.5s infinite;">⚡</span>
+              <div>
+                <div class="flex gap-xs" style="align-items: center;">
+                  <span class="badge badge-accent" style="font-size: 0.68rem; font-weight: 800;">BLIXTBET IGÅNG</span>
+                  <span class="text-muted" style="font-size: 0.72rem;">${tournamentFlashBets[0].betCount} röster · ${formatCurrency(tournamentFlashBets[0].totalPool)}</span>
+                </div>
+                <div style="font-weight: 800; font-size: 0.92rem; margin-top: 2px; color: #fff;">
+                  ${escapeHtml(tournamentFlashBets[0].title)}
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-primary" style="font-weight: 800; padding: 6px 12px; white-space: nowrap;">
+              Rösta ⏱️
+            </button>
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Rounds -->
       <div class="section-header">
@@ -185,6 +213,9 @@ function renderTournamentContent(content, t, photos = []) {
           </button>
           <button class="btn btn-secondary" id="add-sidebet-btn" style="flex:1;">
             🎯 Sido-spel
+          </button>
+          <button class="btn btn-secondary" id="add-flashbet-btn" style="flex:1; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
+            ⚡ BlixtBet
           </button>
         </div>
       ` : ''}
@@ -608,6 +639,18 @@ function renderTournamentContent(content, t, photos = []) {
       showSideBetModal(t, content);
     });
   }
+
+  // Active tournament FlashBet banner click
+  document.getElementById('active-tournament-flashbet')?.addEventListener('click', () => {
+    if (tournamentFlashBets.length > 0) {
+      openFlashBetModal(tournamentFlashBets[0].id, t.id);
+    }
+  });
+
+  // Add tournament FlashBet button click
+  document.getElementById('add-flashbet-btn')?.addEventListener('click', () => {
+    openFlashBetModal(null, t.id);
+  });
 
   // Toggle settlement receipt
   content.querySelectorAll('.toggle-receipt-btn').forEach(btn => {

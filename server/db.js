@@ -253,6 +253,53 @@ try {
   `);
 } catch {}
 
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+    CREATE TABLE IF NOT EXISTS flash_bets (
+      id TEXT PRIMARY KEY,
+      creator_id TEXT NOT NULL,
+      tournament_id TEXT,
+      question TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 60,
+      expires_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      winning_choice TEXT,
+      stake_amount INTEGER NOT NULL DEFAULT 20,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_flash_creator ON flash_bets(creator_id);
+    CREATE INDEX IF NOT EXISTS idx_flash_tourney ON flash_bets(tournament_id);
+    CREATE INDEX IF NOT EXISTS idx_flash_status ON flash_bets(status);
+
+    CREATE TABLE IF NOT EXISTS flash_bet_entries (
+      id TEXT PRIMARY KEY,
+      flash_bet_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      choice TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (flash_bet_id) REFERENCES flash_bets(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(flash_bet_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_flash_entries_bet ON flash_bet_entries(flash_bet_id);
+    CREATE INDEX IF NOT EXISTS idx_flash_entries_user ON flash_bet_entries(user_id);
+  `);
+} catch {}
+
 // ── Prepared Statements ──────────────
 const stmts = {
   // Settings
@@ -514,9 +561,69 @@ const stmts = {
     ORDER BY b.created_at DESC
     LIMIT 50
   `),
+
+  // Push Subscriptions
+  insertPushSubscription: db.prepare(`
+    INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET
+      user_id = excluded.user_id,
+      p256dh = excluded.p256dh,
+      auth = excluded.auth,
+      created_at = datetime('now')
+  `),
+  deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
+  deletePushSubscriptionsByUser: db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?'),
+  getPushSubscriptionsByUser: db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?'),
+
+  // Flash Bets
+  insertFlashBet: db.prepare(`
+    INSERT INTO flash_bets (id, creator_id, tournament_id, question, duration_seconds, expires_at, status, stake_amount)
+    VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+  `),
+  getFlashBetById: db.prepare(`
+    SELECT fb.*, u.nickname as creator_nickname, u.real_name as creator_real_name, u.avatar_emoji as creator_avatar, u.avatar_url as creator_avatar_url
+    FROM flash_bets fb
+    JOIN users u ON fb.creator_id = u.id
+    WHERE fb.id = ?
+  `),
+  getActiveFlashBets: db.prepare(`
+    SELECT fb.*, u.nickname as creator_nickname, u.real_name as creator_real_name, u.avatar_emoji as creator_avatar, u.avatar_url as creator_avatar_url
+    FROM flash_bets fb
+    JOIN users u ON fb.creator_id = u.id
+    WHERE fb.status = 'open' AND datetime(fb.expires_at) > datetime('now')
+    ORDER BY fb.created_at DESC
+  `),
+  updateFlashBetStatus: db.prepare('UPDATE flash_bets SET status = ? WHERE id = ?'),
+  updateFlashBetSettle: db.prepare('UPDATE flash_bets SET status = \'settled\', winning_choice = ? WHERE id = ?'),
+  
+  // Flash Bet Entries
+  insertFlashBetEntry: db.prepare(`
+    INSERT INTO flash_bet_entries (id, flash_bet_id, user_id, choice, amount)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+  getFlashBetEntries: db.prepare(`
+    SELECT fe.*, u.nickname, u.real_name, u.avatar_emoji, u.avatar_url, u.swish_number
+    FROM flash_bet_entries fe
+    JOIN users u ON fe.user_id = u.id
+    WHERE fe.flash_bet_id = ?
+    ORDER BY fe.created_at ASC
+  `),
+  getFlashBetEntryForUser: db.prepare(`
+    SELECT * FROM flash_bet_entries WHERE flash_bet_id = ? AND user_id = ?
+  `),
 };
 
 // ── Public API ───────────────────────────────────────
+
+export function getSetting(key) {
+  const row = stmts.getSetting.get(key);
+  return row ? row.value : null;
+}
+
+export function setSetting(key, value) {
+  stmts.setSetting.run(key, String(value));
+}
 
 export function getAdminPin() {
   const row = stmts.getSetting.get('admin_pin');
@@ -1676,5 +1783,180 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
   }
 
   return getAnyBetById(betId);
+}
+
+// ── Push Subscriptions API ───────────────────────────
+
+export function savePushSubscription(id, userId, endpoint, p256dh, auth) {
+  stmts.insertPushSubscription.run(id, userId, endpoint, p256dh, auth);
+}
+
+export function deletePushSubscriptionByEndpoint(endpoint) {
+  stmts.deletePushSubscriptionByEndpoint.run(endpoint);
+}
+
+export function getPushSubscriptionsForUsers(userIds = []) {
+  if (!userIds || userIds.length === 0) return [];
+  const subs = [];
+  for (const uid of userIds) {
+    const userSubs = stmts.getPushSubscriptionsByUser.all(uid);
+    subs.push(...userSubs);
+  }
+  return subs;
+}
+
+// ── Flash Bets (BlixtBet) API ────────────────────────
+
+export function createFlashBet(id, creatorId, tournamentId, question, durationSeconds, expiresAt, stakeAmount = 20) {
+  stmts.insertFlashBet.run(id, creatorId, tournamentId || null, question, durationSeconds, expiresAt, stakeAmount);
+  return getFlashBet(id);
+}
+
+export function getFlashBet(id, currentUserId = null) {
+  const fb = stmts.getFlashBetById.get(id);
+  if (!fb) return null;
+
+  // Auto-lock if expired and still open
+  const now = new Date();
+  const expires = new Date(fb.expires_at);
+  let status = fb.status;
+  if (status === 'open' && now >= expires) {
+    status = 'locked';
+    stmts.updateFlashBetStatus.run('locked', fb.id);
+  }
+
+  const entries = stmts.getFlashBetEntries.all(fb.id);
+  const yesEntries = entries.filter(e => e.choice === 'yes');
+  const noEntries = entries.filter(e => e.choice === 'no');
+  const totalPool = entries.reduce((sum, e) => sum + e.amount, 0);
+
+  const secondsLeft = Math.max(0, Math.floor((expires.getTime() - now.getTime()) / 1000));
+
+  let myEntry = null;
+  if (currentUserId) {
+    const found = entries.find(e => e.user_id === currentUserId);
+    if (found) {
+      myEntry = {
+        id: found.id,
+        choice: found.choice,
+        amount: found.amount,
+        createdAt: found.created_at
+      };
+    }
+  }
+
+  return {
+    id: fb.id,
+    creatorId: fb.creator_id,
+    creatorNickname: fb.creator_nickname,
+    creatorRealName: fb.creator_real_name,
+    creatorAvatar: fb.creator_avatar,
+    creatorAvatarUrl: fb.creator_avatar_url,
+    tournamentId: fb.tournament_id,
+    question: fb.question,
+    title: fb.question,
+    durationSeconds: fb.duration_seconds,
+    expiresAt: fb.expires_at,
+    status,
+    winningChoice: fb.winning_choice,
+    stakeAmount: fb.stake_amount,
+    createdAt: fb.created_at,
+    secondsLeft,
+    totalPool,
+    yesCount: yesEntries.length,
+    noCount: noEntries.length,
+    entriesCount: entries.length,
+    betCount: entries.length,
+    entries: entries.map(e => ({
+      id: e.id,
+      userId: e.user_id,
+      nickname: e.nickname,
+      realName: e.real_name,
+      avatar: e.avatar_emoji,
+      avatarUrl: e.avatar_url,
+      choice: e.choice,
+      amount: e.amount,
+      createdAt: e.created_at
+    })),
+    myEntry
+  };
+}
+
+export function getActiveFlashBets(userId = null) {
+  const active = stmts.getActiveFlashBets.all();
+  return active.map(fb => getFlashBet(fb.id, userId)).filter(fb => fb && fb.status === 'open');
+}
+
+export function placeFlashBetEntry(id, flashBetId, userId, choice, amount) {
+  const fb = stmts.getFlashBetById.get(flashBetId);
+  if (!fb) throw new Error('BlixtBet hittades inte');
+
+  const now = new Date();
+  const expires = new Date(fb.expires_at);
+  if (now >= expires || fb.status !== 'open') {
+    stmts.updateFlashBetStatus.run('locked', fb.id);
+    throw new Error('Tiden har gått ut för detta BlixtBet!');
+  }
+
+  const existing = stmts.getFlashBetEntryForUser.get(flashBetId, userId);
+  if (existing) {
+    throw new Error('Du har redan lagt ditt val i detta BlixtBet');
+  }
+
+  stmts.insertFlashBetEntry.run(id, flashBetId, userId, choice, amount);
+  return getFlashBet(flashBetId, userId);
+}
+
+export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
+  const fb = stmts.getFlashBetById.get(flashBetId);
+  if (!fb) throw new Error('BlixtBet hittades inte');
+  if (fb.status === 'settled') throw new Error('Detta BlixtBet är redan avgjort');
+
+  // Verify authorization: creator or tournament creator can settle
+  let isAllowed = fb.creator_id === settleUserId;
+  if (!isAllowed && fb.tournament_id) {
+    const t = stmts.getTournamentById.get(fb.tournament_id);
+    if (t && t.creator_id === settleUserId) isAllowed = true;
+  }
+  if (!isAllowed) throw new Error('Endast skaparen kan avgöra detta BlixtBet');
+
+  stmts.updateFlashBetSettle.run(winningChoice, flashBetId);
+
+  // Settlement and debt logging
+  const entries = stmts.getFlashBetEntries.all(flashBetId);
+  const winners = entries.filter(e => e.choice === winningChoice);
+  const losers = entries.filter(e => e.choice !== winningChoice);
+
+  if (winners.length > 0 && losers.length > 0) {
+    for (const loser of losers) {
+      for (const winner of winners) {
+        try {
+          const perWinnerStake = Math.round((loser.amount / winners.length) * 100) / 100;
+          if (perWinnerStake <= 0) continue;
+          const duelId = crypto.randomUUID();
+          stmts.insertDuel.run({
+            id: duelId,
+            game_type: 'flashbet',
+            creator_id: winner.user_id,
+            opponent_id: loser.user_id,
+            stake_amount: perWinnerStake,
+            mode: 'flashbet',
+            status: 'completed'
+          });
+          stmts.updateDuelResult.run({
+            id: duelId,
+            creator_score: 1,
+            opponent_score: 0,
+            winner_id: winner.user_id,
+            status: 'completed'
+          });
+        } catch (e) {
+          console.error('Failed to log flash bet debt duel:', e);
+        }
+      }
+    }
+  }
+
+  return getFlashBet(flashBetId, settleUserId);
 }
 
