@@ -237,6 +237,8 @@ export const updateNotificationPrefs = (prefs) => request('/users/notification-p
 
 // ── Tab Expenses & Not-Roulette ──────────────────────
 export const createTabExpense = (data) => request('/tab/expenses', { method: 'POST', body: data });
+export const startLiveNotanRoulette = (data) => request('/tab/roulette/live-spin', { method: 'POST', body: data });
+export const convertTabExpenseToEvenSteven = (id) => request('/tab/expenses/' + id + '/convert-to-even-steven', { method: 'POST', body: {} });
 export const getMyTabExpenses = () => request('/tab/expenses/my');
 export const getTabExpense = (id) => request('/tab/expenses/' + id);
 

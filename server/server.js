@@ -2639,6 +2639,150 @@ app.get('/api/tab/expenses/:id', (req, res) => {
   res.json(expense);
 });
 
+app.post('/api/tab/roulette/live-spin', async (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { title, notes, totalAmount, participantIds, receiptImage, loserId } = req.body || {};
+
+  try {
+    const rawParticipants = Array.isArray(participantIds) ? participantIds.map(String) : [];
+    const allParticipantSet = new Set(rawParticipants);
+    allParticipantSet.add(String(user.id));
+    const allParticipants = Array.from(allParticipantSet);
+
+    if (allParticipants.length < 2) {
+      return res.status(400).json({ error: 'Minst 2 personer krävs för Not-Roulette' });
+    }
+
+    // Pick loser if not designated
+    const actualLoserId = (loserId && allParticipants.includes(String(loserId)))
+      ? String(loserId)
+      : allParticipants[Math.floor(Math.random() * allParticipants.length)];
+
+    const expense = db.createTabExpense({
+      payerId: user.id,
+      title,
+      notes,
+      totalAmount,
+      mode: 'roulette',
+      participantIds: allParticipants,
+      loserId: actualLoserId,
+      receiptImage
+    });
+
+    const payerName = user.real_name || user.nickname || 'En vän';
+    const cleanTitle = expense.title;
+    const amount = expense.total_amount;
+    const otherParticipants = allParticipants.filter(uid => uid !== user.id);
+
+    // 1. Send immediate Heads-Up Push to other participants
+    if (otherParticipants.length > 0) {
+      sendPushToUsers(otherParticipants, {
+        title: `🎰 Not-Roulette på gång!`,
+        body: `${payerName} har satt dig på Not-Roulette (${amount} kr för "${cleanTitle}")! Se dragningen!`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+    }
+
+    // 2. Real-time WebSocket broadcast to all participants
+    const spinPayload = {
+      type: 'notan_roulette_live_spin',
+      expenseId: expense.id,
+      title: cleanTitle,
+      totalAmount: amount,
+      participantIds: allParticipants,
+      participants: expense.participants,
+      loserId: actualLoserId,
+      duration: 4200,
+      payer: {
+        id: user.id,
+        name: payerName,
+        avatarEmoji: user.avatar_emoji || '👤'
+      }
+    };
+
+    for (const uid of allParticipants) {
+      broadcastToUser(uid, spinPayload);
+    }
+
+    // 3. Schedule final outcome push after the spin animation
+    setTimeout(() => {
+      if (actualLoserId !== user.id) {
+        sendPushToUsers([actualLoserId], {
+          title: `💸 Du tog notan!`,
+          body: `Du förlorade Not-Rouletten och betalar ${amount} kr för "${cleanTitle}" till ${payerName}.`,
+          url: '/#leaderboard'
+        }, 'duels').catch(() => {});
+
+        const survivors = otherParticipants.filter(uid => uid !== actualLoserId);
+        if (survivors.length > 0) {
+          const loserObj = expense.participants?.find(p => p.user_id === actualLoserId);
+          const loserName = loserObj?.real_name || loserObj?.nickname || 'Någon';
+          sendPushToUsers(survivors, {
+            title: `🎉 Du klarade dig!`,
+            body: `${loserName} tog hela notan på ${amount} kr för "${cleanTitle}".`,
+            url: '/#leaderboard'
+          }, 'duels').catch(() => {});
+        }
+      } else {
+        sendPushToUsers(otherParticipants, {
+          title: `🍻 Bjudrunda!`,
+          body: `${payerName} förlorade Not-Rouletten och bjuder på "${cleanTitle}"!`,
+          url: '/#leaderboard'
+        }, 'duels').catch(() => {});
+      }
+    }, 4300);
+
+    res.json({
+      expense,
+      loserId: actualLoserId,
+      duration: 4200
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/tab/expenses/:id/convert-to-even-steven', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const updated = db.convertTabExpenseToEvenSteven(req.params.id, user.id);
+    const actorName = user.real_name || user.nickname || 'En deltagare';
+    const splitAmount = updated.participants?.[0]?.amount || Math.round((updated.total_amount / (updated.participants?.length || 1)) * 100) / 100;
+    const allParticipantIds = (updated.participants || []).map(p => p.user_id);
+
+    // Broadcast WebSocket update
+    const convertPayload = {
+      type: 'tab_expense_converted',
+      expenseId: updated.id,
+      title: updated.title,
+      splitAmount,
+      expense: updated
+    };
+    for (const uid of allParticipantIds) {
+      broadcastToUser(uid, convertPayload);
+    }
+
+    // Send push to everyone except the actor
+    const others = allParticipantIds.filter(uid => uid !== user.id);
+    if (others.length > 0) {
+      sendPushToUsers(others, {
+        title: `⚖️ Not-Roulette ändrad till Even Steven`,
+        body: `${actorName} gjorde om "${updated.title}" till Even Steven (${splitAmount} kr var).`,
+        url: '/#leaderboard'
+      }, 'duels').catch(() => {});
+    }
+
+    res.json(updated);
+  } catch (err) {
+    const isAuth = err.message.includes('Endast förloraren');
+    res.status(isAuth ? 403 : 400).json({ error: err.message });
+  }
+});
+
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';
 const indexHtml = path.join(distPath, 'index.html');

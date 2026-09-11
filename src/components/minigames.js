@@ -29,6 +29,8 @@ import {
   settleFlashBet,
   getTournaments,
   createTabExpense,
+  startLiveNotanRoulette,
+  convertTabExpenseToEvenSteven,
   getTabExpense,
   getMyTabExpenses
 } from '../api.js';
@@ -4135,6 +4137,14 @@ export function setupGlobalDuelListener() {
           showIncomingPartyModal(data.room);
         } else if (data.type === 'anybet_invitation' && data.bet) {
           showIncomingAnyBetModal(data.bet);
+        } else if (data.type === 'notan_roulette_live_spin') {
+          const user = getStoredUser();
+          if (user && data.participantIds?.includes(String(user.id)) && String(data.payer?.id) !== String(user.id)) {
+            openLiveRouletteSpectatorModal(data);
+          }
+        } else if (data.type === 'tab_expense_converted') {
+          showToast('⚖️ ' + (data.title || 'Notan') + ' ändrades till Even Steven!', 'info');
+          window.dispatchEvent(new CustomEvent('tab-expenses-updated'));
         }
       } catch (e) {}
     };
@@ -4739,6 +4749,18 @@ export async function openReceiptModal(expenseId) {
           </div>
         </div>
 
+        <!-- Convert to Even Steven Safety Valve -->
+        ${isRoulette && currentUser && (expense.loser_id === currentUser.id || expense.payer_id === currentUser.id) ? `
+          <div class="mb-md">
+            <button type="button" class="btn btn-secondary btn-block" id="btn-convert-to-even-steven" style="border-color: #10b981; color: #4ade80; font-weight: 800; padding: 10px; font-size: 0.85rem; background: rgba(16, 185, 129, 0.08);">
+              ⚖️ ${isEn ? 'Convert to Even Steven (Split evenly)' : 'Gör om till Even Steven (Dela rakt)'}
+            </button>
+            <div class="text-center text-muted mt-xs" style="font-size: 0.72rem;">
+              ${isEn ? 'Safety valve: Split the bill fairly instead of one person taking all.' : 'Säkerhetsventil: Dela notan rättvist istället för att en tar allt.'}
+            </div>
+          </div>
+        ` : ''}
+
         <button type="button" class="btn btn-secondary btn-block" id="btn-close-receipt-modal" style="padding: 10px; font-weight: 700;">
           ${isEn ? 'Close' : 'Stäng'}
         </button>
@@ -4747,6 +4769,21 @@ export async function openReceiptModal(expenseId) {
 
     document.getElementById('btn-close-receipt-modal')?.addEventListener('click', () => {
       closeModal();
+    });
+
+    document.getElementById('btn-convert-to-even-steven')?.addEventListener('click', async () => {
+      const confirmMsg = isEn 
+        ? 'Do you want to convert this Not-Roulette to an even split (Even Steven) among everyone?' 
+        : 'Vill du göra om denna Not-Roulette till en rättvis splitt (Even Steven) mellan alla runt bordet?';
+      if (confirm(confirmMsg)) {
+        try {
+          await convertTabExpenseToEvenSteven(expenseId);
+          showToast(isEn ? 'Converted to Even Steven! ⚖️' : 'Notan gjordes om till Even Steven! ⚖️', 'success');
+          openReceiptModal(expenseId);
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      }
     });
 
     // Zoom receipt modal
@@ -4766,6 +4803,239 @@ export async function openReceiptModal(expenseId) {
 
   } catch (err) {
     showToast(err.message, 'error');
+  }
+}
+
+export function openLiveRouletteSpectatorModal(spinData) {
+  const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+
+  playTone(659.25, 'triangle', 0.3, 0.2); // Attention chime
+
+  const PALETTE = [
+    '#e63946', '#f59e0b', '#10b981', '#3b82f6', 
+    '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', 
+    '#f97316', '#6366f1', '#14b8a6', '#d946ef'
+  ];
+
+  const rawParticipants = spinData.participants || [];
+  const participants = rawParticipants.map(p => ({
+    id: String(p.user_id),
+    name: p.real_name || p.nickname || 'Deltagare',
+    nickname: p.nickname || p.real_name || 'Deltagare',
+    avatarEmoji: p.avatar_emoji || '🍻',
+    isMe: currentUser && String(p.user_id) === String(currentUser.id)
+  }));
+
+  const loserId = String(spinData.loserId);
+  const loserIndex = Math.max(0, participants.findIndex(p => p.id === loserId));
+  const loser = participants[loserIndex];
+
+  showModal(`
+    <div class="live-roulette-spectator animate-in text-center" style="max-width: 440px; margin: 0 auto; text-align: left;">
+      <div class="flex-between align-center mb-xs">
+        <span class="badge badge-warning" style="font-size: 0.75rem; font-weight: 800;">
+          🔴 LIVE NOT-ROULETTE
+        </span>
+        <span style="font-weight: 800; color: var(--gold); font-size: 0.9rem;">
+          ${Math.round(spinData.totalAmount)} kr
+        </span>
+      </div>
+
+      <div class="text-center mb-xs">
+        <h3 class="font-heading" style="color: var(--gold); margin: 0 0 2px; font-size: 1.25rem;">
+          ${escapeHtml(spinData.payer?.name || 'En vän')} snurrar om notan!
+        </h3>
+        <p class="text-muted" style="font-size: 0.8rem; margin: 0;">
+          ${escapeHtml(spinData.title || 'Krognotan')}
+        </p>
+      </div>
+
+      <!-- Arrow Pointer -->
+      <div style="position: relative; z-index: 10; width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 22px solid #ef4444; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8)); margin: 0 auto -10px auto;"></div>
+
+      <!-- Canvas Wheel -->
+      <div style="display: flex; justify-content: center;">
+        <canvas id="live-spectator-wheel-canvas" width="280" height="280" style="max-width: 280px; max-height: 280px; width: 100%; border-radius: 50%; box-shadow: 0 4px 20px rgba(0,0,0,0.6);"></canvas>
+      </div>
+
+      <!-- Live Status Banner -->
+      <div id="live-spectator-banner" class="mt-sm mb-xs text-center" style="font-family: var(--font-heading); font-size: 1rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
+        🌀 ${isEn ? 'The wheel is spinning live! Who takes the tab?' : 'Hjulet snurrar live! Vem tar notan?'}
+      </div>
+
+      <!-- Action Buttons Container (Revealed after spin) -->
+      <div id="live-spectator-actions" class="mt-sm" style="display: none;"></div>
+    </div>
+  `);
+
+  const canvas = document.getElementById('live-spectator-wheel-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const numSectors = participants.length;
+  const arc = (2 * Math.PI) / numSectors;
+  const radius = 138;
+
+  function drawWheel(rotation) {
+    ctx.clearRect(0, 0, 280, 280);
+    ctx.save();
+    ctx.translate(140, 140);
+    ctx.rotate(rotation);
+
+    participants.forEach((p, i) => {
+      const angle = i * arc;
+      const color = PALETTE[i % PALETTE.length];
+
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, radius, angle, angle + arc);
+      ctx.lineTo(0, 0);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.save();
+      ctx.rotate(angle + arc / 2);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+      const fontSize = numSectors > 8 ? 11 : 13;
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      const textToDraw = `${p.avatarEmoji} ${p.nickname}`;
+      const trimmed = textToDraw.length > 12 ? textToDraw.slice(0, 11) + '…' : textToDraw;
+      ctx.fillText(trimmed, radius - 14, 4);
+      ctx.restore();
+    });
+
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 2, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255,215,0,0.9)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.fillStyle = '#111827';
+    ctx.arc(0, 0, 20, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = 'var(--gold)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🎰', 0, 0);
+
+    ctx.restore();
+  }
+
+  // Calculate target rotation
+  const targetSliceAngle = loserIndex * arc + arc / 2;
+  const arrowAngle = 3 * Math.PI / 2; // 270 deg (top pointer)
+  const normalizedTarget = (arrowAngle - targetSliceAngle + 2 * Math.PI) % (2 * Math.PI);
+  const fullSpins = 6;
+  const targetRotation = (fullSpins * 2 * Math.PI) + normalizedTarget;
+
+  const duration = spinData.duration || 4200;
+  const startTime = performance.now();
+  let lastTickSector = -1;
+
+  function easeOutCubic(x) {
+    return 1 - Math.pow(1 - x, 3);
+  }
+
+  function animateSpectator(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(1, elapsed / duration);
+    const eased = easeOutCubic(progress);
+
+    const currentRotation = targetRotation * eased;
+    drawWheel(currentRotation);
+
+    const currentAngleNorm = (arrowAngle - currentRotation) % (2 * Math.PI);
+    const positiveAngle = (currentAngleNorm + 2 * Math.PI) % (2 * Math.PI);
+    const currentSector = Math.floor(positiveAngle / arc) % numSectors;
+
+    if (currentSector !== lastTickSector) {
+      playTickSound();
+      lastTickSector = currentSector;
+    }
+
+    if (progress < 1) {
+      requestAnimationFrame(animateSpectator);
+    } else {
+      finishSpectator();
+    }
+  }
+
+  requestAnimationFrame(animateSpectator);
+
+  function finishSpectator() {
+    playWinSound();
+    launchConfetti();
+
+    const banner = document.getElementById('live-spectator-banner');
+    const actions = document.getElementById('live-spectator-actions');
+    const isMeLoser = loser?.isMe;
+
+    if (banner) {
+      banner.style.color = isMeLoser ? '#ef4444' : 'var(--gold)';
+      banner.innerHTML = isMeLoser
+        ? `💸 ${isEn ? 'YOU LOST! You take the entire tab of' : 'DU FÖRLORADE! Du tar hela notan på'} ${Math.round(spinData.totalAmount)} kr!`
+        : `🎉 ${isEn ? 'YOU SURVIVED!' : 'DU KLARADE DIG!'} ${escapeHtml(loser?.name || 'Någon')} ${isEn ? 'takes the whole tab!' : 'tar hela notan!'}`;
+    }
+
+    if (actions) {
+      actions.style.display = 'block';
+      actions.innerHTML = `
+        ${isMeLoser ? `
+          <button type="button" class="btn btn-secondary btn-block mb-xs" id="btn-spectator-veto-even" style="border-color: #10b981; color: #4ade80; font-weight: 800; padding: 10px; font-size: 0.85rem; background: rgba(16, 185, 129, 0.08);">
+            ⚖️ ${isEn ? 'Convert to Even Steven (Split evenly instead)' : 'Gör om till Even Steven (Dela rakt istället)'}
+          </button>
+          <div class="text-center text-muted mb-sm" style="font-size: 0.72rem;">
+            ${isEn ? 'Safety valve: Split the bill fairly instead of taking the whole tab.' : 'Säkerhetsventil: Dela notan rättvist istället för att ta hela notan.'}
+          </div>
+        ` : ''}
+        <div class="flex gap-xs">
+          <button type="button" class="btn btn-primary btn-block" id="btn-spectator-goto-swish" style="font-weight: 800; padding: 10px;">
+            📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-spectator-close" style="padding: 10px;">
+            ${isEn ? 'Close' : 'Stäng'}
+          </button>
+        </div>
+      `;
+
+      actions.querySelector('#btn-spectator-veto-even')?.addEventListener('click', async () => {
+        const confirmMsg = isEn 
+          ? 'Convert this roulette to an even split (Even Steven) among everyone?' 
+          : 'Vill du göra om denna Not-Roulette till en rättvis splitt (Even Steven) mellan alla runt bordet?';
+        if (confirm(confirmMsg)) {
+          try {
+            await convertTabExpenseToEvenSteven(spinData.expenseId);
+            showToast(isEn ? 'Converted to Even Steven! ⚖️' : 'Notan gjordes om till Even Steven! ⚖️', 'success');
+            closeModal();
+            window.location.hash = '#leaderboard';
+          } catch (e) {
+            showToast(e.message, 'error');
+          }
+        }
+      });
+
+      actions.querySelector('#btn-spectator-goto-swish')?.addEventListener('click', () => {
+        closeModal();
+        window.location.hash = '#leaderboard';
+      });
+
+      actions.querySelector('#btn-spectator-close')?.addEventListener('click', () => {
+        closeModal();
+      });
+    }
   }
 }
 
@@ -5271,70 +5541,86 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
     isSpinning = true;
     const spinBtn = document.getElementById('btn-spin-notan-roulette');
-    const banner = document.getElementById('notan-roulette-banner');
     if (spinBtn) {
       spinBtn.disabled = true;
-      spinBtn.innerHTML = `🌀 ${isEn ? 'SPINNING... HOLD YOUR BREATH!' : 'SNURRAR... HÅLL ANDAN!'}`;
+      spinBtn.innerHTML = `🌀 ${isEn ? 'STARTING LIVE NOT-ROULETTE...' : 'STARTAR LIVE NOT-ROULETTE...'}`;
     }
 
-    // Pick random loser
-    const loserIndex = Math.floor(Math.random() * participants.length);
-    const loser = participants[loserIndex];
+    const cleanTitle = (customTitle && customTitle.trim()) ? customTitle.trim() : (isEn ? 'Tab Roulette' : 'Not-Roulette');
 
-    const numSectors = participants.length;
-    const arc = (2 * Math.PI) / numSectors;
+    try {
+      // 1. Call server: dispatches heads-up push and broadcasts live spin via WebSocket to all participants!
+      const participantIds = participants.map(p => p.id);
+      const liveRes = await startLiveNotanRoulette({
+        title: cleanTitle,
+        notes: customNotes || null,
+        totalAmount,
+        participantIds,
+        receiptImage: receiptBase64
+      });
 
-    // Arrow is at top (angle -PI/2)
-    // We want the loser slice to stop under the arrow
-    // Loser slice center is loserIndex * arc + arc/2
-    const targetSliceAngle = loserIndex * arc + arc / 2;
-    const arrowAngle = 3 * Math.PI / 2; // 270 deg (top pointer)
-    const normalizedTarget = (arrowAngle - targetSliceAngle + 2 * Math.PI) % (2 * Math.PI);
+      const actualLoserId = String(liveRes.loserId);
+      const loserIndex = Math.max(0, participants.findIndex(p => String(p.id) === actualLoserId));
+      const loser = participants[loserIndex];
 
-    // Add 5 to 7 full rotations
-    const fullSpins = 5 + Math.floor(Math.random() * 3);
-    const targetRotation = currentRotation + (fullSpins * 2 * Math.PI) + ((normalizedTarget - (currentRotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
+      const numSectors = participants.length;
+      const arc = (2 * Math.PI) / numSectors;
 
-    const duration = 4200; // ms
-    const startTime = performance.now();
-    const startRotation = currentRotation;
-    let lastTickSector = -1;
+      // Arrow is at top (angle -PI/2)
+      const targetSliceAngle = loserIndex * arc + arc / 2;
+      const arrowAngle = 3 * Math.PI / 2; // 270 deg (top pointer)
+      const normalizedTarget = (arrowAngle - targetSliceAngle + 2 * Math.PI) % (2 * Math.PI);
 
-    function easeOutCubic(x) {
-      return 1 - Math.pow(1 - x, 3);
-    }
+      const fullSpins = 6;
+      const targetRotation = currentRotation + (fullSpins * 2 * Math.PI) + ((normalizedTarget - (currentRotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
 
-    function animateSpin(now) {
-      const elapsed = now - startTime;
-      const progress = Math.min(1, elapsed / duration);
-      const eased = easeOutCubic(progress);
+      const duration = liveRes.duration || 4200;
+      const startTime = performance.now();
+      const startRotation = currentRotation;
+      let lastTickSector = -1;
 
-      currentRotation = startRotation + (targetRotation - startRotation) * eased;
-      drawWheel(currentRotation);
-
-      // Sound tick on sector crossing
-      const currentAngleNorm = (arrowAngle - currentRotation) % (2 * Math.PI);
-      const positiveAngle = (currentAngleNorm + 2 * Math.PI) % (2 * Math.PI);
-      const currentSector = Math.floor(positiveAngle / arc) % numSectors;
-
-      if (currentSector !== lastTickSector) {
-        playTickSound();
-        lastTickSector = currentSector;
+      function easeOutCubic(x) {
+        return 1 - Math.pow(1 - x, 3);
       }
 
-      if (progress < 1) {
-        requestAnimationFrame(animateSpin);
-      } else {
-        // Spin finished!
-        isSpinning = false;
-        finishRoulette(loser, participants);
+      function animateSpin(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const eased = easeOutCubic(progress);
+
+        currentRotation = startRotation + (targetRotation - startRotation) * eased;
+        drawWheel(currentRotation);
+
+        const currentAngleNorm = (arrowAngle - currentRotation) % (2 * Math.PI);
+        const positiveAngle = (currentAngleNorm + 2 * Math.PI) % (2 * Math.PI);
+        const currentSector = Math.floor(positiveAngle / arc) % numSectors;
+
+        if (currentSector !== lastTickSector) {
+          playTickSound();
+          lastTickSector = currentSector;
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(animateSpin);
+        } else {
+          isSpinning = false;
+          finishRoulette(loser, participants, liveRes.expense);
+        }
+      }
+
+      requestAnimationFrame(animateSpin);
+
+    } catch (err) {
+      isSpinning = false;
+      showToast(err.message, 'error');
+      if (spinBtn) {
+        spinBtn.disabled = false;
+        spinBtn.innerHTML = `🎰 ${isEn ? 'SPIN NOT-ROULETTE!' : 'SNURRA NOT-ROULETTE!'}`;
       }
     }
-
-    requestAnimationFrame(animateSpin);
   }
 
-  async function finishRoulette(loser, participants) {
+  async function finishRoulette(loser, participants, createdExpense) {
     const banner = document.getElementById('notan-roulette-banner');
     playWinSound();
     launchConfetti();
@@ -5349,79 +5635,87 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
         : `🎉 ${escapeHtml(loser.name)} ${isEn ? 'lost and pays the whole tab of' : 'förlorade och tar hela notan på'} ${totalAmount} kr!`;
     }
 
-    // Call API to persist expense and debt
-    try {
-      showToast(isEn ? 'Saving tab & debts...' : 'Sparar nota & skulder...', 'info');
-      
-      const participantIds = participants.map(p => p.id);
-      const createdExpense = await createTabExpense({
-        title: cleanTitle,
-        notes: customNotes || null,
-        totalAmount,
-        mode: 'roulette',
-        participantIds,
-        loserId: loser.id,
-        receiptImage: receiptBase64
-      });
+    // Show completed modal view
+    showModal(`
+      <div class="animate-in text-center" style="max-width: 420px; margin: 0 auto; padding: 10px 0;">
+        <div style="font-size: 3.5rem; margin-bottom: 8px;">${isMeLoser ? '🍻' : '💸'}</div>
+        
+        <span class="badge badge-danger mb-xs" style="font-size: 0.8rem; font-weight: 800; padding: 4px 10px;">
+          🎰 NOT-ROULETTE AVGJORD!
+        </span>
 
-      // Show completed modal view
-      showModal(`
-        <div class="animate-in text-center" style="max-width: 420px; margin: 0 auto; padding: 10px 0;">
-          <div style="font-size: 3.5rem; margin-bottom: 8px;">${isMeLoser ? '🍻' : '💸'}</div>
-          
-          <span class="badge badge-danger mb-xs" style="font-size: 0.8rem; font-weight: 800; padding: 4px 10px;">
-            🎰 NOT-ROULETTE AVGJORD!
-          </span>
+        <h2 class="font-heading" style="color: var(--gold); margin: 8px 0 6px; font-size: 1.4rem;">
+          ${isMeLoser 
+            ? (isEn ? 'You took the tab!' : 'Du åkte på hela notan!') 
+            : (isEn ? `${escapeHtml(loser.name)} pays the tab!` : `${escapeHtml(loser.name)} tar hela notan!`)}
+        </h2>
 
-          <h2 class="font-heading" style="color: var(--gold); margin: 8px 0 6px; font-size: 1.4rem;">
-            ${isMeLoser 
-              ? (isEn ? 'You took the tab!' : 'Du åkte på hela notan!') 
-              : (isEn ? `${escapeHtml(loser.name)} pays the tab!` : `${escapeHtml(loser.name)} tar hela notan!`)}
-          </h2>
-
-          <div class="card my-md" style="padding: 14px; background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.3);">
-            <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); text-transform: uppercase;">
-              ${escapeHtml(cleanTitle)}
-            </div>
-            <div style="font-size: 1.8rem; font-weight: 900; color: var(--gold); margin: 4px 0;">
-              ${totalAmount} kr
-            </div>
-            <div style="font-size: 0.85rem; color: var(--text-secondary);">
-              ${isMeLoser 
-                ? (isEn ? 'You paid and lost the roulette. Cheers to you!' : 'Du lade ut och förlorade rouletten. Du bjöd hela bordet!') 
-                : (isEn ? `${escapeHtml(loser.name)} is now registered as owing you ${totalAmount} kr in your Swish list!` : `${escapeHtml(loser.name)} är nu skyldig dig ${totalAmount} kr i din Swishlista!`)}
-            </div>
+        <div class="card my-md" style="padding: 14px; background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.3);">
+          <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); text-transform: uppercase;">
+            ${escapeHtml(cleanTitle)}
           </div>
-
-          ${receiptBase64 ? `
-            <div class="mb-md flex align-center justify-center gap-xs" style="font-size: 0.8rem; color: #4ade80;">
-              <span>🧾 ${isEn ? 'Receipt photo saved & attached' : 'Kvittofoto sparat och bifogat'}</span>
-            </div>
-          ` : ''}
-
-          <div class="flex gap-xs">
-            <button type="button" class="btn btn-primary btn-block" id="btn-done-goto-swish" style="font-weight: 800; padding: 12px;">
-              📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
-            </button>
-            <button type="button" class="btn btn-secondary" id="btn-done-close" style="padding: 12px;">
-              ${isEn ? 'Done' : 'Klar'}
-            </button>
+          <div style="font-size: 1.8rem; font-weight: 900; color: var(--gold); margin: 4px 0;">
+            ${totalAmount} kr
+          </div>
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">
+            ${isMeLoser 
+              ? (isEn ? 'You paid and lost the roulette. Cheers to you!' : 'Du lade ut och förlorade rouletten. Du bjöd hela bordet!') 
+              : (isEn ? `${escapeHtml(loser.name)} is now registered as owing you ${totalAmount} kr in your Swish list!` : `${escapeHtml(loser.name)} är nu skyldig dig ${totalAmount} kr i din Swishlista!`)}
           </div>
         </div>
-      `);
 
-      document.getElementById('btn-done-goto-swish')?.addEventListener('click', () => {
-        closeModal();
-        window.location.hash = '#leaderboard';
-      });
+        ${receiptBase64 ? `
+          <div class="mb-md flex align-center justify-center gap-xs" style="font-size: 0.8rem; color: #4ade80;">
+            <span>🧾 ${isEn ? 'Receipt photo saved & attached' : 'Kvittofoto sparat och bifogat'}</span>
+          </div>
+        ` : ''}
 
-      document.getElementById('btn-done-close')?.addEventListener('click', () => {
-        closeModal();
-      });
+        ${isMeLoser && createdExpense ? `
+          <div class="mb-md">
+            <button type="button" class="btn btn-secondary btn-block" id="btn-payer-veto-even" style="border-color: #10b981; color: #4ade80; font-weight: 800; padding: 10px; font-size: 0.85rem; background: rgba(16, 185, 129, 0.08);">
+              ⚖️ ${isEn ? 'Convert to Even Steven (Split evenly)' : 'Gör om till Even Steven (Dela rakt)'}
+            </button>
+            <div class="text-center text-muted mt-xs" style="font-size: 0.72rem;">
+              ${isEn ? 'Safety valve: Split the bill fairly instead of taking the whole tab.' : 'Säkerhetsventil: Dela notan rättvist istället för att bjuda på allt.'}
+            </div>
+          </div>
+        ` : ''}
 
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
+        <div class="flex gap-xs">
+          <button type="button" class="btn btn-primary btn-block" id="btn-done-goto-swish" style="font-weight: 800; padding: 12px;">
+            📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-done-close" style="padding: 12px;">
+            ${isEn ? 'Done' : 'Klar'}
+          </button>
+        </div>
+      </div>
+    `);
+
+    document.getElementById('btn-payer-veto-even')?.addEventListener('click', async () => {
+      const confirmMsg = isEn 
+        ? 'Convert this roulette to an even split (Even Steven) among everyone?' 
+        : 'Vill du göra om denna Not-Roulette till en rättvis splitt (Even Steven) mellan alla runt bordet?';
+      if (confirm(confirmMsg)) {
+        try {
+          await convertTabExpenseToEvenSteven(createdExpense.id);
+          showToast(isEn ? 'Converted to Even Steven! ⚖️' : 'Notan gjordes om till Even Steven! ⚖️', 'success');
+          closeModal();
+          window.location.hash = '#leaderboard';
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      }
+    });
+
+    document.getElementById('btn-done-goto-swish')?.addEventListener('click', () => {
+      closeModal();
+      window.location.hash = '#leaderboard';
+    });
+
+    document.getElementById('btn-done-close')?.addEventListener('click', () => {
+      closeModal();
+    });
   }
 
   // ── Handle Submit Even Steven ────────────────────────

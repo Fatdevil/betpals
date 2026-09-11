@@ -735,3 +735,12 @@ function renderHistoryTab(container, pastTournaments) {
       </div>
     </div>`;
 }
+
+// Re-render Swishlistan automatically if an expense is converted in real time
+window.addEventListener('tab-expenses-updated', () => {
+  const content = document.getElementById('page-content');
+  if (content && window.location.hash.startsWith('#leaderboard')) {
+    renderLeaderboard();
+  }
+});
+
