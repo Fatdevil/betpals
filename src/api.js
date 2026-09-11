@@ -231,4 +231,8 @@ export const getFlashBet = (id) => request('/flashbets/' + id);
 export const placeFlashBet = (id, choice) => request('/flashbets/' + id + '/bet', { method: 'POST', body: { choice } });
 export const settleFlashBet = (id, winningChoice) => request('/flashbets/' + id + '/settle', { method: 'POST', body: { winningChoice } });
 
+// ── Notification Preferences ─────────────────────────
+export const getNotificationPrefs = () => request('/users/notification-prefs');
+export const updateNotificationPrefs = (prefs) => request('/users/notification-prefs', { method: 'PUT', body: prefs });
+
 

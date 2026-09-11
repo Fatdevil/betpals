@@ -234,9 +234,9 @@ webpush.setVapidDetails(
   vapidPrivateKey
 );
 
-async function sendPushToUsers(userIds, payload) {
+async function sendPushToUsers(userIds, payload, category = null) {
   if (!userIds || userIds.length === 0) return;
-  const subscriptions = db.getPushSubscriptionsForUsers(userIds);
+  const subscriptions = db.getPushSubscriptionsForUsers(userIds, category);
   if (!subscriptions || subscriptions.length === 0) return;
 
   const jsonPayload = JSON.stringify(payload);
@@ -1511,6 +1511,15 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
 
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
+  // Push notification to tournament participants
+  const participantIds = db.getTournamentParticipantUserIds(tournament.id)
+    .filter(uid => !user || uid !== user.id);
+  sendPushToUsers(participantIds, {
+    title: `🏌️ Ny rond i ${tournament.name}!`,
+    body: `"${eventData.name}" har startat och är öppen för bets. Lägg ditt tips nu!`,
+    url: `/#tournament/${tournament.shareCode}`
+  }, 'tournaments').catch(() => {});
+
   res.json(db.getFullTournament(tournament.id));
 });
 
@@ -1592,6 +1601,16 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
 
   db.settleTournament(req.params.id);
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
+
+  // Push notification for settled tournament
+  const participantIds = db.getTournamentParticipantUserIds(tournament.id)
+    .filter(uid => !user || uid !== user.id);
+  sendPushToUsers(participantIds, {
+    title: `🏆 ${tournament.name} är avgjord!`,
+    body: `Slutresultatet är fastställt! Se prispallen och nettavräkningen i BetPals.`,
+    url: `/#tournament/${tournament.shareCode}`
+  }, 'tournaments').catch(() => {});
+
   res.json({ ok: true });
 });
 
@@ -1720,6 +1739,19 @@ app.post('/api/duels', (req, res) => {
       type: 'duel_challenge',
       duel
     });
+
+    const gameTitles = {
+      dice: 'Tärningsduell 🎲',
+      coin: 'Slantduell 🪙',
+      stopwatch: 'Reaktionsduell ⏱️'
+    };
+    const gameName = gameTitles[gameType] || 'Duell ⚔️';
+    const creatorName = user.nickname || user.real_name || 'En vän';
+    sendPushToUsers([opponentId], {
+      title: `⚔️ Utmaning på ${gameName}!`,
+      body: `${creatorName} utmanar dig (${stake} kr)! Anta utmaningen i Arcade.`,
+      url: '/#arcade'
+    }, 'duels').catch(() => {});
   }
 
   res.json({ duel });
@@ -1769,6 +1801,15 @@ app.post('/api/duels/:id/respond', (req, res) => {
     broadcastToUser(duel.creator_id, payload);
   }
 
+  if (accept && duel.creator_id) {
+    const responderName = user.nickname || user.real_name || 'Motståndaren';
+    sendPushToUsers([duel.creator_id], {
+      title: '⚔️ Utmaning antagen!',
+      body: `${responderName} antog din duell! Gör ditt drag nu i Arcade.`,
+      url: '/#arcade'
+    }, 'duels').catch(() => {});
+  }
+
   res.json({ duel });
 });
 
@@ -1809,6 +1850,38 @@ app.post('/api/duels/:id/roll', (req, res) => {
     type: 'duel_finished',
     duel: updated
   });
+
+  if (updated && updated.status === 'completed') {
+    const creator = db.getUserById(updated.creator_id);
+    const opponent = db.getUserById(updated.opponent_id);
+    const creatorName = creator ? (creator.nickname || creator.real_name) : 'Spelare 1';
+    const opponentName = opponent ? (opponent.nickname || opponent.real_name) : 'Spelare 2';
+
+    if (updated.winner_id) {
+      const winnerId = updated.winner_id;
+      const loserId = winnerId === updated.creator_id ? updated.opponent_id : updated.creator_id;
+      const winnerName = winnerId === updated.creator_id ? creatorName : opponentName;
+      const loserName = winnerId === updated.creator_id ? opponentName : creatorName;
+
+      sendPushToUsers([winnerId], {
+        title: '👑 Du vann duellen!',
+        body: `Grattis! Du besegrade ${loserName} (+${updated.stake_amount} kr).`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+
+      sendPushToUsers([loserId], {
+        title: '💸 Duell avgjord',
+        body: `${winnerName} vann duellen (${updated.stake_amount} kr). Bättre lycka nästa gång!`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+    } else {
+      sendPushToUsers([updated.creator_id, updated.opponent_id], {
+        title: '🤝 Oavgjort i duellen!',
+        body: `Duellen mellan ${creatorName} och ${opponentName} slutade oavgjort!`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+    }
+  }
 
   res.json({ duel: updated });
 });
@@ -2322,6 +2395,19 @@ app.post('/api/push/unsubscribe', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/users/notification-prefs', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+  res.json(db.getUserNotificationPrefs(user.id));
+});
+
+app.put('/api/users/notification-prefs', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+  const updated = db.updateUserNotificationPrefs(user.id, req.body || {});
+  res.json(updated);
+});
+
 // ── Flash Bets (BlixtBet) API Endpoints ───────────────
 app.post('/api/flashbets', async (req, res) => {
   const user = getUserFromToken(req);
@@ -2374,7 +2460,7 @@ app.post('/api/flashbets', async (req, res) => {
     title: `⚡ BLIXTBET (${duration}s kvar!)`,
     body: `${user.real_name || user.nickname}: "${finalQuestion}"`,
     url: tournamentId ? `/#tournament/${tournamentId}` : `/#arcade`
-  }).catch(() => {});
+  }, 'flashbets').catch(() => {});
 
   res.json(created);
 });
@@ -2443,7 +2529,7 @@ app.post('/api/flashbets/:id/settle', (req, res) => {
       title: `🏁 BlixtBet avgjort!`,
       body: `"${settled.question}" vanns av ${winnerChoice === 'yes' ? '👍 JA' : '👎 NEJ'}!`,
       url: settled.tournamentId ? `/#tournament/${settled.tournamentId}` : `/#arcade`
-    }).catch(() => {});
+    }, 'flashbets').catch(() => {});
 
     res.json(settled);
   } catch (err) {

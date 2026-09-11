@@ -1,5 +1,5 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers } from '../api.js';
+import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -19,13 +19,14 @@ export async function renderProfile() {
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
-    const [bets, stats, creds, friends] = await Promise.all([
+    const [bets, stats, creds, friends, notifPrefs] = await Promise.all([
       getMyBets(),
       getMyStats(),
       getMyCredentials().catch(() => ({ hasBiometric: false })),
-      getFriends().catch(() => [])
+      getFriends().catch(() => []),
+      getNotificationPrefs().catch(() => ({ notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }))
     ]);
-    renderProfileContent(content, user, bets, stats, creds, friends);
+    renderProfileContent(content, user, bets, stats, creds, friends, notifPrefs);
   } catch (err) {
     clearUser();
     renderAuthScreen(content);
@@ -293,7 +294,7 @@ function showPinResetUI(identifier, nickname) {
   });
 }
 
-function renderProfileContent(content, user, bets, stats, creds, friends = []) {
+function renderProfileContent(content, user, bets, stats, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }) {
   const totalBet = bets.reduce((s, b) => s + b.amount, 0);
   const wonBets = bets.filter(b => b.won);
   const lostBets = bets.filter(b => b.eventStatus === 'finished' && !b.won);
@@ -474,6 +475,28 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
             ⚠️ Web Push stöds inte i denna webbläsare
           </div>
         `}
+
+        ${pushSupported && isPushActive ? `
+          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-glass);">
+            <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 8px; color: var(--gold);">
+              ⚙️ Välj vilka notiser du vill få:
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; cursor: pointer; padding: 4px 0;">
+                <span>⚡ <strong>BlixtBets & Snabba mikrospel</strong></span>
+                <input type="checkbox" id="pref-notify-flashbets" ${notifPrefs.notifyFlashbets ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
+              </label>
+              <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; cursor: pointer; padding: 4px 0;">
+                <span>⚔️ <strong>Duell-utmaningar från vänner</strong></span>
+                <input type="checkbox" id="pref-notify-duels" ${notifPrefs.notifyDuels ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
+              </label>
+              <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; cursor: pointer; padding: 4px 0;">
+                <span>🏆 <strong>Turneringar: Nya ronder & Resultat</strong></span>
+                <input type="checkbox" id="pref-notify-tournaments" ${notifPrefs.notifyTournaments ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
+              </label>
+            </div>
+          </div>
+        ` : ''}
 
         <div style="margin-top: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border: 1px solid var(--border-glass); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.35;">
           💡 <strong>Tips för iPhone / iPad (iOS 16.4+):</strong> Tryck på Dela-knappen i Safari (fyrkanten med pil uppåt) och välj <em>"Lägg till på hemskärmen"</em>. Öppna sedan appen från hemskärmen och slå på notiser här!
@@ -677,6 +700,23 @@ function renderProfileContent(content, user, bets, stats, creds, friends = []) {
       btn.textContent = isPushActive ? '🔕 Inaktivera pushnotiser' : '🔔 Aktivera pushnotiser nu';
     }
   });
+
+  // Notification Preferences Toggles
+  const handlePrefChange = async () => {
+    const notifyFlashbets = document.getElementById('pref-notify-flashbets')?.checked ?? true;
+    const notifyDuels = document.getElementById('pref-notify-duels')?.checked ?? true;
+    const notifyTournaments = document.getElementById('pref-notify-tournaments')?.checked ?? true;
+    try {
+      await updateNotificationPrefs({ notifyFlashbets, notifyDuels, notifyTournaments });
+      showToast('Notis-inställningar sparade! ⚙️', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  document.getElementById('pref-notify-flashbets')?.addEventListener('change', handlePrefChange);
+  document.getElementById('pref-notify-duels')?.addEventListener('change', handlePrefChange);
+  document.getElementById('pref-notify-tournaments')?.addEventListener('change', handlePrefChange);
 
   // Client-side image compression
   const compressImage = async (file, maxWidth = 800, quality = 0.8) => {

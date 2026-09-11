@@ -145,6 +145,9 @@ try { db.exec('ALTER TABLE users ADD COLUMN pin_salt TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN needs_pin_reset INTEGER DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN reset_code TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN reset_code_expires TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN notify_flashbets INTEGER DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN notify_duels INTEGER DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN notify_tournaments INTEGER DEFAULT 1'); } catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_credentials (
@@ -575,6 +578,8 @@ const stmts = {
   deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
   deletePushSubscriptionsByUser: db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?'),
   getPushSubscriptionsByUser: db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?'),
+  getUserNotificationPrefs: db.prepare('SELECT notify_flashbets, notify_duels, notify_tournaments FROM users WHERE id = ?'),
+  updateUserNotificationPrefs: db.prepare('UPDATE users SET notify_flashbets = ?, notify_duels = ?, notify_tournaments = ? WHERE id = ?'),
 
   // Flash Bets
   insertFlashBet: db.prepare(`
@@ -1795,14 +1800,66 @@ export function deletePushSubscriptionByEndpoint(endpoint) {
   stmts.deletePushSubscriptionByEndpoint.run(endpoint);
 }
 
-export function getPushSubscriptionsForUsers(userIds = []) {
+export function getUserNotificationPrefs(userId) {
+  const row = stmts.getUserNotificationPrefs.get(userId);
+  if (!row) {
+    return { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true };
+  }
+  return {
+    notifyFlashbets: row.notify_flashbets !== 0,
+    notifyDuels: row.notify_duels !== 0,
+    notifyTournaments: row.notify_tournaments !== 0
+  };
+}
+
+export function updateUserNotificationPrefs(userId, prefs = {}) {
+  const current = getUserNotificationPrefs(userId);
+  const flash = prefs.notifyFlashbets !== undefined ? (prefs.notifyFlashbets ? 1 : 0) : (current.notifyFlashbets ? 1 : 0);
+  const duels = prefs.notifyDuels !== undefined ? (prefs.notifyDuels ? 1 : 0) : (current.notifyDuels ? 1 : 0);
+  const tourneys = prefs.notifyTournaments !== undefined ? (prefs.notifyTournaments ? 1 : 0) : (current.notifyTournaments ? 1 : 0);
+  stmts.updateUserNotificationPrefs.run(flash, duels, tourneys, userId);
+  return getUserNotificationPrefs(userId);
+}
+
+export function getPushSubscriptionsForUsers(userIds = [], category = null) {
   if (!userIds || userIds.length === 0) return [];
   const subs = [];
   for (const uid of userIds) {
+    if (category) {
+      const prefs = getUserNotificationPrefs(uid);
+      if (category === 'flashbets' && !prefs.notifyFlashbets) continue;
+      if (category === 'duels' && !prefs.notifyDuels) continue;
+      if (category === 'tournaments' && !prefs.notifyTournaments) continue;
+    }
     const userSubs = stmts.getPushSubscriptionsByUser.all(uid);
     subs.push(...userSubs);
   }
   return subs;
+}
+
+export function getTournamentParticipantUserIds(tournamentId) {
+  const t = stmts.getTournamentById.get(tournamentId);
+  const userIds = new Set();
+  if (t && t.creator_id) {
+    userIds.add(t.creator_id);
+    if (t.visibility === 'friends') {
+      const friendRows = db.prepare('SELECT friend_id FROM friends WHERE user_id = ?').all(t.creator_id);
+      for (const f of friendRows) {
+        if (f.friend_id) userIds.add(f.friend_id);
+      }
+    }
+  }
+  // Add users who have placed bets in this tournament
+  const bettorRows = db.prepare(`
+    SELECT DISTINCT b.user_id
+    FROM bets b
+    JOIN events e ON b.event_id = e.id
+    WHERE e.tournament_id = ? AND b.user_id IS NOT NULL
+  `).all(tournamentId);
+  for (const row of bettorRows) {
+    if (row.user_id) userIds.add(row.user_id);
+  }
+  return Array.from(userIds);
 }
 
 // ── Flash Bets (BlixtBet) API ────────────────────────
