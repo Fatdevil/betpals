@@ -159,7 +159,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.notanRoulette'),
       tag: t('arcade.notanRouletteTag'),
       title: t('arcade.notanRouletteTitle'),
-      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(245,158,11,0.8));">🧾</span>`
+      iconHtml: `<img src="/gold-card.png" alt="${t('arcade.notanRoulette')}" style="width: 40px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -5105,8 +5105,8 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
         
         <!-- Mode Switcher Tabs -->
         <div class="flex gap-xs mb-md" style="background: rgba(0,0,0,0.35); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
-          <button type="button" class="btn btn-sm btn-mode-tab ${activeMode === 'roulette' ? 'btn-primary' : 'btn-ghost'}" data-mode="roulette" style="flex: 1; font-weight: 800; font-size: 0.85rem; padding: 8px 6px;">
-            🎰 Not-Roulette
+          <button type="button" class="btn btn-sm btn-mode-tab ${activeMode === 'roulette' ? 'btn-primary' : 'btn-ghost'}" data-mode="roulette" style="flex: 1; font-weight: 800; font-size: 0.85rem; padding: 8px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+            <img src="/gold-card.png" alt="Card" style="width: 18px; height: 18px; object-fit: contain;" /> Not-Roulette
           </button>
           <button type="button" class="btn btn-sm btn-mode-tab ${activeMode === 'even_steven' ? 'btn-primary' : 'btn-ghost'}" data-mode="even_steven" style="flex: 1; font-weight: 800; font-size: 0.85rem; padding: 8px 6px;">
             ⚖️ Even Steven
