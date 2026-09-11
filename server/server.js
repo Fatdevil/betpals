@@ -2543,7 +2543,7 @@ app.post('/api/tab/expenses', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const { title, notes, totalAmount, mode, participantIds, loserId, receiptImage } = req.body || {};
+  const { title, notes, totalAmount, mode, participantIds, loserId, receiptImage, customShares } = req.body || {};
 
   try {
     const expense = db.createTabExpense({
@@ -2554,7 +2554,8 @@ app.post('/api/tab/expenses', async (req, res) => {
       mode,
       participantIds: Array.isArray(participantIds) ? participantIds : [],
       loserId,
-      receiptImage
+      receiptImage,
+      customShares
     });
 
     const payerName = user.real_name || user.nickname || 'En vän';
@@ -2600,16 +2601,15 @@ app.post('/api/tab/expenses', async (req, res) => {
         }
       }
     } else {
-      // Even Steven
-      const splitAmount = expense.participants?.[0]?.amount || Math.round((amount / (expense.participants?.length || 1)) * 100) / 100;
+      // Even Steven: send individualized push
       const otherParticipants = (expense.participants || [])
-        .map(p => p.user_id)
-        .filter(uid => uid !== user.id);
+        .filter(p => p.user_id !== user.id);
 
-      if (otherParticipants.length > 0) {
-        sendPushToUsers(otherParticipants, {
-          title: `🧾 Ny nota delad (${splitAmount} kr)`,
-          body: `${payerName} har delat "${cleanTitle}". Kvitto finns i Swishlistan.`,
+      for (const p of otherParticipants) {
+        const myShare = Math.round(p.amount);
+        sendPushToUsers([p.user_id], {
+          title: `🧾 Ny nota delad (${myShare} kr)`,
+          body: `${payerName} har delat "${cleanTitle}". Din del är ${myShare} kr. Kvitto finns i Swishlistan.`,
           url: '/#leaderboard'
         }, 'duels').catch(() => {});
       }

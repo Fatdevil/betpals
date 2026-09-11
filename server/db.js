@@ -2117,7 +2117,7 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
 
 // ── Tab Expenses & Even Steven Public API ─────────────
 
-export function createTabExpense({ payerId, title, notes, totalAmount, mode, participantIds = [], loserId = null, receiptImage = null }) {
+export function createTabExpense({ payerId, title, notes, totalAmount, mode, participantIds = [], loserId = null, receiptImage = null, customShares = null }) {
   if (!payerId) throw new Error('Payer is required');
   const amount = parseFloat(totalAmount);
   if (isNaN(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
@@ -2179,26 +2179,51 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
         });
       }
     } else {
-      // Even Steven: split evenly
-      const splitAmount = Math.round((amount / allParticipants.length) * 100) / 100;
+      // Even Steven: either custom individual shares or split evenly
+      let userShares = {};
+      const hasCustomShares = customShares && typeof customShares === 'object' && Object.keys(customShares).length > 0;
+
+      if (hasCustomShares) {
+        let allocatedSum = 0;
+        for (const uid of allParticipants) {
+          const val = parseFloat(customShares[uid]);
+          const share = (!isNaN(val) && val >= 0) ? Math.round(val * 100) / 100 : 0;
+          userShares[uid] = share;
+          allocatedSum += share;
+        }
+
+        // Validate sum against total amount (tolerance: 1 kr)
+        allocatedSum = Math.round(allocatedSum * 100) / 100;
+        const diff = Math.abs(allocatedSum - amount);
+        if (diff > 1.0) {
+          throw new Error(`Summan av deltagarnas belopp (${allocatedSum} kr) matchar inte totalbeloppet (${amount} kr)`);
+        }
+      } else {
+        const splitAmount = Math.round((amount / allParticipants.length) * 100) / 100;
+        for (const uid of allParticipants) {
+          userShares[uid] = splitAmount;
+        }
+      }
 
       for (const uid of allParticipants) {
+        const share = userShares[uid] ?? 0;
+
         stmts.insertTabExpenseParticipant.run({
           id: crypto.randomUUID(),
           expense_id: expenseId,
           user_id: uid,
-          amount: splitAmount
+          amount: share
         });
 
-        // For every participant who is NOT the payer, create debt duel to payer
-        if (uid !== String(payerId)) {
+        // For every participant who is NOT the payer and has a debt > 0, create debt duel to payer
+        if (uid !== String(payerId) && share > 0) {
           const duelId = crypto.randomUUID();
           stmts.insertTabExpenseDuel.run({
             id: duelId,
             game_type: 'even_steven',
             creator_id: payerId,
             opponent_id: uid,
-            stake_amount: splitAmount,
+            stake_amount: share,
             mode: 'even_steven',
             winner_id: payerId,
             expense_id: expenseId,

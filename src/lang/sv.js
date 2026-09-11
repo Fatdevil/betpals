@@ -455,6 +455,14 @@ export const sv = {
     evenStevenBtn: '⚖️ Even Steven (Splitta rakt)',
     takeTheTab: '🎰 Kör Not-Roulette!',
     viewReceipt: '🧾 Kvitto',
-    addExpenseBtn: '➕ Dela nota / Krogutlägg'
+    addExpenseBtn: '➕ Dela nota / Krogutlägg',
+    splitEqual: '⚖️ Dela lika',
+    splitCustom: '✏️ Anpassa per person',
+    splitAllocated: 'Fördelat',
+    splitRemaining: 'Kvar att fördela',
+    splitExceeded: 'Överskrider notan med',
+    splitMatch: 'Stämmer perfekt!',
+    splitDistributeRest: '⚡ Dela resten jämnt',
+    customSplitBtn: '⚖️ Dela notan (Anpassat)'
   }
 };

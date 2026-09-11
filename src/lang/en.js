@@ -455,6 +455,14 @@ export const en = {
     evenStevenBtn: '⚖️ Even Steven (Split evenly)',
     takeTheTab: '🎰 Play Tab Roulette!',
     viewReceipt: '🧾 Receipt',
-    addExpenseBtn: '➕ Split Tab / Expense'
+    addExpenseBtn: '➕ Split Tab / Expense',
+    splitEqual: '⚖️ Equal split',
+    splitCustom: '✏️ Custom per person',
+    splitAllocated: 'Allocated',
+    splitRemaining: 'Remaining to allocate',
+    splitExceeded: 'Exceeds tab by',
+    splitMatch: 'Matches tab perfectly!',
+    splitDistributeRest: '⚡ Split remainder evenly',
+    customSplitBtn: '⚖️ Split Tab (Custom)'
   }
 };

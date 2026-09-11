@@ -5063,6 +5063,24 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
   let selectedFriendIds = new Set();
   let isSpinning = false;
   let currentRotation = 0;
+  let evenSplitMode = 'equal'; // 'equal' | 'custom'
+  let customShares = {}; // { [userId]: number }
+
+  function getCustomSharesSummary(participants) {
+    let allocatedSum = 0;
+    participants.forEach(p => {
+      const val = parseFloat(customShares[p.id]);
+      if (!isNaN(val) && val > 0) {
+        allocatedSum += val;
+      }
+    });
+    allocatedSum = Math.round(allocatedSum * 100) / 100;
+    const remaining = Math.round((totalAmount - allocatedSum) * 100) / 100;
+    const isPerfect = totalAmount > 0 && Math.abs(remaining) <= 0.5;
+    const isExceeded = remaining < -0.5;
+    const isUnder = remaining > 0.5;
+    return { allocatedSum, remaining, isPerfect, isExceeded, isUnder };
+  }
 
   try {
     friends = await getFriends();
@@ -5099,6 +5117,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
     const splitEach = participants.length > 0 && totalAmount > 0 
       ? Math.round((totalAmount / participants.length) * 100) / 100 
       : 0;
+    const customSummary = getCustomSharesSummary(participants);
 
     showModal(`
       <div class="notan-roulette-modal animate-in" style="max-width: 440px; margin: 0 auto; text-align: left;">
@@ -5251,40 +5270,104 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
           <!-- EVEN STEVEN VIEW -->
           <div class="even-steven-container mb-md">
             
-            <!-- Calculation Card -->
-            <div class="card mb-sm text-center" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.3); padding: 14px;">
-              <div style="font-size: 0.75rem; font-weight: 700; color: #4ade80; text-transform: uppercase;">
-                ${isEn ? 'Fair Split (Per Person)' : 'Rättvis Fördelning (Per Person)'}
-              </div>
-              <div style="font-size: 1.8rem; font-weight: 900; color: #4ade80; margin: 4px 0;">
-                ${splitEach} kr <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">/ pers</span>
-              </div>
-              <div class="text-muted" style="font-size: 0.75rem;">
-                ${totalAmount} kr / ${participants.length} ${isEn ? 'people' : 'personer'}
-              </div>
+            <!-- Sub-mode switcher (Dela lika vs Anpassa) -->
+            <div class="flex gap-xs mb-sm" style="background: rgba(0,0,0,0.35); padding: 3px; border-radius: var(--radius-sm); border: 1px solid var(--border-glass);">
+              <button type="button" class="btn btn-xs btn-even-submode ${evenSplitMode === 'equal' ? 'btn-primary' : 'btn-ghost'}" data-submode="equal" style="flex: 1; font-weight: 700; font-size: 0.75rem; padding: 6px 8px;">
+                ${t('arcade.splitEqual') || '⚖️ Dela lika'}
+              </button>
+              <button type="button" class="btn btn-xs btn-even-submode ${evenSplitMode === 'custom' ? 'btn-primary' : 'btn-ghost'}" data-submode="custom" style="flex: 1; font-weight: 700; font-size: 0.75rem; padding: 6px 8px;">
+                ${t('arcade.splitCustom') || '✏️ Anpassa per person'}
+              </button>
             </div>
 
-            <!-- Breakdown List -->
-            <div class="mb-sm" style="display: flex; flex-direction: column; gap: 4px;">
-              ${participants.map(p => {
-                return `
-                  <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.8rem;">
-                    <div class="flex align-center gap-xs">
-                      <span>${escapeHtml(p.avatarEmoji)}</span>
-                      <span style="font-weight: 600;">${escapeHtml(p.name)}</span>
-                      ${p.isMe ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
-                    </div>
-                    <div style="font-weight: 700; color: ${p.isMe ? '#4ade80' : 'var(--gold)'};">
-                      ${p.isMe ? `${isEn ? 'Paid' : 'Lade ut'} ${totalAmount} kr` : `${isEn ? 'Owes you' : 'Ska swisha dig'} ${splitEach} kr`}
-                    </div>
-                  </div>`;
-              }).join('')}
-            </div>
+            ${evenSplitMode === 'equal' ? `
+              <!-- Calculation Card -->
+              <div class="card mb-sm text-center" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.3); padding: 14px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: #4ade80; text-transform: uppercase;">
+                  ${isEn ? 'Fair Split (Per Person)' : 'Rättvis Fördelning (Per Person)'}
+                </div>
+                <div style="font-size: 1.8rem; font-weight: 900; color: #4ade80; margin: 4px 0;">
+                  ${splitEach} kr <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">/ pers</span>
+                </div>
+                <div class="text-muted" style="font-size: 0.75rem;">
+                  ${totalAmount} kr / ${participants.length} ${isEn ? 'people' : 'personer'}
+                </div>
+              </div>
 
-            <!-- Submit Even Steven Button -->
-            <button type="button" class="btn btn-primary btn-block" id="btn-submit-even-steven" ${participants.length < 2 || totalAmount <= 0 ? 'disabled' : ''} style="font-size: 1.1rem; font-weight: 800; padding: 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 16px rgba(16,185,129,0.3);">
-              ⚖️ ${isEn ? `SPLIT TAB (${splitEach} kr each)` : `DELA NOTAN (${splitEach} kr var)`}
-            </button>
+              <!-- Breakdown List -->
+              <div class="mb-sm" style="display: flex; flex-direction: column; gap: 4px;">
+                ${participants.map(p => {
+                  return `
+                    <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.8rem;">
+                      <div class="flex align-center gap-xs">
+                        <span>${escapeHtml(p.avatarEmoji)}</span>
+                        <span style="font-weight: 600;">${escapeHtml(p.name)}</span>
+                        ${p.isMe ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
+                      </div>
+                      <div style="font-weight: 700; color: ${p.isMe ? '#4ade80' : 'var(--gold)'};">
+                        ${p.isMe ? `${isEn ? 'Paid' : 'Lade ut'} ${totalAmount} kr` : `${isEn ? 'Owes you' : 'Ska swisha dig'} ${splitEach} kr`}
+                      </div>
+                    </div>`;
+                }).join('')}
+              </div>
+
+              <!-- Submit Even Steven Button -->
+              <button type="button" class="btn btn-primary btn-block" id="btn-submit-even-steven" ${participants.length < 2 || totalAmount <= 0 ? 'disabled' : ''} style="font-size: 1.1rem; font-weight: 800; padding: 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 16px rgba(16,185,129,0.3);">
+                ⚖️ ${isEn ? `SPLIT TAB (${splitEach} kr each)` : `DELA NOTAN (${splitEach} kr var)`}
+              </button>
+            ` : `
+              <!-- Custom Breakdown & Inputs Card -->
+              <div class="card mb-sm" style="background: rgba(255,255,255,0.02); padding: 12px; border-color: rgba(255,255,255,0.08);">
+                <div class="flex-between align-center mb-xs">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold); text-transform: uppercase;">
+                    ${t('arcade.splitCustom') || 'Anpassa per person'}
+                  </span>
+                  <span id="custom-split-allocated-text" style="font-size: 0.78rem; font-weight: 800; color: ${customSummary.isPerfect ? '#4ade80' : (customSummary.isExceeded ? '#ef4444' : 'var(--gold)')};">
+                    ${customSummary.allocatedSum} / ${totalAmount} kr
+                  </span>
+                </div>
+
+                <!-- Status banner -->
+                <div id="custom-split-summary-badge" class="mb-sm p-xs text-center" style="font-size: 0.75rem; border-radius: var(--radius-sm); background: ${customSummary.isPerfect ? 'rgba(74, 222, 128, 0.12)' : (customSummary.isExceeded ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)')}; color: ${customSummary.isPerfect ? '#4ade80' : (customSummary.isExceeded ? '#ef4444' : 'var(--gold)')}; font-weight: 700;">
+                  ${customSummary.isPerfect 
+                    ? `✓ ${t('arcade.splitMatch') || 'Stämmer perfekt!'}` 
+                    : (customSummary.isExceeded 
+                      ? `⚠️ ${t('arcade.splitExceeded') || 'Överskrider notan med'} ${Math.round(-customSummary.remaining)} kr!` 
+                      : `⚠️ ${t('arcade.splitRemaining') || 'Kvar att fördela'}: ${Math.round(customSummary.remaining)} kr`)}
+                </div>
+
+                <!-- Participant inputs list -->
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  ${participants.map(p => {
+                    const val = customShares[p.id] !== undefined ? customShares[p.id] : '';
+                    return `
+                      <div class="flex-between align-center" style="padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); border: 1px solid var(--border-glass);">
+                        <div class="flex align-center gap-xs" style="flex: 1; min-width: 0;">
+                          <span>${escapeHtml(p.avatarEmoji)}</span>
+                          <span style="font-weight: 600; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p.name)}</span>
+                          ${p.isMe ? `<span class="badge badge-warning" style="font-size: 0.6rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
+                        </div>
+                        <div class="flex align-center gap-xs" style="flex-shrink: 0;">
+                          <input type="number" class="form-input custom-share-input" data-user-id="${p.id}" value="${val}" placeholder="0" min="0" step="any" style="width: 85px; text-align: right; font-weight: 800; font-size: 0.85rem; padding: 4px 6px; color: ${p.isMe ? '#4ade80' : 'var(--gold)'}; border-color: rgba(255,255,255,0.15);" />
+                          <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">kr</span>
+                        </div>
+                      </div>`;
+                  }).join('')}
+                </div>
+
+                <!-- Auto-distribute remainder button -->
+                <div id="btn-distribute-container" class="mt-xs text-center" style="${customSummary.isUnder ? '' : 'display: none;'}">
+                  <button type="button" class="btn btn-ghost btn-xs" id="btn-distribute-remaining" style="color: var(--gold); font-size: 0.72rem; text-decoration: underline; padding: 4px 8px;">
+                    ${t('arcade.splitDistributeRest') || '⚡ Dela resten jämnt'} (<span id="distribute-remaining-amount">${Math.round(customSummary.remaining)}</span> kr)
+                  </button>
+                </div>
+              </div>
+
+              <!-- Submit Custom Split Button -->
+              <button type="button" class="btn btn-primary btn-block" id="btn-submit-even-steven" ${participants.length < 2 || totalAmount <= 0 || !customSummary.isPerfect ? 'disabled' : ''} style="font-size: 1.1rem; font-weight: 800; padding: 14px; background: ${customSummary.isPerfect ? 'linear-gradient(135deg, #10b981, #059669)' : 'rgba(255,255,255,0.1)'}; border: none; box-shadow: ${customSummary.isPerfect ? '0 4px 16px rgba(16,185,129,0.3)' : 'none'}; cursor: ${customSummary.isPerfect ? 'pointer' : 'not-allowed'};">
+                ${t('arcade.customSplitBtn') || '⚖️ DELA NOTAN (ANPASSAT)'}
+              </button>
+            `}
           </div>
         `}
 
@@ -5492,6 +5575,92 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
       if (activeMode === 'roulette') drawWheel();
     });
 
+    // Even Steven submode switcher (Equal vs Custom)
+    document.querySelectorAll('.btn-even-submode').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (isSpinning) return;
+        evenSplitMode = btn.getAttribute('data-submode');
+        if (evenSplitMode === 'custom') {
+          const parts = getActiveParticipants();
+          const hasAny = Object.keys(customShares).some(k => parseFloat(customShares[k]) > 0);
+          if (!hasAny && totalAmount > 0 && parts.length > 0) {
+            const each = Math.round((totalAmount / parts.length) * 100) / 100;
+            parts.forEach(p => { customShares[p.id] = each; });
+          }
+        }
+        renderModal();
+      });
+    });
+
+    // Real-time custom share inputs (keeps focus while typing!)
+    function updateCustomSummaryUI() {
+      const parts = getActiveParticipants();
+      const sum = getCustomSharesSummary(parts);
+      
+      const allocText = document.getElementById('custom-split-allocated-text');
+      if (allocText) {
+        allocText.textContent = `${sum.allocatedSum} / ${totalAmount} kr`;
+        allocText.style.color = sum.isPerfect ? '#4ade80' : (sum.isExceeded ? '#ef4444' : 'var(--gold)');
+      }
+
+      const badge = document.getElementById('custom-split-summary-badge');
+      if (badge) {
+        badge.style.background = sum.isPerfect ? 'rgba(74, 222, 128, 0.12)' : (sum.isExceeded ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)');
+        badge.style.color = sum.isPerfect ? '#4ade80' : (sum.isExceeded ? '#ef4444' : 'var(--gold)');
+        badge.innerHTML = sum.isPerfect 
+          ? `✓ ${t('arcade.splitMatch') || 'Stämmer perfekt!'}` 
+          : (sum.isExceeded 
+            ? `⚠️ ${t('arcade.splitExceeded') || 'Överskrider notan med'} ${Math.round(-sum.remaining)} kr!` 
+            : `⚠️ ${t('arcade.splitRemaining') || 'Kvar att fördela'}: ${Math.round(sum.remaining)} kr`);
+      }
+
+      const distContainer = document.getElementById('btn-distribute-container');
+      const distAmt = document.getElementById('distribute-remaining-amount');
+      if (distContainer) {
+        distContainer.style.display = sum.isUnder ? '' : 'none';
+      }
+      if (distAmt) {
+        distAmt.textContent = Math.round(sum.remaining);
+      }
+
+      const evenBtn = document.getElementById('btn-submit-even-steven');
+      if (evenBtn) {
+        const canSubmit = parts.length >= 2 && totalAmount > 0 && sum.isPerfect;
+        evenBtn.disabled = !canSubmit;
+        evenBtn.style.background = canSubmit ? 'linear-gradient(135deg, #10b981, #059669)' : 'rgba(255,255,255,0.1)';
+        evenBtn.style.boxShadow = canSubmit ? '0 4px 16px rgba(16,185,129,0.3)' : 'none';
+        evenBtn.style.cursor = canSubmit ? 'pointer' : 'not-allowed';
+      }
+    }
+
+    document.querySelectorAll('.custom-share-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const uid = input.getAttribute('data-user-id');
+        const val = parseFloat(input.value);
+        if (isNaN(val) || val < 0) {
+          customShares[uid] = 0;
+        } else {
+          customShares[uid] = val;
+        }
+        updateCustomSummaryUI();
+      });
+    });
+
+    // Distribute remainder equally
+    document.getElementById('btn-distribute-remaining')?.addEventListener('click', () => {
+      const parts = getActiveParticipants();
+      const sum = getCustomSharesSummary(parts);
+      if (!sum.isUnder || sum.remaining <= 0) return;
+
+      const zeroParts = parts.filter(p => !customShares[p.id] || customShares[p.id] <= 0);
+      const targetParts = zeroParts.length > 0 ? zeroParts : parts;
+      const share = Math.round((sum.remaining / targetParts.length) * 100) / 100;
+      targetParts.forEach(p => {
+        customShares[p.id] = (customShares[p.id] || 0) + share;
+      });
+      renderModal();
+    });
+
     // Cancel button
     document.getElementById('btn-cancel-notan-roulette')?.addEventListener('click', () => {
       if (!isSpinning) closeModal();
@@ -5517,7 +5686,14 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
     if (spinBtn) spinBtn.disabled = !canProceed;
 
     const evenBtn = document.getElementById('btn-submit-even-steven');
-    if (evenBtn) evenBtn.disabled = !canProceed;
+    if (evenBtn) {
+      if (evenSplitMode === 'custom') {
+        const sum = getCustomSharesSummary(participants);
+        evenBtn.disabled = !canProceed || !sum.isPerfect;
+      } else {
+        evenBtn.disabled = !canProceed;
+      }
+    }
 
     const banner = document.getElementById('notan-roulette-banner');
     if (banner) {
@@ -5723,6 +5899,19 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
     const participants = getActiveParticipants();
     if (participants.length < 2 || totalAmount <= 0) return;
 
+    if (evenSplitMode === 'custom') {
+      const sum = getCustomSharesSummary(participants);
+      if (!sum.isPerfect) {
+        showToast(
+          sum.isExceeded 
+            ? `${isEn ? 'Total allocated shares exceed tab by' : 'Fördelade belopp överskrider notan med'} ${Math.round(-sum.remaining)} kr!`
+            : `${isEn ? 'Remaining to allocate:' : 'Kvar att fördela:'} ${Math.round(sum.remaining)} kr!`,
+          'warning'
+        );
+        return;
+      }
+    }
+
     const splitEach = Math.round((totalAmount / participants.length) * 100) / 100;
     const cleanTitle = (customTitle && customTitle.trim()) ? customTitle.trim() : (isEn ? 'Even Steven' : 'Dela nota');
 
@@ -5734,14 +5923,19 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
     try {
       const participantIds = participants.map(p => p.id);
-      await createTabExpense({
+      const payload = {
         title: cleanTitle,
         notes: customNotes || null,
         totalAmount,
         mode: 'even_steven',
         participantIds,
         receiptImage: receiptBase64
-      });
+      };
+      if (evenSplitMode === 'custom') {
+        payload.customShares = customShares;
+      }
+
+      await createTabExpense(payload);
 
       playWinSound();
       launchConfetti();
@@ -5751,11 +5945,11 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
           <div style="font-size: 3.2rem; margin-bottom: 8px;">⚖️</div>
           
           <span class="badge badge-primary mb-xs" style="font-size: 0.8rem; font-weight: 800; padding: 4px 10px;">
-            EVEN STEVEN REGISTRERAD!
+            ${evenSplitMode === 'custom' ? (isEn ? 'CUSTOM SPLIT SAVED!' : 'ANPASSAD NOTA SPARAD!') : 'EVEN STEVEN REGISTRERAD!'}
           </span>
 
           <h2 class="font-heading" style="color: #4ade80; margin: 8px 0 6px; font-size: 1.35rem;">
-            ${isEn ? 'Bill Split Evenly!' : 'Notan är delad rakt av!'}
+            ${evenSplitMode === 'custom' ? (isEn ? 'Bill Split with Custom Shares!' : 'Notan är delad med anpassade belopp!') : (isEn ? 'Bill Split Evenly!' : 'Notan är delad rakt av!')}
           </h2>
 
           <div class="card my-md" style="padding: 14px; background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.3);">
@@ -5763,10 +5957,12 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
               ${escapeHtml(cleanTitle)}
             </div>
             <div style="font-size: 1.8rem; font-weight: 900; color: #4ade80; margin: 4px 0;">
-              ${splitEach} kr <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">/ pers</span>
+              ${totalAmount} kr
             </div>
             <div style="font-size: 0.8rem; color: var(--text-secondary);">
-              ${isEn ? `Registered ${participants.length - 1} friend debts in your Swish list.` : `Registrerade ${participants.length - 1} polares skulder i din Swishlista.`}
+              ${evenSplitMode === 'custom' 
+                ? (isEn ? `Individual debts saved for ${participants.length - 1} friends.` : `Individuella skulder sparade för ${participants.length - 1} vänner.`)
+                : (isEn ? `Registered ${participants.length - 1} friend debts in your Swish list (${splitEach} kr each).` : `Registrerade ${participants.length - 1} polares skulder i din Swishlista (${splitEach} kr var).`)}
             </div>
           </div>
 
