@@ -911,6 +911,13 @@ app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
 app.post('/api/tournaments/:id/photos/:photoId/like', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs för att gilla bilder' });
+
+  const tournament = db.getFullTournament(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const photos = db.getPhotosByTournament(tournament.id);
+  const photo = photos.find(p => p.id === req.params.photoId);
+  if (!photo) return res.status(404).json({ error: 'Bilden hittades inte i denna turnering' });
   
   const liked = db.togglePhotoLike(req.params.photoId, user.id);
   res.json({ liked });
@@ -1263,7 +1270,7 @@ app.post('/api/events/:id/bets/:betId/paid', (req, res) => {
 
   const user = getUserFromToken(req);
   const isAdmin = verifyEventAdmin(req, event);
-  const isBettor = user && bet.userId && bet.userId === user.id;
+  const isBettor = user && ((bet.userId && bet.userId === user.id) || (bet.bettorName && (user.nickname === bet.bettorName || user.real_name === bet.bettorName)));
 
   if (!isAdmin && !isBettor) {
     return res.status(403).json({ error: 'Endast skaparen, admin eller spelaren själv kan markera bet som betalt' });
@@ -1271,6 +1278,18 @@ app.post('/api/events/:id/bets/:betId/paid', (req, res) => {
 
   const { paid } = req.body;
   db.markBetPaid(req.params.id, req.params.betId, !!paid);
+
+  broadcastToEvent(event.share_code, {
+    type: 'bet_paid_update',
+    eventCode: event.share_code,
+    betId: req.params.betId,
+    paid: !!paid
+  });
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
+
   res.json({ ok: true, paid: !!paid });
 });
 

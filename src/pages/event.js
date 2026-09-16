@@ -24,11 +24,15 @@ function renderSettlementSection(event, payoutInfo) {
   }
   html += '</div>';
 
+  const hasPinSession = !!sessionStorage.getItem('betpals_pin');
+  const isCreatorOrAdmin = (currentUser && event.creatorId === currentUser.id) || hasPinSession;
+
   // Losing bets — who owes what
   html += '<div class="mb-md">';
   html += `<h4 class="text-secondary" style="font-size: 0.8rem; margin-bottom: var(--space-sm);">📋 ${t('event.owes').toUpperCase()}</h4>`;
   losingBets.forEach(b => {
-    const isMyBet = currentUser && b.userId === currentUser.id;
+    const isMyBet = currentUser && (b.userId === currentUser.id || (b.bettorName && (currentUser.nickname === b.bettorName || currentUser.real_name === b.bettorName)));
+    const canToggle = isMyBet || isCreatorOrAdmin;
 
     html += '<div class="settle-row">';
     html += '<div>';
@@ -40,8 +44,11 @@ function renderSettlementSection(event, payoutInfo) {
     html += '<div class="flex gap-xs" style="align-items: center;">';
     if (b.paid) {
       html += `<span class="badge badge-success" style="font-size: 0.7rem;">${t('event.settled')}</span>`;
-    } else if (isMyBet) {
-      html += `<button class="btn btn-sm btn-primary self-mark-paid-btn" data-bet-id="${b.id}" data-event-id="${event.id}">${t('event.markSettled')}</button>`;
+      if (isCreatorOrAdmin) {
+        html += `<button class="btn btn-sm btn-secondary self-mark-paid-btn" data-bet-id="${b.id}" data-event-id="${event.id}" data-paid="false" title="Ångra kvittering" style="font-size: 0.7rem; padding: 2px 6px;">↩</button>`;
+      }
+    } else if (canToggle) {
+      html += `<button class="btn btn-sm btn-primary self-mark-paid-btn" data-bet-id="${b.id}" data-event-id="${event.id}" data-paid="true">${t('event.markSettled')}</button>`;
     } else {
       html += `<span class="text-muted" style="font-size: 0.7rem;">${t('event.owes')}...</span>`;
     }
@@ -90,33 +97,33 @@ export async function renderEvent(params = {}) {
     renderEventContent(event, content, code);
 
     // Connect WebSocket for live updates
-    if (event.status === 'open') {
-      connectWebSocket(code);
-      wsUnsubscribe = onWebSocketMessage((msg) => {
-        handleWebSocketNotification(msg);
-        if (msg.type === 'odds_update') {
-          const oddsEl = document.getElementById('odds-board-container');
-          if (oddsEl) {
-            const updatedEvent = { ...event, odds: msg.odds, totalPool: msg.totalPool };
-            oddsEl.innerHTML = renderOddsBoard(updatedEvent);
-          }
-          const poolEl = document.getElementById('total-pool-display');
-          if (poolEl) poolEl.textContent = formatCurrency(msg.totalPool);
-          const countEl = document.getElementById('bet-count-display');
-          if (countEl) countEl.textContent = msg.betCount;
-        } else if (msg.type === 'event_locked') {
-          showToast(`⚠️ ${t('notifications.eventLocked')}`, 'info');
-          setTimeout(() => renderEvent(params), 500);
-        } else if (msg.type === 'event_finished') {
-          launchConfetti();
-          showToast(`🏆 ${msg.winner} ${t('notifications.eventFinished')}`, 'success');
-          setTimeout(() => renderEvent(params), 500);
-        } else if (msg.type === 'event_reopened') {
-          showToast(t('notifications.eventReopened'), 'info');
-          setTimeout(() => renderEvent(params), 500);
+    connectWebSocket(code);
+    wsUnsubscribe = onWebSocketMessage((msg) => {
+      handleWebSocketNotification(msg);
+      if (msg.type === 'odds_update') {
+        const oddsEl = document.getElementById('odds-board-container');
+        if (oddsEl) {
+          const updatedEvent = { ...event, odds: msg.odds, totalPool: msg.totalPool };
+          oddsEl.innerHTML = renderOddsBoard(updatedEvent);
         }
-      });
-    }
+        const poolEl = document.getElementById('total-pool-display');
+        if (poolEl) poolEl.textContent = formatCurrency(msg.totalPool);
+        const countEl = document.getElementById('bet-count-display');
+        if (countEl) countEl.textContent = msg.betCount;
+      } else if (msg.type === 'bet_paid_update') {
+        renderEvent(params);
+      } else if (msg.type === 'event_locked') {
+        showToast(`⚠️ ${t('notifications.eventLocked')}`, 'info');
+        setTimeout(() => renderEvent(params), 500);
+      } else if (msg.type === 'event_finished') {
+        launchConfetti();
+        showToast(`🏆 ${msg.winner} ${t('notifications.eventFinished')}`, 'success');
+        setTimeout(() => renderEvent(params), 500);
+      } else if (msg.type === 'event_reopened') {
+        showToast(t('notifications.eventReopened'), 'info');
+        setTimeout(() => renderEvent(params), 500);
+      }
+    });
   } catch (err) {
     content.innerHTML = `
       <div class="empty-state animate-in">
@@ -472,8 +479,9 @@ function renderEventContent(event, content, code) {
   document.querySelectorAll('.self-mark-paid-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       try {
-        await markBetPaid(btn.dataset.eventId, btn.dataset.betId, true);
-        showToast(t('event.settled'), 'success');
+        const paidState = btn.dataset.paid !== 'false';
+        await markBetPaid(btn.dataset.eventId, btn.dataset.betId, paidState);
+        showToast(paidState ? t('event.settled') : 'Kvittering ångrad', 'success');
         const updated = await getEvent(code);
         renderEventContent(updated, content, code);
       } catch (err) { showToast(err.message, 'error'); }
