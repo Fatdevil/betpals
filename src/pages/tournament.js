@@ -324,7 +324,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
                       }
                       ${canToggleReceipt ? `
                         <button type="button" class="btn btn-sm ${tr.isPaid ? 'btn-secondary' : 'btn-primary'} toggle-receipt-btn" 
-                          data-from="${escapeHtml(tr.from)}" data-to="${escapeHtml(tr.to)}" data-amount="${tr.amount}" style="font-size: 0.7rem; padding: 4px 8px;">
+                          data-from="${escapeHtml(tr.from)}" data-to="${escapeHtml(tr.to)}" data-from-user-id="${tr.fromUserId || ''}" data-to-user-id="${tr.toUserId || ''}" data-amount="${tr.amount}" style="font-size: 0.7rem; padding: 4px 8px;">
                           ${tr.isPaid ? '↩️ Ångra' : 'Mottagen ✅'}
                         </button>
                       ` : ''}
@@ -661,6 +661,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         await toggleSettlementReceipt(t.id, {
           fromName: btn.dataset.from,
           toName: btn.dataset.to,
+          fromUserId: btn.dataset.fromUserId || undefined,
+          toUserId: btn.dataset.toUserId || undefined,
           amount: Number(btn.dataset.amount),
           pin
         });

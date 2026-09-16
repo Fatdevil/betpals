@@ -1727,16 +1727,9 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const { fromName, toName, amount, receiptId } = req.body;
-
+  const { fromName, toName, fromUserId, toUserId, amount, receiptId } = req.body;
   const isCreator = user && tournament.creatorId === user.id;
-  const isCreditor = user && (user.nickname === toName || user.real_name === toName);
-  const isDebtor = user && (user.nickname === fromName || user.real_name === fromName);
   const hasPin = req.body?.pin && verifyPin(req.body.pin);
-
-  if (!isCreator && !isCreditor && !isDebtor && !hasPin) {
-    return res.status(403).json({ error: 'Ingen behörighet att kvittera denna överföring' });
-  }
 
   if (receiptId) {
     const existing = db.getSettlementReceiptById(receiptId);
@@ -1753,6 +1746,13 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     db.deleteSettlementReceiptById(receiptId);
     broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
     return res.json({ ok: true, isPaid: false });
+  }
+
+  const isCreditor = user && ((toUserId && user.id === toUserId) || (toName && (user.nickname === toName || user.real_name === toName)));
+  const isDebtor = user && ((fromUserId && user.id === fromUserId) || (fromName && (user.nickname === fromName || user.real_name === fromName)));
+
+  if (!isCreator && !isCreditor && !isDebtor && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet att kvittera denna överföring' });
   }
 
   if (!fromName || !toName) {
