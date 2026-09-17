@@ -308,7 +308,7 @@ export const en = {
     decline: 'Decline'
   },
   arcade: {
-    title: 'Malta Betting Arcade',
+    title: 'Arcade',
     tagline: 'PLAY NOW',
     viewAll: 'All Games ⊞',
     allTitle: 'All Arcade Games',

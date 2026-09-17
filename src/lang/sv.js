@@ -308,7 +308,7 @@ export const sv = {
     decline: 'Avböj'
   },
   arcade: {
-    title: 'Malta Betting Arkad',
+    title: 'Arcade',
     tagline: 'SPELA DIREKT',
     viewAll: 'Alla Spel ⊞',
     allTitle: 'Alla Spel i Arkaden',

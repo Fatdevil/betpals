@@ -253,8 +253,9 @@ export function renderMinigamesRoller() {
     <div class="minigames-section animate-in">
       <div class="minigames-header">
         <div class="minigames-title">
-          <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 4px;"></span>
-          <span>🎰</span> <span>${t('arcade.title')}</span>
+          <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 2px;"></span>
+          <img src="/chip-malta-transparent.png" alt="Arcade" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+          <span>${t('arcade.title')}</span>
         </div>
         <div class="flex gap-xs" style="align-items: center;">
           <button id="btn-arcade-view-all" class="arcade-view-all-btn" title="${t('arcade.allTitle')}">
@@ -381,7 +382,7 @@ export function openAllArcadeGamesModal() {
     </div>
   `;
 
-  const { close, root } = showModal(`🎰 ${t('arcade.allTitle')}`, contentHtml);
+  const { close, root } = showModal(`<img src="/chip-malta-transparent.png" alt="" style="width: 22px; height: 22px; object-fit: contain; vertical-align: -4px; margin-right: 6px;" /> ${t('arcade.allTitle')}`, contentHtml);
 
   root.querySelectorAll('[data-arcade-launch]').forEach(card => {
     card.addEventListener('click', () => {
