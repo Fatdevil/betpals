@@ -43,6 +43,7 @@ import {
 import { compressImage } from '../imageUtils.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 import { getStoredUser, getToken } from '../auth.js';
+import { t, getLang } from '../i18n.js';
 import { openInstantLiveModal, openLiveStreamModal } from './livestream.js';
 import { openShlFantasyModal } from './shlFantasy.js';
 
