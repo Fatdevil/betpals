@@ -34,9 +34,20 @@ export async function renderHome() {
     // Tournaments
     const tList = document.getElementById('tournaments-list');
     if (tournaments.length > 0) {
+      const hasActive = tournaments.some(t => t.status === 'active');
+      const badgeText = hasActive ? 'LIVE 🏆' : 'SEASON 2026 🏆';
       tList.innerHTML = `
-        <div class="section-header">
-          <h2 class="section-title">🏆 ${t('home.tournaments')}</h2>
+        <div class="section-header-bar">
+          <div class="section-header-title">
+            <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b; margin-right: 2px;"></span>
+            <img src="/chip-malta-transparent.png" alt="Tournaments" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+            <span>TOURNAMENTS</span>
+          </div>
+          <div class="flex gap-xs" style="align-items: center;">
+            <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
+              ${badgeText}
+            </span>
+          </div>
         </div>
         ${tournaments.map((tr, i) => `
           <div class="card card-clickable animate-in mb-sm" data-tournament-code="${escapeHtml(tr.shareCode)}"
@@ -97,7 +108,20 @@ export async function renderHome() {
 
     if (events.length > 0) {
       const evHeader = tournaments.length > 0 
-        ? `<div class="section-header"><h2 class="section-title">🎲 ${t('home.events')}</h2></div>` 
+        ? `
+          <div class="section-header-bar mt-lg">
+            <div class="section-header-title">
+              <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 2px;"></span>
+              <img src="/chip-malta-transparent.png" alt="Matches" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+              <span>${t('home.events')}</span>
+            </div>
+            <div class="flex gap-xs" style="align-items: center;">
+              <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
+                MATCHES 🎲
+              </span>
+            </div>
+          </div>
+        ` 
         : '';
       document.getElementById('events-list').innerHTML = evHeader + events.map((ev, i) => `
         <div class="card card-clickable animate-in" data-event-id="${escapeHtml(ev.shareCode)}"

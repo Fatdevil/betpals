@@ -429,6 +429,28 @@ body::before {
   color: var(--text-muted);
 }
 
+/* ── Premium Section Header Bar (Arcade matching layout) ── */
+.section-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-lg);
+  margin-bottom: var(--space-xs);
+  padding: 0 4px;
+}
+
+.section-header-title {
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ── Cards (SWING_AI inspired — large radius) ────── */
 .card {
   background: var(--bg-card);
