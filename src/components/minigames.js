@@ -771,6 +771,7 @@ function openCoinFlipModal(initialDuel = null) {
       try { duelWs.close(); } catch (e) {}
     }
   });
+  modal.setBusy(() => isFlipping || duelWs !== null);
 
   const coinEl = document.getElementById('game-coin');
   const banner = document.getElementById('coin-result-banner');
@@ -1227,7 +1228,7 @@ function openSlotsModal() {
   }
 
   const slotsTitleHtml = `<img src="/slots-machine.png" alt="Slots" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.slotsTitle').replace('🎰', '').trim()}`;
-  showModal(slotsTitleHtml, `
+  const { close, root, setBusy } = showModal(slotsTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Chips & Bet Bar -->
       <div class="flex-between mb-sm" style="align-items: center; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: var(--radius-md);">
@@ -1278,6 +1279,7 @@ function openSlotsModal() {
       </div>
     </div>
   `);
+  setBusy(() => isSpinning);
 
   const chipsDisplay = document.getElementById('slot-chips-display');
   const banner = document.getElementById('slot-banner');
@@ -1501,7 +1503,7 @@ function openWheelModal() {
   }
 
   const wheelTitleHtml = `<img src="/wheel-fortune.png" alt="Wheel" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle').replace('🎡', '').trim()}`;
-  showModal(wheelTitleHtml, `
+  const { close, root, setBusy } = showModal(wheelTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <!-- Preset pills -->
       <div class="wheel-preset-pills" id="wheel-presets-container"></div>
@@ -1577,6 +1579,7 @@ function openWheelModal() {
       </div>
     </div>
   `);
+  setBusy(() => isSpinning);
 
   const canvas = document.getElementById('wheel-canvas');
   const ctx = canvas.getContext('2d');
@@ -2164,6 +2167,7 @@ function openDiceModal(initialDuel = null) {
       try { duelWs.close(); } catch (e) {}
     }
   });
+  modal.setBusy(() => isRolling || duelWs !== null);
 
   const pDice = document.getElementById('player-dice');
   const dDice = document.getElementById('dealer-dice');
@@ -2655,26 +2659,20 @@ export async function openBlind10Modal(initialRoom = null) {
 
   const modalTitle = `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
 
-  showModal(modalTitle, `
+  const { close, root, setBusy } = showModal(modalTitle, `
     <div id="blind10-container" style="padding: 4px 0; min-height: 380px;">
       <div class="text-center text-muted" style="padding: 40px 0;">
         <span class="spinner">⏳</span>
       </div>
     </div>
-  `);
+  `, () => {
+    cleanup();
+  });
+
+  setBusy(() => currentRoom !== null || timerInterval !== null);
 
   const container = document.getElementById('blind10-container');
   if (!container) return;
-
-  // Cleanup on modal dismiss
-  const modalCloseBtn = document.querySelector('.modal-close');
-  if (modalCloseBtn) {
-    const origClose = modalCloseBtn.onclick;
-    modalCloseBtn.onclick = (e) => {
-      cleanup();
-      if (origClose) origClose.call(modalCloseBtn, e);
-    };
-  }
 
   if (initialRoom) {
     setupPartyLobby(initialRoom);
@@ -3743,25 +3741,20 @@ export async function openMafiaModal(initialRoom = null) {
 
   const modalTitle = `<img src="/mafia-gold.png" alt="Mafia" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.mafiaTitle')}`;
 
-  showModal(modalTitle, `
+  const { close, root, setBusy } = showModal(modalTitle, `
     <div id="mafia-container" class="mafia-container">
       <div class="text-center text-muted" style="padding: 40px 0;">
         <span class="spinner">⏳</span>
       </div>
     </div>
-  `);
+  `, () => {
+    cleanup();
+  });
+
+  setBusy(() => currentRoom !== null);
 
   const container = document.getElementById('mafia-container');
   if (!container) return;
-
-  const modalCloseBtn = document.querySelector('.modal-close');
-  if (modalCloseBtn) {
-    const origClose = modalCloseBtn.onclick;
-    modalCloseBtn.onclick = (e) => {
-      cleanup();
-      if (origClose) origClose.call(modalCloseBtn, e);
-    };
-  }
 
   if (initialRoom) {
     setupMafiaLobby(initialRoom);
@@ -6654,7 +6647,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
       : 0;
     const customSummary = getCustomSharesSummary(participants);
 
-    showModal(`
+    const modal = showModal(`
       <div class="notan-roulette-modal animate-in" style="max-width: 440px; margin: 0 auto; text-align: left;">
         
         <!-- Mode Switcher Tabs -->
@@ -6914,6 +6907,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
       </div>
     `);
+    modal.setBusy(() => isSpinning);
 
     // Attach listeners
     attachListeners();
@@ -7785,12 +7779,14 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
   let activeSpaceEngineCleanup = null;
 
-  const { close, root } = showModal(modalTitle, renderContent(), () => {
+  const { close, root, setBusy } = showModal(modalTitle, renderContent(), () => {
     if (activeSpaceEngineCleanup) {
       activeSpaceEngineCleanup();
       activeSpaceEngineCleanup = null;
     }
   });
+
+  setBusy(() => activeSpaceEngineCleanup !== null);
 
   // Attach tab switching
   function attachTabs() {
@@ -10319,7 +10315,8 @@ export async function openGimmeModal() {
     </div>
   `;
 
-  const { close, root } = showModal(modalTitle, contentHtml);
+  const { close, root, setBusy } = showModal(modalTitle, contentHtml);
+  setBusy(() => activeBet !== null);
 
   const videoEl = root.querySelector('#gimme-video');
   const canvasEl = root.querySelector('#gimme-canvas');
