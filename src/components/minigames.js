@@ -181,8 +181,8 @@ export function renderMinigamesRoller() {
     </div>
   `;
 
-  // Single set of games in scroll track (native swipeable with momentum)
-  const groupCards = games.map(renderCard).join('');
+  // Duplicate cards for seamless infinite horizontal scroll loop
+  const groupCards = [...games, ...games].map(renderCard).join('');
 
   return `
     <div class="minigames-section animate-in">
@@ -341,12 +341,48 @@ export function attachMinigamesListeners() {
     let scrollLeft = 0;
     let hasDragged = false;
 
+    // ── Smooth Infinite Autoscroll Loop (requestAnimationFrame) ──
+    let isUserInteracting = false;
+    let autoScrollSpeed = 0.55; // Pixels per frame (~33px/s)
+    let autoScrollRaf = null;
+
+    const startAutoScroll = () => {
+      if (autoScrollRaf) return;
+      const step = () => {
+        if (!isUserInteracting && container) {
+          container.scrollLeft += autoScrollSpeed;
+          // Loop seamlessly when reaching half of the duplicated content
+          if (container.scrollLeft >= container.scrollWidth / 2) {
+            container.scrollLeft = 0;
+          }
+        }
+        autoScrollRaf = requestAnimationFrame(step);
+      };
+      autoScrollRaf = requestAnimationFrame(step);
+    };
+
+    const pauseAutoScroll = () => {
+      isUserInteracting = true;
+    };
+
+    const resumeAutoScroll = (delay = 2000) => {
+      setTimeout(() => {
+        if (!isDown) {
+          isUserInteracting = false;
+        }
+      }, delay);
+    };
+
+    // Pause on hover
+    container.addEventListener('mouseenter', pauseAutoScroll);
+    container.addEventListener('mouseleave', () => resumeAutoScroll(500));
+
     // Mouse drag support for desktop
     container.addEventListener('mousedown', (e) => {
-      // Only main button
       if (e.button !== 0) return;
       isDown = true;
       hasDragged = false;
+      pauseAutoScroll();
       container.classList.add('is-dragging');
       startX = e.pageX - container.offsetLeft;
       scrollLeft = container.scrollLeft;
@@ -366,16 +402,18 @@ export function attachMinigamesListeners() {
       if (isDown) {
         isDown = false;
         container.classList.remove('is-dragging');
+        resumeAutoScroll(2000);
         setTimeout(() => {
           hasDragged = false;
-        }, 50);
+        }, 60);
       }
     });
 
-    // Touch support (mobile handles native momentum scroll, we just track hasDragged)
+    // Touch support for mobile (native momentum touch-scroll)
     let touchStartX = 0;
     container.addEventListener('touchstart', (e) => {
       hasDragged = false;
+      pauseAutoScroll();
       if (e.touches && e.touches.length > 0) {
         touchStartX = e.touches[0].clientX;
       }
@@ -388,6 +426,14 @@ export function attachMinigamesListeners() {
           hasDragged = true;
         }
       }
+    }, { passive: true });
+
+    container.addEventListener('touchend', () => {
+      resumeAutoScroll(2500);
+    }, { passive: true });
+
+    container.addEventListener('touchcancel', () => {
+      resumeAutoScroll(1000);
     }, { passive: true });
 
     // Click handler for all cards
@@ -404,6 +450,9 @@ export function attachMinigamesListeners() {
         launchGameById(game);
       }
     });
+
+    // Start auto-scroll
+    startAutoScroll();
   }
 
   // Open Swishlistan modal
