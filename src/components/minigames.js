@@ -244,7 +244,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.mafia'),
       tag: t('arcade.mafiaTag'),
       title: t('arcade.mafiaTitle'),
-      iconHtml: `<span style="font-size: 2.1rem; line-height: 1; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));">🕵️‍♂️</span>`
+      iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -373,7 +373,7 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.mafia'),
       tag: t('arcade.mafiaTag'),
       desc: isEn ? 'Psychological party game! Secret roles, night murders, detective investigations and town square lynching' : 'Klassiskt sällskapsspel! Dolda roller, nattliga mord, detektiv och lynchning på torget',
-      iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7));">🕵️‍♂️</span>`
+      iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -3559,11 +3559,11 @@ export function showIncomingPartyModal(room) {
   const isMafia = room.gameType === 'mafia';
 
   const titleHtml = isMafia
-    ? `<span style="font-size: 1.3rem; vertical-align: -2px; margin-right: 6px;">🕵️‍♂️</span> ${t('arcade.mafiaTitle')}`
+    ? `<img src="/mafia-gold.png" alt="Mafia" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.mafiaTitle')}`
     : `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
 
   const iconHtml = isMafia
-    ? `<div style="font-size: 4rem; line-height: 1; margin: 0 auto 12px auto; filter: drop-shadow(0 4px 16px rgba(239,68,68,0.5));">🕵️‍♂️</div>`
+    ? `<img src="/mafia-gold.png" alt="Mafia" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />`
     : `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />`;
 
   const inviteText = isMafia
@@ -3647,7 +3647,7 @@ export async function openMafiaModal(initialRoom = null) {
     }
   }
 
-  const modalTitle = `<span style="font-size: 1.3rem; vertical-align: -2px; margin-right: 6px;">🕵️‍♂️</span> ${t('arcade.mafiaTitle')}`;
+  const modalTitle = `<img src="/mafia-gold.png" alt="Mafia" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.mafiaTitle')}`;
 
   showModal(modalTitle, `
     <div id="mafia-container" class="mafia-container">
@@ -3703,9 +3703,7 @@ export async function openMafiaModal(initialRoom = null) {
 
     container.innerHTML = `
       <div class="text-center" style="margin-bottom: 16px;">
-        <div style="font-size: 3.5rem; line-height: 1; margin-bottom: 8px; filter: drop-shadow(0 4px 16px rgba(239,68,68,0.4));">
-          🕵️‍♂️
-        </div>
+        <img src="/mafia-gold.png" alt="Mafia" style="width: 76px; height: 76px; margin: 0 auto 8px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />
         <p class="text-muted" style="font-size: 0.85rem; margin: 0 auto 14px auto; max-width: 320px;">
           ${t('arcade.mafiaDesc')}
         </p>
@@ -3933,7 +3931,7 @@ export async function openMafiaModal(initialRoom = null) {
 
     container.innerHTML = `
       <div class="text-center" style="margin-bottom: 14px;">
-        <div style="font-size: 3rem; line-height: 1; margin-bottom: 6px;">🕵️‍♂️</div>
+        <img src="/mafia-gold.png" alt="Mafia" style="width: 68px; height: 68px; margin: 0 auto 6px auto; display: block; filter: drop-shadow(0 4px 14px rgba(255,215,0,0.45));" />
         <div style="background: rgba(239, 68, 68, 0.08); border: 2px dashed #ef4444; border-radius: var(--radius-lg); padding: 12px 10px; margin-bottom: 12px;">
           <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700;">
             ${t('arcade.blind10CodePrompt')}
