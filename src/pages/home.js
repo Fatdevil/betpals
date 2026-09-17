@@ -260,7 +260,7 @@ async function initHomeLottoBanner() {
       <div class="home-lotto-banner animate-in" id="home-lotto-clickable-banner">
         <div class="home-lotto-compact-wrap">
           <div class="home-lotto-left-group">
-            <span class="home-lotto-badge">🇲🇹 Malta Jackpot</span>
+            <span class="home-lotto-badge"><img src="/malta-jackpot.png" alt="" style="width: 14px; height: 14px; object-fit: contain;" /> Malta Jackpot</span>
             <span class="home-lotto-pot" id="home-lotto-pot-val">${pot.toLocaleString()} kr</span>
           </div>
           <div class="home-lotto-right-group">

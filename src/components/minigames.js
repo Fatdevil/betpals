@@ -225,20 +225,20 @@ export function renderMinigamesRoller() {
       name: t('arcade.spaceInvaders'),
       tag: t('arcade.spaceInvadersTag'),
       title: t('arcade.spaceInvadersTitle'),
-      iconHtml: `<span style="font-size: 2.3rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.9)); animation: pulse 2s infinite;">👾</span>`
+      iconHtml: `<img src="/space-invaders.png" alt="${t('arcade.spaceInvaders')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'mega-lotto',
       name: t('arcade.megaLotto'),
       tag: t('arcade.megaLottoTag'),
       title: t('arcade.megaLottoTitle'),
-      iconHtml: `<span style="font-size: 2.3rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.9)); animation: pulse 2s infinite;">🔮</span>`
+      iconHtml: `<img src="/malta-jackpot.png" alt="${t('arcade.megaLotto')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
   const renderCard = (g) => `
     <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="${g.id === 'coin-flip' || g.id === 'dice' || g.id === 'slots' || g.id === 'wheel' || g.id === 'blind10' || g.id === 'anybet' || g.id === 'flashbet' || g.id === 'notan-roulette' ? 'display: flex; align-items: center; justify-content: center;' : ''}">
+      <div class="minigame-card-icon" style="display: flex; align-items: center; justify-content: center;">
         ${g.iconHtml}
       </div>
       <div class="minigame-card-name">${g.name}</div>
@@ -346,14 +346,14 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.spaceInvaders'),
       tag: t('arcade.spaceInvadersTag'),
       desc: isEn ? 'Classic 80s Space Invaders blitz! Solo, 1v1 duels or multi-player highscore' : 'Klassisk 80-tals rymdinvasion i 60s blitz! Solo, 1v1 duell eller gruppturnering',
-      iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.9)); animation: pulse 2s infinite;">👾</span>`
+      iconHtml: `<img src="/space-invaders.png" alt="${t('arcade.spaceInvaders')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'mega-lotto',
       name: t('arcade.megaLotto'),
       tag: t('arcade.megaLottoTag'),
       desc: isEn ? 'Progressive weekly jackpot in Eurojackpot format with syndicates' : 'Progressiv veckojackpott i Eurojackpot-format med lottolag',
-      iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.9)); animation: pulse 2s infinite;">🔮</span>`
+      iconHtml: `<img src="/malta-jackpot.png" alt="${t('arcade.megaLotto')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -7735,6 +7735,9 @@ export function openMegaLottoModal(initialOptions = {}) {
 
     return `
       <div class="lotto-jackpot-hero">
+        <div style="display: flex; justify-content: center; margin-bottom: 8px;">
+          <img src="/malta-jackpot.png" alt="Malta Jackpot" style="width: 58px; height: 58px; object-fit: contain; filter: drop-shadow(0 0 14px rgba(245, 158, 11, 0.7));" />
+        </div>
         <div class="lotto-jackpot-title">
           <span>✨</span>
           <span>${escapeHtml(title).toUpperCase()}</span>
