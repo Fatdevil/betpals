@@ -68,6 +68,14 @@ export function onWebSocketMessage(callback) {
   return () => wsListeners.delete(callback); // unsubscribe
 }
 
+export function sendWebSocketMessage(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+    return true;
+  }
+  return false;
+}
+
 // ── Admin ──────────────────────────────────────────────
 export const adminStatus = () => request('/admin/status');
 export const adminSetup = (pin) => request('/admin/setup', { method: 'POST', body: { pin } });
@@ -127,6 +135,7 @@ export const changePin = (currentPin, newPin) =>
   request('/users/change-pin', { method: 'POST', body: { currentPin, newPin } });
 export const getMe = () => request('/users/me');
 export const getMyBets = () => request('/users/me/bets');
+export const getMyPhotos = () => request('/users/me/photos');
 export const updateProfile = (data) =>
   request('/users/me/profile', { method: 'PUT', body: data });
 export const updateAvatar = (imageData) =>
@@ -158,8 +167,11 @@ export const getLeaderboard = () => request('/leaderboard');
 // ── Tournaments ──────────────────────────────────────
 export const getTournaments = () => request('/tournaments');
 export const getTournament = (code) => request('/tournaments/' + code);
+export const getTournamentTemplates = () => request('/tournament-templates');
 export const createTournament = (data) =>
   request('/tournaments', { method: 'POST', body: data });
+export const createTournamentFromTemplate = (data) =>
+  request('/tournaments/from-template', { method: 'POST', body: data });
 export const addTournamentRound = (id, data) =>
   request('/tournaments/' + id + '/rounds', { method: 'POST', body: data });
 export const createSideBet = (id, data) =>
@@ -230,6 +242,13 @@ export const getActiveFlashBets = () => request('/flashbets/active');
 export const getFlashBet = (id) => request('/flashbets/' + id);
 export const placeFlashBet = (id, choice) => request('/flashbets/' + id + '/bet', { method: 'POST', body: { choice } });
 export const settleFlashBet = (id, winningChoice) => request('/flashbets/' + id + '/settle', { method: 'POST', body: { winningChoice } });
+
+// ── Instant FlashLive (Spontan-Live) ─────────────────
+export const startFlashLive = (data) => request('/flashlive/start', { method: 'POST', body: data });
+export const getActiveFlashLives = () => request('/flashlive/active');
+export const getFlashLive = (id) => request('/flashlive/' + id);
+export const settleFlashLive = (id, winningChoice) => request('/flashlive/' + id + '/settle', { method: 'POST', body: { winningChoice } });
+export const stopFlashLive = (id) => request('/flashlive/' + id + '/stop', { method: 'POST', body: {} });
 
 // ── Notification Preferences ─────────────────────────
 export const getNotificationPrefs = () => request('/users/notification-prefs');

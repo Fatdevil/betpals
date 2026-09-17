@@ -1,0 +1,1099 @@
+// ── Components: Live Stream Video & Interactive BlixtBet Overlay ──
+import { showModal, closeModal } from './modal.js';
+import { launchConfetti, escapeHtml, showToast, formatCurrency, createSwishUrl } from '../utils.js';
+import { startLocalCamera, stopLocalCamera, switchCamera, toggleAudio, isAudioEnabled } from '../livekitClient.js';
+import { 
+  getFlashBet, 
+  placeFlashBet, 
+  getActiveFlashBets, 
+  sendWebSocketMessage, 
+  onWebSocketMessage, 
+  connectWebSocket, 
+  getFriends, 
+  startFlashLive, 
+  settleFlashLive, 
+  stopFlashLive 
+} from '../api.js';
+import { getStoredUser } from '../auth.js';
+
+let streamActive = false;
+let viewerCount = 1;
+let viewerInterval = null;
+let wsUnsub = null;
+let activeLiveId = null;
+
+function addCommentToStream({ userName, userAvatar, text, isBetNotice = false }) {
+  const container = document.getElementById('live-comments-stream');
+  if (!container) return;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'live-comment-bubble';
+  bubble.style.cssText = `
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: ${isBetNotice ? 'rgba(245, 166, 35, 0.25)' : 'rgba(0,0,0,0.55)'};
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid ${isBetNotice ? 'var(--gold)' : 'rgba(255,255,255,0.15)'};
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    color: #fff;
+    max-width: 85%;
+    word-break: break-word;
+    animation: fadeInSlideUp 0.25s ease-out;
+    transition: opacity 0.5s ease-out;
+  `;
+
+  bubble.innerHTML = `
+    <span style="font-size: 0.85rem;">${escapeHtml(userAvatar || '💬')}</span>
+    <span>
+      <strong style="color: ${isBetNotice ? 'var(--gold)' : '#ffd700'};">${escapeHtml(userName)}:</strong>
+      <span style="color: #fff; margin-left: 2px;">${escapeHtml(text)}</span>
+    </span>
+  `;
+
+  container.appendChild(bubble);
+
+  // Auto-scroll to latest comment
+  container.scrollTop = container.scrollHeight;
+
+  // Auto-fade out after 8 seconds
+  setTimeout(() => {
+    bubble.style.opacity = '0';
+    setTimeout(() => bubble.remove(), 500);
+  }, 8000);
+}
+
+export async function openLiveStreamModal({ 
+  tournamentId = null, 
+  tournamentCode = null, 
+  tournamentName = null, 
+  isBroadcaster = true, 
+  flashBetId = null,
+  liveId = null,
+  isStandalone = false,
+  hasBet = true,
+  initialQuestion = null,
+  initialFlashBet = null
+} = {}) {
+  const user = getStoredUser();
+  streamActive = true;
+  activeLiveId = liveId;
+  viewerCount = isBroadcaster ? 1 : Math.floor(Math.random() * 4) + 2;
+
+  // Render Fullscreen Live Stream Modal
+  showModal('', `
+    <div id="livestream-fullscreen" style="
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100vw; height: 100vh;
+      background: #000;
+      z-index: 10000;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    ">
+      <!-- Video Element (Full screen 9:16 background) -->
+      <video id="livestream-video" autoplay playsinline style="
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        object-fit: cover;
+        z-index: 1;
+      "></video>
+
+      <!-- Video Gradient Overlay for readability -->
+      <div style="
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.85) 100%);
+        z-index: 2;
+        pointer-events: none;
+      "></div>
+
+      <!-- Top Bar HUD (Header) -->
+      <div style="
+        position: absolute;
+        top: env(safe-area-inset-top, 16px);
+        left: 16px; right: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        z-index: 10;
+      ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <!-- Red pulsing Live badge -->
+          <span style="
+            background: #ff334b;
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 6px;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 0 12px rgba(255, 51, 75, 0.6);
+          ">
+            <span style="width: 7px; height: 7px; background: #fff; border-radius: 50%; display: inline-block;"></span>
+            LIVE
+          </span>
+
+          <!-- Viewers count badge -->
+          <span id="live-viewer-count" style="
+            background: rgba(0,0,0,0.55);
+            backdrop-filter: blur(8px);
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.15);
+          ">
+            👁️ ${viewerCount} tittare
+          </span>
+
+          <span style="
+            color: rgba(255,255,255,0.85);
+            font-size: 0.75rem;
+            font-weight: 600;
+            max-width: 140px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          ">
+            ${escapeHtml(tournamentName || (isStandalone ? 'Spontan-Live ⚡' : 'BetPals Live'))}
+          </span>
+        </div>
+
+        <!-- Top Right Controls -->
+        <div style="display: flex; align-items: center; gap: 8px;">
+          ${isBroadcaster ? `
+            <button type="button" id="btn-switch-camera" style="
+              background: rgba(0,0,0,0.5);
+              border: 1px solid rgba(255,255,255,0.2);
+              color: #fff;
+              width: 36px; height: 36px;
+              border-radius: 50%;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 1.1rem;
+              cursor: pointer;
+            " title="Byt kamera">🔄</button>
+
+            <button type="button" id="btn-toggle-mic" style="
+              background: rgba(0,0,0,0.5);
+              border: 1px solid rgba(255,255,255,0.2);
+              color: #fff;
+              width: 36px; height: 36px;
+              border-radius: 50%;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 1.1rem;
+              cursor: pointer;
+            " title="Muta mikrofon">🎙️</button>
+          ` : ''}
+
+          <!-- Close / Exit button -->
+          <button type="button" id="btn-close-livestream" style="
+            background: rgba(255, 51, 75, 0.85);
+            border: none;
+            color: #fff;
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem;
+            font-weight: 800;
+            cursor: pointer;
+          ">✕</button>
+        </div>
+      </div>
+
+      <!-- Bottom Interactive Overlay: Floating BlixtBet card & actions -->
+      <div style="
+        position: absolute;
+        bottom: env(safe-area-inset-bottom, 20px);
+        left: 12px; right: 12px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      ">
+        <!-- Live Comments Overlay Stream (TikTok / Instagram style) -->
+        <div id="live-comments-stream" style="
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          max-height: 180px;
+          overflow-y: hidden;
+          pointer-events: none;
+          margin-bottom: 2px;
+          mask-image: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 35%);
+          -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 35%);
+        ">
+          <!-- Comments inject here dynamically -->
+        </div>
+
+        <!-- Floating BlixtBet Live Card Container -->
+        <div id="live-blixtbet-container" style="
+          background: rgba(18, 22, 34, 0.85);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          border: 1.5px solid rgba(245, 166, 35, 0.6);
+          border-radius: 14px;
+          padding: 12px 14px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        ">
+          <div style="text-align: center; color: rgba(255,255,255,0.7); font-size: 0.8rem;">
+            Laddar BlixtBet... ⚡
+          </div>
+        </div>
+
+        <!-- Interactive Chat Input Bar & Reactions -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <form id="live-chat-form" style="
+            flex: 1;
+            display: flex;
+            align-items: center;
+            background: rgba(0,0,0,0.55);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 22px;
+            padding: 4px 6px 4px 12px;
+          ">
+            <input type="text" id="live-chat-input" placeholder="Kommentera..." maxlength="120" autocomplete="off" style="
+              flex: 1;
+              background: transparent;
+              border: none;
+              color: #fff;
+              font-size: 0.82rem;
+              outline: none;
+            " />
+            <button type="submit" id="live-chat-send-btn" style="
+              background: var(--gold);
+              color: #000;
+              border: none;
+              width: 30px; height: 30px;
+              border-radius: 50%;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 0.85rem;
+              cursor: pointer;
+              font-weight: 800;
+            ">➤</button>
+          </form>
+
+          <!-- Quick Emoji reaction buttons -->
+          <button type="button" class="live-reaction-btn" data-emoji="🔥" style="
+            background: rgba(255,255,255,0.15);
+            border: none;
+            width: 38px; height: 38px;
+            border-radius: 50%;
+            font-size: 1.15rem;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+          ">🔥</button>
+
+          <button type="button" class="live-reaction-btn" data-emoji="⛳" style="
+            background: rgba(255,255,255,0.15);
+            border: none;
+            width: 38px; height: 38px;
+            border-radius: 50%;
+            font-size: 1.15rem;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+          ">⛳</button>
+
+          <button type="button" class="live-reaction-btn" data-emoji="❤️" style="
+            background: rgba(255, 51, 75, 0.3);
+            border: none;
+            width: 38px; height: 38px;
+            border-radius: 50%;
+            font-size: 1.15rem;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+          ">❤️</button>
+        </div>
+      </div>
+    </div>
+  `, { fullScreen: true });
+
+  const videoEl = document.getElementById('livestream-video');
+
+  // Start Local Camera if broadcaster
+  if (isBroadcaster) {
+    const camRes = await startLocalCamera(videoEl);
+    if (!camRes.ok) {
+      showToast('Kameratillstånd nekades eller kunde inte startas: ' + camRes.error, 'error');
+    }
+  } else {
+    // For viewers in mock mode: simulate live feed with camera or background loop
+    await startLocalCamera(videoEl).catch(() => {});
+  }
+
+  // Camera switch listener
+  document.getElementById('btn-switch-camera')?.addEventListener('click', async () => {
+    await switchCamera(videoEl);
+    showToast('Bytte kamera! 🔄', 'info');
+  });
+
+  // Mic toggle listener
+  const micBtn = document.getElementById('btn-toggle-mic');
+  micBtn?.addEventListener('click', () => {
+    const active = toggleAudio();
+    micBtn.innerHTML = active ? '🎙️' : '🔇';
+    micBtn.style.background = active ? 'rgba(0,0,0,0.5)' : 'rgba(255, 51, 75, 0.6)';
+    showToast(active ? 'Mikrofon på 🎙️' : 'Mikrofon avstängd 🔇', 'info');
+  });
+
+  // Close / Exit listener
+  document.getElementById('btn-close-livestream')?.addEventListener('click', async () => {
+    if (activeLiveId && isBroadcaster) {
+      await stopFlashLive(activeLiveId).catch(() => {});
+    }
+    closeLiveStream();
+  });
+
+  // Join live stream WS room if standalone
+  if (liveId) {
+    sendWebSocketMessage({
+      type: 'join_live',
+      liveId
+    });
+  }
+
+  // Chat form submit
+  const chatForm = document.getElementById('live-chat-form');
+  const chatInput = document.getElementById('live-chat-input');
+
+  chatForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = chatInput.value.trim();
+    if (!text) return;
+
+    const myNick = user?.nickname || 'Jag';
+    const myAvatar = user?.avatarEmoji || '🏌️‍♂️';
+
+    // Broadcast over WebSocket
+    sendWebSocketMessage({
+      type: 'live_comment',
+      tournamentCode,
+      liveId,
+      text,
+      userName: myNick,
+      userAvatar: myAvatar
+    });
+
+    // Render immediately locally as well
+    addCommentToStream({
+      userName: myNick,
+      userAvatar: myAvatar,
+      text
+    });
+
+    chatInput.value = '';
+    chatInput.blur(); // dismiss mobile keyboard to see video
+  });
+
+  // Reactions flying emojis (and broadcast)
+  document.querySelectorAll('.live-reaction-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const emoji = e.currentTarget.dataset.emoji;
+      spawnFloatingEmoji(emoji);
+      sendWebSocketMessage({
+        type: 'live_reaction',
+        tournamentCode,
+        liveId,
+        emoji
+      });
+    });
+  });
+
+  // Listen to incoming WebSocket live comments & reactions
+  wsUnsub = onWebSocketMessage((msg) => {
+    const isMatching = (tournamentCode && msg.tournamentCode === tournamentCode) || (liveId && msg.liveId === liveId);
+    if (msg.type === 'live_comment_received' && isMatching) {
+      // If message is from someone else, render it
+      if (msg.userName !== (user?.nickname || 'Jag')) {
+        addCommentToStream(msg);
+      }
+    } else if (msg.type === 'live_reaction_received' && isMatching) {
+      spawnFloatingEmoji(msg.emoji);
+    } else if (msg.type === 'flashlive_stopped' && msg.liveId === liveId) {
+      showToast('Sändningen avslutades av sändaren.', 'info');
+      closeLiveStream();
+    } else if (msg.type === 'flashlive_settled' && msg.liveId === liveId) {
+      showToast(`🏁 Live-vadet avgjort! ${msg.winningChoice === 'yes' ? '👍 JA' : '👎 NEJ'} vann!`, 'success');
+      launchConfetti();
+      renderLiveBlixtBetWidget(tournamentId, flashBetId || msg.flashBet?.id, tournamentCode, liveId, isBroadcaster, msg.flashBet);
+    }
+  });
+
+  // Load and render BlixtBet inside overlay (or pure stream mode)
+  if (hasBet || flashBetId || tournamentId) {
+    await renderLiveBlixtBetWidget(tournamentId, flashBetId, tournamentCode, liveId, isBroadcaster, initialFlashBet);
+  } else {
+    const betContainer = document.getElementById('live-blixtbet-container');
+    if (betContainer) {
+      if (isBroadcaster) {
+        betContainer.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 1.3rem;">📹</span>
+              <div>
+                <div style="font-weight: 700; font-size: 0.85rem; color: #fff;">Livesändning igång!</div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary);">Ren video & chatt (inget aktivt bet)</div>
+              </div>
+            </div>
+            <button type="button" id="btn-trigger-new-flashbet" class="btn btn-sm btn-accent" style="font-size: 0.75rem; padding: 4px 10px; font-weight: 800;">
+              ⚡ Starta BlixtBet
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-trigger-new-flashbet')?.addEventListener('click', () => {
+          betContainer.innerHTML = `
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">⚡ Starta live BlixtBet</div>
+              <input type="text" id="live-fb-title" class="form-input mb-xs" placeholder="t.ex. Sätter Johan putten?" style="font-size: 0.85rem;" />
+              <div style="display: flex; gap: 6px; margin-top: 6px;">
+                <button type="button" id="live-fb-submit" class="btn btn-sm btn-primary" style="flex: 1; font-weight: 800;">Starta röstning (60s) ⏱️</button>
+                <button type="button" id="live-fb-cancel" class="btn btn-sm btn-secondary" style="font-size: 0.75rem;">Avbryt</button>
+              </div>
+            </div>
+          `;
+          document.getElementById('live-fb-cancel')?.addEventListener('click', () => {
+            betContainer.style.display = 'none';
+          });
+          document.getElementById('live-fb-submit')?.addEventListener('click', () => {
+            const title = document.getElementById('live-fb-title')?.value.trim() || 'Sätter han putten?';
+            showToast(`⚡ BlixtBet startat: "${title}"`, 'success');
+            renderMockActiveBlixtBet({
+              title,
+              options: ['Ja', 'Nej'],
+              betId: 'demo',
+              tournamentCode,
+              liveId,
+              isBroadcaster
+            });
+          });
+        });
+      } else {
+        betContainer.style.display = 'none';
+      }
+    }
+  }
+
+  // Periodically increment viewer count to simulate engagement
+  viewerInterval = setInterval(() => {
+    if (!streamActive) return;
+    const delta = Math.random() > 0.4 ? 1 : -1;
+    viewerCount = Math.max(1, viewerCount + delta);
+    const countEl = document.getElementById('live-viewer-count');
+    if (countEl) countEl.innerHTML = `👁️ ${viewerCount} tittare`;
+  }, 4000);
+}
+
+export function closeLiveStream() {
+  streamActive = false;
+  if (activeLiveId) {
+    sendWebSocketMessage({
+      type: 'leave_live',
+      liveId: activeLiveId
+    });
+    activeLiveId = null;
+  }
+  if (viewerInterval) {
+    clearInterval(viewerInterval);
+    viewerInterval = null;
+  }
+  if (wsUnsub) {
+    wsUnsub();
+    wsUnsub = null;
+  }
+  stopLocalCamera();
+  const fs = document.getElementById('livestream-fullscreen');
+  if (fs) fs.remove();
+  closeModal();
+}
+
+async function renderLiveBlixtBetWidget(tournamentId, specificFlashBetId = null, tournamentCode = null, liveId = null, isBroadcaster = true, initialFlashBet = null) {
+  const container = document.getElementById('live-blixtbet-container');
+  if (!container) return;
+
+  try {
+    let currentBet = initialFlashBet;
+    if (!currentBet && specificFlashBetId) {
+      currentBet = await getFlashBet(specificFlashBetId).catch(() => null);
+    }
+    if (!currentBet && tournamentId) {
+      const activeBets = await getActiveFlashBets(tournamentId).catch(() => []);
+      if (activeBets.length > 0) currentBet = activeBets[0];
+    }
+
+    if (!currentBet) {
+      container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.3rem;">⚡</span>
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem; color: #fff;">Inget aktivt BlixtBet just nu</div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">Redo när nästa slag startar!</div>
+            </div>
+          </div>
+          <button type="button" id="btn-trigger-new-flashbet" class="btn btn-sm btn-accent" style="font-size: 0.75rem; padding: 4px 10px; font-weight: 800;">
+            + Skapa bet
+          </button>
+        </div>
+      `;
+
+      document.getElementById('btn-trigger-new-flashbet')?.addEventListener('click', () => {
+        container.innerHTML = `
+          <div>
+            <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">⚡ Starta live BlixtBet</div>
+            <input type="text" id="live-fb-title" class="form-input mb-xs" placeholder="t.ex. Träffar Johan greenen?" style="font-size: 0.85rem;" />
+            <div style="display: flex; gap: 6px; margin-top: 6px;">
+              <button type="button" id="live-fb-submit" class="btn btn-sm btn-primary" style="flex: 1; font-weight: 800;">Starta röstning (60s) ⏱️</button>
+              <button type="button" id="live-fb-cancel" class="btn btn-sm btn-secondary" style="font-size: 0.75rem;">Avbryt</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('live-fb-cancel')?.addEventListener('click', () => {
+          renderLiveBlixtBetWidget(tournamentId, specificFlashBetId, tournamentCode, liveId, isBroadcaster);
+        });
+        document.getElementById('live-fb-submit')?.addEventListener('click', () => {
+          const title = document.getElementById('live-fb-title')?.value.trim() || 'Träffar bollen green på hål 7?';
+          showToast(`⚡ BlixtBet startat: "${title}"`, 'success');
+          renderMockActiveBlixtBet({
+            title,
+            options: ['Ja', 'Nej'],
+            betId: 'demo',
+            tournamentCode,
+            liveId,
+            isBroadcaster
+          });
+        });
+      });
+      return;
+    }
+
+    renderMockActiveBlixtBet({
+      title: currentBet.question || currentBet.title,
+      options: currentBet.options || ['Ja', 'Nej'],
+      betId: currentBet.id,
+      tournamentCode,
+      liveId,
+      isBroadcaster,
+      stakeAmount: currentBet.stakeAmount || 20,
+      expiresAt: currentBet.expiresAt,
+      status: currentBet.status,
+      winnerChoice: currentBet.winningChoice || currentBet.winnerChoice,
+      flashBetObj: currentBet
+    });
+  } catch (err) {
+    container.innerHTML = `<div style="font-size: 0.75rem; color: #ff5555;">Kunde inte läsa in BlixtBet: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderMockActiveBlixtBet({
+  title,
+  options = ['Ja', 'Nej'],
+  betId = 'demo',
+  tournamentCode = null,
+  liveId = null,
+  isBroadcaster = false,
+  stakeAmount = 20,
+  expiresAt = null,
+  status = 'active',
+  winnerChoice = null,
+  flashBetObj = null
+}) {
+  const container = document.getElementById('live-blixtbet-container');
+  if (!container) return;
+
+  const user = getStoredUser();
+
+  // If already settled, show results & Swish settlements
+  if (status === 'settled' || winnerChoice) {
+    const isWinner = flashBetObj?.myChoice === winnerChoice;
+    container.innerHTML = `
+      <div style="text-align: center; padding: 4px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <span class="badge ${winnerChoice === 'yes' ? 'badge-success' : 'badge-danger'}" style="font-size: 0.72rem; font-weight: 800; padding: 2px 8px;">
+            🏁 RESULTAT: ${winnerChoice === 'yes' ? '👍 JA' : '👎 NEJ'}
+          </span>
+          <span style="font-size: 0.75rem; color: var(--gold); font-weight: 700;">Avgjort!</span>
+        </div>
+        <div style="font-size: 0.9rem; font-weight: 800; color: #fff; margin-bottom: 8px;">
+          ${escapeHtml(title)}
+        </div>
+        ${!isBroadcaster && flashBetObj?.myChoice && !isWinner ? `
+          <div style="background: rgba(231, 76, 60, 0.2); border: 1px solid #e74c3c; border-radius: 8px; padding: 8px; margin-top: 6px;">
+            <div style="font-size: 0.8rem; color: #fff; margin-bottom: 6px;">
+              Du röstade fel (${flashBetObj.myChoice.toUpperCase()}). Swisha vinnarpotten!
+            </div>
+            <a href="${createSwishUrl({ amount: stakeAmount, message: 'BetPals Live - ' + title })}" target="_blank" class="btn btn-sm btn-primary" style="font-weight: 800; display: inline-flex; align-items: center; gap: 4px;">
+              📱 Swisha ${stakeAmount} kr
+            </a>
+          </div>
+        ` : `
+          <div style="font-size: 0.82rem; color: #2ecc71; font-weight: 700;">
+            ${isBroadcaster ? '✅ Vadet är avgjort och registrerat på deltagarnas saldon!' : (isWinner ? '🎉 Du vann! Snyggt gissat!' : 'Tack för rösten!')}
+          </div>
+        `}
+      </div>
+    `;
+    return;
+  }
+
+  // Calculate remaining seconds
+  let remainingSecs = 60;
+  if (expiresAt) {
+    remainingSecs = Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  }
+
+  container.innerHTML = `
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span class="badge badge-accent" style="font-size: 0.68rem; font-weight: 800; padding: 2px 6px;">⚡ BLIXTBET LIVE</span>
+        <span id="live-countdown-timer" style="font-size: 0.75rem; color: var(--gold); font-weight: 800;">⏱️ ${remainingSecs}s kvar</span>
+      </div>
+
+      <div style="font-size: 0.95rem; font-weight: 800; color: #fff; margin-bottom: 10px; line-height: 1.25;">
+        ${escapeHtml(title)} <span style="font-size: 0.75rem; color: var(--gold); font-weight: 600;">(${stakeAmount} kr)</span>
+      </div>
+
+      <!-- Voting options -->
+      <div id="live-bet-action-grid" style="display: grid; grid-template-columns: repeat(${options.length}, 1fr); gap: 8px;">
+        ${options.map((opt, idx) => `
+          <button type="button" class="btn live-bet-option-btn" data-opt="${escapeHtml(opt)}" style="
+            background: ${idx === 0 ? 'linear-gradient(135deg, #2ecc71, #27ae60)' : 'linear-gradient(135deg, #e74c3c, #c0392b)'};
+            color: #fff;
+            border: none;
+            font-weight: 800;
+            font-size: 0.88rem;
+            padding: 9px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            cursor: pointer;
+            transition: transform 0.1s;
+          ">
+            ${idx === 0 ? '👍 ' : '👎 '}${escapeHtml(opt)}
+          </button>
+        `).join('')}
+      </div>
+
+      <!-- Broadcaster direct settlement control -->
+      ${isBroadcaster ? `
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 0.72rem; color: rgba(255,255,255,0.7); font-weight: 700;">Slaget klart? Rätta nu:</span>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" id="btn-settle-yes" class="btn btn-sm btn-success" style="font-size: 0.75rem; padding: 3px 8px; font-weight: 800;">
+              ✅ Rätta JA
+            </button>
+            <button type="button" id="btn-settle-no" class="btn btn-sm btn-danger" style="font-size: 0.75rem; padding: 3px 8px; font-weight: 800;">
+              ❌ Rätta NEJ
+            </button>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  // Countdown timer interval
+  const timerInterval = setInterval(() => {
+    if (!document.getElementById('live-countdown-timer')) {
+      clearInterval(timerInterval);
+      return;
+    }
+    remainingSecs = Math.max(0, remainingSecs - 1);
+    const timerEl = document.getElementById('live-countdown-timer');
+    if (timerEl) {
+      timerEl.textContent = `⏱️ ${remainingSecs}s kvar`;
+      if (remainingSecs === 0) {
+        timerEl.textContent = '⏱️ Spelstopp!';
+        timerEl.style.color = '#e74c3c';
+        clearInterval(timerInterval);
+      }
+    }
+  }, 1000);
+
+  // Settle buttons for broadcaster
+  if (isBroadcaster) {
+    const handleSettle = async (choice) => {
+      try {
+        if (liveId) {
+          await settleFlashLive(liveId, choice);
+        } else if (betId && betId !== 'demo') {
+          await settleFlashBet(betId, choice);
+        }
+        showToast(`🏁 Vadet rättades som ${choice.toUpperCase()}!`, 'success');
+        launchConfetti();
+        renderMockActiveBlixtBet({
+          title,
+          options,
+          betId,
+          tournamentCode,
+          liveId,
+          isBroadcaster,
+          stakeAmount,
+          status: 'settled',
+          winnerChoice: choice
+        });
+      } catch (err) {
+        showToast('Kunde inte rätta vadet: ' + err.message, 'error');
+      }
+    };
+
+    document.getElementById('btn-settle-yes')?.addEventListener('click', () => handleSettle('yes'));
+    document.getElementById('btn-settle-no')?.addEventListener('click', () => handleSettle('no'));
+  }
+
+  // Voting option buttons
+  container.querySelectorAll('.live-bet-option-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const chosen = btn.dataset.opt;
+      const choiceValue = chosen.toLowerCase().includes('ja') || chosen.toLowerCase().includes('yes') ? 'yes' : 'no';
+      const myNick = user?.nickname || 'Jag';
+
+      // Call API if real betId
+      if (betId && betId !== 'demo') {
+        try {
+          await placeFlashBet(betId, choiceValue);
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+
+      launchConfetti();
+      showToast(`🎯 Du röstade "${chosen}" på BlixtBet!`, 'success');
+
+      // Broadcast golden notice into live chat stream
+      const betNoticeText = `satsade på "${chosen}" 🎯`;
+      sendWebSocketMessage({
+        type: 'live_comment',
+        tournamentCode,
+        liveId,
+        text: betNoticeText,
+        userName: myNick,
+        userAvatar: '⚡',
+        isBetNotice: true
+      });
+
+      addCommentToStream({
+        userName: myNick,
+        userAvatar: '⚡',
+        text: betNoticeText,
+        isBetNotice: true
+      });
+
+      const grid = document.getElementById('live-bet-action-grid');
+      if (grid) {
+        grid.innerHTML = `
+          <div style="grid-column: span ${options.length}; text-align: center; padding: 6px 0; background: rgba(46, 204, 113, 0.15); border-radius: 8px; border: 1px solid #2ecc71;">
+            <div style="font-weight: 800; color: #2ecc71; font-size: 0.9rem;">✅ Röst mottagen: ${escapeHtml(chosen)}</div>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.7); margin-top: 2px;">Följ slaget i videon nu! 🏌️‍♂️</div>
+          </div>
+        `;
+      }
+    });
+  });
+}
+
+// ── Instant Live Modal (Start sändning & BlixtBet på 2 klick) ────
+export async function openInstantLiveModal() {
+  const user = getStoredUser();
+  if (!user) {
+    showToast('Logga in för att sända live med dina kompisar!', 'warning');
+    return;
+  }
+
+  let friends = [];
+  try {
+    friends = await getFriends();
+  } catch {}
+
+  const questionPresets = [
+    '⛳ Sätter han putten?',
+    '🏌️ Träffar green på utslaget?',
+    '🎯 Håller han nerverna?',
+    '🌊 Hamnar bollen i vattnet?'
+  ];
+
+  let selectedQuestion = questionPresets[0];
+  let isAllFriends = true;
+  let selectedFriendIds = new Set(friends.map(f => f.id));
+  let currentStake = 20;
+  let currentDuration = 60; // 30, 60, 90, 120
+  let includeBet = true;
+
+  function renderModal() {
+    showModal('🔴 Starta Spontan-Live', `
+      <div style="padding: 4px 0;">
+        <!-- Live Mode Switcher (Med BlixtBet / Endast Video) -->
+        <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.06); padding: 4px; border-radius: 10px; margin-bottom: 14px;">
+          <button type="button" id="btn-mode-bet" class="btn btn-sm ${includeBet ? 'btn-primary' : 'btn-secondary'}" style="flex: 1; font-weight: 800; font-size: 0.82rem;">
+            ⚡ Med BlixtBet
+          </button>
+          <button type="button" id="btn-mode-pure" class="btn btn-sm ${!includeBet ? 'btn-primary' : 'btn-secondary'}" style="flex: 1; font-weight: 800; font-size: 0.82rem;">
+            📹 Bara Video (Inget bet)
+          </button>
+        </div>
+
+        ${includeBet ? `
+          <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Sänd slaget live! Vännerna får blixtnotis i mobilen och har angiven tid på sig att rösta JA/NEJ innan spelstopp.
+          </p>
+
+          <!-- Question Presets & Input -->
+          <label class="form-label" style="font-weight: 700;">1. Vad ska kompisarna betta om?</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+            ${questionPresets.map((q, i) => `
+              <button type="button" class="btn btn-sm ${selectedQuestion === q ? 'btn-primary' : 'btn-secondary'} preset-q-btn" data-q="${escapeHtml(q)}" style="font-size: 0.78rem; text-align: left; padding: 6px 8px; font-weight: 700; white-space: normal; line-height: 1.2;">
+                ${escapeHtml(q)}
+              </button>
+            `).join('')}
+          </div>
+
+          <input type="text" id="custom-live-question" class="form-input mb-md" placeholder="Eller skriv egen fråga..." value="${questionPresets.includes(selectedQuestion) ? '' : escapeHtml(selectedQuestion)}" style="font-size: 0.85rem;" />
+
+          <!-- Duration Selector -->
+          <div class="flex-between mb-sm" style="align-items: center; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px;">
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem;">⏱️ Tid för röstning:</div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">Spelstopp inträffar därefter</div>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              ${[
+                { sec: 30, label: '30s' },
+                { sec: 60, label: '60s' },
+                { sec: 90, label: '90s' },
+                { sec: 120, label: '2 min' }
+              ].map(d => `
+                <button type="button" class="btn btn-sm ${currentDuration === d.sec ? 'btn-accent' : 'btn-secondary'} duration-btn" data-sec="${d.sec}" style="padding: 4px 7px; font-size: 0.78rem; font-weight: 800;">
+                  ${d.label}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Stake Selector -->
+          <div class="flex-between mb-md" style="align-items: center; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px;">
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem;">💰 Insats per person:</div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">Swishas direkt vid rättning</div>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              ${[10, 20, 50, 100].map(s => `
+                <button type="button" class="btn btn-sm ${currentStake === s ? 'btn-accent' : 'btn-secondary'} stake-btn" data-stake="${s}" style="padding: 4px 8px; font-size: 0.8rem; font-weight: 800;">
+                  ${s} kr
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        ` : `
+          <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Bara visa det spännande 18:e hålet eller avgörandet för polarna! Sändningen är igång så länge du vill, med livechatt och reaktioner, utan några insatser.
+          </p>
+          <label class="form-label" style="font-weight: 700;">Rubrik för sändningen:</label>
+          <input type="text" id="pure-stream-title" class="form-input mb-md" placeholder="t.ex. 18:e hålet – Spännande match!" value="${selectedQuestion && !questionPresets.includes(selectedQuestion) ? escapeHtml(selectedQuestion) : '18:e hålet – Avgörandet! ⛳'}" style="font-size: 0.85rem;" />
+        `}
+
+        <!-- Audience Picker -->
+        <label class="form-label" style="font-weight: 700; display: flex; justify-content: space-between; align-items: center;">
+          <span>${includeBet ? '2.' : '1.'} Vilka ska bjudas in?</span>
+          <span style="font-size: 0.75rem; color: var(--gold); font-weight: 600;">${selectedFriendIds.size} vänner valda</span>
+        </label>
+
+        <!-- Toggle All Friends -->
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.2rem;">📢</span>
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem;">Alla mina vänner (${friends.length})</div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">Skickar push-larm till alla</div>
+            </div>
+          </div>
+          <input type="checkbox" id="toggle-all-friends" ${isAllFriends ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent);" />
+        </div>
+
+        <!-- Friends Picker Chips -->
+        ${friends.length > 0 ? `
+          <div style="max-height: 110px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; padding: 4px 0;">
+            ${friends.map(f => {
+              const checked = selectedFriendIds.has(f.id);
+              return `
+                <div class="friend-chip ${checked ? 'active' : ''}" data-friend-id="${f.id}" style="
+                  display: inline-flex; align-items: center; gap: 6px;
+                  background: ${checked ? 'rgba(245, 166, 35, 0.25)' : 'rgba(255,255,255,0.08)'};
+                  border: 1px solid ${checked ? 'var(--gold)' : 'rgba(255,255,255,0.15)'};
+                  border-radius: 16px;
+                  padding: 4px 10px;
+                  font-size: 0.8rem;
+                  cursor: pointer;
+                  user-select: none;
+                ">
+                  <span>${escapeHtml(f.avatarEmoji || '🏌️')}</span>
+                  <span style="font-weight: 600; color: #fff;">${escapeHtml(f.nickname || f.name)}</span>
+                  <span style="font-size: 0.75rem;">${checked ? '✓' : '+'}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : `
+          <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 14px;">
+            💡 Tips: Lägg till vänner i menyn så kan de få direktnotis i mobilen när du sänder!
+          </div>
+        `}
+
+        <!-- Launch Button -->
+        <button type="button" id="btn-start-instant-live" class="btn btn-primary btn-block" style="font-weight: 800; font-size: 1rem; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ff334b; box-shadow: 0 0 8px #ff334b;"></span>
+          🔴 ${includeBet ? 'Starta Live & Skicka Blixtnotis' : 'Starta Livesändning'}
+        </button>
+      </div>
+    `);
+
+    // Mode toggles
+    document.getElementById('btn-mode-bet')?.addEventListener('click', () => {
+      includeBet = true;
+      renderModal();
+    });
+    document.getElementById('btn-mode-pure')?.addEventListener('click', () => {
+      includeBet = false;
+      renderModal();
+    });
+
+    // Question presets
+    document.querySelectorAll('.preset-q-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedQuestion = btn.dataset.q;
+        const customInput = document.getElementById('custom-live-question');
+        if (customInput) customInput.value = '';
+        renderModal();
+      });
+    });
+
+    document.getElementById('custom-live-question')?.addEventListener('input', (e) => {
+      if (e.target.value.trim()) {
+        selectedQuestion = e.target.value.trim();
+        document.querySelectorAll('.preset-q-btn').forEach(b => b.className = 'btn btn-sm btn-secondary preset-q-btn');
+      }
+    });
+
+    document.getElementById('pure-stream-title')?.addEventListener('input', (e) => {
+      if (e.target.value.trim()) {
+        selectedQuestion = e.target.value.trim();
+      }
+    });
+
+    // Duration buttons
+    document.querySelectorAll('.duration-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentDuration = Number(btn.dataset.sec);
+        renderModal();
+      });
+    });
+
+    // Stake buttons
+    document.querySelectorAll('.stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentStake = Number(btn.dataset.stake);
+        renderModal();
+      });
+    });
+
+    // Toggle all friends
+    document.getElementById('toggle-all-friends')?.addEventListener('change', (e) => {
+      isAllFriends = e.target.checked;
+      if (isAllFriends) {
+        selectedFriendIds = new Set(friends.map(f => f.id));
+      } else {
+        selectedFriendIds.clear();
+      }
+      renderModal();
+    });
+
+    // Individual friend chip click
+    document.querySelectorAll('.friend-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const id = chip.dataset.friendId;
+        if (selectedFriendIds.has(id)) {
+          selectedFriendIds.delete(id);
+          isAllFriends = false;
+        } else {
+          selectedFriendIds.add(id);
+          if (selectedFriendIds.size === friends.length) isAllFriends = true;
+        }
+        renderModal();
+      });
+    });
+
+    // Launch button click
+    document.getElementById('btn-start-instant-live')?.addEventListener('click', async () => {
+      let finalTitle = '';
+      if (includeBet) {
+        const customQ = document.getElementById('custom-live-question')?.value.trim();
+        finalTitle = customQ || selectedQuestion || 'Sätter han putten?';
+      } else {
+        const pureTitle = document.getElementById('pure-stream-title')?.value.trim();
+        finalTitle = pureTitle || '18:e hålet – Avgörandet! ⛳';
+      }
+
+      try {
+        const res = await startFlashLive({
+          question: finalTitle,
+          streamTitle: finalTitle,
+          stakeAmount: includeBet ? currentStake : 0,
+          durationSeconds: includeBet ? currentDuration : 0,
+          targetFriendIds: Array.from(selectedFriendIds),
+          notifyAllFriends: isAllFriends,
+          streamWithoutBet: !includeBet
+        });
+
+        showToast('🔴 Livesändning startad! Notis skickad till polarna.', 'success');
+
+        // Open live streaming UI
+        await openLiveStreamModal({
+          isBroadcaster: true,
+          isStandalone: true,
+          liveId: res.live?.id,
+          flashBetId: res.flashBet?.id,
+          hasBet: includeBet,
+          tournamentName: `${finalTitle} ⚡`,
+          initialQuestion: finalTitle,
+          initialFlashBet: res.flashBet
+        });
+      } catch (err) {
+        showToast('Kunde inte starta livesändning: ' + err.message, 'error');
+      }
+    });
+  }
+
+  renderModal();
+}
+
+function spawnFloatingEmoji(emoji) {
+  const container = document.getElementById('livestream-fullscreen');
+  if (!container) return;
+
+  const el = document.createElement('div');
+  el.textContent = emoji;
+  el.style.position = 'absolute';
+  el.style.bottom = '80px';
+  el.style.right = (Math.random() * 60 + 20) + 'px';
+  el.style.fontSize = '2rem';
+  el.style.zIndex = '100';
+  el.style.pointerEvents = 'none';
+  el.style.transition = 'all 1.8s cubic-bezier(0.25, 1, 0.5, 1)';
+  el.style.opacity = '1';
+
+  container.appendChild(el);
+
+  requestAnimationFrame(() => {
+    el.style.transform = `translateY(-${Math.random() * 250 + 150}px) scale(${Math.random() * 0.5 + 1.2})`;
+    el.style.opacity = '0';
+  });
+
+  setTimeout(() => el.remove(), 1900);
+}

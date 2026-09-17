@@ -38,6 +38,7 @@ import { compressImage } from '../imageUtils.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
+import { openInstantLiveModal, openLiveStreamModal } from './livestream.js';
 
 // ── Web Audio Synth SFX (Zero-dependency & instant) ───────
 let audioCtx = null;
@@ -105,6 +106,13 @@ function setChips(amount) {
 // ── 1. Roller Ticker HTML ───────────────────────────────
 export function renderMinigamesRoller() {
   const games = [
+    {
+      id: 'flashlive',
+      name: t('arcade.flashlive'),
+      tag: t('arcade.flashliveTag'),
+      title: t('arcade.flashliveTitle'),
+      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(255, 51, 75, 0.9)); animation: pulse 1.5s infinite;">🔴</span>`
+    },
     {
       id: 'coin-flip',
       name: t('arcade.coinFlip'),
@@ -223,7 +231,8 @@ export function attachMinigamesListeners() {
       const card = e.target.closest('.minigame-card');
       if (!card) return;
       const game = card.getAttribute('data-game');
-      if (game === 'coin-flip') openCoinFlipModal();
+      if (game === 'flashlive') openInstantLiveModal();
+      else if (game === 'coin-flip') openCoinFlipModal();
       else if (game === 'slots') openSlotsModal();
       else if (game === 'wheel') openWheelModal();
       else if (game === 'dice') openDiceModal();
@@ -4145,6 +4154,15 @@ export function setupGlobalDuelListener() {
         } else if (data.type === 'tab_expense_converted') {
           showToast('⚖️ ' + (data.title || 'Notan') + ' ändrades till Even Steven!', 'info');
           window.dispatchEvent(new CustomEvent('tab-expenses-updated'));
+        } else if (data.type === 'flashlive_started' && data.live) {
+          const user = getStoredUser();
+          if (user && data.live.hostId !== user.id) {
+            playTone(880, 'sine', 0.2, 0.15); // High beep
+            showToast(`🔴 ${data.live.hostName} sänder live! "${data.live.question}"`, 'info');
+            window.dispatchEvent(new CustomEvent('flashlive-stream-updated', { detail: data }));
+          }
+        } else if (data.type === 'flashlive_stopped') {
+          window.dispatchEvent(new CustomEvent('flashlive-stream-updated', { detail: data }));
         }
       } catch (e) {}
     };

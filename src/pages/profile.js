@@ -1,5 +1,5 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs } from '../api.js';
+import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -19,14 +19,15 @@ export async function renderProfile() {
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
-    const [bets, stats, creds, friends, notifPrefs] = await Promise.all([
+    const [bets, stats, creds, friends, notifPrefs, photos] = await Promise.all([
       getMyBets(),
       getMyStats(),
       getMyCredentials().catch(() => ({ hasBiometric: false })),
       getFriends().catch(() => []),
-      getNotificationPrefs().catch(() => ({ notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }))
+      getNotificationPrefs().catch(() => ({ notifyFlashbets: true, notifyDuels: true, notifyTournaments: true })),
+      getMyPhotos().catch(() => [])
     ]);
-    renderProfileContent(content, user, bets, stats, creds, friends, notifPrefs);
+    renderProfileContent(content, user, bets, stats, creds, friends, notifPrefs, photos);
   } catch (err) {
     clearUser();
     renderAuthScreen(content);
@@ -294,7 +295,23 @@ function showPinResetUI(identifier, nickname) {
   });
 }
 
-function renderProfileContent(content, user, bets, stats, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }) {
+function renderProfileContent(content, user, bets, stats, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }, photos = []) {
+  // Group photos by tournament
+  const albumsMap = new Map();
+  photos.forEach(p => {
+    const key = p.tournamentId;
+    if (!albumsMap.has(key)) {
+      albumsMap.set(key, {
+        id: p.tournamentId,
+        name: p.tournamentName || 'Okänd turnering',
+        code: p.tournamentCode,
+        photos: []
+      });
+    }
+    albumsMap.get(key).photos.push(p);
+  });
+  const albums = Array.from(albumsMap.values());
+
   const totalBet = bets.reduce((s, b) => s + b.amount, 0);
   const wonBets = bets.filter(b => b.won);
   const lostBets = bets.filter(b => b.eventStatus === 'finished' && !b.won);
@@ -599,6 +616,56 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         </div>
       ` : ''}
 
+      <!-- Photo Albums & Memories Section -->
+      <div class="card mt-md" id="profile-photo-albums-card" style="padding: var(--space-md);">
+        <div class="flex-between mb-sm" style="align-items: center;">
+          <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 6px;">
+            <span>📸</span> <span>Mina Fotoalbum & Minnen</span>
+            <span class="badge badge-accent" style="font-size: 0.7rem; padding: 2px 6px;">${photos.length}</span>
+          </div>
+          ${photos.length > 0 ? `
+            <span class="text-muted" style="font-size: 0.72rem;">${albums.length} ${albums.length === 1 ? 'resa/turnering' : 'resor/turneringar'}</span>
+          ` : ''}
+        </div>
+
+        ${photos.length === 0 ? `
+          <div class="text-center text-muted" style="padding: var(--space-md) 0; font-size: 0.85rem;">
+            <div style="font-size: 2rem; margin-bottom: 6px;">🏖️</div>
+            <div style="font-weight: 600; margin-bottom: 4px;">Inga fotominnen än</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); max-width: 300px; margin: 0 auto;">
+              När du eller kompisarna delar bilder i era turneringar sparas de automatiskt här som ett personligt fotoalbum!
+            </div>
+          </div>
+        ` : `
+          <div class="albums-container" style="display: flex; flex-direction: column; gap: var(--space-md); margin-top: 8px;">
+            ${albums.map(alb => `
+              <div class="album-item" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 10px;">
+                <div class="flex-between mb-xs" style="align-items: center;">
+                  <div style="font-weight: 700; font-size: 0.9rem; color: var(--gold); display: flex; align-items: center; gap: 5px;">
+                    <span>⛳</span> <span>${escapeHtml(alb.name)}</span>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-secondary view-album-tournament-btn" data-code="${escapeHtml(alb.code)}" style="font-size: 0.68rem; padding: 2px 8px;">
+                    Gå till turnering →
+                  </button>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px;">
+                  ${alb.photos.map(photo => `
+                    <div class="profile-photo-thumb" data-photo-id="${photo.id}" style="aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; position: relative; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); background: #111;">
+                      <img src="${photo.thumbnailUrl || photo.url}" alt="${escapeHtml(photo.caption || 'Turneringsminne')}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;" loading="lazy" />
+                      ${photo.likeCount > 0 ? `
+                        <div style="position: absolute; bottom: 3px; right: 3px; background: rgba(0,0,0,0.7); backdrop-filter: blur(2px); border-radius: 8px; padding: 1px 4px; font-size: 0.65rem; color: #fff; display: flex; align-items: center; gap: 2px;">
+                          ❤️ ${photo.likeCount}
+                        </div>
+                      ` : ''}
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </div>
+
       <!-- Prediction History -->
       ${bets.length > 0 ? `
         <div class="section-header">
@@ -851,6 +918,49 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       } catch (err) {
         showToast(err.message, 'error');
       }
+    });
+  });
+
+  // Album: Navigate to tournament
+  document.querySelectorAll('.view-album-tournament-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.dataset.code;
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code } }));
+    });
+  });
+
+  // Album: Click photo to open lightbox
+  document.querySelectorAll('.profile-photo-thumb').forEach(thumb => {
+    thumb.addEventListener('click', () => {
+      const photoId = thumb.dataset.photoId;
+      const photo = photos.find(p => p.id === photoId);
+      if (!photo) return;
+
+      showModal('📸 ' + escapeHtml(photo.tournamentName || 'Fotomagasin'), `
+        <div class="photo-lightbox-modal text-center">
+          <div style="max-height: 65vh; display: flex; align-items: center; justify-content: center; background: #000; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm);">
+            <img src="${photo.url}" alt="${escapeHtml(photo.caption || 'Turneringsminne')}" style="max-width: 100%; max-height: 65vh; object-fit: contain;" />
+          </div>
+          ${photo.caption ? `
+            <p style="font-size: 0.95rem; font-weight: 500; margin-bottom: var(--space-xs); text-align: left;">
+              ${escapeHtml(photo.caption)}
+            </p>
+          ` : ''}
+          <div class="flex-between text-muted" style="font-size: 0.75rem; margin-bottom: var(--space-md); border-top: 1px solid var(--border-glass); padding-top: var(--space-xs);">
+            <span>Delad av <strong>${escapeHtml(photo.uploaderName || 'Deltagare')}</strong> ${photo.uploaderAvatar || ''}</span>
+            <span>${formatDate(photo.createdAt)} · ❤️ ${photo.likeCount || 0}</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-block lightbox-go-tournament-btn" data-code="${escapeHtml(photo.tournamentCode)}">
+            🏆 Gå till turneringen & se resultat
+          </button>
+        </div>
+      `);
+
+      document.querySelector('.lightbox-go-tournament-btn')?.addEventListener('click', (e) => {
+        const code = e.currentTarget.dataset.code;
+        closeModal();
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code } }));
+      });
     });
   });
 }

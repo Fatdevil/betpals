@@ -3,8 +3,10 @@ import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } fr
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
+import { openLiveStreamModal } from '../components/livestream.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
+import { TOURNAMENT_TEMPLATES } from '../templates.js';
 
 let wsUnsubscribe = null;
 
@@ -207,15 +209,18 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
       <!-- Action Buttons -->
       ${isCreator && t.status === 'active' ? `
-        <div class="flex gap-sm mt-md">
-          <button class="btn btn-primary" id="add-round-btn" style="flex:1;">
+        <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
+          <button class="btn btn-primary" id="add-round-btn" style="flex:1; min-width: 100px;">
             ➕ Ny rond
           </button>
-          <button class="btn btn-secondary" id="add-sidebet-btn" style="flex:1;">
+          <button class="btn btn-secondary" id="add-sidebet-btn" style="flex:1; min-width: 100px;">
             🎯 Sido-spel
           </button>
-          <button class="btn btn-secondary" id="add-flashbet-btn" style="flex:1; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
+          <button class="btn btn-secondary" id="add-flashbet-btn" style="flex:1; min-width: 100px; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
             ⚡ BlixtBet
+          </button>
+          <button class="btn btn-secondary" id="go-live-stream-btn" style="flex:1; min-width: 100px; border-color: #ff334b; color: #ff334b; font-weight: 800;">
+            🔴 Gå Live
           </button>
         </div>
       ` : ''}
@@ -652,6 +657,16 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     openFlashBetModal(null, t.id);
   });
 
+  // Go Live stream button click
+  document.getElementById('go-live-stream-btn')?.addEventListener('click', () => {
+    openLiveStreamModal({
+      tournamentId: t.id,
+      tournamentCode: t.shareCode,
+      tournamentName: t.name,
+      isBroadcaster: true
+    });
+  });
+
   // Toggle settlement receipt
   content.querySelectorAll('.toggle-receipt-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -804,6 +819,21 @@ function showSideBetModal(t, content) {
         </div>
       </div>
 
+      <div class="form-group mb-xs">
+        <label class="form-label mb-xs">⚡ Snabbval från mallar</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          <button type="button" class="btn btn-sm btn-secondary sb-quick-fill" data-name="🎯 Närmast hål (Hål 7)" data-amount="50" data-mode="self" style="font-size: 0.72rem; padding: 3px 8px;">
+            🎯 Närmast hål
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary sb-quick-fill" data-name="🚀 Längsta drive (Hål 14)" data-amount="50" data-mode="self" style="font-size: 0.72rem; padding: 3px 8px;">
+            🚀 Längsta drive
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary sb-quick-fill" data-name="🦅 Flest birdies" data-amount="100" data-mode="self" style="font-size: 0.72rem; padding: 3px 8px;">
+            🦅 Flest birdies
+          </button>
+        </div>
+      </div>
+
       <div class="form-group">
         <label class="form-label">Namn</label>
         <input type="text" class="form-input" id="sidebet-name" placeholder="t.ex. Närmast pinnen H7 eller Spik i vatten" required />
@@ -916,6 +946,24 @@ function showSideBetModal(t, content) {
       betMode = btn.dataset.mode;
       const amountGroup = document.getElementById('bet-amount-group');
       if (amountGroup) amountGroup.style.display = betMode === 'self' ? 'block' : 'none';
+    });
+  });
+
+  // Quick fill from templates
+  document.querySelectorAll('.sb-quick-fill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.name;
+      const amount = btn.dataset.amount;
+      const mode = btn.dataset.mode;
+      const nameInput = document.getElementById('sidebet-name');
+      const amountInput = document.getElementById('sidebet-amount');
+      if (nameInput) nameInput.value = name;
+      if (amountInput) amountInput.value = amount;
+      if (mode === 'self') {
+        document.getElementById('mode-self')?.click();
+      } else {
+        document.getElementById('mode-open')?.click();
+      }
     });
   });
 

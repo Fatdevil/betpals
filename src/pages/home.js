@@ -1,13 +1,16 @@
 // ── Page: Home / Dashboard ────────────────────────────
-import { getEvents, getTournaments } from '../api.js';
+import { getEvents, getTournaments, getActiveFlashLives } from '../api.js';
 import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { navigate } from '../main.js';
 import { t } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
+import { openLiveStreamModal } from '../components/livestream.js';
+import { getStoredUser } from '../auth.js';
 
 export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
+    <div id="home-live-banner-container"></div>
     ${renderMinigamesRoller()}
     <div class="page-header animate-in" style="padding-top: var(--space-xs); margin-bottom: var(--space-xs);">
       <div class="home-logo-wrap">
@@ -21,6 +24,7 @@ export async function renderHome() {
   `;
 
   attachMinigamesListeners();
+  initHomeLiveBanners();
 
   try {
     const [events, tournaments] = await Promise.all([getEvents(), getTournaments()]);
@@ -139,4 +143,74 @@ export async function renderHome() {
       </div>
     `;
   }
+}
+
+async function initHomeLiveBanners() {
+  const container = document.getElementById('home-live-banner-container');
+  if (!container) return;
+
+  const renderActiveStreams = (streams) => {
+    if (!streams || streams.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const s = streams[0];
+    container.innerHTML = `
+      <div class="animate-in" style="
+        background: linear-gradient(135deg, rgba(255, 51, 75, 0.95), rgba(180, 20, 40, 0.95));
+        color: #fff;
+        border-radius: 12px;
+        padding: 10px 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 20px rgba(255, 51, 75, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.2);
+        animation: pulse 2s infinite;
+      " id="home-live-stream-banner">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.5rem;">🔴</span>
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #ffeb3b;">
+              SÄNDER LIVE JUST NU
+            </div>
+            <div style="font-weight: 800; font-size: 0.95rem; line-height: 1.2;">
+              ${escapeHtml(s.hostName)}: "${escapeHtml(s.question)}"
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm" style="background: #fff; color: #ff334b; font-weight: 800; font-size: 0.8rem; border-radius: 20px; padding: 5px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+          ${s.hasBet ? 'Titta & Betta 👁️' : 'Titta Live 👁️'}
+        </button>
+      </div>
+    `;
+
+    document.getElementById('home-live-stream-banner')?.addEventListener('click', () => {
+      openLiveStreamModal({
+        isBroadcaster: false,
+        isStandalone: true,
+        hasBet: s.hasBet !== false,
+        liveId: s.id,
+        flashBetId: s.flashBetId,
+        tournamentName: `${s.hostName} sänder live ⚡`,
+        initialQuestion: s.question
+      });
+    });
+  };
+
+  try {
+    const active = await getActiveFlashLives();
+    renderActiveStreams(active);
+  } catch {}
+
+  // Listen to real-time broadcast events
+  window.addEventListener('flashlive-stream-updated', async (e) => {
+    try {
+      const active = await getActiveFlashLives();
+      renderActiveStreams(active);
+    } catch {}
+  });
 }
