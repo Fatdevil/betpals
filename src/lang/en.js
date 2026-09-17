@@ -568,6 +568,18 @@ export const en = {
     gimmePickUp: 'Pick it up before you embarrass yourself!',
     gimmeMustPutt: 'That is definitely no gimme on this tour!',
     gimmeRetake: '🔄 Measure again',
-    gimmeShare: '📸 Copy verdict'
+    gimmeShare: '📸 Copy verdict',
+    gimmeBetBtn: '💰 Start Gimme-Bet',
+    gimmeBetTitle: '⛳️ Gimme-Bet on Tee / Fairway',
+    gimmeBetDesc: 'Did your buddy hit it crazy close? Place a flash bet before walking up to the green!',
+    gimmeModeSolo: '🪙 Bragging Rights (Free)',
+    gimmeModeSwish: '📱 Swish Bet',
+    gimmeStakeLabel: 'Stake per person (kr):',
+    gimmePlayer1: 'Player 1 (Claims Gimme):',
+    gimmePlayer2: 'Player 2 (Demands Putt):',
+    gimmeActiveBetTitle: '🎯 ACTIVE GIMME-BET',
+    gimmeBetBanner: 'Walk to the green and judge with the AR laser!',
+    gimmeWinnerWins: 'won the bet and takes home',
+    gimmePaySwish: '📱 Pay winner via Swish'
   }
 };

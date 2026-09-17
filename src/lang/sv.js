@@ -568,6 +568,18 @@ export const sv = {
     gimmePickUp: 'Plocka upp bollen innan du skämmer ut dig!',
     gimmeMustPutt: 'Det där är ingen gimme på den här touren!',
     gimmeRetake: '🔄 Mät igen',
-    gimmeShare: '📸 Kopiera dom'
+    gimmeShare: '📸 Kopiera dom',
+    gimmeBetBtn: '💰 Starta Gimme-Bet',
+    gimmeBetTitle: '⛳️ Gimme-Bet på Tee / Fairway',
+    gimmeBetDesc: 'Slår polaren sjukt nära pinnen? Lägg ett blixt-bet innan ni går fram till green!',
+    gimmeModeSolo: '🪙 Äran & Skryt (Gratis)',
+    gimmeModeSwish: '📱 Swish-uppgörelse',
+    gimmeStakeLabel: 'Insats per person (kr):',
+    gimmePlayer1: 'Spelare 1 (Tror på Gimme):',
+    gimmePlayer2: 'Spelare 2 (Kräver Putt):',
+    gimmeActiveBetTitle: '🎯 AKTIVT GIMME-BET',
+    gimmeBetBanner: 'Gå fram till green och döm med AR-lasern!',
+    gimmeWinnerWins: 'vann bettet och tar hem',
+    gimmePaySwish: '📱 Swisha vinnaren nu'
   }
 };

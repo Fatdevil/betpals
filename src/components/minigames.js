@@ -10070,6 +10070,11 @@ export async function openGimmeModal() {
   let isFrozen = false;
   let verdictState = null; // 'approved' | 'denied'
 
+  // Betting state
+  let activeBet = null; // { mode: 'free' | 'swish', stake: 20, p1: 'Kalle', p2: 'Johan' }
+  let selectedBetMode = 'free';
+  let selectedStake = 20;
+
   // Funny roast quotes
   const approvedRoastsSv = [
     'Plocka upp bollen innan du skämmer ut dig! 🏆',
@@ -10122,6 +10127,9 @@ export async function openGimmeModal() {
         </div>
 
         <div class="flex gap-xs items-center">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-gimme-bet" style="font-size: 0.75rem; padding: 4px 8px; border-color: #fbbf24; color: #fbbf24; font-weight: 700;">
+            💰 ${isEn ? 'Bet' : 'Betta'}
+          </button>
           <span style="font-size: 0.75rem; color: rgba(255,255,255,0.7);">${isEn ? 'Limit:' : 'Gräns:'}</span>
           <select id="gimme-dist-select" style="background: rgba(0,0,0,0.6); color: #10b981; border: 1px solid #10b981; border-radius: 6px; padding: 2px 6px; font-size: 0.8rem; font-weight: 700; cursor: pointer;">
             <option value="45">45 cm (Strikt)</option>
@@ -10130,6 +10138,69 @@ export async function openGimmeModal() {
             <option value="90">90 cm (Putter)</option>
           </select>
         </div>
+      </div>
+
+      <!-- Active Bet Banner (if bet is ongoing) -->
+      <div id="gimme-active-bet-banner" style="display: none; background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(16,185,129,0.15)); border: 1px solid #fbbf24; border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 0.78rem; text-align: left;">
+        <div class="flex justify-between items-center">
+          <span style="font-weight: 700; color: #fbbf24;" id="gimme-bet-info-header">🎯 AKTIVT BET: 50 kr</span>
+          <button type="button" id="btn-cancel-gimme-bet" style="background: none; border: none; color: rgba(255,255,255,0.5); font-size: 0.85rem; cursor: pointer;">✕</button>
+        </div>
+        <div style="font-size: 0.72rem; color: #fff; margin-top: 2px;" id="gimme-bet-info-players">
+          Kalle (GIMME) vs Johan (PUTT)
+        </div>
+      </div>
+
+      <!-- Gimme Bet Setup Drawer (Collapsible) -->
+      <div id="gimme-bet-drawer" style="display: none; background: rgba(18,22,34,0.95); border: 1px solid #fbbf24; border-radius: 10px; padding: 12px; margin-bottom: 10px; text-align: left;">
+        <div style="font-weight: 700; font-size: 0.88rem; color: #fbbf24; margin-bottom: 4px;">
+          ⛳️ ${isEn ? 'Place a Gimme Bet on Tee!' : 'Lägg ett Gimme-Bet på Tee!'}
+        </div>
+        <p style="font-size: 0.75rem; color: rgba(255,255,255,0.7); margin-bottom: 10px; line-height: 1.3;">
+          ${isEn ? 'Did someone hit it close? Bet before walking to the green!' : 'Slår polaren nära flaggan? Betta innan ni går fram till green!'}
+        </p>
+
+        <!-- Bet Mode: Gratis / Äran vs Swish -->
+        <div class="flex gap-xs mb-sm">
+          <button type="button" class="btn btn-sm active" id="btn-gimme-mode-free" style="flex: 1; font-size: 0.75rem; padding: 6px 4px; border: 1px solid #10b981; background: rgba(16,185,129,0.2); color: #10b981; font-weight: 700;">
+            🪙 ${isEn ? 'Bragging Rights' : 'Äran (Gratis)'}
+          </button>
+          <button type="button" class="btn btn-sm" id="btn-gimme-mode-swish" style="flex: 1; font-size: 0.75rem; padding: 6px 4px; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.05); color: #fff; font-weight: 700;">
+            📱 ${isEn ? 'Swish Bet' : 'Swish (kr)'}
+          </button>
+        </div>
+
+        <!-- Stake selector (only if Swish) -->
+        <div id="gimme-stake-wrapper" style="display: none; margin-bottom: 10px;">
+          <label style="font-size: 0.75rem; color: rgba(255,255,255,0.8); display: block; margin-bottom: 4px;">
+            ${isEn ? 'Stake per player:' : 'Insats per spelare:'}
+          </label>
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-secondary btn-sm gimme-stake-btn active" data-stake="20" style="flex: 1; font-size: 0.78rem; padding: 4px 0;">20 kr</button>
+            <button type="button" class="btn btn-secondary btn-sm gimme-stake-btn" data-stake="50" style="flex: 1; font-size: 0.78rem; padding: 4px 0;">50 kr</button>
+            <button type="button" class="btn btn-secondary btn-sm gimme-stake-btn" data-stake="100" style="flex: 1; font-size: 0.78rem; padding: 4px 0;">100 kr</button>
+          </div>
+        </div>
+
+        <!-- Player Names -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+          <div>
+            <label style="font-size: 0.72rem; color: #10b981; font-weight: 700; display: block; margin-bottom: 2px;">
+              🟢 ${isEn ? 'Tror på Gimme:' : 'Tror på Gimme:'}
+            </label>
+            <input type="text" id="gimme-p1-name" placeholder="Namn (t.ex. Kalle)" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #10b981; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+          </div>
+          <div>
+            <label style="font-size: 0.72rem; color: #ef4444; font-weight: 700; display: block; margin-bottom: 2px;">
+              🔴 ${isEn ? 'Kräver Putt:' : 'Kräver Putt:'}
+            </label>
+            <input type="text" id="gimme-p2-name" placeholder="Namn (t.ex. Johan)" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-sm" id="btn-start-gimme-bet" style="width: 100%; padding: 8px; font-weight: 700; font-size: 0.85rem; background: linear-gradient(135deg, #fbbf24, #d97706); border: none; color: #000;">
+          🎯 ${isEn ? 'LOCK IN BET 🔒' : 'LÅS BETTET 🔒'}
+        </button>
       </div>
 
       <!-- AR Viewport Wrapper -->
@@ -10171,8 +10242,19 @@ export async function openGimmeModal() {
             GIMME! 🏆
           </div>
           <div id="gimme-verdict-comment" style="font-size: 0.88rem; font-weight: 600; color: #fff; max-width: 280px; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.8); margin-bottom: 16px;">
-            Plocka upp bollen innan du skämmer ut dig!
+          <!-- Bet Outcome Box (if bet was active) -->
+          <div id="gimme-bet-payout-box" style="display: none; background: rgba(0,0,0,0.85); border: 2px solid #fbbf24; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; width: 100%; max-width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,0.7);">
+            <div style="font-weight: 800; font-size: 0.95rem; color: #fbbf24; margin-bottom: 4px;" id="gimme-bet-winner-text">
+              👑 Kalle vann 100 kr!
+            </div>
+            <div style="font-size: 0.78rem; color: rgba(255,255,255,0.85); margin-bottom: 8px;" id="gimme-bet-loser-text">
+              Johan ska swisha Kalle
+            </div>
+            <a href="#" id="gimme-bet-swish-link" target="_blank" class="btn btn-success btn-sm" style="display: none; width: 100%; font-size: 0.85rem; font-weight: 700; text-decoration: none; padding: 6px 0; background: #00d26a; border: none; color: #fff;">
+              📱 Swisha vinnaren direkt
+            </a>
           </div>
+
           <div class="flex gap-xs">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-gimme-retake" style="font-size: 0.8rem;">
               🔄 ${isEn ? 'Measure Again' : 'Mät igen'}
@@ -10218,6 +10300,110 @@ export async function openGimmeModal() {
   const btnShare = root.querySelector('#btn-gimme-share');
   const camFallback = root.querySelector('#gimme-cam-fallback');
   const fileInput = root.querySelector('#gimme-file-input');
+
+  const btnToggleBet = root.querySelector('#btn-toggle-gimme-bet');
+  const betDrawer = root.querySelector('#gimme-bet-drawer');
+  const activeBetBanner = root.querySelector('#gimme-active-bet-banner');
+  const betInfoHeader = root.querySelector('#gimme-bet-info-header');
+  const betInfoPlayers = root.querySelector('#gimme-bet-info-players');
+  const btnCancelBet = root.querySelector('#btn-cancel-gimme-bet');
+  const btnModeFree = root.querySelector('#btn-gimme-mode-free');
+  const btnModeSwish = root.querySelector('#btn-gimme-mode-swish');
+  const stakeWrapper = root.querySelector('#gimme-stake-wrapper');
+  const p1Input = root.querySelector('#gimme-p1-name');
+  const p2Input = root.querySelector('#gimme-p2-name');
+  const btnStartBet = root.querySelector('#btn-start-gimme-bet');
+  const betPayoutBox = root.querySelector('#gimme-bet-payout-box');
+  const betWinnerText = root.querySelector('#gimme-bet-winner-text');
+  const betLoserText = root.querySelector('#gimme-bet-loser-text');
+  const betSwishLink = root.querySelector('#gimme-bet-swish-link');
+
+  // Pre-fill user nickname if available
+  const currentUser = getStoredUser();
+  if (currentUser?.nickname && p1Input) {
+    p1Input.value = currentUser.nickname;
+  }
+
+  // Toggle Betting Drawer
+  btnToggleBet?.addEventListener('click', () => {
+    if (betDrawer.style.display === 'none' || !betDrawer.style.display) {
+      betDrawer.style.display = 'block';
+    } else {
+      betDrawer.style.display = 'none';
+    }
+  });
+
+  // Mode Selection: Free (Äran) vs Swish
+  btnModeFree?.addEventListener('click', () => {
+    selectedBetMode = 'free';
+    btnModeFree.style.background = 'rgba(16,185,129,0.2)';
+    btnModeFree.style.borderColor = '#10b981';
+    btnModeFree.style.color = '#10b981';
+    btnModeSwish.style.background = 'rgba(255,255,255,0.05)';
+    btnModeSwish.style.borderColor = 'var(--border-glass)';
+    btnModeSwish.style.color = '#fff';
+    if (stakeWrapper) stakeWrapper.style.display = 'none';
+  });
+
+  btnModeSwish?.addEventListener('click', () => {
+    selectedBetMode = 'swish';
+    btnModeSwish.style.background = 'rgba(251,191,36,0.2)';
+    btnModeSwish.style.borderColor = '#fbbf24';
+    btnModeSwish.style.color = '#fbbf24';
+    btnModeFree.style.background = 'rgba(255,255,255,0.05)';
+    btnModeFree.style.borderColor = 'var(--border-glass)';
+    btnModeFree.style.color = '#fff';
+    if (stakeWrapper) stakeWrapper.style.display = 'block';
+  });
+
+  // Stake Buttons
+  root.querySelectorAll('.gimme-stake-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      root.querySelectorAll('.gimme-stake-btn').forEach(b => {
+        b.classList.remove('active');
+        b.style.borderColor = 'var(--border-glass)';
+        b.style.color = '#fff';
+      });
+      btn.classList.add('active');
+      btn.style.borderColor = '#fbbf24';
+      btn.style.color = '#fbbf24';
+      selectedStake = parseInt(btn.dataset.stake, 10) || 20;
+    });
+  });
+
+  // Start / Lock In Bet
+  btnStartBet?.addEventListener('click', () => {
+    const p1 = (p1Input?.value || '').trim() || (isEn ? 'Player 1' : 'Spelare 1');
+    const p2 = (p2Input?.value || '').trim() || (isEn ? 'Player 2' : 'Spelare 2');
+
+    activeBet = {
+      mode: selectedBetMode,
+      stake: selectedBetMode === 'swish' ? selectedStake : 0,
+      p1, // believes GIMME
+      p2  // demands PUTT
+    };
+
+    if (betDrawer) betDrawer.style.display = 'none';
+    if (activeBetBanner) {
+      activeBetBanner.style.display = 'block';
+      if (betInfoHeader) {
+        betInfoHeader.textContent = activeBet.mode === 'swish'
+          ? `🎯 AKTIVT BET: ${activeBet.stake} kr (Pott: ${activeBet.stake * 2} kr)`
+          : `🎯 AKTIVT BET: ÄRAN & SKRYT! 🪙`;
+      }
+      if (betInfoPlayers) {
+        betInfoPlayers.textContent = `🟢 ${p1} (Gimme) vs 🔴 ${p2} (Putt)`;
+      }
+    }
+    showToast(isEn ? 'Bet locked in! Walk up and judge!' : 'Bettet är låst! Gå fram till green och döm! 🏌️‍♂️⛳️', 'success');
+  });
+
+  // Cancel Bet
+  btnCancelBet?.addEventListener('click', () => {
+    activeBet = null;
+    if (activeBetBanner) activeBetBanner.style.display = 'none';
+    showToast(isEn ? 'Bet cancelled' : 'Bettet avbröts', 'info');
+  });
 
   // Handle Gimme distance limit selector
   distSelect?.addEventListener('change', () => {
@@ -10383,6 +10569,37 @@ export async function openGimmeModal() {
         verdictStamp.textContent = isEn ? 'PUTT IT! 😈' : 'PUTTA DIN FEGIS! 😈';
       }
       verdictComment.textContent = randomRoast;
+
+      // Settle active bet if one was placed
+      if (activeBet && betPayoutBox && betWinnerText && betLoserText) {
+        betPayoutBox.style.display = 'block';
+        const winner = approved ? activeBet.p1 : activeBet.p2;
+        const loser = approved ? activeBet.p2 : activeBet.p1;
+
+        if (activeBet.mode === 'swish' && activeBet.stake > 0) {
+          const totalPot = activeBet.stake * 2;
+          betWinnerText.innerHTML = `👑 <strong>${escapeHtml(winner)}</strong> vann ${totalPot} kr! 🎉`;
+          betLoserText.innerHTML = `${escapeHtml(loser)} swishar ${activeBet.stake} kr till ${escapeHtml(winner)}`;
+
+          if (betSwishLink) {
+            // Find winner's phone if it's the current user or in friends
+            betSwishLink.style.display = 'block';
+            betSwishLink.textContent = `📱 Swisha ${escapeHtml(winner)} (${activeBet.stake} kr)`;
+            const swishUrl = createSwishUrl({
+              phone: '',
+              amount: activeBet.stake,
+              message: `BetPals Gimme Bet (${winner} vann!)`
+            });
+            betSwishLink.href = swishUrl;
+          }
+        } else {
+          betWinnerText.innerHTML = `👑 <strong>${escapeHtml(winner)}</strong> vann bettet! 🏆`;
+          betLoserText.innerHTML = `${escapeHtml(loser)} får bjuda på skryträtten! 😉`;
+          if (betSwishLink) betSwishLink.style.display = 'none';
+        }
+      } else if (betPayoutBox) {
+        betPayoutBox.style.display = 'none';
+      }
     }
   }
 
@@ -10397,11 +10614,20 @@ export async function openGimmeModal() {
 
   btnShare?.addEventListener('click', () => {
     const isApproved = verdictState === 'approved';
-    const text = isApproved 
+    let text = isApproved 
       ? `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (< ${customGimmeCm}cm)! 🏆\nPlocka upp bollen!`
       : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${customGimmeCm}cm)! 😈\nPutta din fegis!`;
+    
+    if (activeBet) {
+      const winner = isApproved ? activeBet.p1 : activeBet.p2;
+      const loser = isApproved ? activeBet.p2 : activeBet.p1;
+      text += activeBet.mode === 'swish'
+        ? `\n💰 BET RESULTAT: ${winner} vann ${activeBet.stake * 2} kr! (${loser} ska swisha ${activeBet.stake} kr)`
+        : `\n🏆 BET RESULTAT: ${winner} krossade ${loser} i prestige-bettet!`;
+    }
+
     navigator.clipboard?.writeText(text).then(() => {
-      showToast(isEn ? 'Verdict copied to clipboard! 📋' : 'Domen kopierad till urklipp! 📋', 'success');
+      showToast(isEn ? 'Verdict & bet copied to clipboard! 📋' : 'Dom & bet-resultat kopierat till urklipp! 📋', 'success');
     }).catch(() => {
       showToast(text, 'info');
     });
