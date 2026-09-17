@@ -3,7 +3,7 @@ import { showModal, closeModal } from "./modal.js";
 import { t, getLang } from "../i18n.js";
 import { getStoredUser } from "../auth.js";
 import { getFriends } from "../api.js";
-import { SHL_SEASON, SHL_TEAMS, SHL_PLAYERS, SHL_ROUND_GAMES, FANTASY_SCORING } from "../data/shlPlayers.js";
+import { SHL_SEASON, SHL_TEAMS, SHL_PLAYERS, SHL_ROUNDS, getGamesForRound, FANTASY_SCORING } from "../data/shlPlayers.js";
 
 export async function openShlFantasyModal() {
   const isEn = getLang() === "en";
@@ -16,6 +16,15 @@ export async function openShlFantasyModal() {
   let isSimulating = false;
   let roundSimulated = false;
   let isAddingPlayer = false;
+
+  // Round selection state (Defaults to Omgång 3 which runs over 2 days!)
+  let selectedRoundId = "omg_3";
+  function getCurrentRound() {
+    return SHL_ROUNDS.find(r => r.id === selectedRoundId) || SHL_ROUNDS[0];
+  }
+  let currentRound = getCurrentRound();
+  let roundGames = getGamesForRound(currentRound);
+  let currentSimulatedDay = 0; // 0 = not started, 1 = day 1 played, 2 = day 2 played
 
   // Load custom players from localStorage if any
   let customPlayers = [];
@@ -107,14 +116,17 @@ export async function openShlFantasyModal() {
   ];
 
   // Live match events generator state
-  let liveMatchResults = SHL_ROUND_GAMES.map(g => ({
-    ...g,
-    homeScore: 0,
-    awayScore: 0,
-    period: "19:00",
-    status: "scheduled",
-    events: []
-  }));
+  function initLiveMatchResults() {
+    return roundGames.map(g => ({
+      ...g,
+      homeScore: 0,
+      awayScore: 0,
+      period: g.time,
+      status: "scheduled",
+      events: []
+    }));
+  }
+  let liveMatchResults = initLiveMatchResults();
 
   const modalTitle = `<img src="/hockey-gold.png" alt="" style="width: 28px; height: 28px; object-fit: contain; vertical-align: -5px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? "SHL 2026/2027 Mini Fantasy 🏒" : "SHL 2026/2027 Mini Fantasy 🏒"}`;
 
@@ -126,6 +138,37 @@ export async function openShlFantasyModal() {
     return `
       <div class="shl-fantasy-container" style="max-width: 480px; margin: 0 auto; text-align: left; user-select: none;">
         
+        <!-- Round Selector & Multi-Day Schedule Strip -->
+        <div class="card mb-xs" style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(251,191,36,0.3); border-radius: var(--radius-md); padding: 8px 10px;">
+          <div class="flex-between align-center">
+            <div class="flex align-center gap-xs" style="flex: 1;">
+              <span style="font-size: 1rem;">🏒</span>
+              <select id="shl-round-select" style="background: transparent; color: var(--gold); font-weight: 800; font-size: 0.84rem; border: none; outline: none; cursor: pointer; max-width: 260px;">
+                ${SHL_ROUNDS.map(r => `
+                  <option value="${r.id}" ${selectedRoundId === r.id ? "selected" : ""} style="background: #0f172a; color: #fff;">
+                    ${r.name} (${r.dateRange})
+                  </option>
+                `).join("")}
+              </select>
+            </div>
+            <span class="badge ${currentRound.days.length > 1 ? "badge-warning" : "badge-accent"}" style="font-size: 0.68rem; font-weight: 700; white-space: nowrap;">
+              ${currentRound.days.length > 1 ? `📅 ${currentRound.days.length} matchdagar` : "📅 1 matchdag"}
+            </span>
+          </div>
+
+          <!-- Schedule summary by day -->
+          <div style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px;">
+            ${currentRound.days.map(d => `
+              <div class="flex-between align-center py-xs" style="font-size: 0.7rem;">
+                <span style="color: #fff; font-weight: 700;">📅 ${d.dayLabel}:</span>
+                <span style="color: var(--text-secondary); text-align: right;">
+                  ${d.games.map(g => `${g.home}-${g.away} (${g.time})`).join(" · ")}
+                </span>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+
         <!-- Header Mode Tabs -->
         <div class="flex gap-xs mb-md" style="background: rgba(0,0,0,0.4); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
           <button type="button" class="btn btn-sm ${activeTab === "draft" ? "btn-primary" : "btn-ghost"}" id="tab-shl-draft" style="flex: 1; font-weight: 700; font-size: 0.78rem; padding: 6px 2px;">
@@ -346,6 +389,23 @@ export async function openShlFantasyModal() {
         ${filteredPlayers.map(p => {
           const isSelected = isPlayerSelected(p.id);
           const posBadgeColor = p.pos === "G" ? "#10b981" : p.pos === "D" ? "#3b82f6" : "#f59e0b";
+          
+          // Find player's match in this round
+          let playerGame = null;
+          let playerGameDay = null;
+          for (const day of currentRound.days) {
+            const found = day.games.find(g => g.home === p.team || g.away === p.team);
+            if (found) {
+              playerGame = found;
+              playerGameDay = day;
+              break;
+            }
+          }
+
+          const matchInfoStr = playerGame 
+            ? `🕒 ${playerGameDay.dayLabel.split(" ")[0]} ${playerGame.time} (${playerGame.home === p.team ? "vs " + playerGame.away : "@ " + playerGame.home})`
+            : "⚠️ Spelledig";
+
           return `
             <div class="player-card-item flex-between align-center" style="background: rgba(255,255,255,0.03); border: 1px solid ${isSelected ? "var(--gold)" : "var(--border-glass)"}; border-radius: var(--radius-sm); padding: 8px 10px;">
               <div class="flex align-center gap-sm">
@@ -356,9 +416,10 @@ export async function openShlFantasyModal() {
                   <div style="font-weight: 700; font-size: 0.85rem; color: #fff;">
                     #${p.num} ${escapeHtml(p.name)}
                   </div>
-                  <div class="flex gap-xs" style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 1px;">
+                  <div class="flex gap-xs" style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 1px; flex-wrap: wrap;">
                     <span class="text-gold font-bold">${p.team}</span> ·
-                    <span>Form: ⭐ ${p.form}</span>
+                    <span style="color: ${playerGame ? "rgba(255,255,255,0.8)" : "#ef4444"}; font-weight: 600;">${matchInfoStr}</span> ·
+                    <span>⭐ ${p.form}</span>
                   </div>
                 </div>
               </div>
@@ -474,6 +535,31 @@ export async function openShlFantasyModal() {
 
     allSquads.sort((a, b) => b.points - a.points);
     const leader = allSquads[0];
+    const totalDays = currentRound.days.length;
+    const isRoundComplete = currentSimulatedDay >= totalDays;
+
+    let simBtnLabel = "⚡ Simulera Mål!";
+    if (totalDays > 1) {
+      if (currentSimulatedDay === 0) {
+        simBtnLabel = `⚡ Simulera Dag 1 (${currentRound.days[0].dayLabel.split(" ")[0]})`;
+      } else if (currentSimulatedDay < totalDays) {
+        simBtnLabel = `⚡ Simulera Dag ${currentSimulatedDay + 1} (${currentRound.days[currentSimulatedDay].dayLabel.split(" ")[0]})`;
+      } else {
+        simBtnLabel = "🔄 Återställ Omgång";
+      }
+    } else {
+      simBtnLabel = isRoundComplete ? "🔄 Kör igen" : "⚡ Simulera Mål!";
+    }
+
+    let statusText = "OMGÅNG PÅGÅR";
+    let statusDesc = "Matcher i full gång!";
+    if (isRoundComplete) {
+      statusText = "OMGÅNG AVSLUTAD 🏆";
+      statusDesc = `Alla ${roundGames.length} matcher färdigspelade!`;
+    } else if (currentSimulatedDay > 0) {
+      statusText = `DAG ${currentSimulatedDay} AVKLARAD ⏳`;
+      statusDesc = `Dag ${currentSimulatedDay} klar, väntar på nästa matchdag`;
+    }
 
     return `
       <div style="padding: 4px 0;">
@@ -481,17 +567,17 @@ export async function openShlFantasyModal() {
         <!-- Action bar / simulation button -->
         <div class="flex-between align-center mb-sm" style="background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
           <div>
-            <div style="font-size: 0.8rem; font-weight: 800; color: #10b981; display: flex; align-items: center; gap: 4px;">
-              <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
-              ${roundSimulated ? "OMGÅNG AVSLUTAD 🏆" : "OMGÅNG PÅGÅR (P3)"}
+            <div style="font-size: 0.8rem; font-weight: 800; color: ${isRoundComplete ? "#fbbf24" : "#10b981"}; display: flex; align-items: center; gap: 4px;">
+              <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: ${isRoundComplete ? "#fbbf24" : "#10b981"}; box-shadow: 0 0 8px ${isRoundComplete ? "#fbbf24" : "#10b981"};"></span>
+              ${statusText}
             </div>
             <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 1px;">
-              ${roundSimulated ? "Alla 7 matcher färdigspelade" : "Alla 7 matcher i full gång!"}
+              ${statusDesc}
             </div>
           </div>
 
           <button type="button" class="btn btn-sm btn-secondary" id="btn-simulate-round" style="font-size: 0.75rem; padding: 6px 10px; font-weight: 700; border-color: var(--gold); color: var(--gold);">
-            ${roundSimulated ? "🔄 Kör igen" : "⚡ Simulera Mål!"}
+            ${simBtnLabel}
           </button>
         </div>
 
@@ -537,14 +623,14 @@ export async function openShlFantasyModal() {
         </div>
 
         <!-- Payout banner if finished -->
-        ${roundSimulated && selectedMode === "swish" ? `
+        ${isRoundComplete && selectedMode === "swish" ? `
           <div class="card mb-md" style="background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(251,191,36,0.2)); border: 2px solid #10b981; padding: 14px; text-align: center;">
             <div style="font-size: 1.6rem; margin-bottom: 4px;">🏆</div>
             <div style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: #10b981; margin-bottom: 2px;">
               ${leader.name} VANN POTTEN!
             </div>
             <div style="font-size: 0.85rem; color: #fff; margin-bottom: 12px;">
-              Tar hem hela kvällens pott på <strong class="text-gold">${(competitors.length + 1) * selectedStake} kr</strong>!
+              Tar hem hela omgångens pott på <strong class="text-gold">${(competitors.length + 1) * selectedStake} kr</strong>!
             </div>
             <a href="https://app.swish.nu" target="_blank" class="btn btn-success btn-sm w-100" style="font-weight: 700; padding: 8px; text-decoration: none; display: inline-block;">
               📱 Öppna Swish & Betala Vinnaren
@@ -552,20 +638,39 @@ export async function openShlFantasyModal() {
           </div>
         ` : ""}
 
-        <!-- Tonight SHL Matches list -->
+        <!-- Matches list grouped by day -->
         <div class="mt-md">
           <div style="font-size: 0.75rem; font-weight: 800; color: var(--text-secondary); margin-bottom: 6px;">
-            🏒 ${isEn ? "TONIGHT SHL GAMES:" : "KVÄLLENS 7 MATCHER:"}
+            🏒 ${isEn ? "ROUND MATCHES & RESULTS:" : "OMGÅNGENS MATCHER & RESULTAT:"}
           </div>
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            ${liveMatchResults.map(m => `
-              <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(0,0,0,0.3); border-radius: 6px; font-size: 0.78rem;">
-                <span>${m.name}</span>
-                <span style="font-family: monospace; font-weight: 800; color: var(--gold);">
-                  ${m.status === "scheduled" ? m.time : `${m.homeScore} – ${m.awayScore} (Slut)`}
-                </span>
-              </div>
-            `).join("")}
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${currentRound.days.map((d, dIdx) => {
+              const isDayDone = currentSimulatedDay > dIdx;
+              const isDayLive = currentSimulatedDay === dIdx;
+              return `
+                <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px 8px;">
+                  <div class="flex-between align-center mb-xs" style="font-size: 0.72rem; font-weight: 700; color: var(--gold);">
+                    <span>📅 ${d.dayLabel}</span>
+                    <span style="font-size: 0.65rem; color: ${isDayDone ? "#10b981" : isDayLive ? "#fbbf24" : "var(--text-secondary)"};">
+                      ${isDayDone ? "✅ Färdigspelad" : isDayLive ? "🟡 Pågår" : "⏳ Kommande"}
+                    </span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 3px;">
+                    ${d.games.map(g => {
+                      const liveM = liveMatchResults.find(m => m.id === g.id) || g;
+                      return `
+                        <div class="flex-between align-center" style="padding: 4px 8px; background: rgba(255,255,255,0.02); border-radius: 4px; font-size: 0.75rem;">
+                          <span>${liveM.name}</span>
+                          <span style="font-family: monospace; font-weight: 800; color: ${liveM.status === "finished" ? "var(--gold)" : "var(--text-secondary)"};">
+                            ${liveM.status === "scheduled" ? liveM.time : `${liveM.homeScore} – ${liveM.awayScore} (Slut)`}
+                          </span>
+                        </div>
+                      `;
+                    }).join("")}
+                  </div>
+                </div>
+              `;
+            }).join("")}
           </div>
         </div>
 
@@ -674,6 +779,29 @@ export async function openShlFantasyModal() {
   }
 
   function attachTabListeners() {
+    // Round selector
+    const roundSelect = root.querySelector("#shl-round-select");
+    roundSelect?.addEventListener("change", () => {
+      selectedRoundId = roundSelect.value;
+      currentRound = getCurrentRound();
+      roundGames = getGamesForRound(currentRound);
+      currentSimulatedDay = 0;
+      roundSimulated = false;
+      liveMatchResults = initLiveMatchResults();
+      // Reset points on players
+      const resetPts = (p) => { if (p) delete p.pts; };
+      if (myLineup.goalie) resetPts(myLineup.goalie);
+      myLineup.defenders.forEach(resetPts);
+      myLineup.forwards.forEach(resetPts);
+      competitors.forEach(c => {
+        if (c.lineup.goalie) resetPts(c.lineup.goalie);
+        c.lineup.defenders.forEach(resetPts);
+        c.lineup.forwards.forEach(resetPts);
+        c.points = 0;
+      });
+      refreshAll();
+    });
+
     // Tab buttons
     root.querySelector("#tab-shl-draft")?.addEventListener("click", () => { activeTab = "draft"; refreshAll(); });
     root.querySelector("#tab-shl-pot")?.addEventListener("click", () => { activeTab = "pot"; refreshAll(); });
@@ -845,7 +973,14 @@ export async function openShlFantasyModal() {
     // Live tab actions
     if (activeTab === "live") {
       root.querySelector("#btn-simulate-round")?.addEventListener("click", () => {
-        simulateShlRound();
+        const totalDays = currentRound.days.length;
+        if (currentSimulatedDay >= totalDays) {
+          // Reset round
+          resetSimulation();
+        } else {
+          // Simulate next day
+          simulateNextDay();
+        }
       });
     }
   }
@@ -867,40 +1002,71 @@ export async function openShlFantasyModal() {
     attachTabListeners();
   }
 
-  // ── SIMULATION ENGINE FOR LIVE ROUND ───────────────────────
-  function simulateShlRound() {
-    roundSimulated = true;
+  // ── SIMULATION ENGINE FOR LIVE ROUND & MULTI-DAY TRACKING ──
+  function resetSimulation() {
+    currentSimulatedDay = 0;
+    roundSimulated = false;
+    liveMatchResults = initLiveMatchResults();
+    const clearPts = (p) => { if (p) delete p.pts; };
+    if (myLineup.goalie) clearPts(myLineup.goalie);
+    myLineup.defenders.forEach(clearPts);
+    myLineup.forwards.forEach(clearPts);
+    competitors.forEach(c => {
+      if (c.lineup.goalie) clearPts(c.lineup.goalie);
+      c.lineup.defenders.forEach(clearPts);
+      c.lineup.forwards.forEach(clearPts);
+      c.points = 0;
+    });
+    refresh();
+  }
 
-    // Simulate match scores
-    liveMatchResults = liveMatchResults.map(m => {
-      const hScore = Math.floor(Math.random() * 4) + 1;
-      const aScore = Math.floor(Math.random() * 4);
-      return {
-        ...m,
-        homeScore: hScore,
-        awayScore: aScore,
-        status: "finished"
-      };
+  function simulateNextDay() {
+    const dayIndex = currentSimulatedDay; // 0 for day 1, 1 for day 2
+    if (dayIndex >= currentRound.days.length) return;
+
+    const day = currentRound.days[dayIndex];
+    const dayGameIds = new Set(day.games.map(g => g.id));
+    const dayActiveTeams = new Set();
+    day.games.forEach(g => {
+      dayActiveTeams.add(g.home);
+      dayActiveTeams.add(g.away);
     });
 
-    // Award random points to selected players
+    // Finish matches for this specific day
+    liveMatchResults = liveMatchResults.map(m => {
+      if (dayGameIds.has(m.id)) {
+        const hScore = Math.floor(Math.random() * 4) + 1;
+        const aScore = Math.floor(Math.random() * 4);
+        return {
+          ...m,
+          homeScore: hScore,
+          awayScore: aScore,
+          status: "finished"
+        };
+      }
+      return m;
+    });
+
+    // Award points only to players whose teams played today!
     const awardPlayerPts = (p) => {
-      if (!p) return;
+      if (!p || !dayActiveTeams.has(p.team)) return;
+      let dayPoints = 0;
       if (p.pos === "G") {
         const win = Math.random() > 0.4 ? 4 : 0;
         const shutout = win > 0 && Math.random() > 0.7 ? 5 : 0;
         const goalsAgainst = -Math.floor(Math.random() * 3);
-        p.pts = Math.max(1, win + shutout + goalsAgainst);
+        dayPoints = Math.max(1, win + shutout + goalsAgainst);
       } else if (p.pos === "D") {
         const goals = Math.random() > 0.6 ? 4 : 0;
         const assists = Math.random() > 0.5 ? 2 : 0;
         const pm = Math.random() > 0.5 ? 1 : -1;
-        p.pts = goals + assists + pm;
+        dayPoints = goals + assists + pm;
       } else { // F
         const goals = (Math.random() > 0.4 ? 3 : 0) + (Math.random() > 0.8 ? 3 : 0);
         const assists = (Math.random() > 0.4 ? 2 : 0) + (Math.random() > 0.7 ? 2 : 0);
-        p.pts = goals + assists;
+        dayPoints = goals + assists;
       }
+      p.pts = (p.pts || 0) + dayPoints;
     };
 
     if (myLineup.goalie) awardPlayerPts(myLineup.goalie);
@@ -913,6 +1079,11 @@ export async function openShlFantasyModal() {
       c.lineup.forwards.forEach(awardPlayerPts);
       c.points = calculateLineupPoints(c.lineup);
     });
+
+    currentSimulatedDay += 1;
+    if (currentSimulatedDay >= currentRound.days.length) {
+      roundSimulated = true;
+    }
 
     refresh();
   }

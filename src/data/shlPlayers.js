@@ -324,15 +324,96 @@ export const SHL_PLAYERS = [
   { id: "f_wernblom", name: "Lukas Wernblom", team: "MIF", pos: "F", num: 26, price: 8, form: 8.4 }
 ];
 
-export const SHL_ROUND_GAMES = [
-  { id: "g1", home: "SAIK", away: "IFB", time: "19:00", name: "Skellefteå AIK – IF Björklöven" },
-  { id: "g2", home: "FBK", away: "FHC", time: "19:00", name: "Färjestad BK – Frölunda HC" },
-  { id: "g3", home: "BIF", away: "LIF", time: "19:00", name: "Brynäs IF – Leksands IF" },
-  { id: "g4", home: "LHF", away: "TIK", time: "19:00", name: "Luleå Hockey – Timrå IK" },
-  { id: "g5", home: "RBK", away: "MIF", time: "19:00", name: "Rögle BK – Malmö Redhawks" },
-  { id: "g6", home: "LHC", away: "HV71", time: "19:00", name: "Linköping HC – HV71" },
-  { id: "g7", home: "VLH", away: "OHK", time: "19:00", name: "Växjö Lakers – Örebro HK" }
+export const SHL_ROUNDS = [
+  {
+    id: "omg_1",
+    roundNumber: 1,
+    name: "Omgång 1 (Premiären)",
+    dateRange: "19 sep 2026",
+    status: "upcoming",
+    lockTime: "2026-09-19T15:15:00",
+    days: [
+      {
+        date: "2026-09-19",
+        dayLabel: "Lördag 19 sep",
+        games: [
+          { id: "g_1_1", home: "SAIK", away: "IFB", date: "2026-09-19", time: "15:15", name: "Skellefteå AIK – IF Björklöven", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_1_2", home: "FHC", away: "VLH", date: "2026-09-19", time: "15:15", name: "Frölunda HC – Växjö Lakers", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_1_3", home: "HV71", away: "MIF", date: "2026-09-19", time: "15:15", name: "HV71 – Malmö Redhawks", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_1_4", home: "LHC", away: "TIK", date: "2026-09-19", time: "15:15", name: "Linköping HC – Timrå IK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_1_5", home: "BIF", away: "LIF", date: "2026-09-19", time: "18:00", name: "Brynäs IF – Leksands IF", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_1_6", home: "FBK", away: "OHK", date: "2026-09-19", time: "18:00", name: "Färjestad BK – Örebro HK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_1_7", home: "LHF", away: "RBK", date: "2026-09-19", time: "18:00", name: "Luleå Hockey – Rögle BK", status: "upcoming", homeScore: 0, awayScore: 0 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "omg_3",
+    roundNumber: 3,
+    name: "Omgång 3 (2-dagars omgång)",
+    dateRange: "24–26 sep 2026",
+    status: "upcoming",
+    lockTime: "2026-09-24T19:00:00",
+    days: [
+      {
+        date: "2026-09-24",
+        dayLabel: "Torsdag 24 sep (Dag 1)",
+        games: [
+          { id: "g_3_1", home: "FBK", away: "RBK", date: "2026-09-24", time: "19:00", name: "Färjestad BK – Rögle BK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_3_2", home: "HV71", away: "SAIK", date: "2026-09-24", time: "19:00", name: "HV71 – Skellefteå AIK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_3_3", home: "OHK", away: "IFB", date: "2026-09-24", time: "19:00", name: "Örebro HK – IF Björklöven", status: "upcoming", homeScore: 0, awayScore: 0 }
+        ]
+      },
+      {
+        date: "2026-09-26",
+        dayLabel: "Lördag 26 sep (Dag 2)",
+        games: [
+          { id: "g_3_4", home: "BIF", away: "LHF", date: "2026-09-26", time: "15:15", name: "Brynäs IF – Luleå Hockey", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_3_5", home: "IFB", away: "FBK", date: "2026-09-26", time: "15:15", name: "IF Björklöven – Färjestad BK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_3_6", home: "RBK", away: "LHC", date: "2026-09-26", time: "18:00", name: "Rögle BK – Linköping HC", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_3_7", home: "MIF", away: "FHC", date: "2026-09-26", time: "18:00", name: "Malmö Redhawks – Frölunda HC", status: "upcoming", homeScore: 0, awayScore: 0 }
+        ]
+      }
+    ]
+  },
+  {
+    id: "omg_7",
+    roundNumber: 7,
+    name: "Omgång 7 (2-dagars helgbatalj)",
+    dateRange: "8–10 okt 2026",
+    status: "upcoming",
+    lockTime: "2026-10-08T19:00:00",
+    days: [
+      {
+        date: "2026-10-08",
+        dayLabel: "Torsdag 8 okt (Dag 1)",
+        games: [
+          { id: "g_7_1", home: "FHC", away: "FBK", date: "2026-10-08", time: "19:00", name: "Frölunda HC – Färjestad BK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_7_2", home: "LHF", away: "TIK", date: "2026-10-08", time: "19:00", name: "Luleå Hockey – Timrå IK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_7_3", home: "LHC", away: "HV71", date: "2026-10-08", time: "19:00", name: "Linköping HC – HV71", status: "upcoming", homeScore: 0, awayScore: 0 }
+        ]
+      },
+      {
+        date: "2026-10-10",
+        dayLabel: "Lördag 10 okt (Dag 2)",
+        games: [
+          { id: "g_7_4", home: "IFB", away: "SAIK", date: "2026-10-10", time: "15:15", name: "IF Björklöven – Skellefteå AIK", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_7_5", home: "BIF", away: "LIF", date: "2026-10-10", time: "15:15", name: "Brynäs IF – Leksands IF", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_7_6", home: "RBK", away: "MIF", date: "2026-10-10", time: "18:00", name: "Rögle BK – Malmö Redhawks", status: "upcoming", homeScore: 0, awayScore: 0 },
+          { id: "g_7_7", home: "VLH", away: "OHK", date: "2026-10-10", time: "18:00", name: "Växjö Lakers – Örebro HK", status: "upcoming", homeScore: 0, awayScore: 0 }
+        ]
+      }
+    ]
+  }
 ];
+
+export function getGamesForRound(round) {
+  if (!round || !round.days) return [];
+  return round.days.flatMap(d => d.games);
+}
+
+export const SHL_ROUND_GAMES = getGamesForRound(SHL_ROUNDS[0]);
 
 // Poängregler
 export const FANTASY_SCORING = {
