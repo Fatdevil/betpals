@@ -7457,6 +7457,20 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           }
         }
 
+        // Alien vs Bunker / Shield collision (Classic arcade mechanic: aliens trample and destroy bunkers on contact)
+        for (const a of aliens) {
+          for (const s of shields) {
+            if (s.hp > 0 && a.x + a.w >= s.x && a.x <= s.x + s.w && a.y + a.h >= s.y && a.y <= s.y + s.h) {
+              s.hp = Math.max(0, s.hp - 3);
+              spawnExplosion(a.x + a.w / 2, s.y + s.h / 2, '#10b981', 6);
+              playExplosionSound();
+              if (s.hp <= 0) {
+                spawnExplosion(s.x + s.w / 2, s.y + s.h / 2, '#10b981', 14);
+              }
+            }
+          }
+        }
+
         if (aliens.length > 0 && Math.random() < 0.35) {
           const shooter = aliens[Math.floor(Math.random() * aliens.length)];
           alienBullets.push({
@@ -7517,13 +7531,31 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         ctx.fillRect(sx, sy, 1.5, 1.5);
       }
 
-      // Draw Shields
+      // Draw Shields (Classic arcade bunkers with erosion)
       for (const s of shields) {
         if (s.hp > 0) {
-          const alpha = Math.max(0.2, s.hp / 8);
+          const alpha = Math.max(0.25, s.hp / 8);
           ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`;
           ctx.fillRect(s.x, s.y, s.w, s.h);
-          ctx.strokeStyle = '#10b981';
+
+          // Classic arch cutout at bottom center
+          ctx.fillStyle = '#060814';
+          ctx.fillRect(s.x + s.w / 2 - 7, s.y + s.h - 8, 14, 8);
+
+          // Damage erosion marks if damaged
+          if (s.hp < 7) {
+            ctx.fillRect(s.x + 4, s.y + 2, 6, 4);
+          }
+          if (s.hp < 5) {
+            ctx.fillRect(s.x + s.w - 10, s.y + 4, 6, 5);
+            ctx.fillRect(s.x + s.w / 2 - 3, s.y, 6, 5);
+          }
+          if (s.hp < 3) {
+            ctx.fillRect(s.x + 8, s.y + 8, 8, 6);
+            ctx.fillRect(s.x + s.w - 16, s.y + 6, 8, 6);
+          }
+
+          ctx.strokeStyle = `rgba(16, 185, 129, ${alpha + 0.2})`;
           ctx.strokeRect(s.x, s.y, s.w, s.h);
         }
       }
