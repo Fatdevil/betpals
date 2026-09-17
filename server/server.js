@@ -2584,6 +2584,142 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
   }
 });
 
+// ── MEGA LOTTO (Eurojackpot-style weekly lotto) ─────────
+app.get('/api/lotto/current', (req, res) => {
+  try {
+    const currentDraw = db.getOrCreateCurrentLottoDraw();
+    const history = db.getLottoHistory(1);
+    const lastDraw = history.length > 0 ? history[0] : null;
+    res.json({
+      ok: true,
+      currentDraw,
+      lastDraw
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/tickets', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { tickets, syndicateId } = req.body;
+  if (!tickets || !Array.isArray(tickets) || tickets.length === 0) {
+    return res.status(400).json({ error: 'Inga rader angivna' });
+  }
+
+  try {
+    const result = db.submitLottoTickets({
+      userId: user.id,
+      syndicateId: syndicateId || null,
+      tickets
+    });
+
+    broadcastGlobal({
+      type: 'lotto_jackpot_update',
+      jackpotAmount: result.newJackpot,
+      ticketsCount: tickets.length,
+      buyerName: user.nickname
+    });
+
+    res.json({
+      ok: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/lotto/my-tickets', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const { drawId } = req.query;
+    const tickets = db.getUserLottoTickets(user.id, drawId || null);
+    res.json({ ok: true, tickets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/lotto/history', (req, res) => {
+  try {
+    const history = db.getLottoHistory(15);
+    res.json({ ok: true, history });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/syndicate/create', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { name, stakePerPerson } = req.body;
+  if (!name) return res.status(400).json({ error: 'Lottolaget måste ha ett namn' });
+
+  try {
+    const syndicate = db.createLottoSyndicate({
+      name,
+      creatorId: user.id,
+      creatorNickname: user.nickname,
+      stakePerPerson: stakePerPerson || 25
+    });
+    res.json({ ok: true, syndicate });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/syndicate/join', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Lagkod saknas' });
+
+  try {
+    const syndicate = db.joinLottoSyndicate({
+      code,
+      userId: user.id,
+      nickname: user.nickname
+    });
+    res.json({ ok: true, syndicate });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/lotto/syndicate/:idOrCode', (req, res) => {
+  try {
+    const { idOrCode } = req.params;
+    let synd = db.getLottoSyndicateById(idOrCode);
+    if (!synd) return res.status(404).json({ error: 'Lottolaget hittades inte' });
+    res.json({ ok: true, syndicate: synd });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/draw/trigger', (req, res) => {
+  try {
+    const { drawId, winningNumbers } = req.body || {};
+    const result = db.executeLottoDraw(drawId, winningNumbers);
+
+    broadcastGlobal({
+      type: 'lotto_draw_completed',
+      result
+    });
+
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── AnyBet API (Kompisbettet) ─────────────────────────
 app.post('/api/anybets/create', (req, res) => {
   const user = getUserFromToken(req);

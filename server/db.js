@@ -222,6 +222,56 @@ try {
 
 try {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS lotto_draws (
+      id TEXT PRIMARY KEY,
+      draw_number INTEGER NOT NULL,
+      draw_date TEXT NOT NULL,
+      jackpot_amount REAL NOT NULL,
+      rollover_amount REAL DEFAULT 0,
+      winning_main TEXT,
+      winning_stars TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_lotto_draws_status ON lotto_draws(status);
+
+    CREATE TABLE IF NOT EXISTS lotto_syndicates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      creator_id TEXT NOT NULL,
+      stake_per_person REAL DEFAULT 25,
+      members TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_lotto_syndicates_code ON lotto_syndicates(code);
+
+    CREATE TABLE IF NOT EXISTS lotto_tickets (
+      id TEXT PRIMARY KEY,
+      draw_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      syndicate_id TEXT,
+      main_numbers TEXT NOT NULL,
+      star_numbers TEXT NOT NULL,
+      matches_main INTEGER DEFAULT 0,
+      matches_stars INTEGER DEFAULT 0,
+      prize_tier INTEGER DEFAULT 0,
+      prize_amount REAL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (draw_id) REFERENCES lotto_draws(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (syndicate_id) REFERENCES lotto_syndicates(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lotto_tickets_draw ON lotto_tickets(draw_id);
+    CREATE INDEX IF NOT EXISTS idx_lotto_tickets_user ON lotto_tickets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_lotto_tickets_syndicate ON lotto_tickets(syndicate_id);
+  `);
+} catch {}
+
+try {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS anybets (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -2363,5 +2413,313 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
   return getTabExpenseById(expenseId);
 }
 
+  // ── MEGA LOTTO (Progressive Eurojackpot-style weekly lotto) ─────
 
+  function calculateNextFridayDrawDate() {
+    const d = new Date();
+    const day = d.getDay(); // 0 Sun, 5 Fri
+    let daysUntilFriday = (5 - day + 7) % 7;
+    if (daysUntilFriday === 0 && d.getHours() >= 20) {
+      daysUntilFriday = 7;
+    }
+    const nextFriday = new Date(d);
+    nextFriday.setDate(d.getDate() + daysUntilFriday);
+    nextFriday.setHours(20, 0, 0, 0);
+    return nextFriday.toISOString();
+  }
 
+  export function getOrCreateCurrentLottoDraw() {
+    let draw = db.prepare(`SELECT * FROM lotto_draws WHERE status = 'open' ORDER BY draw_number DESC LIMIT 1`).get();
+    if (!draw) {
+      const lastDraw = db.prepare(`SELECT * FROM lotto_draws WHERE status = 'completed' ORDER BY draw_number DESC LIMIT 1`).get();
+      const nextNumber = lastDraw ? lastDraw.draw_number + 1 : 1;
+      const rollover = lastDraw ? (lastDraw.rollover_amount || 0) : 0;
+      const baseJackpot = 500000 + rollover;
+      const drawId = crypto.randomUUID();
+      const drawDate = calculateNextFridayDrawDate();
+
+      db.prepare(`
+        INSERT INTO lotto_draws (id, draw_number, draw_date, jackpot_amount, rollover_amount, status)
+        VALUES (?, ?, ?, ?, ?, 'open')
+      `).run(drawId, nextNumber, drawDate, baseJackpot, rollover);
+
+      draw = db.prepare(`SELECT * FROM lotto_draws WHERE id = ?`).get(drawId);
+    }
+
+    const ticketCount = db.prepare(`SELECT COUNT(*) as count FROM lotto_tickets WHERE draw_id = ?`).get(draw.id)?.count || 0;
+    return {
+      ...draw,
+      ticket_count: ticketCount
+    };
+  }
+
+  export function submitLottoTickets({ userId, syndicateId = null, tickets }) {
+    if (!tickets || !Array.isArray(tickets) || tickets.length === 0) {
+      throw new Error('No tickets provided');
+    }
+
+    const currentDraw = getOrCreateCurrentLottoDraw();
+    const createdTickets = [];
+
+    const insertStmt = db.prepare(`
+      INSERT INTO lotto_tickets (id, draw_id, user_id, syndicate_id, main_numbers, star_numbers)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    const updateJackpotStmt = db.prepare(`
+      UPDATE lotto_draws SET jackpot_amount = jackpot_amount + ? WHERE id = ?
+    `);
+
+    const tx = db.transaction(() => {
+      for (const t of tickets) {
+        const ticketId = crypto.randomUUID();
+        const mainSorted = [...t.mainNumbers].sort((a, b) => a - b);
+        const starsSorted = [...t.starNumbers].sort((a, b) => a - b);
+
+        insertStmt.run(
+          ticketId,
+          currentDraw.id,
+          userId,
+          syndicateId || null,
+          JSON.stringify(mainSorted),
+          JSON.stringify(starsSorted)
+        );
+
+        createdTickets.push({
+          id: ticketId,
+          draw_id: currentDraw.id,
+          user_id: userId,
+          syndicate_id: syndicateId,
+          main_numbers: mainSorted,
+          star_numbers: starsSorted
+        });
+      }
+
+      updateJackpotStmt.run(tickets.length * 20, currentDraw.id);
+    });
+
+    tx();
+    return {
+      drawId: currentDraw.id,
+      tickets: createdTickets,
+      newJackpot: getOrCreateCurrentLottoDraw().jackpot_amount
+    };
+  }
+
+  export function getUserLottoTickets(userId, drawId = null) {
+    let query = `
+      SELECT t.*, d.draw_number, d.draw_date, d.status as draw_status,
+             d.winning_main, d.winning_stars, s.name as syndicate_name
+      FROM lotto_tickets t
+      JOIN lotto_draws d ON t.draw_id = d.id
+      LEFT JOIN lotto_syndicates s ON t.syndicate_id = s.id
+      WHERE t.user_id = ?
+    `;
+    const params = [userId];
+
+    if (drawId) {
+      query += ` AND t.draw_id = ?`;
+      params.push(drawId);
+    }
+
+    query += ` ORDER BY t.created_at DESC`;
+
+    const rows = db.prepare(query).all(...params);
+    return rows.map(r => ({
+      ...r,
+      main_numbers: JSON.parse(r.main_numbers || '[]'),
+      star_numbers: JSON.parse(r.star_numbers || '[]'),
+      winning_main: r.winning_main ? JSON.parse(r.winning_main) : null,
+      winning_stars: r.winning_stars ? JSON.parse(r.winning_stars) : null
+    }));
+  }
+
+  export function getLottoHistory(limit = 10) {
+    const draws = db.prepare(`
+      SELECT * FROM lotto_draws
+      WHERE status = 'completed'
+      ORDER BY draw_number DESC
+      LIMIT ?
+    `).all(limit);
+
+    return draws.map(d => ({
+      ...d,
+      winning_main: JSON.parse(d.winning_main || '[]'),
+      winning_stars: JSON.parse(d.winning_stars || '[]'),
+      winner_count: db.prepare(`SELECT COUNT(*) as count FROM lotto_tickets WHERE draw_id = ? AND prize_tier > 0`).get(d.id)?.count || 0
+    }));
+  }
+
+  export function createLottoSyndicate({ name, creatorId, creatorNickname, stakePerPerson = 25 }) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const id = crypto.randomUUID();
+    const initialMembers = [
+      {
+        user_id: creatorId,
+        nickname: creatorNickname,
+        role: 'leader',
+        joined_at: new Date().toISOString()
+      }
+    ];
+
+    db.prepare(`
+      INSERT INTO lotto_syndicates (id, name, code, creator_id, stake_per_person, members)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, name, code, creatorId, stakePerPerson, JSON.stringify(initialMembers));
+
+    return getLottoSyndicateById(id);
+  }
+
+  export function joinLottoSyndicate({ code, userId, nickname }) {
+    const synd = db.prepare(`SELECT * FROM lotto_syndicates WHERE code = ?`).get(code.toUpperCase().trim());
+    if (!synd) throw new Error('Syndicate not found');
+
+    const members = JSON.parse(synd.members || '[]');
+    if (!members.some(m => String(m.user_id) === String(userId))) {
+      members.push({
+        user_id: userId,
+        nickname,
+        role: 'member',
+        joined_at: new Date().toISOString()
+      });
+
+      db.prepare(`UPDATE lotto_syndicates SET members = ? WHERE id = ?`).run(JSON.stringify(members), synd.id);
+    }
+
+    return getLottoSyndicateById(synd.id);
+  }
+
+  export function getLottoSyndicateById(id) {
+    const synd = db.prepare(`SELECT * FROM lotto_syndicates WHERE id = ?`).get(id);
+    if (!synd) return null;
+    return {
+      ...synd,
+      members: JSON.parse(synd.members || '[]'),
+      ticket_count: db.prepare(`SELECT COUNT(*) as count FROM lotto_tickets WHERE syndicate_id = ?`).get(id)?.count || 0
+    };
+  }
+
+  export function executeLottoDraw(drawId = null, forcedWinningNumbers = null) {
+    let draw = drawId
+      ? db.prepare(`SELECT * FROM lotto_draws WHERE id = ?`).get(drawId)
+      : db.prepare(`SELECT * FROM lotto_draws WHERE status = 'open' ORDER BY draw_number DESC LIMIT 1`).get();
+
+    if (!draw) {
+      draw = getOrCreateCurrentLottoDraw();
+    }
+
+    let mainNums = [];
+    let starNums = [];
+
+    if (forcedWinningNumbers && forcedWinningNumbers.main && forcedWinningNumbers.stars) {
+      mainNums = [...forcedWinningNumbers.main].sort((a, b) => a - b);
+      starNums = [...forcedWinningNumbers.stars].sort((a, b) => a - b);
+    } else {
+      const pool50 = Array.from({ length: 50 }, (_, i) => i + 1);
+      for (let i = pool50.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool50[i], pool50[j]] = [pool50[j], pool50[i]];
+      }
+      mainNums = pool50.slice(0, 5).sort((a, b) => a - b);
+
+      const pool12 = Array.from({ length: 12 }, (_, i) => i + 1);
+      for (let i = pool12.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool12[i], pool12[j]] = [pool12[j], pool12[i]];
+      }
+      starNums = pool12.slice(0, 2).sort((a, b) => a - b);
+    }
+
+    const tickets = db.prepare(`SELECT * FROM lotto_tickets WHERE draw_id = ?`).all(draw.id);
+
+    let jackpotWon = false;
+    let totalWinners = 0;
+    let totalPayout = 0;
+
+    const updateTicketStmt = db.prepare(`
+      UPDATE lotto_tickets
+      SET matches_main = ?, matches_stars = ?, prize_tier = ?, prize_amount = ?
+      WHERE id = ?
+    `);
+
+    const tx = db.transaction(() => {
+      for (const t of tickets) {
+        const tMain = JSON.parse(t.main_numbers || '[]');
+        const tStars = JSON.parse(t.star_numbers || '[]');
+
+        const matchesMain = tMain.filter(n => mainNums.includes(n)).length;
+        const matchesStars = tStars.filter(n => starNums.includes(n)).length;
+
+        let tier = 0;
+        let prize = 0;
+
+        if (matchesMain === 5 && matchesStars === 2) {
+          tier = 1;
+          prize = draw.jackpot_amount;
+          jackpotWon = true;
+        } else if (matchesMain === 5 && matchesStars === 1) {
+          tier = 2;
+          prize = 100000;
+        } else if (matchesMain === 5 && matchesStars === 0) {
+          tier = 3;
+          prize = 25000;
+        } else if (matchesMain === 4 && matchesStars === 2) {
+          tier = 4;
+          prize = 5000;
+        } else if (matchesMain === 4 && matchesStars === 1) {
+          tier = 5;
+          prize = 1000;
+        } else if (matchesMain === 3 && matchesStars === 2) {
+          tier = 6;
+          prize = 500;
+        } else if (matchesMain === 2 && matchesStars === 2) {
+          tier = 7;
+          prize = 150;
+        } else if (matchesMain === 1 && matchesStars === 2) {
+          tier = 8;
+          prize = 50;
+        }
+
+        if (tier > 0) {
+          totalWinners++;
+          totalPayout += prize;
+        }
+
+        updateTicketStmt.run(matchesMain, matchesStars, tier, prize, t.id);
+      }
+
+      const nextRollover = jackpotWon ? 0 : Math.round(draw.jackpot_amount * 0.15 + 100000);
+
+      db.prepare(`
+        UPDATE lotto_draws
+        SET winning_main = ?, winning_stars = ?, status = 'completed',
+            completed_at = datetime('now'), rollover_amount = ?
+        WHERE id = ?
+      `).run(JSON.stringify(mainNums), JSON.stringify(starNums), nextRollover, draw.id);
+
+      const nextDate = calculateNextFridayDrawDate();
+      const nextJackpot = 500000 + nextRollover;
+      db.prepare(`
+        INSERT INTO lotto_draws (id, draw_number, draw_date, jackpot_amount, rollover_amount, status)
+        VALUES (?, ?, ?, ?, ?, 'open')
+      `).run(crypto.randomUUID(), draw.draw_number + 1, nextDate, nextJackpot, nextRollover);
+    });
+
+    tx();
+
+    return {
+      drawId: draw.id,
+      drawNumber: draw.draw_number,
+      winningMain: mainNums,
+      winningStars: starNums,
+      jackpotWon,
+      totalWinners,
+      totalPayout,
+      completedAt: new Date().toISOString()
+    };
+  }

@@ -1071,3 +1071,246 @@
   box-shadow: 0 0 12px rgba(255, 215, 0, 0.2);
 }
 
+/* ── MEGA LOTTO (EUROJACKPOT PROGRESSIVE) CSS ────────────── */
+.lotto-jackpot-hero {
+  background: radial-gradient(circle at 50% 20%, rgba(245, 158, 11, 0.25) 0%, rgba(15, 23, 42, 0.95) 75%), #090d16;
+  border: 2px solid rgba(245, 158, 11, 0.5);
+  border-radius: var(--radius-md);
+  padding: 20px 16px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.25), inset 0 0 20px rgba(0, 0, 0, 0.8);
+  margin-bottom: var(--space-md);
+}
+
+.lotto-jackpot-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.08) 10%, transparent 60%);
+  animation: rotate 15s linear infinite;
+  pointer-events: none;
+}
+
+.lotto-jackpot-title {
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #fbbf24;
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.6);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.lotto-jackpot-val {
+  font-family: monospace, monospace;
+  font-size: clamp(2rem, 6vw, 2.8rem);
+  font-weight: 900;
+  color: #fff;
+  background: linear-gradient(180deg, #ffffff 30%, #fde68a 70%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 4px 20px rgba(245, 158, 11, 0.6);
+  letter-spacing: 1px;
+  line-height: 1.1;
+  margin: 6px 0;
+}
+
+.lotto-timer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  margin-top: 6px;
+}
+
+/* Lotto Ball Grid (1-50) */
+.lotto-balls-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 6px;
+  max-width: 440px;
+  margin: 0 auto;
+  user-select: none;
+}
+
+@media (max-width: 480px) {
+  .lotto-balls-grid {
+    grid-template-columns: repeat(10, 1fr);
+    gap: 4px;
+  }
+}
+
+.lotto-ball-btn {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  padding: 0;
+}
+
+.lotto-ball-btn:active {
+  transform: scale(0.9);
+}
+
+.lotto-ball-btn.selected {
+  background: radial-gradient(circle at 35% 35%, #fde68a, #f59e0b 60%, #b45309 100%);
+  border-color: #fef3c7;
+  color: #1a0f02;
+  font-weight: 900;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.8), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+  transform: scale(1.08);
+}
+
+/* Star Numbers Grid (1-12) */
+.lotto-stars-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  max-width: 320px;
+  margin: 0 auto;
+  user-select: none;
+}
+
+.lotto-star-btn {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+  font-weight: 800;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s, background 0.15s, box-shadow 0.15s;
+  padding: 0;
+}
+
+.lotto-star-btn:active {
+  transform: scale(0.9);
+}
+
+.lotto-star-btn.selected {
+  background: radial-gradient(circle at 35% 35%, #93c5fd, #3b82f6 60%, #1e40af 100%);
+  border-color: #dbeafe;
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.8), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+  transform: scale(1.1);
+}
+
+/* Visual Ball Chips */
+.lotto-ball-chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.lotto-ball-chip.main {
+  background: radial-gradient(circle at 35% 35%, #fde68a, #f59e0b 60%, #b45309 100%);
+  color: #1a0f02;
+  border: 1px solid #fef3c7;
+}
+
+.lotto-ball-chip.star {
+  background: radial-gradient(circle at 35% 35%, #93c5fd, #3b82f6 60%, #1e40af 100%);
+  color: #fff;
+  border: 1px solid #dbeafe;
+}
+
+.lotto-ball-chip.matched {
+  box-shadow: 0 0 12px #10b981, 0 0 20px #10b981;
+  outline: 2px solid #10b981;
+  animation: pulse 1.5s infinite;
+}
+
+.lotto-ball-chip.empty {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Live Draw Sphere */
+.lotto-sphere-stage {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+  background: radial-gradient(circle at 50% 30%, #1e293b 0%, #090d16 100%);
+  border-radius: 12px;
+  border: 2px solid rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.15), inset 0 0 20px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  padding: 12px;
+}
+
+.lotto-sphere-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #040711;
+}
+
+.lotto-draw-rack {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-height: 52px;
+}
+
+/* Tickets list */
+.lotto-ticket-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lotto-ticket-card.winner {
+  border-color: var(--gold);
+  background: rgba(245, 158, 11, 0.08);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+}
+
+

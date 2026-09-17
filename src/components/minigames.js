@@ -226,6 +226,13 @@ export function renderMinigamesRoller() {
       tag: t('arcade.spaceInvadersTag'),
       title: t('arcade.spaceInvadersTitle'),
       iconHtml: `<span style="font-size: 2.3rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.9)); animation: pulse 2s infinite;">👾</span>`
+    },
+    {
+      id: 'mega-lotto',
+      name: t('arcade.megaLotto'),
+      tag: t('arcade.megaLottoTag'),
+      title: t('arcade.megaLottoTitle'),
+      iconHtml: `<span style="font-size: 2.3rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.9)); animation: pulse 2s infinite;">🔮</span>`
     }
   ];
 
@@ -340,6 +347,13 @@ export function openAllArcadeGamesModal() {
       tag: t('arcade.spaceInvadersTag'),
       desc: isEn ? 'Classic 80s Space Invaders blitz! Solo, 1v1 duels or multi-player highscore' : 'Klassisk 80-tals rymdinvasion i 60s blitz! Solo, 1v1 duell eller gruppturnering',
       iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.9)); animation: pulse 2s infinite;">👾</span>`
+    },
+    {
+      id: 'mega-lotto',
+      name: t('arcade.megaLotto'),
+      tag: t('arcade.megaLottoTag'),
+      desc: isEn ? 'Progressive weekly jackpot in Eurojackpot format with syndicates' : 'Progressiv veckojackpott i Eurojackpot-format med lottolag',
+      iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.9)); animation: pulse 2s infinite;">🔮</span>`
     }
   ];
 
@@ -390,6 +404,7 @@ export function launchGameById(game) {
   else if (game === 'flashbet') openFlashBetModal();
   else if (game === 'notan-roulette') openNotanRouletteModal();
   else if (game === 'space-invaders') openSpaceInvadersModal();
+  else if (game === 'mega-lotto') openMegaLottoModal();
 }
 
 // ── 3. Event Listeners for Roller (Native Swipe + Drag + Click) ──
@@ -7612,5 +7627,1002 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     animId = requestAnimationFrame(loop);
   }
 }
+
+// ────────────────────────────────────────────────────────
+// 🔮 GAME 11: MEGA LOTTO (Progressive Eurojackpot Weekly Lotto)
+// ────────────────────────────────────────────────────────
+export function openMegaLottoModal(initialOptions = {}) {
+  const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+
+  let activeTab = initialOptions.tab || 'play'; // 'play' | 'draw' | 'syndicate' | 'tickets'
+  let currentJackpot = 500000;
+  let nextDrawDate = null;
+  let drawNumber = 1;
+  let currentDrawId = null;
+  let tickerInterval = null;
+  let sphereAnimId = null;
+
+  // Ticket builder state
+  let selectedMain = new Set(); // max 5 (1-50)
+  let selectedStars = new Set(); // max 2 (1-12)
+  let preparedLines = []; // list of { mainNumbers: [], starNumbers: [] }
+
+  // Draw simulation state
+  let isDrawing = false;
+  let drawnMain = [];
+  let drawnStars = [];
+  let sphereBalls = [];
+
+  // Sound synthesis helpers
+  function playPickSound() {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(550, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1100, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } catch (_) {}
+  }
+
+  function playStarPickSound() {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1600, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (_) {}
+  }
+
+  function playBallDrawSound() {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      playTone(523.25, 'triangle', 0.15, 0.15);
+      setTimeout(() => playTone(659.25, 'triangle', 0.18, 0.15), 70);
+      setTimeout(() => playTone(783.99, 'sine', 0.25, 0.25), 140);
+    } catch (_) {}
+  }
+
+  function playWinFanfare() {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const notes = [523.25, 659.25, 783.99, 1046.50];
+      notes.forEach((freq, idx) => {
+        setTimeout(() => playTone(freq, 'triangle', 0.2, 0.25), idx * 110);
+      });
+    } catch (_) {}
+  }
+
+  const modalTitle = `🔮 ${t('arcade.megaLottoTitle')}`;
+
+  function renderJackpotHero() {
+    return `
+      <div class="lotto-jackpot-hero">
+        <div class="lotto-jackpot-title">
+          <span>✨</span>
+          <span>${t('arcade.lottoJackpotLabel')}</span>
+          <span>✨</span>
+        </div>
+        <div class="lotto-jackpot-val" id="lotto-live-jackpot">
+          ${currentJackpot.toLocaleString()} KR
+        </div>
+        <div class="lotto-timer-badge" id="lotto-countdown-timer">
+          ⏳ ${t('arcade.lottoNextDraw')}: ${nextDrawDate ? new Date(nextDrawDate).toLocaleDateString('sv-SE', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Fredag 20:00'}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTabs() {
+    return `
+      <div class="flex gap-xs mb-md" style="justify-content: center; flex-wrap: wrap;">
+        <button type="button" class="btn ${activeTab === 'play' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="play">
+          ${t('arcade.lottoTabPlay')}
+        </button>
+        <button type="button" class="btn ${activeTab === 'draw' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="draw">
+          ${t('arcade.lottoTabDraw')}
+        </button>
+        <button type="button" class="btn ${activeTab === 'syndicate' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="syndicate">
+          ${t('arcade.lottoTabSyndicate')}
+        </button>
+        <button type="button" class="btn ${activeTab === 'tickets' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="tickets">
+          ${t('arcade.lottoTabMyTickets')}
+        </button>
+      </div>
+    `;
+  }
+
+  function renderPlayTab() {
+    return `
+      <div class="animate-in">
+        <div class="card p-md mb-md">
+          <div class="flex justify-between items-center mb-sm">
+            <span style="font-weight: 700; font-size: 0.9rem; color: #fbbf24;">
+              ${t('arcade.lottoPickMainPrompt')} <span id="lotto-main-count">(${selectedMain.size}/5)</span>
+            </span>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-lotto-huxflux" style="font-weight: 700;">
+              ${t('arcade.lottoHuxFluxBtn')}
+            </button>
+          </div>
+
+          <!-- 50 Main Balls Grid -->
+          <div class="lotto-balls-grid mb-md">
+            ${Array.from({ length: 50 }, (_, i) => i + 1).map(num => `
+              <button type="button" class="lotto-ball-btn ${selectedMain.has(num) ? 'selected' : ''}" data-main="${num}">
+                ${num}
+              </button>
+            `).join('')}
+          </div>
+
+          <div class="flex justify-between items-center mb-sm">
+            <span style="font-weight: 700; font-size: 0.9rem; color: #93c5fd;">
+              ${t('arcade.lottoPickStarPrompt')} <span id="lotto-star-count">(${selectedStars.size}/2)</span>
+            </span>
+            <button type="button" class="btn btn-text btn-sm text-muted" id="btn-lotto-clear" style="font-size: 0.8rem;">
+              ${t('arcade.lottoClearBtn')}
+            </button>
+          </div>
+
+          <!-- 12 Star Balls Grid -->
+          <div class="lotto-stars-grid mb-md">
+            ${Array.from({ length: 12 }, (_, i) => i + 1).map(num => `
+              <button type="button" class="lotto-star-btn ${selectedStars.has(num) ? 'selected' : ''}" data-star="${num}">
+                ★${num}
+              </button>
+            `).join('')}
+          </div>
+
+          <button type="button" class="btn btn-secondary btn-block" id="btn-lotto-add-line" style="font-weight: 700;">
+            ${t('arcade.lottoAddRowBtn')}
+          </button>
+        </div>
+
+        <!-- Selected Lines Basket -->
+        <div class="card p-md mb-md">
+          <h4 style="font-size: 0.95rem; margin-bottom: 8px; color: var(--gold);">
+            🎟️ ${isEn ? 'Lines Ready for Submission' : 'Rader redo för inlämning'} (${preparedLines.length})
+          </h4>
+
+          <div id="lotto-lines-container">
+            ${preparedLines.length === 0 ? `
+              <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
+                ${isEn ? 'No lines added yet. Pick 5 numbers + 2 stars or tap HuxFlux!' : 'Inga rader tillagda än. Välj 5 nummer + 2 stjärnor eller tryck HuxFlux!'}
+              </div>
+            ` : preparedLines.map((line, idx) => `
+              <div class="flex justify-between items-center p-sm mb-xs" style="background: rgba(255,255,255,0.04); border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                <div class="flex items-center gap-xs flex-wrap">
+                  <span style="font-weight: 700; font-size: 0.8rem; margin-right: 4px; color: var(--gold);">Rad ${idx + 1}:</span>
+                  ${line.mainNumbers.map(n => `<span class="lotto-ball-chip main" style="width:26px; height:26px; font-size:0.75rem;">${n}</span>`).join('')}
+                  <span style="margin: 0 4px; color: rgba(255,255,255,0.3);">|</span>
+                  ${line.starNumbers.map(n => `<span class="lotto-ball-chip star" style="width:26px; height:26px; font-size:0.75rem;">★${n}</span>`).join('')}
+                </div>
+                <button type="button" class="btn btn-text text-danger btn-sm lotto-remove-line" data-index="${idx}">✕</button>
+              </div>
+            `).join('')}
+          </div>
+
+          <button type="button" class="btn btn-primary btn-block mt-md" id="btn-lotto-submit-tickets" style="font-weight: 800; padding: 14px;" ${preparedLines.length === 0 ? 'disabled' : ''}>
+            ${t('arcade.lottoSubmitBtn')} (${preparedLines.length} ${isEn ? 'lines' : 'rader'} · ${preparedLines.length * 25} kr)
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDrawTab() {
+    return `
+      <div class="animate-in text-center">
+        <div class="lotto-sphere-stage">
+          <canvas id="lotto-canvas" class="lotto-sphere-canvas" width="340" height="280"></canvas>
+          <div class="lotto-draw-rack" id="lotto-draw-rack">
+            ${drawnMain.map(n => `<span class="lotto-ball-chip main animate-pop">${n}</span>`).join('')}
+            ${drawnMain.length > 0 && drawnStars.length > 0 ? '<span style="color: rgba(255,255,255,0.3); margin: 0 4px;">|</span>' : ''}
+            ${drawnStars.map(n => `<span class="lotto-ball-chip star animate-pop">★${n}</span>`).join('')}
+            ${drawnMain.length === 0 && drawnStars.length === 0 ? `<span class="text-muted" style="font-size: 0.8rem;">${isEn ? 'Drawn balls will drop here...' : 'Dragna bollar trillar ner här...'}</span>` : ''}
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block mt-md" id="btn-lotto-start-draw" style="font-weight: 800; font-size: 1.1rem; padding: 14px;" ${isDrawing ? 'disabled' : ''}>
+          ${isDrawing ? (isEn ? 'Drawing in progress...' : 'Dragning pågår...') : t('arcade.lottoDrawLiveBtn')}
+        </button>
+
+        <div id="lotto-draw-outcome-container" class="mt-md"></div>
+      </div>
+    `;
+  }
+
+  function renderSyndicateTab() {
+    return `
+      <div class="animate-in">
+        <div class="card p-md mb-md">
+          <h4 style="color: var(--gold);">${t('arcade.lottoSyndicateTitle')}</h4>
+          <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 12px;">
+            ${t('arcade.lottoSyndicateDesc')}
+          </p>
+
+          <div class="flex gap-sm mb-md">
+            <input type="text" id="lotto-syndicate-name" class="form-input" placeholder="${isEn ? 'Syndicate Name (e.g. The Millions Club)' : 'Lottolagets namn (t.ex. Fredagsklubben)'}" style="flex: 1;" />
+            <button type="button" class="btn btn-primary" id="btn-lotto-create-syndicate" style="font-weight: 700;">
+              ${t('arcade.lottoSyndicateCreateBtn')}
+            </button>
+          </div>
+
+          <div class="flex gap-sm">
+            <input type="text" id="lotto-syndicate-join-code" class="form-input" placeholder="${isEn ? 'Enter 4-letter code (e.g. KRWW)' : 'Ange 4-siffrig lagkod (t.ex. KRWW)'}" style="flex: 1; text-transform: uppercase; font-family: monospace;" maxlength="4" />
+            <button type="button" class="btn btn-secondary" id="btn-lotto-join-syndicate" style="font-weight: 700;">
+              ${t('arcade.lottoSyndicateJoinBtn')}
+            </button>
+          </div>
+        </div>
+
+        <div id="lotto-active-syndicate-info"></div>
+      </div>
+    `;
+  }
+
+  function renderTicketsTab() {
+    return `
+      <div class="animate-in">
+        <div class="card p-md mb-md">
+          <h4 style="color: var(--gold); margin-bottom: 8px;">
+            📜 ${t('arcade.lottoTabMyTickets')}
+          </h4>
+          <div id="lotto-my-tickets-list">
+            <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
+              ${isEn ? 'Loading tickets...' : 'Hämtar rader...'}
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-md">
+          <h4 style="color: var(--gold); margin-bottom: 8px;">
+            🏆 ${isEn ? 'Recent Draw History' : 'Tidigare Dragningar'}
+          </h4>
+          <div id="lotto-draw-history-list">
+            <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
+              ${isEn ? 'Loading history...' : 'Hämtar historik...'}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderContent() {
+    return `
+      <div class="mega-lotto-modal">
+        ${renderJackpotHero()}
+        ${renderTabs()}
+        <div id="lotto-stage-content">
+          ${activeTab === 'play' ? renderPlayTab() :
+            activeTab === 'draw' ? renderDrawTab() :
+            activeTab === 'syndicate' ? renderSyndicateTab() : renderTicketsTab()}
+        </div>
+      </div>
+    `;
+  }
+
+  const { close, root } = showModal(modalTitle, renderContent(), () => {
+    if (tickerInterval) clearInterval(tickerInterval);
+    if (sphereAnimId) cancelAnimationFrame(sphereAnimId);
+  });
+
+  // Fetch current lotto draw info from backend
+  async function loadLottoInfo() {
+    try {
+      const res = await fetch('/api/lotto/current');
+      const data = await res.json();
+      if (data?.currentDraw) {
+        currentJackpot = data.currentDraw.jackpot_amount;
+        nextDrawDate = data.currentDraw.draw_date;
+        drawNumber = data.currentDraw.draw_number;
+        currentDrawId = data.currentDraw.id;
+
+        const jackpotEl = root.querySelector('#lotto-live-jackpot');
+        if (jackpotEl) jackpotEl.textContent = `${currentJackpot.toLocaleString()} KR`;
+
+        const timerEl = root.querySelector('#lotto-countdown-timer');
+        if (timerEl && nextDrawDate) {
+          timerEl.innerHTML = `⏳ ${t('arcade.lottoNextDraw')}: ${new Date(nextDrawDate).toLocaleDateString('sv-SE', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+        }
+      }
+    } catch (_) {}
+  }
+
+  loadLottoInfo();
+
+  // Progressive Live Ticker: smoothly increment pot slightly every 2 seconds
+  tickerInterval = setInterval(() => {
+    currentJackpot += Math.floor(Math.random() * 8) + 2;
+    const jackpotEl = root.querySelector('#lotto-live-jackpot');
+    if (jackpotEl) {
+      jackpotEl.textContent = `${currentJackpot.toLocaleString()} KR`;
+    }
+  }, 2000);
+
+  // Tab switching
+  function attachTabEvents() {
+    root.querySelectorAll('.lotto-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeTab = btn.dataset.tab;
+        root.querySelectorAll('.lotto-tab-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+
+        if (sphereAnimId) {
+          cancelAnimationFrame(sphereAnimId);
+          sphereAnimId = null;
+        }
+
+        const stage = root.querySelector('#lotto-stage-content');
+        if (stage) {
+          if (activeTab === 'play') stage.innerHTML = renderPlayTab();
+          else if (activeTab === 'draw') stage.innerHTML = renderDrawTab();
+          else if (activeTab === 'syndicate') stage.innerHTML = renderSyndicateTab();
+          else if (activeTab === 'tickets') stage.innerHTML = renderTicketsTab();
+
+          attachStageEvents();
+        }
+      });
+    });
+  }
+
+  attachTabEvents();
+
+  // Attach stage specific events
+  function attachStageEvents() {
+    if (activeTab === 'play') {
+      attachPlayEvents();
+    } else if (activeTab === 'draw') {
+      attachDrawEvents();
+    } else if (activeTab === 'syndicate') {
+      attachSyndicateEvents();
+    } else if (activeTab === 'tickets') {
+      attachTicketsEvents();
+    }
+  }
+
+  // ── 1. PLAY STAGE EVENTS ─────────────────────────────────
+  function attachPlayEvents() {
+    const mainCountEl = root.querySelector('#lotto-main-count');
+    const starCountEl = root.querySelector('#lotto-star-count');
+
+    // Main ball clicks
+    root.querySelectorAll('.lotto-ball-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const num = parseInt(btn.dataset.main, 10);
+        if (selectedMain.has(num)) {
+          selectedMain.delete(num);
+          btn.classList.remove('selected');
+        } else {
+          if (selectedMain.size >= 5) {
+            showToast(isEn ? 'Max 5 main numbers' : 'Max 5 huvudnummer valda', 'info');
+            return;
+          }
+          selectedMain.add(num);
+          btn.classList.add('selected');
+          playPickSound();
+        }
+        if (mainCountEl) mainCountEl.textContent = `(${selectedMain.size}/5)`;
+      });
+    });
+
+    // Star ball clicks
+    root.querySelectorAll('.lotto-star-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const num = parseInt(btn.dataset.star, 10);
+        if (selectedStars.has(num)) {
+          selectedStars.delete(num);
+          btn.classList.remove('selected');
+        } else {
+          if (selectedStars.size >= 2) {
+            showToast(isEn ? 'Max 2 star numbers' : 'Max 2 stjärnnummer valda', 'info');
+            return;
+          }
+          selectedStars.add(num);
+          btn.classList.add('selected');
+          playStarPickSound();
+        }
+        if (starCountEl) starCountEl.textContent = `(${selectedStars.size}/2)`;
+      });
+    });
+
+    // HuxFlux (Random Quick Pick)
+    root.querySelector('#btn-lotto-huxflux')?.addEventListener('click', () => {
+      selectedMain.clear();
+      selectedStars.clear();
+
+      const pool50 = Array.from({ length: 50 }, (_, i) => i + 1);
+      for (let i = pool50.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool50[i], pool50[j]] = [pool50[j], pool50[i]];
+      }
+      pool50.slice(0, 5).forEach(n => selectedMain.add(n));
+
+      const pool12 = Array.from({ length: 12 }, (_, i) => i + 1);
+      for (let i = pool12.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool12[i], pool12[j]] = [pool12[j], pool12[i]];
+      }
+      pool12.slice(0, 2).forEach(n => selectedStars.add(n));
+
+      // Refresh button classes
+      root.querySelectorAll('.lotto-ball-btn').forEach(b => {
+        b.classList.toggle('selected', selectedMain.has(parseInt(b.dataset.main, 10)));
+      });
+      root.querySelectorAll('.lotto-star-btn').forEach(b => {
+        b.classList.toggle('selected', selectedStars.has(parseInt(b.dataset.star, 10)));
+      });
+
+      if (mainCountEl) mainCountEl.textContent = `(${selectedMain.size}/5)`;
+      if (starCountEl) starCountEl.textContent = `(${selectedStars.size}/2)`;
+      playPickSound();
+    });
+
+    // Clear
+    root.querySelector('#btn-lotto-clear')?.addEventListener('click', () => {
+      selectedMain.clear();
+      selectedStars.clear();
+      root.querySelectorAll('.lotto-ball-btn').forEach(b => b.classList.remove('selected'));
+      root.querySelectorAll('.lotto-star-btn').forEach(b => b.classList.remove('selected'));
+      if (mainCountEl) mainCountEl.textContent = `(0/5)`;
+      if (starCountEl) starCountEl.textContent = `(0/2)`;
+    });
+
+    // Add line
+    root.querySelector('#btn-lotto-add-line')?.addEventListener('click', () => {
+      if (selectedMain.size !== 5 || selectedStars.size !== 2) {
+        showToast(isEn ? 'Please select 5 main numbers and 2 stars!' : 'Välj 5 huvudnummer och 2 stjärnnummer!', 'warning');
+        return;
+      }
+
+      preparedLines.push({
+        mainNumbers: Array.from(selectedMain).sort((a, b) => a - b),
+        starNumbers: Array.from(selectedStars).sort((a, b) => a - b)
+      });
+
+      selectedMain.clear();
+      selectedStars.clear();
+      root.querySelectorAll('.lotto-ball-btn').forEach(b => b.classList.remove('selected'));
+      root.querySelectorAll('.lotto-star-btn').forEach(b => b.classList.remove('selected'));
+      if (mainCountEl) mainCountEl.textContent = `(0/5)`;
+      if (starCountEl) starCountEl.textContent = `(0/2)`;
+
+      renderPreparedLinesList();
+      playPickSound();
+    });
+
+    // Submit tickets
+    root.querySelector('#btn-lotto-submit-tickets')?.addEventListener('click', async () => {
+      if (preparedLines.length === 0) return;
+      const submitBtn = root.querySelector('#btn-lotto-submit-tickets');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = isEn ? 'Submitting tickets...' : 'Lämnar in rader...';
+      }
+
+      try {
+        const res = await fetch('/api/lotto/tickets', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUser?.token || ''}`
+          },
+          body: JSON.stringify({ tickets: preparedLines })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Kunde inte lämna in rader');
+
+        playWinFanfare();
+        launchConfetti();
+        showToast(isEn ? `🎉 Successfully submitted ${preparedLines.length} lines!` : `🎉 ${preparedLines.length} rader inlämnade! Lycka till!`, 'success');
+
+        preparedLines = [];
+        loadLottoInfo();
+
+        // Switch to tickets tab
+        const ticketsTabBtn = root.querySelector('[data-tab="tickets"]');
+        if (ticketsTabBtn) ticketsTabBtn.click();
+
+      } catch (err) {
+        showToast(err.message, 'error');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = `${t('arcade.lottoSubmitBtn')} (${preparedLines.length} rader)`;
+        }
+      }
+    });
+
+    renderPreparedLinesList();
+  }
+
+  function renderPreparedLinesList() {
+    const container = root.querySelector('#lotto-lines-container');
+    const submitBtn = root.querySelector('#btn-lotto-submit-tickets');
+    if (!container) return;
+
+    if (preparedLines.length === 0) {
+      container.innerHTML = `
+        <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
+          ${isEn ? 'No lines added yet. Pick 5 numbers + 2 stars or tap HuxFlux!' : 'Inga rader tillagda än. Välj 5 nummer + 2 stjärnor eller tryck HuxFlux!'}
+        </div>
+      `;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = t('arcade.lottoSubmitBtn');
+      }
+    } else {
+      container.innerHTML = preparedLines.map((line, idx) => `
+        <div class="flex justify-between items-center p-sm mb-xs" style="background: rgba(255,255,255,0.04); border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
+          <div class="flex items-center gap-xs flex-wrap">
+            <span style="font-weight: 700; font-size: 0.8rem; margin-right: 4px; color: var(--gold);">Rad ${idx + 1}:</span>
+            ${line.mainNumbers.map(n => `<span class="lotto-ball-chip main" style="width:26px; height:26px; font-size:0.75rem;">${n}</span>`).join('')}
+            <span style="margin: 0 4px; color: rgba(255,255,255,0.3);">|</span>
+            ${line.starNumbers.map(n => `<span class="lotto-ball-chip star" style="width:26px; height:26px; font-size:0.75rem;">★${n}</span>`).join('')}
+          </div>
+          <button type="button" class="btn btn-text text-danger btn-sm lotto-remove-line" data-index="${idx}">✕</button>
+        </div>
+      `).join('');
+
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = `${t('arcade.lottoSubmitBtn')} (${preparedLines.length} ${isEn ? 'lines' : 'rader'} · ${preparedLines.length * 25} kr)`;
+      }
+
+      container.querySelectorAll('.lotto-remove-line').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.index, 10);
+          preparedLines.splice(idx, 1);
+          renderPreparedLinesList();
+        });
+      });
+    }
+  }
+
+  // ── 2. LIVE DRAW STAGE EVENTS ────────────────────────────
+  function attachDrawEvents() {
+    const canvas = root.querySelector('#lotto-canvas');
+    if (canvas) {
+      initSphereCanvas(canvas);
+    }
+
+    const startBtn = root.querySelector('#btn-lotto-start-draw');
+    startBtn?.addEventListener('click', () => {
+      runDrawSequence();
+    });
+  }
+
+  function initSphereCanvas(canvas) {
+    const ctx = canvas.getContext('2d');
+    const width = 340;
+    const height = 280;
+    canvas.width = width;
+    canvas.height = height;
+
+    const cx = width / 2;
+    const cy = 135;
+    const radius = 100;
+
+    if (sphereBalls.length === 0) {
+      const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ec4899', '#8b5cf6', '#06b6d4'];
+      for (let i = 1; i <= 50; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * (radius - 18);
+        sphereBalls.push({
+          num: i,
+          x: cx + Math.cos(angle) * dist,
+          y: cy + Math.sin(angle) * dist,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          r: 9,
+          color: colors[i % colors.length]
+        });
+      }
+    }
+
+    function animateSphere() {
+      ctx.clearRect(0, 0, width, height);
+
+      // Glass sphere glow
+      const glassGrad = ctx.createRadialGradient(cx - 30, cy - 30, 10, cx, cy, radius);
+      glassGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+      glassGrad.addColorStop(0.7, 'rgba(15, 23, 42, 0.7)');
+      glassGrad.addColorStop(1, 'rgba(245, 158, 11, 0.3)');
+
+      ctx.fillStyle = glassGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#f59e0b';
+      ctx.stroke();
+
+      // Top Highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.ellipse(cx - 35, cy - 40, 26, 14, -Math.PI / 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Update balls
+      const speedMult = isDrawing ? 2.6 : 1.0;
+      for (const b of sphereBalls) {
+        const dx = b.x - cx;
+        const dy = b.y - cy;
+        const dist = Math.hypot(dx, dy);
+
+        // Vortex force
+        b.vx += (-dy / (dist || 1)) * 0.18 * speedMult;
+        b.vy += (dx / (dist || 1)) * 0.18 * speedMult;
+
+        b.vy += 0.08;
+        b.vx += (Math.random() - 0.5) * 0.5 * speedMult;
+        b.vy += (Math.random() - 0.5) * 0.5 * speedMult;
+
+        b.vx *= 0.985;
+        b.vy *= 0.985;
+
+        b.x += b.vx;
+        b.y += b.vy;
+
+        const newDist = Math.hypot(b.x - cx, b.y - cy);
+        if (newDist > radius - b.r) {
+          const nx = (b.x - cx) / newDist;
+          const ny = (b.y - cy) / newDist;
+          const dot = b.vx * nx + b.vy * ny;
+          b.vx = (b.vx - 2 * dot * nx) * 0.85;
+          b.vy = (b.vy - 2 * dot * ny) * 0.85;
+          b.x = cx + nx * (radius - b.r);
+          b.y = cy + ny * (radius - b.r);
+        }
+
+        const ballGrad = ctx.createRadialGradient(b.x - 3, b.y - 3, 1, b.x, b.y, b.r);
+        ballGrad.addColorStop(0, '#ffffff');
+        ballGrad.addColorStop(0.4, b.color);
+        ballGrad.addColorStop(1, '#0f172a');
+
+        ctx.fillStyle = ballGrad;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 7px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.num, b.x, b.y + 0.5);
+      }
+
+      // Tube
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.4)';
+      ctx.fillRect(cx - 16, cy - radius - 18, 32, 22);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cx - 16, cy - radius - 18, 32, 22);
+
+      sphereAnimId = requestAnimationFrame(animateSphere);
+    }
+
+    animateSphere();
+  }
+
+  function updateDrawRack() {
+    const rack = root.querySelector('#lotto-draw-rack');
+    if (!rack) return;
+
+    if (drawnMain.length === 0 && drawnStars.length === 0) {
+      rack.innerHTML = `<span class="text-muted" style="font-size: 0.8rem;">${isEn ? 'Drawn balls will drop here...' : 'Dragna bollar trillar ner här...'}</span>`;
+      return;
+    }
+
+    rack.innerHTML = `
+      ${drawnMain.map(n => `<span class="lotto-ball-chip main animate-pop" style="width:36px; height:36px; font-size:0.95rem;">${n}</span>`).join('')}
+      ${drawnMain.length > 0 && drawnStars.length > 0 ? '<span style="color: rgba(255,255,255,0.4); font-size:1.2rem; margin: 0 4px;">|</span>' : ''}
+      ${drawnStars.map(n => `<span class="lotto-ball-chip star animate-pop" style="width:36px; height:36px; font-size:0.95rem;">★${n}</span>`).join('')}
+    `;
+  }
+
+  async function runDrawSequence() {
+    if (isDrawing) return;
+    isDrawing = true;
+    drawnMain = [];
+    drawnStars = [];
+    updateDrawRack();
+
+    const triggerBtn = root.querySelector('#btn-lotto-start-draw');
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = isEn ? 'Drawing in progress...' : 'Dragning pågår...';
+    }
+
+    const outcomeContainer = root.querySelector('#lotto-draw-outcome-container');
+    if (outcomeContainer) outcomeContainer.innerHTML = '';
+
+    try {
+      const res = await fetch('/api/lotto/draw/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      const winningMain = data?.result?.winningMain || [7, 14, 21, 35, 42];
+      const winningStars = data?.result?.winningStars || [3, 9];
+
+      for (let i = 0; i < winningMain.length; i++) {
+        await new Promise(r => setTimeout(r, 1400));
+        drawnMain.push(winningMain[i]);
+        playBallDrawSound();
+        updateDrawRack();
+      }
+
+      for (let i = 0; i < winningStars.length; i++) {
+        await new Promise(r => setTimeout(r, 1600));
+        drawnStars.push(winningStars[i]);
+        playStarPickSound();
+        updateDrawRack();
+      }
+
+      await new Promise(r => setTimeout(r, 600));
+      isDrawing = false;
+      playWinFanfare();
+      launchConfetti();
+
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = isEn ? '🔄 Run Another Draw' : '🔄 Kör Ny Dragning';
+      }
+
+      renderDrawOutcome(data.result);
+      loadLottoInfo();
+
+    } catch (err) {
+      isDrawing = false;
+      showToast(err.message, 'error');
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = t('arcade.lottoDrawLiveBtn');
+      }
+    }
+  }
+
+  function renderDrawOutcome(result) {
+    const container = root.querySelector('#lotto-draw-outcome-container');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="card p-md animate-in" style="background: rgba(245, 158, 11, 0.08); border-color: var(--gold);">
+        <h4 style="color: var(--gold); margin-bottom: 6px;">
+          ${result.jackpotWon ? t('arcade.lottoJackpotWonAlert') : t('arcade.lottoRolloverAlert')}
+        </h4>
+        <div style="font-size: 0.85rem; color: #e2e8f0; margin-bottom: 8px;">
+          ${isEn ? `Draw #${result.drawNumber} officially completed.` : `Dragning #${result.drawNumber} officiellt avslutad.`}
+        </div>
+        <div class="flex gap-xs justify-center items-center flex-wrap" style="margin: 10px 0;">
+          ${result.winningMain.map(n => `<span class="lotto-ball-chip main">${n}</span>`).join('')}
+          <span style="color: rgba(255,255,255,0.4); margin: 0 4px;">|</span>
+          ${result.winningStars.map(n => `<span class="lotto-ball-chip star">★${n}</span>`).join('')}
+        </div>
+        <div style="font-size: 0.85rem; color: var(--gold); font-weight: 700; margin-top: 6px;">
+          ${isEn ? `Total winners: ${result.totalWinners} · Total payout: ${result.totalPayout.toLocaleString()} kr` : `Totalt ${result.totalWinners} vinnare · Utbetalat: ${result.totalPayout.toLocaleString()} kr`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── 3. SYNDICATE STAGE EVENTS ────────────────────────────
+  function attachSyndicateEvents() {
+    root.querySelector('#btn-lotto-create-syndicate')?.addEventListener('click', async () => {
+      const nameInput = root.querySelector('#lotto-syndicate-name');
+      const name = nameInput ? nameInput.value.trim() : '';
+      if (!name) {
+        showToast(isEn ? 'Please enter a syndicate name' : 'Ange ett lottolagsnamn', 'warning');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/lotto/syndicate/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUser?.token || ''}`
+          },
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        playWinFanfare();
+        launchConfetti();
+        showToast(isEn ? 'Syndicate created!' : 'Lottolag skapat!', 'success');
+        renderSyndicateCard(data.syndicate);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    root.querySelector('#btn-lotto-join-syndicate')?.addEventListener('click', async () => {
+      const codeInput = root.querySelector('#lotto-syndicate-join-code');
+      const code = codeInput ? codeInput.value.trim() : '';
+      if (!code) {
+        showToast(isEn ? 'Please enter 4-letter code' : 'Ange 4-siffrig kod', 'warning');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/lotto/syndicate/join', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUser?.token || ''}`
+          },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        playPickSound();
+        showToast(isEn ? 'Joined syndicate!' : 'Gick med i lottolaget!', 'success');
+        renderSyndicateCard(data.syndicate);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  function renderSyndicateCard(synd) {
+    const container = root.querySelector('#lotto-active-syndicate-info');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="card p-md animate-in" style="border-color: var(--gold); background: rgba(245, 158, 11, 0.06);">
+        <div class="flex justify-between items-center mb-sm">
+          <h4 style="color: var(--gold); font-size: 1.1rem; font-family: var(--font-heading);">
+            🤝 ${escapeHtml(synd.name)}
+          </h4>
+          <span class="badge badge-accent" style="font-family: monospace; font-size: 0.9rem; letter-spacing: 1px;">
+            ${synd.code}
+          </span>
+        </div>
+
+        <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 12px;">
+          ${isEn ? 'Invite friends with code' : 'Bjud in vänner med koden'} <strong>${synd.code}</strong>. ${isEn ? 'All prize money is split equally!' : 'Alla vinster delas lika via Swish!'}
+        </p>
+
+        <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 6px; color: #fff;">
+          👥 ${isEn ? 'Team Members' : 'Medlemmar'} (${synd.members.length}):
+        </div>
+        <div class="flex gap-xs flex-wrap mb-md">
+          ${synd.members.map(m => `
+            <span class="badge badge-secondary" style="padding: 4px 10px;">
+              ${escapeHtml(m.nickname)} ${m.role === 'leader' ? '👑' : ''}
+            </span>
+          `).join('')}
+        </div>
+
+        <button type="button" class="btn btn-secondary btn-block btn-sm" id="btn-copy-syndicate-code">
+          📋 ${isEn ? 'Copy Invitation Code' : 'Kopiera inbjudningskod'}
+        </button>
+      </div>
+    `;
+
+    container.querySelector('#btn-copy-syndicate-code')?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(synd.code);
+      showToast(isEn ? 'Code copied to clipboard!' : 'Lagkod kopierad!', 'success');
+    });
+  }
+
+  // ── 4. TICKETS STAGE EVENTS ──────────────────────────────
+  async function attachTicketsEvents() {
+    const listEl = root.querySelector('#lotto-my-tickets-list');
+    const histEl = root.querySelector('#lotto-draw-history-list');
+
+    try {
+      const [ticketsRes, histRes] = await Promise.all([
+        fetch('/api/lotto/my-tickets', {
+          headers: { 'Authorization': `Bearer ${currentUser?.token || ''}` }
+        }),
+        fetch('/api/lotto/history')
+      ]);
+
+      const ticketsData = await ticketsRes.json();
+      const histData = await histRes.json();
+
+      if (listEl) {
+        if (!ticketsData?.tickets || ticketsData.tickets.length === 0) {
+          listEl.innerHTML = `
+            <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
+              ${isEn ? 'You have no tickets yet. Go to "Play Ticket" to pick your numbers!' : 'Du har inga inlämnade rader än. Gå till "Spela rad" och välj dina nummer!'}
+            </div>
+          `;
+        } else {
+          listEl.innerHTML = ticketsData.tickets.map(t => {
+            const isWin = t.prize_tier > 0;
+            return `
+              <div class="lotto-ticket-card ${isWin ? 'winner' : ''}">
+                <div class="flex justify-between items-center">
+                  <span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
+                    ${new Date(t.created_at).toLocaleDateString('sv-SE')} · ${t.syndicate_name ? `🤝 ${escapeHtml(t.syndicate_name)}` : (isEn ? 'Solo Line' : 'Enskild rad')}
+                  </span>
+                  <span class="badge ${t.draw_status === 'completed' ? (isWin ? 'badge-success' : 'badge-secondary') : 'badge-accent'}" style="font-size: 0.7rem;">
+                    ${t.draw_status === 'completed' ? (isWin ? `🏆 ${t.prize_amount.toLocaleString()} kr` : (isEn ? 'No win' : 'Ingen vinst')) : (isEn ? 'Active' : 'Aktiv')}
+                  </span>
+                </div>
+
+                <div class="flex gap-xs items-center flex-wrap">
+                  ${t.main_numbers.map(n => {
+                    const matched = t.winning_main && t.winning_main.includes(n);
+                    return `<span class="lotto-ball-chip main ${matched ? 'matched' : ''}" style="width:28px; height:28px; font-size:0.8rem;">${n}</span>`;
+                  }).join('')}
+                  <span style="color: rgba(255,255,255,0.4); margin: 0 2px;">|</span>
+                  ${t.star_numbers.map(n => {
+                    const matched = t.winning_stars && t.winning_stars.includes(n);
+                    return `<span class="lotto-ball-chip star ${matched ? 'matched' : ''}" style="width:28px; height:28px; font-size:0.8rem;">★${n}</span>`;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      if (histEl) {
+        if (!histData?.history || histData.history.length === 0) {
+          histEl.innerHTML = `
+            <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
+              ${isEn ? 'No completed draws yet. Run a live draw!' : 'Inga avslutade dragningar än. Kör en live-dragning!'}
+            </div>
+          `;
+        } else {
+          histEl.innerHTML = histData.history.map(d => `
+            <div class="p-sm mb-xs" style="background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+              <div class="flex justify-between items-center mb-xs">
+                <span style="font-weight: 700; font-size: 0.85rem; color: var(--gold);">
+                  Dragning #${d.draw_number}
+                </span>
+                <span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
+                  ${new Date(d.completed_at || d.draw_date).toLocaleDateString('sv-SE')}
+                </span>
+              </div>
+              <div class="flex gap-xs items-center flex-wrap">
+                ${d.winning_main.map(n => `<span class="lotto-ball-chip main" style="width:24px; height:24px; font-size:0.7rem;">${n}</span>`).join('')}
+                <span style="color: rgba(255,255,255,0.4); margin: 0 2px;">|</span>
+                ${d.winning_stars.map(n => `<span class="lotto-ball-chip star" style="width:24px; height:24px; font-size:0.7rem;">★${n}</span>`).join('')}
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+
+    } catch (_) {}
+  }
+
+  // Initial stage binding
+  attachStageEvents();
+}
+
 
 
