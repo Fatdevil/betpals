@@ -51,14 +51,13 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
 
   const showBusyConfirmDialog = () => {
     const isEn = getLang() === 'en';
-    const contentBox = root.querySelector('.modal-content');
-    if (!contentBox) {
+    if (!root) {
       forceClose();
       return;
     }
 
     // Don't duplicate if already open
-    if (contentBox.querySelector('#modal-busy-confirm-overlay')) return;
+    if (root.querySelector('#modal-busy-confirm-overlay')) return;
 
     const titleText = customConfirmTexts?.title || (isEn ? 'Leave ongoing game?' : 'Avbryta pågående spel?');
     const msgText = customConfirmTexts?.message || (isEn 
@@ -90,14 +89,22 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
       </div>
     `;
 
-    contentBox.appendChild(overlay);
+    root.appendChild(overlay);
 
-    overlay.querySelector('#btn-modal-cancel-exit')?.addEventListener('click', () => {
+    overlay.querySelector('#btn-modal-cancel-exit')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       overlay.remove();
     });
 
-    overlay.querySelector('#btn-modal-confirm-exit')?.addEventListener('click', () => {
+    overlay.querySelector('#btn-modal-confirm-exit')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       forceClose();
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
     });
   };
 
@@ -111,6 +118,11 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
 
   const handleKeydown = (e) => {
     if (e.key === 'Escape') {
+      const confirmOverlay = root.querySelector('#modal-busy-confirm-overlay');
+      if (confirmOverlay) {
+        confirmOverlay.remove();
+        return;
+      }
       attemptClose();
     }
   };

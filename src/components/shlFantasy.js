@@ -954,7 +954,17 @@ export async function openShlFantasyModal(options = {}) {
   const { close, root, setBusy } = showModal(modalTitle, renderContent());
 
   // Prevent accidental close during active fantasy draft/round
-  setBusy(() => getTotalSelectedCount() > 0 || roundSimulated);
+  setBusy(
+    () => getTotalSelectedCount() > 0 || roundSimulated,
+    {
+      title: isEn ? 'Leave SHL Fantasy? 🏒' : 'Lämna SHL Fantasy? 🏒',
+      message: isEn
+        ? 'You have an active lineup or round in progress. If you close now, your selected players will not be saved!'
+        : 'Du har påbörjat en laguppställning eller matchomgång. Om du stänger nu sparas inte dina valda spelare!',
+      stay: isEn ? 'Keep Building 🏒' : 'Fortsätt bygga lag 🏒',
+      leave: isEn ? 'Yes, Close' : 'Ja, stäng och nollställ ❌'
+    }
+  );
 
   function refresh() {
     const body = root.querySelector("#shl-tab-body");
@@ -967,6 +977,12 @@ export async function openShlFantasyModal(options = {}) {
   }
 
   function attachTabListeners() {
+    // Re-bind modal close button and backdrop click
+    root.querySelector("#modal-close-btn")?.addEventListener("click", close);
+    root.querySelector("#modal-overlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "modal-overlay") close();
+    });
+
     // Round selector
     const roundSelect = root.querySelector("#shl-round-select");
     roundSelect?.addEventListener("change", () => {
@@ -1425,19 +1441,24 @@ export async function openShlFantasyModal(options = {}) {
   }
 
   function refreshAll() {
-    root.innerHTML = `
-      <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-content" style="position: relative;">
-          <div class="modal-header">
-            <h3 class="modal-title">${modalTitle}</h3>
-            <button class="modal-close" id="modal-close-btn">&times;</button>
-          </div>
-          <div class="modal-body">
-            ${renderContent()}
+    const modalBody = root.querySelector('.modal-body');
+    if (modalBody) {
+      modalBody.innerHTML = renderContent();
+    } else {
+      root.innerHTML = `
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal-content" style="position: relative;">
+            <div class="modal-header">
+              <h3 class="modal-title">${modalTitle}</h3>
+              <button class="modal-close" id="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+              ${renderContent()}
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    }
     attachTabListeners();
   }
 
