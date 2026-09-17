@@ -2083,7 +2083,8 @@ app.post('/api/duels', (req, res) => {
     const gameTitles = {
       dice: 'Tärningsduell 🎲',
       coin: 'Slantduell 🪙',
-      stopwatch: 'Reaktionsduell ⏱️'
+      stopwatch: 'Reaktionsduell ⏱️',
+      space_invaders: 'Space Blitz 👾'
     };
     const gameName = gameTitles[gameType] || 'Duell ⚔️';
     const creatorName = user.nickname || user.real_name || 'En vän';
@@ -2278,6 +2279,13 @@ app.post('/api/duels/settle-with/:friendId', (req, res) => {
     friendId: user.id
   });
 
+  const settlerName = user.nickname || user.real_name || 'En vän';
+  sendPushToUsers([friendId], {
+    title: '🤝 Swish-skulder kvitterade!',
+    body: `${settlerName} har kvitterat era gemensamma dueller i Swishlistan!`,
+    url: '/#arcade'
+  }, 'duels').catch(() => {});
+
   res.json({ ok: true });
 });
 
@@ -2376,7 +2384,7 @@ app.post('/api/minigames/party/:id/invite', (req, res) => {
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
 
   const { friendIds } = req.body;
-  if (Array.isArray(friendIds)) {
+  if (Array.isArray(friendIds) && friendIds.length > 0) {
     for (const fId of friendIds) {
       broadcastToUser(fId, {
         type: 'party_invitation',
@@ -2389,6 +2397,20 @@ app.post('/api/minigames/party/:id/invite', (req, res) => {
         }
       });
     }
+
+    const hostName = user.nickname || user.real_name || 'En polare';
+    const gameTitles = {
+      space_invaders: 'Space Blitz 👾',
+      blind10: 'Blind 10 ⏱️'
+    };
+    const gameName = gameTitles[room.gameType] || 'Party 🎮';
+    const stakeText = room.stakeAmount > 0 ? `(${room.stakeAmount} kr insats)` : '(Ära)';
+
+    sendPushToUsers(friendIds, {
+      title: `🎉 Inbjudan till ${gameName}!`,
+      body: `${hostName} bjuder in dig till rum #${room.code} ${stakeText}. Klicka för att joina!`,
+      url: '/#arcade'
+    }, 'duels').catch(() => {});
   }
 
   res.json({ ok: true });
@@ -2746,6 +2768,23 @@ app.post('/api/lotto/create', (req, res) => {
       drawTime: lotto.draw_time
     });
 
+    // Send Web Push to friends about the new Malta Jackpot
+    let notifyUserIds = [];
+    if (Array.isArray(targetUserIds) && targetUserIds.length > 0) {
+      notifyUserIds = targetUserIds.filter(id => id !== user.id);
+    } else {
+      const friends = db.getFriends(user.id);
+      notifyUserIds = friends.map(f => f.id);
+    }
+
+    if (notifyUserIds.length > 0) {
+      sendPushToUsers(notifyUserIds, {
+        title: `🎰 Malta Jackpot startad!`,
+        body: `${user.nickname} har skapat en jackpot (${lotto.stake_amount} kr/lott)! Välj dina nummer nu.`,
+        url: '/#arcade'
+      }, 'tournaments').catch(() => {});
+    }
+
     res.json({ ok: true, lotto });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -2829,6 +2868,28 @@ app.post('/api/lotto/draw/:id', (req, res) => {
       type: 'lotto_draw_completed',
       result
     });
+
+    // Send Web Push notification to winner(s) and participants
+    if (result && result.winningUserIds && result.winningUserIds.length > 0) {
+      // Notify winner(s)
+      sendPushToUsers(result.winningUserIds, {
+        title: '🏆 DU VANN MALTA JACKPOT!',
+        body: `Grattis! Du hade flest rätt (${result.winnerHits} st) och kammade hem ${result.perWinnerPot} kr!`,
+        url: '/#arcade'
+      }, 'tournaments').catch(() => {});
+
+      // Notify other participants
+      const tickets = db.getUserLottoTickets ? [] : []; // Or fetch from db
+      const allParticipants = db.getLottoParticipants ? db.getLottoParticipants(req.params.id) : [];
+      const nonWinners = allParticipants.filter(id => !result.winningUserIds.includes(id));
+      if (nonWinners.length > 0) {
+        sendPushToUsers(nonWinners, {
+          title: '🎰 Malta Jackpot är avgjord!',
+          body: `${result.winnerNickname} vann jackpotten (${result.totalPot} kr) med ${result.winnerHits} rätt!`,
+          url: '/#arcade'
+        }, 'tournaments').catch(() => {});
+      }
+    }
 
     res.json({ ok: true, result });
   } catch (err) {
