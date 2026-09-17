@@ -469,7 +469,21 @@ export const en = {
     splitRemaining: 'Remaining to allocate',
     splitExceeded: 'Exceeds tab by',
     splitMatch: 'Matches tab perfectly!',
-    splitDistributeRest: '⚡ Split remainder evenly',
-    customSplitBtn: '⚖️ Split Tab (Custom)'
+    customSplitBtn: '⚖️ Split Tab (Custom)',
+    spaceInvaders: 'Space Blitz',
+    spaceInvadersTag: 'Retro Arcade · 60s',
+    spaceInvadersTitle: '👾 Space Blitz (Retro Invaders)',
+    spaceInvadersDesc: 'Classic 80s Space Invaders in a blitz format! Blast waves of alien invaders, snipe the golden UFO, and win the pot against your friends.',
+    spaceModeSolo: '🕹️ Solo (Highscore)',
+    spaceModeDuel: '⚔️ 1v1 Swish Duel',
+    spaceModeParty: '🏆 Group Tournament (Online)',
+    spaceModePass: '📱 Pass & Play (Table)',
+    spaceStartBtn: '🚀 START MISSION',
+    spaceGameOver: 'MISSION COMPLETE!',
+    spaceScore: 'SCORE',
+    spaceWave: 'WAVE',
+    spaceTime: 'TIME LEFT',
+    spaceLives: 'LIVES',
+    spaceUfoBonus: 'MALTA GOLD UFO! +200 PTS!'
   }
 };

@@ -92,6 +92,57 @@ function playDiceSound() {
   }
 }
 
+function playLaserSound() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  } catch (e) {}
+}
+
+function playExplosionSound() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const bufferSize = ctx.sampleRate * 0.25;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, ctx.currentTime);
+    filter.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.25);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    noise.start();
+  } catch (e) {}
+}
+
+function playUfoSound() {
+  try {
+    playTone(550, 'sawtooth', 0.08, 0.08);
+    setTimeout(() => playTone(650, 'sawtooth', 0.08, 0.08), 90);
+  } catch (e) {}
+}
+
 // ── Virtual Arcade Chips ────────────────────────────────
 function getChips() {
   const saved = localStorage.getItem('betpals_arcade_chips');
@@ -168,6 +219,13 @@ export function renderMinigamesRoller() {
       tag: t('arcade.notanRouletteTag'),
       title: t('arcade.notanRouletteTitle'),
       iconHtml: `<img src="/gold-card.png" alt="${t('arcade.notanRoulette')}" style="width: 40px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'space-invaders',
+      name: t('arcade.spaceInvaders'),
+      tag: t('arcade.spaceInvadersTag'),
+      title: t('arcade.spaceInvadersTitle'),
+      iconHtml: `<span style="font-size: 2.3rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.9)); animation: pulse 2s infinite;">👾</span>`
     }
   ];
 
@@ -275,6 +333,13 @@ export function openAllArcadeGamesModal() {
       tag: t('arcade.notanRouletteTag'),
       desc: isEn ? 'Who pays the dinner bill? Live spin or Even Steven' : 'Vem tar hela notan? Spinn live eller Even Steven',
       iconHtml: `<img src="/gold-card.png" alt="${t('arcade.notanRoulette')}" style="width: 44px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'space-invaders',
+      name: t('arcade.spaceInvaders'),
+      tag: t('arcade.spaceInvadersTag'),
+      desc: isEn ? 'Classic 80s Space Invaders blitz! Solo, 1v1 duels or multi-player highscore' : 'Klassisk 80-tals rymdinvasion i 60s blitz! Solo, 1v1 duell eller gruppturnering',
+      iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.9)); animation: pulse 2s infinite;">👾</span>`
     }
   ];
 
@@ -324,6 +389,7 @@ export function launchGameById(game) {
   else if (game === 'anybet') openAnyBetModal();
   else if (game === 'flashbet') openFlashBetModal();
   else if (game === 'notan-roulette') openNotanRouletteModal();
+  else if (game === 'space-invaders') openSpaceInvadersModal();
 }
 
 // ── 3. Event Listeners for Roller (Native Swipe + Drag + Click) ──
@@ -6250,6 +6316,1175 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
   renderModal();
   if (activeMode === 'roulette') {
     drawWheel();
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 👾 GAME 10: SPACE BLITZ (Retro Space Invaders)
+// ────────────────────────────────────────────────────────
+export function openSpaceInvadersModal(initialOptions = {}) {
+  const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
+
+  // Mode: 'solo' | 'duel' | 'party' | 'pass'
+  let activeMode = initialOptions.mode || 'solo';
+  let selectedStake = initialOptions.stake || 0;
+  let partyRoom = initialOptions.room || null;
+
+  // Pass & play players state
+  let passPlayers = [
+    currentUser ? currentUser.nickname : (isEn ? 'Player 1' : 'Spelare 1'),
+    isEn ? 'Player 2' : 'Spelare 2'
+  ];
+  let passCurrentIndex = 0;
+  let passScores = [];
+
+  const modalTitle = `👾 ${t('arcade.spaceInvadersTitle')}`;
+
+  function renderContent() {
+    return `
+      <div class="space-blitz-modal">
+        <!-- Top Mode Tabs -->
+        <div class="flex gap-xs mb-md" style="justify-content: center; flex-wrap: wrap;">
+          <button type="button" class="btn ${activeMode === 'solo' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="solo">
+            ${t('arcade.spaceModeSolo')}
+          </button>
+          <button type="button" class="btn ${activeMode === 'duel' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="duel">
+            ${t('arcade.spaceModeDuel')}
+          </button>
+          <button type="button" class="btn ${activeMode === 'party' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="party">
+            ${t('arcade.spaceModeParty')}
+          </button>
+          <button type="button" class="btn ${activeMode === 'pass' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="pass">
+            ${t('arcade.spaceModePass')}
+          </button>
+        </div>
+
+        <div id="space-stage-content">
+          ${renderStageContent()}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderStageContent() {
+    if (activeMode === 'solo') {
+      return renderPlayStageHtml();
+    } else if (activeMode === 'duel') {
+      return renderDuelSetupHtml();
+    } else if (activeMode === 'party') {
+      return renderPartySetupHtml();
+    } else if (activeMode === 'pass') {
+      return renderPassSetupHtml();
+    }
+    return '';
+  }
+
+  function renderPlayStageHtml(playerName = '') {
+    return `
+      <div class="space-arcade-container">
+        <div class="space-hud">
+          <div>${playerName ? `<span style="color:#fff;">${escapeHtml(playerName)}</span> · ` : ''}${t('arcade.spaceScore')}: <span id="space-score-val" style="color:var(--gold);">0</span></div>
+          <div>${t('arcade.spaceTime')}: <span id="space-timer-val" style="color:#ef4444;">60s</span></div>
+          <div>${t('arcade.spaceLives')}: <span id="space-lives-val">❤️❤️❤️</span></div>
+        </div>
+
+        <div class="space-arcade-bezel">
+          <canvas id="space-canvas" class="space-arcade-canvas" width="320" height="380"></canvas>
+        </div>
+
+        <!-- Touch / Mouse Controls -->
+        <div class="space-touch-controls">
+          <button type="button" class="space-btn-ctrl" id="btn-space-left">◀</button>
+          <button type="button" class="space-btn-ctrl space-btn-fire" id="btn-space-fire">🔥 FIRE</button>
+          <button type="button" class="space-btn-ctrl" id="btn-space-right">▶</button>
+        </div>
+
+        <div class="text-muted mt-sm text-center" style="font-size: 0.72rem;">
+          ${isEn ? 'Use buttons, touch-drag ship, or Arrow keys + Space' : 'Styr med knapparna, dra med tummen, eller piltangenter + Mellanslag'}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDuelSetupHtml() {
+    return `
+      <div class="card p-md text-center">
+        <h4 style="color: var(--gold);">${t('arcade.spaceModeDuel')}</h4>
+        <p class="text-secondary" style="font-size: 0.85rem;">
+          ${isEn ? 'Challenge a friend in 60s Blitz! Highest score takes the Swish pot.' : 'Utmana en kompis på 60s Blitz! Högst poäng tar hem Swish-potten.'}
+        </p>
+
+        <div class="my-md">
+          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
+            ${t('arcade.diceStakeLabel')}
+          </label>
+          <div class="flex gap-xs" style="justify-content: center;">
+            <button type="button" class="btn ${selectedStake === 10 ? 'btn-primary' : 'btn-secondary'} btn-sm duel-stake-btn" data-stake="10">10 kr</button>
+            <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm duel-stake-btn" data-stake="20">20 kr</button>
+            <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm duel-stake-btn" data-stake="50">50 kr</button>
+          </div>
+        </div>
+
+        <div id="duel-friends-selection" class="my-md">
+          <div class="text-muted text-center" style="font-size: 0.8rem;">${t('common.loading')}</div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block" id="btn-start-duel-mission" style="font-weight: 700;">
+          ${t('arcade.spaceStartBtn')}
+        </button>
+      </div>
+    `;
+  }
+
+  function renderPartySetupHtml() {
+    return `
+      <div class="card p-md">
+        <h4 style="color: var(--gold); text-align: center;">${t('arcade.spaceModeParty')} (3-10+ ${isEn ? 'players' : 'spelare'})</h4>
+        <p class="text-secondary text-center" style="font-size: 0.85rem;">
+          ${isEn ? 'Create an arcade room with 4-letter code! Everyone plays 60s Blitz and the live leaderboard crowns the winner.' : 'Skapa ett arkadrum med rumskod! Alla kör 60s Blitz och live-leaderboarden korar mästaren.'}
+        </p>
+
+        <div class="my-md">
+          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
+            ${t('arcade.blind10StakeLabel')}
+          </label>
+          <div class="flex gap-xs" style="justify-content: center;">
+            <button type="button" class="btn ${selectedStake === 0 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="0">0 kr (${isEn ? 'Honor' : 'Ära'})</button>
+            <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="20">20 kr</button>
+            <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm party-stake-btn" data-stake="50">50 kr</button>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-create-space-party" style="font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none;">
+          🚀 ${isEn ? 'Create Group Room' : 'Skapa Grupp-Rum'}
+        </button>
+
+        <div style="position: relative; text-align: center; margin: 14px 0;">
+          <hr style="border: 0; border-top: 1px solid var(--border-glass);" />
+          <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #14141e; padding: 0 10px; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">
+            ${isEn ? 'or join room' : 'eller gå med i rum'}
+          </span>
+        </div>
+
+        <div class="flex gap-sm">
+          <input type="text" id="space-party-code-input" class="form-input" placeholder="KOD (T.EX. BLTZ)" maxlength="6" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
+          <button type="button" class="btn btn-secondary" id="btn-join-space-party" style="white-space: nowrap; padding: 0 16px; font-weight: 700;">
+            ${t('arcade.blind10JoinBtn')}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPassSetupHtml() {
+    return `
+      <div class="card p-md">
+        <h4 style="color: var(--gold); text-align: center;">${t('arcade.spaceModePass')}</h4>
+        <p class="text-secondary text-center" style="font-size: 0.85rem;">
+          ${isEn ? 'Pass the phone around the table! Each player plays their 60s turn. Highest score wins the round.' : 'Skicka runt telefonen bland kompisarna i baren! Varje spelare kör 60s. Högst poäng vinner.'}
+        </p>
+
+        <div class="my-md">
+          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
+            ${t('arcade.blind10StakeLabel')}
+          </label>
+          <div class="flex gap-xs" style="justify-content: center;">
+            <button type="button" class="btn ${selectedStake === 0 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="0">0 kr (${isEn ? 'Honor' : 'Ära'})</button>
+            <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="20">20 kr</button>
+            <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm pass-stake-btn" data-stake="50">50 kr</button>
+          </div>
+        </div>
+
+        <div class="my-md">
+          <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: flex; justify-content: space-between;">
+            <span>👥 ${isEn ? 'Players taking turns' : 'Deltagare'}:</span>
+            <span style="color: var(--text-muted);">${passPlayers.length}/8</span>
+          </label>
+          <div id="space-pass-players-list" style="display: flex; flex-direction: column; gap: 8px;">
+            ${passPlayers.map((p, idx) => `
+              <div class="flex gap-xs align-center">
+                <span style="font-weight: 700; color: var(--gold); min-width: 22px;">#${idx + 1}</span>
+                <input type="text" class="form-input space-pass-name" data-idx="${idx}" value="${escapeHtml(p)}" style="padding: 8px 12px;" />
+                ${passPlayers.length > 2 ? `
+                  <button type="button" class="btn btn-secondary btn-sm space-remove-pass-btn" data-idx="${idx}" style="color: #ef4444;">✕</button>
+                ` : ''}
+              </div>
+            `).join('')}
+          </div>
+          ${passPlayers.length < 8 ? `
+            <button type="button" class="btn btn-secondary btn-sm mt-sm" id="btn-add-space-pass-player" style="width: 100%;">
+              ➕ ${isEn ? 'Add Player' : 'Lägg till spelare'}
+            </button>
+          ` : ''}
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block mt-md" id="btn-start-pass-game" style="font-weight: 700;">
+          🚀 ${isEn ? 'Start Table Battle!' : 'Starta Bordskampen!'}
+        </button>
+      </div>
+    `;
+  }
+
+  const { close, root } = showModal(modalTitle, renderContent());
+
+  // Attach tab switching
+  function attachTabs() {
+    root.querySelectorAll('.space-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeMode = btn.dataset.tab;
+        root.querySelectorAll('.space-tab-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+
+        const stage = root.querySelector('#space-stage-content');
+        if (stage) {
+          stage.innerHTML = renderStageContent();
+          attachStageListeners();
+        }
+      });
+    });
+  }
+
+  function attachStageListeners() {
+    if (activeMode === 'solo') {
+      initSpaceEngine({
+        onGameOver: (result) => {
+          showSoloResults(result);
+        }
+      });
+    } else if (activeMode === 'duel') {
+      attachDuelListeners();
+    } else if (activeMode === 'party') {
+      attachPartyListeners();
+    } else if (activeMode === 'pass') {
+      attachPassListeners();
+    }
+  }
+
+  // ── 1. SOLO RESULTS ─────────────────────────────────────
+  function showSoloResults(result) {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+    playWinSound();
+    launchConfetti();
+
+    // Reward virtual arcade chips
+    const chipsEarned = Math.max(10, Math.floor(result.score / 100));
+    setChips(getChips() + chipsEarned);
+
+    stage.innerHTML = `
+      <div class="card p-lg text-center animate-in">
+        <div style="font-size: 3rem; margin-bottom: 8px;">🏆</div>
+        <h3 style="font-family: var(--font-heading); color: var(--gold);">${t('arcade.spaceGameOver')}</h3>
+        <p class="text-secondary" style="font-size: 0.85rem;">
+          ${isEn ? 'Great flying, Captain!' : 'Grymt flugit, Kapten!'}
+        </p>
+
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <div style="font-size: 2.2rem; font-weight: 800; color: #10b981; font-family: monospace;">
+            ${result.score.toLocaleString()} PTS
+          </div>
+          <div class="text-muted" style="font-size: 0.8rem; margin-top: 4px;">
+            👾 ${result.aliensKilled} ${isEn ? 'aliens blasted' : 'invasörer besegrade'} · Wave ${result.wave}
+          </div>
+          <div style="color: var(--gold); font-weight: 700; margin-top: 8px; font-size: 0.85rem;">
+            +${chipsEarned} ${isEn ? 'Arcade Chips Earned! 🪙' : 'Arkadmarker intjänade! 🪙'}
+          </div>
+        </div>
+
+        <div class="flex gap-sm">
+          <button type="button" class="btn btn-primary btn-block" id="btn-space-play-again" style="font-weight: 700;">
+            🔄 ${isEn ? 'Play Again' : 'Spela igen'}
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-space-close">
+            ${isEn ? 'Done' : 'Klar'}
+          </button>
+        </div>
+      </div>
+    `;
+
+    stage.querySelector('#btn-space-play-again')?.addEventListener('click', () => {
+      stage.innerHTML = renderPlayStageHtml();
+      initSpaceEngine({
+        onGameOver: (res) => showSoloResults(res)
+      });
+    });
+
+    stage.querySelector('#btn-space-close')?.addEventListener('click', close);
+  }
+
+  // ── 2. DUEL LISTENERS ───────────────────────────────────
+  let selectedOpponentId = null;
+  async function attachDuelListeners() {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+
+    // Stake chips
+    stage.querySelectorAll('.duel-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStake = parseInt(btn.dataset.stake, 10);
+        stage.querySelectorAll('.duel-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    // Load friends
+    const friendsWrap = stage.querySelector('#duel-friends-selection');
+    try {
+      const friends = await getFriends();
+      if (!friends || friends.length === 0) {
+        friendsWrap.innerHTML = `
+          <div class="text-muted" style="font-size: 0.8rem;">
+            ${t('arcade.diceNoFriends')}
+          </div>
+        `;
+      } else {
+        friendsWrap.innerHTML = `
+          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
+            ${t('arcade.dicePickFriend')}
+          </label>
+          <select id="space-duel-friend-select" class="form-select">
+            ${friends.map(f => `<option value="${f.id}">${escapeHtml(f.nickname || f.name)}</option>`).join('')}
+          </select>
+        `;
+        selectedOpponentId = friends[0].id;
+        stage.querySelector('#space-duel-friend-select')?.addEventListener('change', (e) => {
+          selectedOpponentId = e.target.value;
+        });
+      }
+    } catch (e) {
+      friendsWrap.innerHTML = '';
+    }
+
+    stage.querySelector('#btn-start-duel-mission')?.addEventListener('click', () => {
+      if (!selectedOpponentId) {
+        showToast(isEn ? 'Please select a friend to duel' : 'Välj en kompis att utmana', 'warning');
+        return;
+      }
+
+      stage.innerHTML = renderPlayStageHtml(currentUser ? currentUser.nickname : 'Du');
+      initSpaceEngine({
+        onGameOver: async (result) => {
+          try {
+            const duel = await createDuel({
+              gameType: 'space_invaders',
+              opponentId: selectedOpponentId,
+              stakeAmount: selectedStake,
+              mode: 'online'
+            });
+
+            if (duel) {
+              await submitDuelRoll(duel.id, {
+                score: result.score,
+                aliensKilled: result.aliensKilled,
+                waveReached: result.wave
+              });
+            }
+            showSoloResults(result);
+            showToast(isEn ? 'Duel challenge sent to friend!' : 'Duell-utmaning skickad till kompisen!', 'success');
+          } catch (err) {
+            showSoloResults(result);
+          }
+        }
+      });
+    });
+  }
+
+  // ── 3. GROUP PARTY LISTENERS ────────────────────────────
+  function attachPartyListeners() {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+
+    stage.querySelectorAll('.party-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStake = parseInt(btn.dataset.stake, 10);
+        stage.querySelectorAll('.party-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    stage.querySelector('#btn-create-space-party')?.addEventListener('click', async () => {
+      try {
+        const res = await createPartyRoom({
+          gameType: 'space_invaders',
+          stakeAmount: selectedStake
+        });
+        if (res && res.room) {
+          partyRoom = res.room;
+          setupPartyLobbyView(partyRoom);
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    });
+
+    stage.querySelector('#btn-join-space-party')?.addEventListener('click', async () => {
+      const code = (stage.querySelector('#space-party-code-input')?.value || '').trim().toUpperCase();
+      if (!code) {
+        showToast(isEn ? 'Enter room code' : 'Ange rumskod', 'warning');
+        return;
+      }
+      try {
+        const res = await joinPartyRoom({ code });
+        if (res && res.room) {
+          partyRoom = res.room;
+          setupPartyLobbyView(partyRoom);
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    });
+  }
+
+  function setupPartyLobbyView(room) {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+
+    const totalPot = (room.players.length || 0) * (room.stakeAmount || 0);
+
+    stage.innerHTML = `
+      <div class="card p-md animate-in">
+        <div class="flex-between align-center mb-sm">
+          <div>
+            <span class="badge badge-accent" style="font-size: 0.7rem;">${t('arcade.blind10WaitingLobby')}</span>
+            <h4 style="color: var(--gold); margin-top: 4px;">KOD: <span style="font-family: monospace; font-size: 1.4rem; letter-spacing: 2px;">${escapeHtml(room.code)}</span></h4>
+          </div>
+          <div class="text-right">
+            <span style="font-size: 0.75rem; color: var(--text-muted);">${t('arcade.blind10TotalPot')}</span>
+            <div style="font-size: 1.2rem; font-weight: 800; color: #10b981;">${totalPot} kr</div>
+          </div>
+        </div>
+
+        <div class="my-md">
+          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
+            👥 ${t('arcade.blind10PlayersJoined')} (${room.players.length}):
+          </label>
+          <div id="space-party-lobby-players" style="display: flex; flex-direction: column; gap: 6px;">
+            ${room.players.map(p => `
+              <div class="space-leaderboard-card">
+                <span>${escapeHtml(p.nickname || 'Spelare')} ${p.isHost ? '👑' : ''}</span>
+                <span class="badge badge-secondary">${p.score !== undefined ? `${p.score} pts` : (isEn ? 'Ready' : 'Redo')}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="flex gap-sm">
+          <button type="button" class="btn btn-primary btn-block" id="btn-start-space-party-run" style="font-weight: 800;">
+            🚀 ${isEn ? 'PLAY YOUR 60S MISSION' : 'SPELA DIN 60S RUNDA!'}
+          </button>
+        </div>
+      </div>
+    `;
+
+    stage.querySelector('#btn-start-space-party-run')?.addEventListener('click', () => {
+      stage.innerHTML = renderPlayStageHtml(currentUser ? currentUser.nickname : 'Du');
+      initSpaceEngine({
+        onGameOver: async (result) => {
+          try {
+            const submitRes = await submitPartyTime(room.id, {
+              score: result.score,
+              aliensKilled: result.aliensKilled,
+              waveReached: result.wave
+            });
+            if (submitRes && submitRes.room) {
+              partyRoom = submitRes.room;
+              showPartyResultsView(partyRoom);
+            } else {
+              showSoloResults(result);
+            }
+          } catch (err) {
+            showSoloResults(result);
+          }
+        }
+      });
+    });
+  }
+
+  function showPartyResultsView(room) {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+    playWinSound();
+    launchConfetti();
+
+    const sorted = [...room.players].sort((a, b) => (b.score || 0) - (a.score || 0));
+    const winner = sorted[0];
+    const isUserWinner = currentUser && winner && winner.id === currentUser.id;
+
+    stage.innerHTML = `
+      <div class="card p-md animate-in text-center">
+        <div style="font-size: 2.8rem; margin-bottom: 4px;">🏆</div>
+        <h3 style="color: var(--gold); font-family: var(--font-heading);">
+          ${isUserWinner ? (isEn ? 'YOU WON THE POT!' : 'DU VANN HELA POTTEN!') : `${escapeHtml(winner.nickname)} ${t('arcade.blind10WinnerWins')}`}
+        </h3>
+        <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; margin-bottom: 12px;">
+          ${(room.players.length || 0) * (room.stakeAmount || 0)} kr
+        </div>
+
+        <div class="my-md text-left">
+          ${sorted.map((p, idx) => `
+            <div class="space-leaderboard-card ${idx === 0 ? 'winner' : ''}">
+              <div class="flex gap-xs align-center">
+                <span style="font-weight: 800; color: ${idx === 0 ? 'var(--gold)' : 'var(--text-muted)'}; min-width: 24px;">#${idx + 1}</span>
+                <span>${escapeHtml(p.nickname || 'Spelare')} ${idx === 0 ? '👑' : ''}</span>
+              </div>
+              <span style="font-family: monospace; font-weight: 700; color: #10b981;">
+                ${(p.score || 0).toLocaleString()} PTS
+              </span>
+            </div>
+          `).join('')}
+        </div>
+
+        ${room.stakeAmount > 0 && !isUserWinner && winner.swishNumber ? `
+          <div class="my-md">
+            <a href="${createSwishUrl(winner.swishNumber, room.stakeAmount, `Space Blitz - ${winner.nickname}`)}" class="btn btn-primary btn-block" style="background: #10b981; font-weight: 800;">
+              📱 Swisha ${winner.nickname} (${room.stakeAmount} kr)
+            </a>
+          </div>
+        ` : ''}
+
+        <button type="button" class="btn btn-secondary btn-block mt-sm" id="btn-space-party-done">
+          ${isEn ? 'Close' : 'Stäng'}
+        </button>
+      </div>
+    `;
+
+    stage.querySelector('#btn-space-party-done')?.addEventListener('click', close);
+  }
+
+  // ── 4. PASS & PLAY (TABLE MODE) ─────────────────────────
+  function attachPassListeners() {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+
+    stage.querySelectorAll('.pass-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStake = parseInt(btn.dataset.stake, 10);
+        stage.querySelectorAll('.pass-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    stage.querySelectorAll('.space-pass-name').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const idx = parseInt(e.target.dataset.idx, 10);
+        passPlayers[idx] = e.target.value.trim() || `Spelare ${idx + 1}`;
+      });
+    });
+
+    stage.querySelectorAll('.space-remove-pass-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        if (passPlayers.length > 2) {
+          passPlayers.splice(idx, 1);
+          stage.innerHTML = renderPassSetupHtml();
+          attachPassListeners();
+        }
+      });
+    });
+
+    stage.querySelector('#btn-add-space-pass-player')?.addEventListener('click', () => {
+      if (passPlayers.length < 8) {
+        passPlayers.push(isEn ? `Player ${passPlayers.length + 1}` : `Spelare ${passPlayers.length + 1}`);
+        stage.innerHTML = renderPassSetupHtml();
+        attachPassListeners();
+      }
+    });
+
+    stage.querySelector('#btn-start-pass-game')?.addEventListener('click', () => {
+      passCurrentIndex = 0;
+      passScores = [];
+      runPassTurn();
+    });
+  }
+
+  function runPassTurn() {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+
+    const currentPlayerName = passPlayers[passCurrentIndex];
+
+    stage.innerHTML = `
+      <div class="card p-lg text-center animate-in">
+        <span class="badge badge-accent mb-sm">${isEn ? `Turn ${passCurrentIndex + 1} of ${passPlayers.length}` : `Runda ${passCurrentIndex + 1} av ${passPlayers.length}`}</span>
+        <h3 style="font-family: var(--font-heading); color: var(--gold); font-size: 1.5rem; margin-bottom: 8px;">
+          📱 ${escapeHtml(currentPlayerName)}
+        </h3>
+        <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: 20px;">
+          ${isEn ? 'Pass the phone! Tap start when you are ready for your 60s Blitz wave.' : 'Ge telefonen till spelaren! Tryck start när du är redo för din 60s Blitz.'}
+        </p>
+
+        <button type="button" class="btn btn-primary btn-block" id="btn-pass-turn-start" style="font-weight: 800; padding: 14px; font-size: 1.1rem;">
+          🚀 ${t('arcade.spaceStartBtn')}
+        </button>
+      </div>
+    `;
+
+    stage.querySelector('#btn-pass-turn-start')?.addEventListener('click', () => {
+      stage.innerHTML = renderPlayStageHtml(currentPlayerName);
+      initSpaceEngine({
+        onGameOver: (result) => {
+          passScores.push({
+            name: currentPlayerName,
+            score: result.score,
+            aliensKilled: result.aliensKilled,
+            wave: result.wave
+          });
+
+          passCurrentIndex++;
+          if (passCurrentIndex < passPlayers.length) {
+            runPassTurn();
+          } else {
+            showPassFinalResults();
+          }
+        }
+      });
+    });
+  }
+
+  function showPassFinalResults() {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+    playWinSound();
+    launchConfetti();
+
+    const sorted = [...passScores].sort((a, b) => b.score - a.score);
+    const winner = sorted[0];
+    const pot = passScores.length * selectedStake;
+
+    stage.innerHTML = `
+      <div class="card p-md animate-in text-center">
+        <div style="font-size: 3rem; margin-bottom: 4px;">👑</div>
+        <h3 style="color: var(--gold); font-family: var(--font-heading);">
+          ${escapeHtml(winner.name)} ${isEn ? 'WINS THE TABLE BATTLE!' : 'VANN BORDSKAMPEN!'}
+        </h3>
+        ${selectedStake > 0 ? `
+          <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; margin-bottom: 12px;">
+            ${pot} kr i potten!
+          </div>
+        ` : ''}
+
+        <div class="my-md text-left">
+          ${sorted.map((p, idx) => `
+            <div class="space-leaderboard-card ${idx === 0 ? 'winner' : ''}">
+              <div class="flex gap-xs align-center">
+                <span style="font-weight: 800; color: ${idx === 0 ? 'var(--gold)' : 'var(--text-muted)'}; min-width: 24px;">#${idx + 1}</span>
+                <span>${escapeHtml(p.name)} ${idx === 0 ? '🏆' : ''}</span>
+              </div>
+              <span style="font-family: monospace; font-weight: 700; color: #10b981;">
+                ${p.score.toLocaleString()} PTS
+              </span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="flex gap-sm mt-md">
+          <button type="button" class="btn btn-primary btn-block" id="btn-pass-rematch" style="font-weight: 700;">
+            🔄 ${isEn ? 'Rematch!' : 'Kör om!'}
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-pass-close">
+            ${isEn ? 'Done' : 'Klar'}
+          </button>
+        </div>
+      </div>
+    `;
+
+    stage.querySelector('#btn-pass-rematch')?.addEventListener('click', () => {
+      passCurrentIndex = 0;
+      passScores = [];
+      runPassTurn();
+    });
+
+    stage.querySelector('#btn-pass-close')?.addEventListener('click', close);
+  }
+
+  // Initial tab setup
+  attachTabs();
+  attachStageListeners();
+
+  // ── 5. CANVAS RETRO SPACE INVADERS ENGINE ─────────────────
+  function initSpaceEngine({ onGameOver }) {
+    const canvas = root.querySelector('#space-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const width = 320;
+    const height = 380;
+    canvas.width = width;
+    canvas.height = height;
+
+    let score = 0;
+    let wave = 1;
+    let lives = 3;
+    let timeLeft = 60; // 60s Blitz
+    let aliensKilled = 0;
+    let isRunning = true;
+    let animId = null;
+    let timerInterval = null;
+
+    // Player ship
+    const player = {
+      x: width / 2 - 14,
+      y: height - 34,
+      w: 28,
+      h: 18,
+      speed: 4.5,
+      isMovingLeft: false,
+      isMovingRight: false,
+      lastShotTime: 0
+    };
+
+    // Projectiles
+    let bullets = [];
+    let alienBullets = [];
+    let particles = [];
+
+    // Mystery UFO
+    let ufo = null;
+    let nextUfoTime = Date.now() + 12000;
+
+    // Aliens grid
+    let aliens = [];
+    let alienDirection = 1;
+    let alienMoveTimer = 0;
+    let alienMoveInterval = 35; // frames
+
+    function spawnAliens() {
+      aliens = [];
+      const rows = 4;
+      const cols = 7;
+      const startX = 28;
+      const startY = 40;
+      const spacingX = 38;
+      const spacingY = 24;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          let points = 10;
+          let color = '#10b981'; // green bottom
+          if (r === 0) { points = 30; color = '#f59e0b'; } // yellow top
+          else if (r === 1 || r === 2) { points = 20; color = '#3b82f6'; } // blue middle
+
+          aliens.push({
+            x: startX + c * spacingX,
+            y: startY + r * spacingY,
+            w: 22,
+            h: 16,
+            points,
+            color,
+            row: r
+          });
+        }
+      }
+      alienDirection = 1;
+      alienMoveInterval = Math.max(12, 35 - wave * 4);
+    }
+
+    // Shield bunkers (3 bunkers)
+    let shields = [];
+    function spawnShields() {
+      shields = [];
+      const numShields = 3;
+      const shieldW = 44;
+      const shieldH = 22;
+      const spacing = (width - numShields * shieldW) / (numShields + 1);
+
+      for (let i = 0; i < numShields; i++) {
+        shields.push({
+          x: spacing + i * (shieldW + spacing),
+          y: height - 75,
+          w: shieldW,
+          h: shieldH,
+          hp: 8
+        });
+      }
+    }
+
+    function fireBullet() {
+      const now = Date.now();
+      if (now - player.lastShotTime < 240) return; // rate limit
+      player.lastShotTime = now;
+      bullets.push({
+        x: player.x + player.w / 2 - 2,
+        y: player.y - 6,
+        w: 4,
+        h: 10,
+        speed: 7
+      });
+      playLaserSound();
+    }
+
+    function spawnExplosion(x, y, color = '#10b981', count = 12) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 3.5;
+        particles.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 18 + Math.random() * 10,
+          maxLife: 28,
+          color
+        });
+      }
+    }
+
+    // Keyboard controls
+    const handleKeyDown = (e) => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') player.isMovingLeft = true;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') player.isMovingRight = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        fireBullet();
+      }
+    };
+    const handleKeyUp = (e) => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') player.isMovingLeft = false;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') player.isMovingRight = false;
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    // Touch button controls
+    const btnLeft = root.querySelector('#btn-space-left');
+    const btnRight = root.querySelector('#btn-space-right');
+    const btnFire = root.querySelector('#btn-space-fire');
+
+    const bindTouchBtn = (btn, onStart, onEnd) => {
+      if (!btn) return;
+      btn.addEventListener('touchstart', (e) => { e.preventDefault(); onStart(); }, { passive: false });
+      btn.addEventListener('touchend', (e) => { e.preventDefault(); onEnd(); }, { passive: false });
+      btn.addEventListener('mousedown', onStart);
+      btn.addEventListener('mouseup', onEnd);
+      btn.addEventListener('mouseleave', onEnd);
+    };
+
+    bindTouchBtn(btnLeft, () => { player.isMovingLeft = true; }, () => { player.isMovingLeft = false; });
+    bindTouchBtn(btnRight, () => { player.isMovingRight = true; }, () => { player.isMovingRight = false; });
+    bindTouchBtn(btnFire, () => { fireBullet(); }, () => {});
+
+    // Direct touch-slide on canvas for mobile
+    let isTouchingCanvas = false;
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches.length > 0) {
+        isTouchingCanvas = true;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = width / rect.width;
+        const touchX = (e.touches[0].clientX - rect.left) * scaleX;
+        player.x = Math.max(0, Math.min(width - player.w, touchX - player.w / 2));
+        fireBullet();
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (isTouchingCanvas && e.touches && e.touches.length > 0) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = width / rect.width;
+        const touchX = (e.touches[0].clientX - rect.left) * scaleX;
+        player.x = Math.max(0, Math.min(width - player.w, touchX - player.w / 2));
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', () => { isTouchingCanvas = false; });
+
+    // HUD update helper
+    const updateHud = () => {
+      const scoreEl = root.querySelector('#space-score-val');
+      const timerEl = root.querySelector('#space-timer-val');
+      const livesEl = root.querySelector('#space-lives-val');
+      if (scoreEl) scoreEl.textContent = score.toLocaleString();
+      if (timerEl) timerEl.textContent = `${timeLeft}s`;
+      if (livesEl) livesEl.textContent = '❤️'.repeat(Math.max(0, lives));
+    };
+
+    // 60-second Blitz countdown
+    timerInterval = setInterval(() => {
+      if (!isRunning) return;
+      timeLeft--;
+      updateHud();
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }, 1000);
+
+    function endGame() {
+      isRunning = false;
+      if (animId) cancelAnimationFrame(animId);
+      if (timerInterval) clearInterval(timerInterval);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+
+      onGameOver({
+        score,
+        wave,
+        aliensKilled
+      });
+    }
+
+    // Init game world
+    spawnAliens();
+    spawnShields();
+
+    // Game loop (60 FPS)
+    function loop() {
+      if (!isRunning) return;
+
+      // 1. UPDATE PLAYER
+      if (player.isMovingLeft) player.x -= player.speed;
+      if (player.isMovingRight) player.x += player.speed;
+      player.x = Math.max(6, Math.min(width - player.w - 6, player.x));
+
+      // 2. UPDATE BULLETS
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.y -= b.speed;
+        if (b.y < -10) {
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        // Check alien hits
+        let hitAlien = false;
+        for (let j = aliens.length - 1; j >= 0; j--) {
+          const a = aliens[j];
+          if (b.x + b.w >= a.x && b.x <= a.x + a.w && b.y <= a.y + a.h && b.y + b.h >= a.y) {
+            score += a.points;
+            aliensKilled++;
+            spawnExplosion(a.x + a.w / 2, a.y + a.h / 2, a.color);
+            playExplosionSound();
+            aliens.splice(j, 1);
+            hitAlien = true;
+            updateHud();
+            break;
+          }
+        }
+        if (hitAlien) {
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        // Check UFO hit
+        if (ufo && b.x + b.w >= ufo.x && b.x <= ufo.x + ufo.w && b.y <= ufo.y + ufo.h && b.y + b.h >= ufo.y) {
+          score += 200;
+          spawnExplosion(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2, '#fbbf24', 24);
+          playWinSound();
+          showToast(t('arcade.spaceUfoBonus'), 'success');
+          ufo = null;
+          bullets.splice(i, 1);
+          updateHud();
+          continue;
+        }
+
+        // Check shield hits
+        for (const s of shields) {
+          if (s.hp > 0 && b.x + b.w >= s.x && b.x <= s.x + s.w && b.y <= s.y + s.h && b.y + b.h >= s.y) {
+            s.hp--;
+            bullets.splice(i, 1);
+            break;
+          }
+        }
+      }
+
+      // 3. UPDATE ALIEN BULLETS
+      for (let i = alienBullets.length - 1; i >= 0; i--) {
+        const ab = alienBullets[i];
+        ab.y += ab.speed;
+        if (ab.y > height + 10) {
+          alienBullets.splice(i, 1);
+          continue;
+        }
+
+        // Hit player
+        if (ab.x + ab.w >= player.x && ab.x <= player.x + player.w && ab.y + ab.h >= player.y && ab.y <= player.y + player.h) {
+          alienBullets.splice(i, 1);
+          lives--;
+          spawnExplosion(player.x + player.w / 2, player.y + player.h / 2, '#ef4444', 20);
+          playExplosionSound();
+          updateHud();
+          if (lives <= 0) {
+            endGame();
+            return;
+          }
+          continue;
+        }
+
+        // Hit shields
+        for (const s of shields) {
+          if (s.hp > 0 && ab.x + ab.w >= s.x && ab.x <= s.x + s.w && ab.y <= s.y + s.h && ab.y + b.h >= s.y) {
+            s.hp--;
+            alienBullets.splice(i, 1);
+            break;
+          }
+        }
+      }
+
+      // 4. UPDATE ALIENS GRID
+      alienMoveTimer++;
+      if (alienMoveTimer >= alienMoveInterval) {
+        alienMoveTimer = 0;
+        let edgeHit = false;
+
+        for (const a of aliens) {
+          if ((alienDirection > 0 && a.x + a.w >= width - 12) || (alienDirection < 0 && a.x <= 12)) {
+            edgeHit = true;
+            break;
+          }
+        }
+
+        if (edgeHit) {
+          alienDirection = -alienDirection;
+          for (const a of aliens) {
+            a.y += 12;
+            if (a.y + a.h >= player.y) {
+              lives = 0;
+              endGame();
+              return;
+            }
+          }
+        } else {
+          for (const a of aliens) {
+            a.x += alienDirection * 10;
+          }
+        }
+
+        if (aliens.length > 0 && Math.random() < 0.35) {
+          const shooter = aliens[Math.floor(Math.random() * aliens.length)];
+          alienBullets.push({
+            x: shooter.x + shooter.w / 2 - 1.5,
+            y: shooter.y + shooter.h + 2,
+            w: 3,
+            h: 8,
+            speed: 3.5
+          });
+        }
+      }
+
+      if (aliens.length === 0) {
+        wave++;
+        score += 300;
+        spawnAliens();
+        playWinSound();
+      }
+
+      // 5. MYSTERY UFO
+      if (!ufo && Date.now() > nextUfoTime) {
+        ufo = {
+          x: -30,
+          y: 18,
+          w: 28,
+          h: 12,
+          speed: 2.2
+        };
+        playUfoSound();
+        nextUfoTime = Date.now() + 18000 + Math.random() * 10000;
+      }
+
+      if (ufo) {
+        ufo.x += ufo.speed;
+        if (ufo.x > width + 40) {
+          ufo = null;
+        }
+      }
+
+      // 6. UPDATE PARTICLES
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      // ── DRAWING ──────────────────────────────────────────
+      ctx.fillStyle = '#060814';
+      ctx.fillRect(0, 0, width, height);
+
+      // Starfield
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      for (let s = 0; s < 25; s++) {
+        const sx = (s * 37 + wave * 5) % width;
+        const sy = (s * 43) % height;
+        ctx.fillRect(sx, sy, 1.5, 1.5);
+      }
+
+      // Draw Shields
+      for (const s of shields) {
+        if (s.hp > 0) {
+          const alpha = Math.max(0.2, s.hp / 8);
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`;
+          ctx.fillRect(s.x, s.y, s.w, s.h);
+          ctx.strokeStyle = '#10b981';
+          ctx.strokeRect(s.x, s.y, s.w, s.h);
+        }
+      }
+
+      // Draw Aliens
+      for (const a of aliens) {
+        ctx.fillStyle = a.color;
+        ctx.fillRect(a.x + 3, a.y, a.w - 6, a.h);
+        ctx.fillRect(a.x, a.y + 4, a.w, a.h - 6);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(a.x + 5, a.y + 5, 3, 3);
+        ctx.fillRect(a.x + a.w - 8, a.y + 5, 3, 3);
+      }
+
+      // Draw UFO
+      if (ufo) {
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.ellipse(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2, ufo.w / 2, ufo.h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(ufo.x + ufo.w / 2 - 4, ufo.y - 2, 8, 4);
+      }
+
+      // Draw Player Ship
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(player.x + player.w / 2 - 3, player.y - 5, 6, 6);
+      ctx.fillRect(player.x + 4, player.y, player.w - 8, player.h - 4);
+      ctx.fillRect(player.x, player.y + player.h - 6, player.w, 6);
+
+      // Draw Bullets
+      ctx.fillStyle = '#38bdf8';
+      for (const b of bullets) {
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+      }
+
+      // Draw Alien Bullets
+      ctx.fillStyle = '#ef4444';
+      for (const ab of alienBullets) {
+        ctx.fillRect(ab.x, ab.y, ab.w, ab.h);
+      }
+
+      // Draw Particles
+      for (const p of particles) {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillRect(p.x, p.y, 2.5, 2.5);
+        ctx.globalAlpha = 1.0;
+      }
+
+      animId = requestAnimationFrame(loop);
+    }
+
+    animId = requestAnimationFrame(loop);
   }
 }
 

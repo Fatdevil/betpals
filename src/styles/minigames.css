@@ -944,3 +944,127 @@
   margin-top: 8px;
 }
 
+/* ── SPACE BLITZ (RETRO SPACE INVADERS) CSS ───────────────── */
+.space-arcade-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  background: #06060c;
+  border-radius: var(--radius-md);
+  padding: 10px;
+  border: 2px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.2), inset 0 0 20px rgba(0, 0, 0, 0.9);
+  user-select: none;
+}
+
+.space-arcade-bezel {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #10b981;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+}
+
+.space-arcade-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: radial-gradient(circle at center, #070b19 0%, #020308 100%);
+  image-rendering: pixelated;
+}
+
+/* CRT Scanlines Overlay effect */
+.space-arcade-bezel::after {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.35) 50%), linear-gradient(90deg, rgba(255,0,0,0.03), rgba(0,255,0,0.01), rgba(0,0,255,0.03));
+  z-index: 2;
+  background-size: 100% 3px, 4px 100%;
+  pointer-events: none;
+}
+
+.space-hud {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border-bottom: 1px solid rgba(16, 185, 129, 0.3);
+  font-family: monospace, monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #10b981;
+  text-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.space-touch-controls {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.space-btn-ctrl {
+  flex: 1;
+  height: 52px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, transform 0.05s;
+}
+
+.space-btn-ctrl:active {
+  background: rgba(16, 185, 129, 0.3);
+  border-color: #10b981;
+  transform: scale(0.96);
+}
+
+.space-btn-fire {
+  flex: 1.5;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  border: 1px solid #f87171;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.1rem;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+.space-btn-fire:active {
+  background: #b91c1c;
+  transform: scale(0.96);
+}
+
+.space-leaderboard-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.space-leaderboard-card.winner {
+  border-color: var(--gold);
+  background: rgba(255, 215, 0, 0.1);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.2);
+}
+

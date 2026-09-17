@@ -2328,7 +2328,7 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     return res.status(403).json({ error: 'Du deltar inte i detta rum' });
   }
 
-  if (room.status !== 'running') {
+  if (room.gameType !== 'space_invaders' && room.status !== 'running') {
     return res.status(400).json({ error: 'Spelet pågår inte just nu' });
   }
 
@@ -2336,7 +2336,90 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     return res.status(400).json({ error: 'Du har redan stoppat klockan' });
   }
 
-  // Authoritative server-measured elapsed time
+  // For space_invaders, client sends { score, aliensKilled, waveReached }
+  if (room.gameType === 'space_invaders') {
+    const rawScore = typeof req.body.score === 'number' ? Math.max(0, Math.floor(req.body.score)) : 0;
+    player.score = rawScore;
+    player.aliensKilled = typeof req.body.aliensKilled === 'number' ? req.body.aliensKilled : 0;
+    player.waveReached = typeof req.body.waveReached === 'number' ? req.body.waveReached : 1;
+    player.stoppedTime = Date.now(); // Mark as finished
+
+    broadcastToParty(room.id, {
+      type: 'party_player_stopped',
+      userId: user.id,
+      nickname: user.nickname,
+      score: player.score,
+      stoppedCount: room.players.filter(p => p.stoppedTime !== null).length,
+      totalCount: room.players.length
+    });
+
+    const activePlayers = room.tiedPlayerIds.length > 0 
+      ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
+      : room.players;
+
+    const allFinished = activePlayers.every(p => p.stoppedTime !== null);
+
+    if (allFinished && activePlayers.length > 0) {
+      // Highest score wins in space_invaders
+      activePlayers.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+      const bestScore = activePlayers[0].score || 0;
+      const tied = activePlayers.filter(p => (p.score || 0) === bestScore);
+
+      if (tied.length > 1) {
+        room.status = 'tie';
+        room.tiedPlayerIds = tied.map(p => p.id);
+        room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+        broadcastToParty(room.id, {
+          type: 'party_results',
+          room,
+          isTie: true,
+          tiedPlayerIds: room.tiedPlayerIds
+        });
+      } else {
+        room.status = 'completed';
+        const winner = activePlayers[0];
+        room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+        if (room.stakeAmount > 0) {
+          const losers = room.players.filter(p => p.id !== winner.id);
+          for (const loser of losers) {
+            try {
+              const duel = db.createDuel({
+                gameType: 'space_invaders',
+                creatorId: winner.id,
+                opponentId: loser.id,
+                stakeAmount: room.stakeAmount,
+                mode: 'online'
+              });
+              if (duel) {
+                db.submitDuelResult({
+                  duelId: duel.id,
+                  creatorScore: winner.score || 1,
+                  opponentScore: loser.score || 0,
+                  winnerId: winner.id
+                });
+              }
+            } catch (e) {
+              console.error('Failed to log party duel settlement:', e);
+            }
+          }
+        }
+
+        broadcastToParty(room.id, {
+          type: 'party_results',
+          room,
+          isTie: false,
+          winner
+        });
+      }
+    }
+
+    return res.json({ ok: true, room, score: player.score });
+  }
+
+  // Authoritative server-measured elapsed time (for blind10)
   const now = Date.now();
   const rawElapsed = (now - (room.startTime || now)) / 1000;
   const elapsedSec = Math.max(0, rawElapsed);

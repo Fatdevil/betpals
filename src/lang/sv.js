@@ -469,7 +469,21 @@ export const sv = {
     splitRemaining: 'Kvar att fördela',
     splitExceeded: 'Överskrider notan med',
     splitMatch: 'Stämmer perfekt!',
-    splitDistributeRest: '⚡ Dela resten jämnt',
-    customSplitBtn: '⚖️ Dela notan (Anpassat)'
+    customSplitBtn: '⚖️ Dela notan (Anpassat)',
+    spaceInvaders: 'Space Blitz',
+    spaceInvadersTag: 'Retro Arkad · 60s',
+    spaceInvadersTitle: '👾 Space Blitz (Retro Invaders)',
+    spaceInvadersDesc: 'Klassisk 80-tals Space Invaders i blitz-format! Skjut ner vågor av rymdinvasörer, pricka guld-UFO och ta hem potten i kompisgänget.',
+    spaceModeSolo: '🕹️ Solo (Highscore)',
+    spaceModeDuel: '⚔️ 1v1 Swish-Duell',
+    spaceModeParty: '🏆 Grupp-Turnering (Online)',
+    spaceModePass: '📱 Skicka runt (Bordet)',
+    spaceStartBtn: '🚀 STARTA MISSION',
+    spaceGameOver: 'MISSION COMPLETE!',
+    spaceScore: 'POÄNG',
+    spaceWave: 'VÅG',
+    spaceTime: 'TID KVAR',
+    spaceLives: 'LIV',
+    spaceUfoBonus: 'MALTA GULD-UFO! +200 PTS!'
   }
 };
