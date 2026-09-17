@@ -160,57 +160,16 @@ function setChips(amount) {
   window.dispatchEvent(new CustomEvent('chips-updated', { detail: { chips: amount } }));
 }
 
-// ── 1. Roller Ticker HTML ───────────────────────────────
+// ── 1. Roller Ticker HTML (2 Dynamic Rows) ─────────────────
 export function renderMinigamesRoller() {
-  const games = [
+  // Row 1: Snabba Avgöranden & Vardagsbet (Fast Action, Instant Settle)
+  const row1Games = [
     {
-      id: 'flashlive',
-      name: t('arcade.flashlive'),
-      tag: t('arcade.flashliveTag'),
-      title: t('arcade.flashliveTitle'),
-      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(255, 51, 75, 0.9)); animation: pulse 1.5s infinite;">🔴</span>`
-    },
-    {
-      id: 'coin-flip',
-      name: t('arcade.coinFlip'),
-      tag: t('arcade.coinFlipTag'),
-      title: t('arcade.coinFlipTitle'),
-      iconHtml: `<img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />`
-    },
-    {
-      id: 'slots',
-      name: t('arcade.slots'),
-      tag: t('arcade.slotsTag'),
-      title: t('arcade.slotsTitle'),
-      iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
-    },
-    {
-      id: 'wheel',
-      name: t('arcade.wheel'),
-      tag: t('arcade.wheelTag'),
-      title: t('arcade.wheelTitle'),
-      iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
-    },
-    {
-      id: 'dice',
-      name: t('arcade.dice'),
-      tag: t('arcade.diceTag'),
-      title: t('arcade.diceTitle'),
-      iconHtml: `<img src="/dice-gold.png" alt="${t('arcade.dice')}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
-    },
-    {
-      id: 'blind10',
-      name: t('arcade.blind10'),
-      tag: t('arcade.blind10Tag'),
-      title: t('arcade.blind10Title'),
-      iconHtml: `<img src="/stopwatch-gold.png" alt="${t('arcade.blind10')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
-    },
-    {
-      id: 'anybet',
-      name: t('arcade.anybet'),
-      tag: t('arcade.anybetTag'),
-      title: t('arcade.anybetTitle'),
-      iconHtml: `<img src="/handshake-gold.png" alt="${t('arcade.anybet')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+      id: 'gimme',
+      name: t('arcade.gimme'),
+      tag: t('arcade.gimmeTag'),
+      title: t('arcade.gimmeTitle'),
+      iconHtml: `<img src="/golf-gimme.jpg" alt="${t('arcade.gimme')}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 2px 8px rgba(16,185,129,0.4); border: 1px solid rgba(16,185,129,0.6);" />`
     },
     {
       id: 'flashbet',
@@ -227,6 +186,59 @@ export function renderMinigamesRoller() {
       iconHtml: `<img src="/gold-card.png" alt="${t('arcade.notanRoulette')}" style="width: 40px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
+      id: 'coin-flip',
+      name: t('arcade.coinFlip'),
+      tag: t('arcade.coinFlipTag'),
+      title: t('arcade.coinFlipTitle'),
+      iconHtml: `<img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5); border: 1px solid var(--gold);" />`
+    },
+    {
+      id: 'dice',
+      name: t('arcade.dice'),
+      tag: t('arcade.diceTag'),
+      title: t('arcade.diceTitle'),
+      iconHtml: `<img src="/dice-gold.png" alt="${t('arcade.dice')}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'anybet',
+      name: t('arcade.anybet'),
+      tag: t('arcade.anybetTag'),
+      title: t('arcade.anybetTitle'),
+      iconHtml: `<img src="/handshake-gold.png" alt="${t('arcade.anybet')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'flashlive',
+      name: t('arcade.flashlive'),
+      tag: t('arcade.flashliveTag'),
+      title: t('arcade.flashliveTitle'),
+      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(255, 51, 75, 0.9)); animation: pulse 1.5s infinite;">🔴</span>`
+    }
+  ];
+
+  // Row 2: Party, Häng & Större Tävlingar (Group Entertainment & Jackpot)
+  const row2Games = [
+    {
+      id: 'mafia',
+      name: t('arcade.mafia'),
+      tag: t('arcade.mafiaTag'),
+      title: t('arcade.mafiaTitle'),
+      iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'blind10',
+      name: t('arcade.blind10'),
+      tag: t('arcade.blind10Tag'),
+      title: t('arcade.blind10Title'),
+      iconHtml: `<img src="/stopwatch-gold.png" alt="${t('arcade.blind10')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'wheel',
+      name: t('arcade.wheel'),
+      tag: t('arcade.wheelTag'),
+      title: t('arcade.wheelTitle'),
+      iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
       id: 'space-invaders',
       name: t('arcade.spaceInvaders'),
       tag: t('arcade.spaceInvadersTag'),
@@ -241,18 +253,11 @@ export function renderMinigamesRoller() {
       iconHtml: `<img src="/malta-jackpot.png" alt="${t('arcade.megaLotto')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));" />`
     },
     {
-      id: 'mafia',
-      name: t('arcade.mafia'),
-      tag: t('arcade.mafiaTag'),
-      title: t('arcade.mafiaTitle'),
-      iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
-    },
-    {
-      id: 'gimme',
-      name: t('arcade.gimme'),
-      tag: t('arcade.gimmeTag'),
-      title: t('arcade.gimmeTitle'),
-      iconHtml: `<img src="/golf-gimme.jpg" alt="${t('arcade.gimme')}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 2px 8px rgba(16,185,129,0.4); border: 1px solid rgba(16,185,129,0.6);" />`
+      id: 'slots',
+      name: t('arcade.slots'),
+      tag: t('arcade.slotsTag'),
+      title: t('arcade.slotsTitle'),
+      iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -266,8 +271,9 @@ export function renderMinigamesRoller() {
     </div>
   `;
 
-  // Duplicate cards for seamless infinite horizontal scroll loop
-  const groupCards = [...games, ...games].map(renderCard).join('');
+  // Duplicate cards for seamless infinite horizontal scroll loop on both rows
+  const groupCardsRow1 = [...row1Games, ...row1Games, ...row1Games].map(renderCard).join('');
+  const groupCardsRow2 = [...row2Games, ...row2Games, ...row2Games].map(renderCard).join('');
 
   return `
     <div class="minigames-section animate-in">
@@ -286,9 +292,20 @@ export function renderMinigamesRoller() {
           </span>
         </div>
       </div>
-      <div class="minigames-scroll-wrapper" id="minigames-ticker">
-        <div class="minigames-scroll-track" id="minigames-ticker-track">
-          ${groupCards}
+      
+      <div class="minigames-rows-container">
+        <!-- Row 1: Snabba Avgöranden & Vardagsbet -->
+        <div class="minigames-scroll-wrapper" id="minigames-ticker-row1">
+          <div class="minigames-scroll-track row-1" id="minigames-ticker-track1">
+            ${groupCardsRow1}
+          </div>
+        </div>
+
+        <!-- Row 2: Party, Häng & Större Tävlingar (With half-card offset) -->
+        <div class="minigames-scroll-wrapper" id="minigames-ticker-row2">
+          <div class="minigames-scroll-track row-2" id="minigames-ticker-track2">
+            ${groupCardsRow2}
+          </div>
         </div>
       </div>
     </div>
@@ -444,39 +461,40 @@ export function launchGameById(game) {
   else if (game === 'gimme') openGimmeModal();
 }
 
-// ── 3. Event Listeners for Roller (Native Swipe + Drag + Click) ──
+// ── 3. Event Listeners for Roller (Native Swipe + Drag + Click for both rows) ──
 export function attachMinigamesListeners() {
-  const container = document.getElementById('minigames-ticker');
-
   // "Visa alla ⊞" button
   document.getElementById('btn-arcade-view-all')?.addEventListener('click', () => {
     openAllArcadeGamesModal();
   });
 
-  if (container) {
+  const row1 = document.getElementById('minigames-ticker-row1');
+  const row2 = document.getElementById('minigames-ticker-row2');
+
+  function setupRowScroller(container, baseSpeed = 0.5) {
+    if (!container) return;
+
     let isDown = false;
     let startX = 0;
     let scrollLeft = 0;
     let hasDragged = false;
 
-    // ── Smooth Infinite Autoscroll Loop (requestAnimationFrame) ──
+    // ── Smooth Infinite Autoscroll Loop ──
     let isUserInteracting = false;
-    let autoScrollSpeed = 0.6; // Pixels per frame
     let autoScrollRaf = null;
     let resumeTimer = null;
 
     const step = () => {
       if (!isUserInteracting && container) {
-        // Calculate max wrap point based on single set width
-        const halfWidth = container.scrollWidth / 2;
+        const halfWidth = container.scrollWidth / 3;
         if (halfWidth > 0) {
-          if (container.scrollLeft >= halfWidth) {
+          if (container.scrollLeft >= halfWidth * 2) {
             container.scrollLeft -= halfWidth;
           } else if (container.scrollLeft <= 0) {
             container.scrollLeft += halfWidth;
           }
         }
-        container.scrollLeft += autoScrollSpeed;
+        container.scrollLeft += baseSpeed;
       }
       autoScrollRaf = requestAnimationFrame(step);
     };
@@ -504,9 +522,8 @@ export function attachMinigamesListeners() {
       }, delay);
     };
 
-    // User manual scroll / swipe event (handles momentum scrolling on touch & trackpads)
+    // User manual scroll / swipe event
     container.addEventListener('scroll', () => {
-      // If user is actively scrolling, ensure timer keeps restarting
       if (isUserInteracting) {
         resumeAutoScroll(2000);
       }
@@ -575,7 +592,7 @@ export function attachMinigamesListeners() {
       resumeAutoScroll(1500);
     }, { passive: true });
 
-    // Click handler for all cards
+    // Click handler for cards in this row
     container.addEventListener('click', (e) => {
       if (hasDragged) {
         e.preventDefault();
@@ -590,9 +607,12 @@ export function attachMinigamesListeners() {
       }
     });
 
-    // Start auto-scroll
     startAutoScroll();
   }
+
+  // Row 1 rolls slightly faster than Row 2 for a dynamic subtle parallax effect
+  setupRowScroller(row1, 0.55);
+  setupRowScroller(row2, 0.45);
 
   // Open Swishlistan modal
   document.getElementById('btn-open-swishlist')?.addEventListener('click', openSwishlistModal);
