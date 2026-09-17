@@ -310,6 +310,9 @@ export const en = {
   arcade: {
     title: 'Malta Betting Arcade',
     tagline: 'PLAY NOW',
+    viewAll: 'All Games ⊞',
+    allTitle: 'All Arcade Games',
+    allDesc: 'Pick any game to launch immediately:',
     coinFlip: 'Coin Flip',
     coinFlipTag: 'Head / Tails',
     coinFlipTitle: '🪙 Coin Flip',

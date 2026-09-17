@@ -310,6 +310,9 @@ export const sv = {
   arcade: {
     title: 'Malta Betting Arkad',
     tagline: 'SPELA DIREKT',
+    viewAll: 'Alla Spel ⊞',
+    allTitle: 'Alla Spel i Arkaden',
+    allDesc: 'Välj ett spel för att starta direkt:',
     coinFlip: 'Slantsingling',
     coinFlipTag: 'Head / Tails',
     coinFlipTitle: '🪙 Singla Slant',

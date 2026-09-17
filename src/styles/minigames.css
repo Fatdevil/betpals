@@ -26,6 +26,35 @@
   gap: 6px;
 }
 
+/* Header View All Button */
+.arcade-view-all-btn {
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  color: var(--gold);
+  font-family: var(--font-heading);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arcade-view-all-btn:hover {
+  background: rgba(255, 215, 0, 0.25);
+  border-color: var(--gold);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.25);
+}
+
+.arcade-view-all-btn:active {
+  transform: scale(0.96);
+}
+
 /* Continuous Ticker / Marquee Container with smooth edge fades */
 .minigames-ticker-container {
   position: relative;
@@ -34,12 +63,19 @@
   mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
   user-select: none;
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.minigames-ticker-container.is-dragging {
+  cursor: grabbing;
 }
 
 .minigames-ticker-track {
   display: flex;
   gap: 12px;
   width: max-content;
+  will-change: transform;
 }
 
 .minigames-ticker-group {
@@ -65,6 +101,101 @@
 .minigames-ticker-container:hover .minigames-ticker-group,
 .minigames-ticker-container.paused .minigames-ticker-group {
   animation-play-state: paused;
+}
+
+/* ── All Games Modal Grid ──────────────────────────────── */
+.arcade-all-modal {
+  padding: var(--space-xs) 0;
+}
+
+.arcade-all-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 10px;
+  max-height: 68vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@media (max-width: 480px) {
+  .arcade-all-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+}
+
+.arcade-grid-card {
+  background: linear-gradient(145deg, rgba(30, 30, 48, 0.95), rgba(16, 16, 26, 0.98));
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: var(--radius-md);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  position: relative;
+}
+
+.arcade-grid-card:hover {
+  transform: translateY(-3px) scale(1.03);
+  border-color: var(--gold);
+  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.28);
+  background: linear-gradient(145deg, rgba(38, 38, 60, 0.95), rgba(22, 22, 34, 0.98));
+}
+
+.arcade-grid-card:active {
+  transform: scale(0.97);
+}
+
+.arcade-grid-icon {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.5));
+}
+
+.arcade-grid-info {
+  width: 100%;
+}
+
+.arcade-grid-title-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.arcade-grid-name {
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.arcade-grid-tag {
+  font-size: 0.58rem;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.9;
+}
+
+.arcade-grid-desc {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* Individual Game Card in Ticker */

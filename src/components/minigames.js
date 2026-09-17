@@ -192,13 +192,16 @@ export function renderMinigamesRoller() {
           <span>🎰</span> <span>${t('arcade.title')}</span>
         </div>
         <div class="flex gap-xs" style="align-items: center;">
+          <button id="btn-arcade-view-all" class="arcade-view-all-btn" title="${t('arcade.allTitle')}">
+            ${t('arcade.viewAll')}
+          </button>
           <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
             ${t('arcade.tagline')}
           </span>
         </div>
       </div>
       <div class="minigames-ticker-container" id="minigames-ticker">
-        <div class="minigames-ticker-track">
+        <div class="minigames-ticker-track" id="minigames-ticker-track">
           <div class="minigames-ticker-group">
             ${groupCards}
           </div>
@@ -211,35 +214,253 @@ export function renderMinigamesRoller() {
   `;
 }
 
-// ── 2. Event Listeners for Roller ───────────────────────
+// ── 2. "All Games" Grid Modal ────────────────────────────
+export function openAllArcadeGamesModal() {
+  const isEn = getLang() === 'en';
+  const games = [
+    {
+      id: 'flashlive',
+      name: t('arcade.flashlive'),
+      tag: t('arcade.flashliveTag'),
+      desc: isEn ? 'Stream live video with 60s live voting bets' : 'Sänd livevideo med 60s blixtbets direkt till polarna',
+      iconHtml: `<span style="font-size: 2.4rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(255, 51, 75, 0.9)); animation: pulse 1.5s infinite;">🔴</span>`
+    },
+    {
+      id: 'coin-flip',
+      name: t('arcade.coinFlip'),
+      tag: t('arcade.coinFlipTag'),
+      desc: isEn ? 'Flip solo or challenge a friend to a Swish duel' : 'Singla själv eller utmana en kompis i Swish-duell',
+      iconHtml: `<img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 8px rgba(0,0,0,0.5); border: 2px solid var(--gold);" />`
+    },
+    {
+      id: 'slots',
+      name: t('arcade.slots'),
+      tag: t('arcade.slotsTag'),
+      desc: isEn ? '3-reel Vegas slot machine with free chips & jackpot' : '3-hjulig Vegas-bandit med gratismarker & jackpot',
+      iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'wheel',
+      name: t('arcade.wheel'),
+      tag: t('arcade.wheelTag'),
+      desc: isEn ? 'Wheel of Fortune with custom stakes & party mode' : 'Lyckohjul med egna insatser & festläge',
+      iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'dice',
+      name: t('arcade.dice'),
+      tag: t('arcade.diceTag'),
+      desc: isEn ? 'Dice duel with real-time rolls and settlements' : 'Tärningsduell i realtid mot vännerna',
+      iconHtml: `<img src="/dice-gold.png" alt="${t('arcade.dice')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'blind10',
+      name: t('arcade.blind10'),
+      tag: t('arcade.blind10Tag'),
+      desc: isEn ? 'Hit exactly 10.00s blindly — nearest wins!' : 'Pricka exakt 10.00 sekunder i blindo — närmast vinner!',
+      iconHtml: `<img src="/stopwatch-gold.png" alt="${t('arcade.blind10')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'anybet',
+      name: t('arcade.anybet'),
+      tag: t('arcade.anybetTag'),
+      desc: isEn ? 'Create any custom bet with custom odds or pools' : 'Skapa vilket personligt vad som helst med polarna',
+      iconHtml: `<img src="/handshake-gold.png" alt="${t('arcade.anybet')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'flashbet',
+      name: t('arcade.flashbet'),
+      tag: t('arcade.flashbetTag'),
+      desc: isEn ? 'Lightning 60s bet with instant push to friends' : 'Blixtsnabbt 60s-bet med direkt push-notis till vänner',
+      iconHtml: `<span style="font-size: 2.6rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.8));">⚡</span>`
+    },
+    {
+      id: 'notan-roulette',
+      name: t('arcade.notanRoulette'),
+      tag: t('arcade.notanRouletteTag'),
+      desc: isEn ? 'Who pays the dinner bill? Live spin or Even Steven' : 'Vem tar hela notan? Spinn live eller Even Steven',
+      iconHtml: `<img src="/gold-card.png" alt="${t('arcade.notanRoulette')}" style="width: 44px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    }
+  ];
+
+  const contentHtml = `
+    <div class="arcade-all-modal">
+      <p class="text-secondary mb-md" style="font-size: 0.85rem; text-align: center;">
+        ${t('arcade.allDesc')}
+      </p>
+      <div class="arcade-all-grid">
+        ${games.map(g => `
+          <div class="arcade-grid-card" data-arcade-launch="${g.id}">
+            <div class="arcade-grid-icon">
+              ${g.iconHtml}
+            </div>
+            <div class="arcade-grid-info">
+              <div class="arcade-grid-title-row">
+                <span class="arcade-grid-name">${g.name}</span>
+                <span class="arcade-grid-tag">${g.tag}</span>
+              </div>
+              <p class="arcade-grid-desc">${escapeHtml(g.desc)}</p>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  const { close, root } = showModal(`🎰 ${t('arcade.allTitle')}`, contentHtml);
+
+  root.querySelectorAll('[data-arcade-launch]').forEach(card => {
+    card.addEventListener('click', () => {
+      const game = card.getAttribute('data-arcade-launch');
+      close();
+      launchGameById(game);
+    });
+  });
+}
+
+// Helper to launch any game by ID
+export function launchGameById(game) {
+  if (game === 'flashlive') openInstantLiveModal();
+  else if (game === 'coin-flip') openCoinFlipModal();
+  else if (game === 'slots') openSlotsModal();
+  else if (game === 'wheel') openWheelModal();
+  else if (game === 'dice') openDiceModal();
+  else if (game === 'blind10') openBlind10Modal();
+  else if (game === 'anybet') openAnyBetModal();
+  else if (game === 'flashbet') openFlashBetModal();
+  else if (game === 'notan-roulette') openNotanRouletteModal();
+}
+
+// ── 3. Event Listeners for Roller (Touch/Drag + Click) ───
 export function attachMinigamesListeners() {
   const ticker = document.getElementById('minigames-ticker');
-  if (ticker) {
-    // Touch handlers to pause smoothly when touched on mobile
-    ticker.addEventListener('touchstart', () => {
+  const track = document.getElementById('minigames-ticker-track');
+
+  // "Visa alla ⊞" button
+  document.getElementById('btn-arcade-view-all')?.addEventListener('click', () => {
+    openAllArcadeGamesModal();
+  });
+
+  if (ticker && track) {
+    let isPointerDown = false;
+    let startX = 0;
+    let currentTranslateX = 0;
+    let dragDistance = 0;
+    let isDragging = false;
+    let resumeTimeout = null;
+
+    // Helper: calculate current computed transform translateX of group 1
+    const getGroupTranslateX = () => {
+      const group = track.querySelector('.minigames-ticker-group');
+      if (!group) return 0;
+      const matrix = window.getComputedStyle(group).transform;
+      if (matrix === 'none' || !matrix) return 0;
+      const values = matrix.split('(')[1].split(')')[0].split(',');
+      return parseFloat(values[4]) || 0;
+    };
+
+    const handleDragStart = (clientX) => {
+      isPointerDown = true;
+      startX = clientX;
+      dragDistance = 0;
+      isDragging = false;
+      if (resumeTimeout) clearTimeout(resumeTimeout);
+
+      // Freeze marquee in current visual position
+      const computedX = getGroupTranslateX();
+      currentTranslateX = computedX;
       ticker.classList.add('paused');
-    }, { passive: true });
+      ticker.classList.add('is-dragging');
+      track.style.transform = `translateX(${currentTranslateX}px)`;
+    };
 
-    ticker.addEventListener('touchend', () => {
+    const handleDragMove = (clientX) => {
+      if (!isPointerDown) return;
+      const deltaX = clientX - startX;
+      dragDistance = Math.abs(deltaX);
+
+      if (dragDistance > 6) {
+        isDragging = true;
+      }
+
+      // Move track with 1:1 responsive manual drag
+      track.style.transform = `translateX(${currentTranslateX + deltaX}px)`;
+    };
+
+    const handleDragEnd = () => {
+      if (!isPointerDown) return;
+      isPointerDown = false;
+      ticker.classList.remove('is-dragging');
+
+      // Update current offset
+      const matrix = window.getComputedStyle(track).transform;
+      if (matrix !== 'none' && matrix) {
+        const values = matrix.split('(')[1].split(')')[0].split(',');
+        currentTranslateX = parseFloat(values[4]) || 0;
+      }
+
+      // Resume smooth animation after 2.5s idle
+      resumeTimeout = setTimeout(() => {
+        track.style.transition = 'transform 0.4s ease-out';
+        track.style.transform = '';
+        setTimeout(() => {
+          track.style.transition = '';
+          ticker.classList.remove('paused');
+        }, 400);
+      }, 2500);
+
+      // Reset isDragging flag slightly after pointerup so click listener can read it
       setTimeout(() => {
-        ticker.classList.remove('paused');
-      }, 1200);
+        isDragging = false;
+      }, 80);
+    };
+
+    // Touch events
+    ticker.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches.length === 1) {
+        handleDragStart(e.touches[0].clientX);
+      }
     }, { passive: true });
 
-    // Delegated click handler on the ticker cards
+    window.addEventListener('touchmove', (e) => {
+      if (isPointerDown && e.touches && e.touches.length > 0) {
+        handleDragMove(e.touches[0].clientX);
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', handleDragEnd, { passive: true });
+    window.addEventListener('touchcancel', handleDragEnd, { passive: true });
+
+    // Mouse drag events (Desktop)
+    ticker.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // Only primary button
+      handleDragStart(e.clientX);
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (isPointerDown) {
+        handleDragMove(e.clientX);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isPointerDown) {
+        handleDragEnd();
+      }
+    });
+
+    // Delegated click handler on cards
     ticker.addEventListener('click', (e) => {
+      // If user was actively dragging/swiping, suppress the click
+      if (isDragging || dragDistance > 6) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const card = e.target.closest('.minigame-card');
       if (!card) return;
       const game = card.getAttribute('data-game');
-      if (game === 'flashlive') openInstantLiveModal();
-      else if (game === 'coin-flip') openCoinFlipModal();
-      else if (game === 'slots') openSlotsModal();
-      else if (game === 'wheel') openWheelModal();
-      else if (game === 'dice') openDiceModal();
-      else if (game === 'blind10') openBlind10Modal();
-      else if (game === 'anybet') openAnyBetModal();
-      else if (game === 'flashbet') openFlashBetModal();
-      else if (game === 'notan-roulette') openNotanRouletteModal();
+      launchGameById(game);
     });
   }
 
