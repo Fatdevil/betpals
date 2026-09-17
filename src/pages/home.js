@@ -6,14 +6,20 @@ import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners, openMegaLottoModal } from '../components/minigames.js';
 import { openLiveStreamModal } from '../components/livestream.js';
 import { getStoredUser } from '../auth.js';
+import { openAppQrModal } from '../components/appQrModal.js';
 
 export async function renderHome() {
+  const isEn = getLang() === 'en';
   const content = document.getElementById('page-content');
   content.innerHTML = `
     <div id="home-live-banner-container"></div>
     <div class="page-header animate-in" style="padding-top: 0; margin-top: -4px; margin-bottom: 4px;">
-      <div class="home-logo-wrap" style="max-width: 235px; margin: 0 auto;">
+      <div class="home-logo-wrap" id="home-logo-btn" role="button" tabindex="0" style="max-width: 235px; margin: 0 auto; cursor: pointer; position: relative;" title="${isEn ? 'Click to share app & show QR code 📱' : 'Klicka för att dela appen & visa QR-kod 📱'}">
         <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
+        <div class="home-logo-qr-badge" style="display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 5px; font-size: 0.68rem; color: var(--gold); font-weight: 700; letter-spacing: 0.05em; opacity: 0.9;">
+          <span style="font-size: 0.75rem;">📱</span>
+          <span>${isEn ? 'Share app · Show QR' : 'Dela appen · Visa QR'}</span>
+        </div>
       </div>
     </div>
     ${renderMinigamesRoller()}
@@ -23,6 +29,16 @@ export async function renderHome() {
       <div class="text-center text-muted mt-lg">${t('common.loading')}</div>
     </div>
   `;
+
+  document.getElementById('home-logo-btn')?.addEventListener('click', () => {
+    openAppQrModal();
+  });
+  document.getElementById('home-logo-btn')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openAppQrModal();
+    }
+  });
 
   attachMinigamesListeners();
   initHomeLiveBanners();

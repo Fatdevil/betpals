@@ -2362,6 +2362,28 @@ app.get('/api/minigames/party/:query/qr', async (req, res) => {
   }
 });
 
+// General App QR Code (for sharing the web app)
+app.get('/api/app/qr', async (req, res) => {
+  const defaultBase = `${req.protocol}://${req.get('host').replace('3001', '5173')}`;
+  let targetUrl = req.query.url || defaultBase;
+  try {
+    new URL(targetUrl);
+  } catch {
+    targetUrl = defaultBase;
+  }
+
+  try {
+    const qrDataUrl = await QRCode.toDataURL(targetUrl, {
+      width: 360,
+      margin: 2,
+      color: { dark: '#FFD700', light: '#07070e' }
+    });
+    res.json({ qr: qrDataUrl, url: targetUrl });
+  } catch (err) {
+    res.status(500).json({ error: 'Kunde inte generera QR-kod' });
+  }
+});
+
 app.post('/api/minigames/party/join', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });

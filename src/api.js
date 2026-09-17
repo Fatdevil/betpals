@@ -285,3 +285,7 @@ export const joinShlLeague = (code, data) => request('/shl-fantasy/' + code + '/
 export const inviteFriendsToShlLeague = (code, friendIds) => request('/shl-fantasy/' + code + '/invite-friends', { method: 'POST', body: { friendIds } });
 export const settleShlLeague = (code, data) => request('/shl-fantasy/' + code + '/settle', { method: 'POST', body: data });
 export const toggleShlPaid = (code, data) => request('/shl-fantasy/' + code + '/toggle-paid', { method: 'POST', body: data });
+
+// ── App QR Code ───────────────────────────────────────
+export const getAppQr = (url) => request('/app/qr' + (url ? `?url=${encodeURIComponent(url)}` : ''));
+
