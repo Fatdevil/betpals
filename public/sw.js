@@ -15,7 +15,7 @@ const STATIC_ASSETS = [
   '/space-invaders.png',
   '/malta-jackpot.png',
   '/mafia-gold.png',
-  '/golf-gimme.jpg'
+  '/golf-gimme.png'
 ];
 
 // Install — cache static assets safely

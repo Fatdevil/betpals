@@ -169,7 +169,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.gimme'),
       tag: t('arcade.gimmeTag'),
       title: t('arcade.gimmeTitle'),
-      iconHtml: `<img src="/golf-gimme.jpg" alt="${t('arcade.gimme')}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 2px 8px rgba(16,185,129,0.4); border: 1px solid rgba(16,185,129,0.6);" />`
+      iconHtml: `<img src="/golf-gimme.png" alt="${t('arcade.gimme')}" style="width: 42px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'flashbet',
@@ -405,7 +405,7 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.gimme'),
       tag: t('arcade.gimmeTag'),
       desc: isEn ? 'Live AR golf putt referee! Instantly settle if the ball is within the gimme circle using phone camera' : 'Live AR-domare på greenen! Avgör blixtsnabbt om bollen är inom gimme-zonen med mobilkameran',
-      iconHtml: `<img src="/golf-gimme.jpg" alt="${t('arcade.gimme')}" style="width: 44px; height: 44px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 8px rgba(16,185,129,0.5); border: 1px solid rgba(16,185,129,0.6);" />`
+      iconHtml: `<img src="/golf-gimme.png" alt="${t('arcade.gimme')}" style="width: 48px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -10145,7 +10145,7 @@ export async function openGimmeModal() {
     'No free rides today! Show us what you got! 🔥'
   ];
 
-  const modalTitle = `<img src="/golf-gimme.jpg" alt="" style="width: 24px; height: 24px; border-radius: 6px; object-fit: cover; vertical-align: -4px; margin-right: 6px;" /> ${isEn ? 'Is it a Gimme? ⛳️' : 'Is it a Gimme? ⛳️'}`;
+  const modalTitle = `<img src="/golf-gimme.png" alt="" style="width: 28px; height: 24px; object-fit: contain; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? 'Is it a Gimme? ⛳️' : 'Is it a Gimme? ⛳️'}`;
 
   const contentHtml = `
     <div class="gimme-modal-container" style="max-width: 480px; margin: 0 auto; text-align: center; user-select: none;">
