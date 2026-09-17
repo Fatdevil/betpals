@@ -11,8 +11,8 @@ export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
     <div id="home-live-banner-container"></div>
-    <div class="page-header animate-in" style="padding-top: 2px; margin-bottom: 6px;">
-      <div class="home-logo-wrap" style="max-width: 250px; margin: 0 auto;">
+    <div class="page-header animate-in" style="padding-top: 0; margin-top: -4px; margin-bottom: 4px;">
+      <div class="home-logo-wrap" style="max-width: 235px; margin: 0 auto;">
         <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
       </div>
     </div>

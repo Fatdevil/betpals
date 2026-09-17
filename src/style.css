@@ -360,8 +360,8 @@ body::before {
 /* ── Page Content ─────────────────────────────────── */
 #page-content {
   flex: 1;
-  padding: var(--space-lg) var(--space-md);
-  padding-top: calc(var(--header-height) + var(--space-lg));
+  padding: var(--space-md) var(--space-md);
+  padding-top: calc(var(--header-height) + 8px);
   padding-bottom: calc(var(--navbar-height) + var(--space-lg));
   max-width: 600px;
   margin: 0 auto;
