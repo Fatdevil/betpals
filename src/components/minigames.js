@@ -181,8 +181,8 @@ export function renderMinigamesRoller() {
     </div>
   `;
 
-  // Repeat twice per group so the loop is smooth and wide on any screen
-  const groupCards = [...games, ...games].map(renderCard).join('');
+  // Single set of games in scroll track (native swipeable with momentum)
+  const groupCards = games.map(renderCard).join('');
 
   return `
     <div class="minigames-section animate-in">
@@ -200,14 +200,9 @@ export function renderMinigamesRoller() {
           </span>
         </div>
       </div>
-      <div class="minigames-ticker-container" id="minigames-ticker">
-        <div class="minigames-ticker-track" id="minigames-ticker-track">
-          <div class="minigames-ticker-group">
-            ${groupCards}
-          </div>
-          <div class="minigames-ticker-group" aria-hidden="true">
-            ${groupCards}
-          </div>
+      <div class="minigames-scroll-wrapper" id="minigames-ticker">
+        <div class="minigames-scroll-track" id="minigames-ticker-track">
+          ${groupCards}
         </div>
       </div>
     </div>
@@ -331,128 +326,73 @@ export function launchGameById(game) {
   else if (game === 'notan-roulette') openNotanRouletteModal();
 }
 
-// ── 3. Event Listeners for Roller (Touch/Drag + Click) ───
+// ── 3. Event Listeners for Roller (Native Swipe + Drag + Click) ──
 export function attachMinigamesListeners() {
-  const ticker = document.getElementById('minigames-ticker');
-  const track = document.getElementById('minigames-ticker-track');
+  const container = document.getElementById('minigames-ticker');
 
   // "Visa alla ⊞" button
   document.getElementById('btn-arcade-view-all')?.addEventListener('click', () => {
     openAllArcadeGamesModal();
   });
 
-  if (ticker && track) {
-    let isPointerDown = false;
+  if (container) {
+    let isDown = false;
     let startX = 0;
-    let currentTranslateX = 0;
-    let dragDistance = 0;
-    let isDragging = false;
-    let resumeTimeout = null;
+    let scrollLeft = 0;
+    let hasDragged = false;
 
-    // Helper: calculate current computed transform translateX of group 1
-    const getGroupTranslateX = () => {
-      const group = track.querySelector('.minigames-ticker-group');
-      if (!group) return 0;
-      const matrix = window.getComputedStyle(group).transform;
-      if (matrix === 'none' || !matrix) return 0;
-      const values = matrix.split('(')[1].split(')')[0].split(',');
-      return parseFloat(values[4]) || 0;
-    };
-
-    const handleDragStart = (clientX) => {
-      isPointerDown = true;
-      startX = clientX;
-      dragDistance = 0;
-      isDragging = false;
-      if (resumeTimeout) clearTimeout(resumeTimeout);
-
-      // Freeze marquee in current visual position
-      const computedX = getGroupTranslateX();
-      currentTranslateX = computedX;
-      ticker.classList.add('paused');
-      ticker.classList.add('is-dragging');
-      track.style.transform = `translateX(${currentTranslateX}px)`;
-    };
-
-    const handleDragMove = (clientX) => {
-      if (!isPointerDown) return;
-      const deltaX = clientX - startX;
-      dragDistance = Math.abs(deltaX);
-
-      if (dragDistance > 6) {
-        isDragging = true;
-      }
-
-      // Move track with 1:1 responsive manual drag
-      track.style.transform = `translateX(${currentTranslateX + deltaX}px)`;
-    };
-
-    const handleDragEnd = () => {
-      if (!isPointerDown) return;
-      isPointerDown = false;
-      ticker.classList.remove('is-dragging');
-
-      // Update current offset
-      const matrix = window.getComputedStyle(track).transform;
-      if (matrix !== 'none' && matrix) {
-        const values = matrix.split('(')[1].split(')')[0].split(',');
-        currentTranslateX = parseFloat(values[4]) || 0;
-      }
-
-      // Resume smooth animation after 2.5s idle
-      resumeTimeout = setTimeout(() => {
-        track.style.transition = 'transform 0.4s ease-out';
-        track.style.transform = '';
-        setTimeout(() => {
-          track.style.transition = '';
-          ticker.classList.remove('paused');
-        }, 400);
-      }, 2500);
-
-      // Reset isDragging flag slightly after pointerup so click listener can read it
-      setTimeout(() => {
-        isDragging = false;
-      }, 80);
-    };
-
-    // Touch events
-    ticker.addEventListener('touchstart', (e) => {
-      if (e.touches && e.touches.length === 1) {
-        handleDragStart(e.touches[0].clientX);
-      }
-    }, { passive: true });
-
-    window.addEventListener('touchmove', (e) => {
-      if (isPointerDown && e.touches && e.touches.length > 0) {
-        handleDragMove(e.touches[0].clientX);
-      }
-    }, { passive: true });
-
-    window.addEventListener('touchend', handleDragEnd, { passive: true });
-    window.addEventListener('touchcancel', handleDragEnd, { passive: true });
-
-    // Mouse drag events (Desktop)
-    ticker.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return; // Only primary button
-      handleDragStart(e.clientX);
+    // Mouse drag support for desktop
+    container.addEventListener('mousedown', (e) => {
+      // Only main button
+      if (e.button !== 0) return;
+      isDown = true;
+      hasDragged = false;
+      container.classList.add('is-dragging');
+      startX = e.pageX - container.offsetLeft;
+      scrollLeft = container.scrollLeft;
     });
 
     window.addEventListener('mousemove', (e) => {
-      if (isPointerDown) {
-        handleDragMove(e.clientX);
+      if (!isDown) return;
+      const x = e.pageX - container.offsetLeft;
+      const walk = (x - startX);
+      if (Math.abs(walk) > 5) {
+        hasDragged = true;
       }
+      container.scrollLeft = scrollLeft - walk;
     });
 
     window.addEventListener('mouseup', () => {
-      if (isPointerDown) {
-        handleDragEnd();
+      if (isDown) {
+        isDown = false;
+        container.classList.remove('is-dragging');
+        setTimeout(() => {
+          hasDragged = false;
+        }, 50);
       }
     });
 
-    // Delegated click handler on cards
-    ticker.addEventListener('click', (e) => {
-      // If user was actively dragging/swiping, suppress the click
-      if (isDragging || dragDistance > 6) {
+    // Touch support (mobile handles native momentum scroll, we just track hasDragged)
+    let touchStartX = 0;
+    container.addEventListener('touchstart', (e) => {
+      hasDragged = false;
+      if (e.touches && e.touches.length > 0) {
+        touchStartX = e.touches[0].clientX;
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      if (e.touches && e.touches.length > 0) {
+        const diff = Math.abs(e.touches[0].clientX - touchStartX);
+        if (diff > 8) {
+          hasDragged = true;
+        }
+      }
+    }, { passive: true });
+
+    // Click handler for all cards
+    container.addEventListener('click', (e) => {
+      if (hasDragged) {
         e.preventDefault();
         e.stopPropagation();
         return;
@@ -460,7 +400,9 @@ export function attachMinigamesListeners() {
       const card = e.target.closest('.minigame-card');
       if (!card) return;
       const game = card.getAttribute('data-game');
-      launchGameById(game);
+      if (game) {
+        launchGameById(game);
+      }
     });
   }
 

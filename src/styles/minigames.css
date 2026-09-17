@@ -55,52 +55,34 @@
   transform: scale(0.96);
 }
 
-/* Continuous Ticker / Marquee Container with smooth edge fades */
-.minigames-ticker-container {
+/* ── Native Smooth Horizontal Scroll Track (Swipe & Touch) ── */
+.minigames-scroll-wrapper {
   position: relative;
-  overflow: hidden;
-  padding: 4px 0 10px 0;
-  mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+  padding: 4px 4px 10px 4px;
   user-select: none;
   cursor: grab;
-  touch-action: pan-y;
+  scroll-behavior: smooth;
 }
 
-.minigames-ticker-container.is-dragging {
+.minigames-scroll-wrapper::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.minigames-scroll-wrapper.is-dragging {
   cursor: grabbing;
+  scroll-behavior: auto;
 }
 
-.minigames-ticker-track {
+.minigames-scroll-track {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   width: max-content;
-  will-change: transform;
-}
-
-.minigames-ticker-group {
-  display: flex;
-  gap: 12px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-around;
-  animation: ticker-slide 22s linear infinite;
-  will-change: transform;
-}
-
-@keyframes ticker-slide {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-100%);
-  }
-}
-
-/* Pause on hover on desktop or when touched on mobile */
-.minigames-ticker-container:hover .minigames-ticker-group,
-.minigames-ticker-container.paused .minigames-ticker-group {
-  animation-play-state: paused;
+  padding: 0 4px;
 }
 
 /* ── All Games Modal Grid ──────────────────────────────── */
@@ -216,6 +198,11 @@
   transition: transform 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.2s, box-shadow 0.2s;
   position: relative;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.minigame-card * {
+  pointer-events: none;
 }
 
 @media (max-width: 480px) {
