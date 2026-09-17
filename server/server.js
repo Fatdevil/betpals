@@ -48,9 +48,22 @@ wss.on('connection', (ws, req) => {
   const subscribedDuels = new Set();
   const subscribedParties = new Set();
 
+  function tryJoinLive(lId) {
+    if (!lId) return false;
+    const session = activeFlashLiveStreams.get(lId);
+    if (!session) return false;
+    if (boundUserId && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)))) {
+      subscribedLives.add(lId);
+      if (!liveClients.has(lId)) liveClients.set(lId, new Set());
+      liveClients.get(lId).add(ws);
+      return true;
+    }
+    return false;
+  }
+
+  const subscribedLives = new Set();
   if (liveIdParam) {
-    if (!liveClients.has(liveIdParam)) liveClients.set(liveIdParam, new Set());
-    liveClients.get(liveIdParam).add(ws);
+    tryJoinLive(liveIdParam);
   }
 
   if (userToken) {
@@ -59,6 +72,9 @@ wss.on('connection', (ws, req) => {
       boundUserId = user.id;
       if (!userClients.has(user.id)) userClients.set(user.id, new Set());
       userClients.get(user.id).add(ws);
+      if (liveIdParam) {
+        tryJoinLive(liveIdParam);
+      }
     }
   }
 
@@ -114,13 +130,11 @@ wss.on('connection', (ws, req) => {
           userClients.get(user.id).add(ws);
         }
       } else if (msg.type === 'join_live' && msg.liveId) {
-        boundLiveId = msg.liveId;
-        if (!liveClients.has(msg.liveId)) liveClients.set(msg.liveId, new Set());
-        liveClients.get(msg.liveId).add(ws);
+        tryJoinLive(msg.liveId);
       } else if (msg.type === 'leave_live' && msg.liveId) {
+        subscribedLives.delete(msg.liveId);
         liveClients.get(msg.liveId)?.delete(ws);
         if (liveClients.get(msg.liveId)?.size === 0) liveClients.delete(msg.liveId);
-        if (boundLiveId === msg.liveId) boundLiveId = null;
       } else if ((msg.type === 'join_duel' || msg.action === 'join_duel') && (msg.duelId || msg.id)) {
         const dId = msg.duelId || msg.id;
         tryJoinDuel(dId);
@@ -161,25 +175,33 @@ wss.on('connection', (ws, req) => {
           }, ws); // exclude sender
         }
       } else if (msg.type === 'live_stream_start' && msg.tournamentCode) {
-        broadcastToEvent(msg.tournamentCode, {
-          type: 'tournament_live_started',
-          tournamentCode: msg.tournamentCode,
-          broadcasterName: msg.broadcasterName || 'En kompis'
-        }, ws);
+        const tourney = db.getTournamentByCode ? db.getTournamentByCode(msg.tournamentCode) : null;
+        if (tourney && boundUserId && tourney.creator_id === boundUserId) {
+          const authUser = db.getUserById(boundUserId);
+          broadcastToEvent(msg.tournamentCode, {
+            type: 'tournament_live_started',
+            tournamentCode: msg.tournamentCode,
+            broadcasterName: authUser ? (authUser.nickname || authUser.real_name) : 'Värden'
+          }, ws);
+        }
       } else if (msg.type === 'live_stream_stop' && msg.tournamentCode) {
-        broadcastToEvent(msg.tournamentCode, {
-          type: 'tournament_live_stopped',
-          tournamentCode: msg.tournamentCode
-        }, ws);
+        const tourney = db.getTournamentByCode ? db.getTournamentByCode(msg.tournamentCode) : null;
+        if (tourney && boundUserId && tourney.creator_id === boundUserId) {
+          broadcastToEvent(msg.tournamentCode, {
+            type: 'tournament_live_stopped',
+            tournamentCode: msg.tournamentCode
+          }, ws);
+        }
       } else if (msg.type === 'live_comment' && (msg.tournamentCode || msg.liveId) && msg.text) {
         const cleanText = String(msg.text).slice(0, 140).trim();
-        if (cleanText) {
+        if (cleanText && boundUserId) {
+          const authUser = db.getUserById(boundUserId);
           const payload = {
             type: 'live_comment_received',
             tournamentCode: msg.tournamentCode || null,
             liveId: msg.liveId || null,
-            userName: String(msg.userName || 'Kompis').slice(0, 30),
-            userAvatar: String(msg.userAvatar || '💬').slice(0, 5),
+            userName: authUser ? (authUser.nickname || authUser.real_name) : 'Kompis',
+            userAvatar: authUser ? (authUser.avatar_emoji || '💬') : '💬',
             text: cleanText,
             isBetNotice: !!msg.isBetNotice,
             timestamp: Date.now()
@@ -201,10 +223,12 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    if (boundLiveId) {
-      liveClients.get(boundLiveId)?.delete(ws);
-      if (liveClients.get(boundLiveId)?.size === 0) liveClients.delete(boundLiveId);
+    for (const lId of subscribedLives) {
+      liveClients.get(lId)?.delete(ws);
+      if (liveClients.get(lId)?.size === 0) liveClients.delete(lId);
     }
+    subscribedLives.clear();
+
     if (boundEventCode) {
       eventClients.get(boundEventCode)?.delete(ws);
       if (eventClients.get(boundEventCode)?.size === 0) eventClients.delete(boundEventCode);
@@ -387,11 +411,63 @@ app.post('/api/admin/setup', (req, res) => {
   res.json({ ok: true });
 });
 
+// Admin PIN Rate Limiter (IP based)
+const adminPinAttempts = new Map(); // ip -> { count: number, lockedUntil: number }
+
+function checkAdminRateLimit(ip) {
+  const record = adminPinAttempts.get(ip);
+  if (!record) return { allowed: true };
+  if (record.lockedUntil && Date.now() < record.lockedUntil) {
+    const minutesLeft = Math.max(1, Math.ceil((record.lockedUntil - Date.now()) / 60000));
+    return { allowed: false, minutesLeft };
+  }
+  if (record.lockedUntil && Date.now() >= record.lockedUntil) {
+    adminPinAttempts.delete(ip);
+    return { allowed: true };
+  }
+  return { allowed: true, count: record.count };
+}
+
+function recordFailedAdminAttempt(ip) {
+  const record = adminPinAttempts.get(ip) || { count: 0, lockedUntil: 0 };
+  record.count++;
+  if (record.count >= 5) {
+    record.lockedUntil = Date.now() + 15 * 60 * 1000;
+  }
+  adminPinAttempts.set(ip, record);
+  return record;
+}
+
+function clearAdminAttempts(ip) {
+  adminPinAttempts.delete(ip);
+}
+
 app.post('/api/admin/verify', (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limitCheck = checkAdminRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `För många felaktiga PIN-försök. Admin-inloggning spärrad i ${limitCheck.minutesLeft} minuter.`
+    });
+  }
+
   const { pin } = req.body;
   const stored = db.getAdminPin();
   if (!stored) return res.json({ verified: false, needsSetup: true });
-  res.json({ verified: hashPin(pin) === stored });
+
+  const ok = hashPin(pin) === stored;
+  if (!ok) {
+    const rec = recordFailedAdminAttempt(ip);
+    if (rec.count >= 5) {
+      return res.status(429).json({
+        error: 'För många felaktiga PIN-försök. Admin-inloggning har spärrats i 15 minuter.'
+      });
+    }
+    return res.status(401).json({ verified: false, error: 'Felaktig PIN-kod' });
+  }
+
+  clearAdminAttempts(ip);
+  res.json({ verified: true });
 });
 
 app.get('/api/admin/status', (req, res) => {
@@ -400,16 +476,40 @@ app.get('/api/admin/status', (req, res) => {
 
 // Get all users (Superadmin only)
 app.post('/api/admin/users', (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limitCheck = checkAdminRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
+    });
+  }
+
   const { pin } = req.body;
-  if (!pin || !verifyPin(pin)) return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  if (!pin || !verifyPin(pin)) {
+    recordFailedAdminAttempt(ip);
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  clearAdminAttempts(ip);
   const users = db.getAllUsers();
   res.json(users);
 });
 
 // Reset user PIN (Superadmin only)
 app.post('/api/admin/users/:id/reset-pin', (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limitCheck = checkAdminRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
+    });
+  }
+
   const { pin } = req.body;
-  if (!pin || !verifyPin(pin)) return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  if (!pin || !verifyPin(pin)) {
+    recordFailedAdminAttempt(ip);
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  clearAdminAttempts(ip);
   const targetUser = db.getUserById(req.params.id);
   if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
   
@@ -2019,8 +2119,16 @@ app.get('/api/duels/history', (req, res) => {
 });
 
 app.get('/api/duels/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
   const duel = db.getDuelById(req.params.id);
   if (!duel) return res.status(404).json({ error: 'Duell hittades inte' });
+
+  if (duel.creator_id !== user.id && duel.opponent_id !== user.id) {
+    return res.status(403).json({ error: 'Åtkomst nekad. Du deltar inte i denna duell.' });
+  }
+
   res.json(duel);
 });
 
@@ -2684,8 +2792,38 @@ app.post('/api/lotto/participate', (req, res) => {
 app.post('/api/lotto/draw/:id', (req, res) => {
   try {
     const user = getUserFromToken(req);
-    const { winningNumbers } = req.body || {};
-    const result = db.executeKompisLottoDraw(req.params.id, winningNumbers);
+    const { pin } = req.body || {};
+    const isAdmin = pin && verifyPin(pin);
+
+    if (!user && !isAdmin) {
+      return res.status(401).json({ error: 'Inloggning krävs för att genomföra dragningen' });
+    }
+
+    const draw = db.getLottoDrawById ? db.getLottoDrawById(req.params.id) : null;
+    if (!draw) {
+      return res.status(404).json({ error: 'Dragningen hittades inte' });
+    }
+
+    // Only creator or admin can execute draw
+    const isCreator = user && draw.creator_id === user.id;
+    if (!isCreator && !isAdmin) {
+      return res.status(403).json({ error: 'Endast dragningens skapare eller administratör kan genomföra dragningen' });
+    }
+
+    if (draw.status !== 'open') {
+      return res.status(400).json({ error: 'Denna dragning är inte öppen eller redan avslutad' });
+    }
+
+    // Check if draw time has arrived
+    if (draw.draw_date) {
+      const drawDateTime = new Date(draw.draw_date).getTime();
+      if (Date.now() < drawDateTime) {
+        return res.status(400).json({ error: 'Dragningstiden har ännu inte passerat' });
+      }
+    }
+
+    // Cryptographically generated on server
+    const result = db.executeKompisLottoDraw(req.params.id);
 
     broadcastGlobal({
       type: 'lotto_draw_completed',
@@ -2776,6 +2914,20 @@ app.get('/api/anybets', (req, res) => {
   }
 });
 
+function sanitizeAnyBet(bet, currentUserId) {
+  if (!bet) return null;
+  const sanitizedParticipants = (bet.participants || []).map(p => {
+    if (p.user_id === currentUserId) return p;
+    // Only allow other participants' swish if bet is completed and this other participant is the winner
+    if (bet.status === 'completed' && bet.winner_id === p.user_id) {
+      return p;
+    }
+    const { swish_number, ...safeP } = p;
+    return safeP;
+  });
+  return { ...bet, participants: sanitizedParticipants };
+}
+
 app.get('/api/anybets/:id', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
@@ -2792,14 +2944,7 @@ app.get('/api/anybets/:id', (req, res) => {
       return res.status(403).json({ error: 'Behörighet saknas. Du deltar inte i detta AnyBet.' });
     }
 
-    // Sanitize participants: do not leak Swish numbers to other participants
-    const sanitizedParticipants = (bet.participants || []).map(p => {
-      if (p.user_id === user.id) return p;
-      const { swish_number, ...safeP } = p;
-      return safeP;
-    });
-
-    res.json({ bet: { ...bet, participants: sanitizedParticipants } });
+    res.json({ bet: sanitizeAnyBet(bet, user.id) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2812,9 +2957,9 @@ app.post('/api/anybets/:id/join', (req, res) => {
   const { choice } = req.body;
   try {
     const bet = db.updateAnyBetChoice(req.params.id, user.id, choice || 'participant');
-    res.json({ ok: true, bet });
+    res.json({ ok: true, bet: sanitizeAnyBet(bet, user.id) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -3144,8 +3289,18 @@ app.get('/api/flashlive/active', (req, res) => {
 });
 
 app.get('/api/flashlive/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
   const session = activeFlashLiveStreams.get(req.params.id);
   if (!session) return res.status(404).json({ error: 'Livesändningen avslutad eller hittades inte' });
+
+  // Verify that user is host or target audience
+  const isAuthorized = session.hostId === user.id || (session.targetUserIds && session.targetUserIds.includes(user.id));
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'Åtkomst nekad. Du har inte behörighet att se denna livesändning.' });
+  }
+
   const flashBet = session.flashBetId ? db.getFlashBet(session.flashBetId) : null;
   res.json({ live: session, flashBet });
 });

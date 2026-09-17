@@ -589,7 +589,7 @@ const stmts = {
         opponent_score = @opponent_score,
         winner_id = @winner_id,
         status = @status
-    WHERE id = @id
+    WHERE id = @id AND status = 'active'
   `),
   getPendingDuelsForUser: db.prepare(`
     SELECT d.*,
@@ -1905,7 +1905,14 @@ export function getAnyBetsForUser(userId) {
 }
 
 export function updateAnyBetChoice(betId, userId, choice) {
-  stmts.updateAnyBetParticipantChoice.run(choice, betId, userId);
+  const bet = getAnyBetById(betId);
+  if (!bet) throw new Error('Bettet hittades inte');
+  if (bet.status !== 'active') throw new Error('Bettet är inte aktivt');
+
+  const info = stmts.updateAnyBetParticipantChoice.run(choice, betId, userId);
+  if (info.changes === 0) {
+    throw new Error('Du är inte inbjuden till detta AnyBet');
+  }
   return getAnyBetById(betId);
 }
 
@@ -2531,6 +2538,44 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     };
   }
 
+  export function validateLottoNumbers(mainNumbers, starNumbers) {
+    if (!Array.isArray(mainNumbers) || mainNumbers.length !== 5) {
+      throw new Error('Du måste välja exakt 5 huvudnummer');
+    }
+    if (!Array.isArray(starNumbers) || starNumbers.length !== 2) {
+      throw new Error('Du måste välja exakt 2 stjärnnummer');
+    }
+
+    const parsedMain = [];
+    for (const num of mainNumbers) {
+      const n = Number(num);
+      if (!Number.isInteger(n) || n < 1 || n > 50) {
+        throw new Error(`Ogiltigt huvudnummer (${num}). Måste vara ett heltal mellan 1 och 50.`);
+      }
+      if (parsedMain.includes(n)) {
+        throw new Error(`Dublett av huvudnummer (${n}) är inte tillåten.`);
+      }
+      parsedMain.push(n);
+    }
+
+    const parsedStars = [];
+    for (const num of starNumbers) {
+      const n = Number(num);
+      if (!Number.isInteger(n) || n < 1 || n > 12) {
+        throw new Error(`Ogiltigt stjärnnummer (${num}). Måste vara ett heltal mellan 1 och 12.`);
+      }
+      if (parsedStars.includes(n)) {
+        throw new Error(`Dublett av stjärnnummer (${n}) är inte tillåten.`);
+      }
+      parsedStars.push(n);
+    }
+
+    return {
+      main: parsedMain.sort((a, b) => a - b),
+      stars: parsedStars.sort((a, b) => a - b)
+    };
+  }
+
   export function createKompisLotto({
     creatorId,
     creatorName,
@@ -2541,20 +2586,18 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     mainNumbers,
     starNumbers
   }) {
-    if (!mainNumbers || mainNumbers.length !== 5 || !starNumbers || starNumbers.length !== 2) {
-      throw new Error('Du måste välja 5 huvudnummer och 2 stjärnnummer för din lott');
-    }
+    const validated = validateLottoNumbers(mainNumbers, starNumbers);
 
     const drawId = crypto.randomUUID();
     const ticketId = crypto.randomUUID();
-    const stake = parseFloat(stakeAmount) || 25;
+    const stake = Math.max(1, parseFloat(stakeAmount) || 25);
 
     // Get current max draw number
     const lastDraw = db.prepare(`SELECT MAX(draw_number) as max_num FROM lotto_draws`).get();
     const drawNumber = (lastDraw?.max_num || 0) + 1;
 
-    const mainSorted = [...mainNumbers].sort((a, b) => a - b);
-    const starsSorted = [...starNumbers].sort((a, b) => a - b);
+    const mainSorted = validated.main;
+    const starsSorted = validated.stars;
 
     const tx = db.transaction(() => {
       // 1. Insert lotto draw with creator's stake as initial real jackpot
@@ -2602,12 +2645,10 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     if (!draw) throw new Error('Lotto hittades inte');
     if (draw.status !== 'open') throw new Error('Denna dragning är redan stängd eller avslutad');
 
-    if (!mainNumbers || mainNumbers.length !== 5 || !starNumbers || starNumbers.length !== 2) {
-      throw new Error('Du måste välja 5 huvudnummer och 2 stjärnnummer');
-    }
+    const validated = validateLottoNumbers(mainNumbers, starNumbers);
 
-    const mainSorted = [...mainNumbers].sort((a, b) => a - b);
-    const starsSorted = [...starNumbers].sort((a, b) => a - b);
+    const mainSorted = validated.main;
+    const starsSorted = validated.stars;
     const ticketId = crypto.randomUUID();
 
     const tx = db.transaction(() => {
@@ -2637,33 +2678,27 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     return formatLottoDetails(db.prepare(`SELECT * FROM lotto_draws WHERE id = ?`).get(draw.id), userId);
   }
 
-  export function executeKompisLottoDraw(drawId, forcedWinningNumbers = null) {
+  export function executeKompisLottoDraw(drawId) {
     const draw = db.prepare(`SELECT * FROM lotto_draws WHERE id = ?`).get(drawId);
     if (!draw) throw new Error('Lotto hittades inte');
+    if (draw.status !== 'open') throw new Error('Denna dragning är redan genomförd eller stängd');
 
-    let mainNums = [];
-    let starNums = [];
-
-    if (forcedWinningNumbers && forcedWinningNumbers.main && forcedWinningNumbers.stars) {
-      mainNums = [...forcedWinningNumbers.main].sort((a, b) => a - b);
-      starNums = [...forcedWinningNumbers.stars].sort((a, b) => a - b);
-    } else {
-      // 5 unique balls out of 50
-      const pool50 = Array.from({ length: 50 }, (_, i) => i + 1);
-      for (let i = pool50.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool50[i], pool50[j]] = [pool50[j], pool50[i]];
-      }
-      mainNums = pool50.slice(0, 5).sort((a, b) => a - b);
-
-      // 2 unique stars out of 12
-      const pool12 = Array.from({ length: 12 }, (_, i) => i + 1);
-      for (let i = pool12.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool12[j], pool12[i]] = [pool12[i], pool12[j]];
-      }
-      starNums = pool12.slice(0, 2).sort((a, b) => a - b);
+    // Cryptographically secure draw using crypto.randomInt
+    // 5 unique balls out of 50 (1-50)
+    const pool50 = Array.from({ length: 50 }, (_, i) => i + 1);
+    for (let i = pool50.length - 1; i > 0; i--) {
+      const j = crypto.randomInt(0, i + 1);
+      [pool50[i], pool50[j]] = [pool50[j], pool50[i]];
     }
+    const mainNums = pool50.slice(0, 5).sort((a, b) => a - b);
+
+    // 2 unique stars out of 12 (1-12)
+    const pool12 = Array.from({ length: 12 }, (_, i) => i + 1);
+    for (let i = pool12.length - 1; i > 0; i--) {
+      const j = crypto.randomInt(0, i + 1);
+      [pool12[j], pool12[i]] = [pool12[i], pool12[j]];
+    }
+    const starNums = pool12.slice(0, 2).sort((a, b) => a - b);
 
     const tickets = db.prepare(`
       SELECT t.*, u.nickname as user_nickname 
@@ -2735,12 +2770,12 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
       }
 
       // 2. Complete draw record
-      db.prepare(`
+      const updateResult = db.prepare(`
         UPDATE lotto_draws 
         SET winning_main = ?, winning_stars = ?, status = 'completed',
             winner_id = ?, winner_nickname = ?, winner_hits = ?,
             is_tie = ?, tied_winners = ?, completed_at = datetime('now')
-        WHERE id = ?
+        WHERE id = ? AND status = 'open'
       `).run(
         JSON.stringify(mainNums),
         JSON.stringify(starNums),
@@ -2751,6 +2786,10 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
         isTie ? JSON.stringify(winningUserIds.map(id => ({ id, nickname: winningUserMap.get(id) }))) : null,
         draw.id
       );
+
+      if (updateResult.changes !== 1) {
+        throw new Error('Kunde inte slutföra dragningen - status är redan ändrad');
+      }
 
       // 3. ZERO-SUM SWISH RESOLUTION:
       // Insert rows into minigame_duels so losers owe the winner(s) their stake!

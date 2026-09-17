@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v4';
+const CACHE_NAME = 'betpals-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -8,10 +8,12 @@ const STATIC_ASSETS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/dice-gold.png',
-  '/coin-gold.png',
-  '/slots-gold.png',
-  '/wheel-gold.png',
-  '/stopwatch-gold.png'
+  '/coin-head.jpg',
+  '/slots-machine.png',
+  '/wheel-fortune.png',
+  '/stopwatch-gold.png',
+  '/space-invaders.png',
+  '/malta-jackpot.png'
 ];
 
 // Install — cache static assets safely
@@ -21,7 +23,9 @@ self.addEventListener('install', (event) => {
       for (const asset of STATIC_ASSETS) {
         try {
           await cache.add(asset);
-        } catch (e) {}
+        } catch (e) {
+          console.warn(`[SW] Failed to cache asset ${asset}:`, e);
+        }
       }
     })
   );
@@ -52,8 +56,8 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // Cache successful responses
-        if (response.ok) {
+        // Cache successful GET responses
+        if (response.ok && event.request.method === 'GET') {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => {
             cache.put(event.request, clone);
@@ -62,9 +66,13 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // Fallback to cache
+        // Fallback to cache: only serve root HTML on navigation requests
         return caches.match(event.request).then(cached => {
-          return cached || caches.match('/');
+          if (cached) return cached;
+          if (event.request.mode === 'navigate') {
+            return caches.match('/');
+          }
+          return new Response('Not found offline', { status: 404, statusText: 'Not Found' });
         });
       })
   );
