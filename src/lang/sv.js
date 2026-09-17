@@ -472,7 +472,7 @@ export const sv = {
     customSplitBtn: '⚖️ Dela notan (Anpassat)',
     spaceInvaders: 'Space Blitz',
     spaceInvadersTag: 'Retro Arkad · 60s',
-    spaceInvadersTitle: '👾 Space Blitz (Retro Invaders)',
+    spaceInvadersTitle: 'Space Blitz (Retro Invaders)',
     spaceInvadersDesc: 'Klassisk 80-tals Space Invaders i blitz-format! Skjut ner vågor av rymdinvasörer, pricka guld-UFO och ta hem potten i kompisgänget.',
     spaceModeSolo: '🕹️ Solo (Highscore)',
     spaceModeDuel: '⚔️ 1v1 Swish-Duell',

@@ -1015,7 +1015,11 @@ select.form-input option {
 .modal-title {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 1.2rem;
+  font-size: 1.12rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 40px);
 }
 
 .modal-close {

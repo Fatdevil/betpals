@@ -6355,7 +6355,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   let passCurrentIndex = 0;
   let passScores = [];
 
-  const modalTitle = `👾 ${t('arcade.spaceInvadersTitle')}`;
+  const modalTitle = t('arcade.spaceInvadersTitle');
+  let soloGameStarted = false;
 
   function renderContent() {
     return `
@@ -6383,9 +6384,43 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     `;
   }
 
+  function renderSoloSetupHtml() {
+    return `
+      <div class="card p-md text-center animate-in" id="space-solo-start-card">
+        <div style="display: flex; justify-content: center; margin-bottom: 8px;">
+          <img src="/space-invaders.png" alt="Space Blitz" style="width: 58px; height: 58px; object-fit: contain; filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.6));" />
+        </div>
+        <h3 style="color: var(--gold); font-family: var(--font-heading); font-size: 1.2rem; margin-bottom: 4px;">
+          Space Blitz (60s)
+        </h3>
+        <p class="text-secondary" style="font-size: 0.82rem; max-width: 320px; margin: 0 auto 12px auto;">
+          ${isEn ? '60s retro arcade mission! Blast waves of aliens, dodge bombs and beat your highscore.' : '60s retro-arkad! Skjut ner vågor av rymdinvasörer, ducka bomber och sätt nytt highscore.'}
+        </p>
+
+        <div class="flex gap-xs justify-center mb-md" style="flex-wrap: wrap;">
+          <span class="badge badge-accent">⏱️ 60s Blitz</span>
+          <span class="badge badge-success">❤️❤️❤️ 3 Liv</span>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🪙 Tjäna Chips</span>
+        </div>
+
+        <div class="card p-sm mb-md text-left" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); font-size: 0.78rem;">
+          <div style="font-weight: 700; color: #10b981; margin-bottom: 4px;">🎮 ${isEn ? 'Controls' : 'Styrning'}:</div>
+          <div class="text-secondary" style="line-height: 1.4;">
+            ${isEn ? '• Tap ◀ ▶ or drag your thumb to move your ship' : '• Tryck ◀ ▶ eller dra med tummen för att styra skeppet'}<br/>
+            ${isEn ? '• Tap 🔥 FIRE or Spacebar to shoot' : '• Tryck 🔥 FIRE eller Mellanslag för att skjuta'}
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block" id="btn-start-solo-game" style="font-weight: 800; font-size: 1.05rem; padding: 12px; box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);">
+          🚀 ${isEn ? 'Start Blitz! (60s)' : 'Starta Spelet (60s) 🚀'}
+        </button>
+      </div>
+    `;
+  }
+
   function renderStageContent() {
     if (activeMode === 'solo') {
-      return renderPlayStageHtml();
+      return soloGameStarted ? renderPlayStageHtml() : renderSoloSetupHtml();
     } else if (activeMode === 'duel') {
       return renderDuelSetupHtml();
     } else if (activeMode === 'party') {
@@ -6406,7 +6441,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         </div>
 
         <div class="space-arcade-bezel">
-          <canvas id="space-canvas" class="space-arcade-canvas" width="320" height="380"></canvas>
+          <canvas id="space-canvas" class="space-arcade-canvas" width="320" height="300"></canvas>
         </div>
 
         <!-- Touch / Mouse Controls -->
@@ -6501,6 +6536,10 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           ${isEn ? 'Pass the phone around the table! Each player plays their 60s turn. Highest score wins the round.' : 'Skicka runt telefonen bland kompisarna i baren! Varje spelare kör 60s. Högst poäng vinner.'}
         </p>
 
+        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 0.78rem; color: var(--text-secondary); text-align: center;">
+          ℹ️ ${isEn ? 'Local table mode on this device. No automatic charges or database debts are created.' : 'Lokalt sällskapsläge på denna telefon. Inga automatiska skulder eller dragningar skapas.'}
+        </div>
+
         <div class="my-md">
           <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
             ${t('arcade.blind10StakeLabel')}
@@ -6560,6 +6599,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           activeSpaceEngineCleanup = null;
         }
         activeMode = btn.dataset.tab;
+        soloGameStarted = false;
         root.querySelectorAll('.space-tab-btn').forEach(b => {
           b.classList.remove('btn-primary');
           b.classList.add('btn-secondary');
@@ -6578,11 +6618,26 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
   function attachStageListeners() {
     if (activeMode === 'solo') {
-      initSpaceEngine({
-        onGameOver: (result) => {
-          showSoloResults(result);
-        }
-      });
+      if (!soloGameStarted) {
+        const stage = root.querySelector('#space-stage-content');
+        stage?.querySelector('#btn-start-solo-game')?.addEventListener('click', () => {
+          soloGameStarted = true;
+          stage.innerHTML = renderPlayStageHtml();
+          initSpaceEngine({
+            onGameOver: (result) => {
+              soloGameStarted = false;
+              showSoloResults(result);
+            }
+          });
+        });
+      } else {
+        initSpaceEngine({
+          onGameOver: (result) => {
+            soloGameStarted = false;
+            showSoloResults(result);
+          }
+        });
+      }
     } else if (activeMode === 'duel') {
       attachDuelListeners();
     } else if (activeMode === 'party') {
@@ -6635,9 +6690,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     `;
 
     stage.querySelector('#btn-space-play-again')?.addEventListener('click', () => {
+      soloGameStarted = true;
       stage.innerHTML = renderPlayStageHtml();
       initSpaceEngine({
-        onGameOver: (res) => showSoloResults(res)
+        onGameOver: (res) => {
+          soloGameStarted = false;
+          showSoloResults(res);
+        }
       });
     });
 
@@ -7057,7 +7116,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     const ctx = canvas.getContext('2d');
 
     const width = 320;
-    const height = 380;
+    const height = 300;
     canvas.width = width;
     canvas.height = height;
 
@@ -7074,7 +7133,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     // Player ship
     const player = {
       x: width / 2 - 14,
-      y: height - 34,
+      y: height - 26,
       w: 28,
       h: 18,
       speed: 6.0,
@@ -7103,9 +7162,9 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       const rows = 4;
       const cols = 7;
       const startX = 28;
-      const startY = 40;
+      const startY = 30;
       const spacingX = 38;
-      const spacingY = 24;
+      const spacingY = 22;
 
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -7135,13 +7194,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       shields = [];
       const numShields = 3;
       const shieldW = 44;
-      const shieldH = 22;
+      const shieldH = 18;
       const spacing = (width - numShields * shieldW) / (numShields + 1);
 
       for (let i = 0; i < numShields; i++) {
         shields.push({
           x: spacing + i * (shieldW + spacing),
-          y: height - 75,
+          y: height - 56,
           w: shieldW,
           h: shieldH,
           hp: 8

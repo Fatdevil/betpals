@@ -952,27 +952,30 @@
   position: relative;
   background: #06060c;
   border-radius: var(--radius-md);
-  padding: 10px;
-  border: 2px solid rgba(16, 185, 129, 0.4);
-  box-shadow: 0 0 24px rgba(16, 185, 129, 0.2), inset 0 0 20px rgba(0, 0, 0, 0.9);
+  padding: 6px 8px;
+  border: 1.5px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.2), inset 0 0 20px rgba(0, 0, 0, 0.9);
   user-select: none;
+  max-width: 340px;
+  margin: 0 auto;
 }
 
 .space-arcade-bezel {
   position: relative;
   width: 100%;
-  max-width: 360px;
+  max-width: 330px;
   background: #000;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
   border: 1px solid #10b981;
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
 }
 
 .space-arcade-canvas {
   display: block;
   width: 100%;
-  height: auto;
+  max-height: 50vh;
+  object-fit: contain;
   background: radial-gradient(circle at center, #070b19 0%, #020308 100%);
   image-rendering: pixelated;
   touch-action: none;
@@ -996,11 +999,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
+  padding: 5px 10px;
   background: rgba(16, 185, 129, 0.1);
   border-bottom: 1px solid rgba(16, 185, 129, 0.3);
   font-family: monospace, monospace;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: #10b981;
   text-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
@@ -1008,20 +1011,20 @@
 
 .space-touch-controls {
   width: 100%;
-  max-width: 360px;
+  max-width: 330px;
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .space-btn-ctrl {
   flex: 1;
-  height: 52px;
-  background: rgba(255, 255, 255, 0.07);
+  height: 44px;
+  background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
   border-radius: var(--radius-sm);
-  font-size: 1.4rem;
+  font-size: 1.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1040,13 +1043,14 @@
 }
 
 .space-btn-fire {
-  flex: 1.5;
+  flex: 1.4;
+  height: 44px;
   background: linear-gradient(135deg, #ef4444, #dc2626);
   border: 1px solid #f87171;
   color: #fff;
   font-weight: 800;
-  font-size: 1.1rem;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+  font-size: 0.95rem;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
 }
 
 .space-btn-fire:active {
