@@ -4155,6 +4155,173 @@ app.post('/api/tab/expenses/:id/convert-to-even-steven', (req, res) => {
   }
 });
 
+// ── SHL Fantasy Leagues Routes ───────────────────────────
+app.post('/api/shl-fantasy/create', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs för att skapa liga' });
+
+  const { name, roundId, stakeAmount, mode } = req.body;
+  if (!roundId) return res.status(400).json({ error: 'Omgång måste anges' });
+
+  const leagueName = name?.trim() || `SHL Fantasy (${user.nickname})`;
+  const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 50;
+  const leagueMode = mode === 'free' ? 'free' : 'swish';
+
+  try {
+    const league = db.createShlLeague({
+      name: leagueName,
+      creatorId: user.id,
+      roundId,
+      stakeAmount: stake,
+      mode: leagueMode
+    });
+    res.json(league);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/shl-fantasy/:code', (req, res) => {
+  const league = db.getShlLeagueByCode(req.params.code);
+  if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
+  res.json(league);
+});
+
+app.post('/api/shl-fantasy/:code/join', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const league = db.getShlLeagueByCode(req.params.code);
+  if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
+
+  const { lineup, swishNumber, points } = req.body;
+  if (!lineup) return res.status(400).json({ error: 'Laguppställning krävs' });
+
+  try {
+    const swish = swishNumber || user.swish_number || '';
+    if (swish && !user.swish_number) {
+      db.updateUserProfile(user.id, { swishNumber: swish });
+    }
+
+    db.joinOrUpdateShlEntry({
+      leagueId: league.id,
+      userId: user.id,
+      userName: user.nickname || user.real_name || 'Kompis',
+      avatarEmoji: user.avatar_emoji || '🏒',
+      swishNumber: swish,
+      lineup,
+      points: typeof points === 'number' ? points : 0
+    });
+
+    const updated = db.getShlLeagueById(league.id);
+
+    // Broadcast to event/league listeners
+    broadcastToEvent(`shl_${league.code}`, {
+      type: 'shl_league_updated',
+      league: updated
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/shl-fantasy/:code/invite-friends', async (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const league = db.getShlLeagueByCode(req.params.code);
+  if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
+
+  const { friendIds } = req.body;
+  if (Array.isArray(friendIds) && friendIds.length > 0) {
+    const senderName = user.nickname || user.real_name || 'En kompis';
+    const stakeText = league.mode === 'swish' ? `${league.stake_amount} kr Swish-insats` : 'Gratis ära';
+
+    for (const fId of friendIds) {
+      broadcastToUser(fId, {
+        type: 'shl_invitation',
+        league: {
+          code: league.code,
+          name: league.name,
+          roundId: league.round_id,
+          stakeAmount: league.stake_amount,
+          senderName
+        }
+      });
+    }
+
+    sendPushToUsers(friendIds, {
+      title: `🏒 Inbjudan till SHL Fantasy!`,
+      body: `${senderName} bjuder in dig till ligan "${league.name}" (${stakeText}). Klicka för att välja din femma!`,
+      url: `/?shl=${league.code}`
+    }, 'tournaments').catch(() => {});
+  }
+
+  res.json({ ok: true });
+});
+
+app.post('/api/shl-fantasy/:code/settle', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const league = db.getShlLeagueByCode(req.params.code);
+  if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
+
+  const { winnerId, entryPoints } = req.body;
+  if (!winnerId) return res.status(400).json({ error: 'Vinnar-ID krävs' });
+
+  try {
+    // Optionally update points for all entries
+    if (entryPoints && typeof entryPoints === 'object') {
+      for (const [uId, pts] of Object.entries(entryPoints)) {
+        db.updateShlEntryPoints(league.id, uId, Number(pts) || 0);
+      }
+    }
+
+    const settled = db.settleShlLeague(league.id, winnerId);
+
+    // Auto mark winner as paid
+    db.toggleShlEntryPaid(league.id, winnerId, true);
+
+    const finalLeague = db.getShlLeagueById(league.id);
+
+    broadcastToEvent(`shl_${league.code}`, {
+      type: 'shl_league_settled',
+      league: finalLeague
+    });
+
+    res.json(finalLeague);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/shl-fantasy/:code/toggle-paid', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const league = db.getShlLeagueByCode(req.params.code);
+  if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
+
+  const { userId, isPaid } = req.body;
+  const targetUserId = userId || user.id;
+
+  try {
+    const updated = db.toggleShlEntryPaid(league.id, targetUserId, isPaid);
+
+    broadcastToEvent(`shl_${league.code}`, {
+      type: 'shl_league_updated',
+      league: updated
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── SPA fallback (must be after all API routes) ──────
 import { existsSync } from 'fs';
 const indexHtml = path.join(distPath, 'index.html');

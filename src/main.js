@@ -151,6 +151,19 @@ function init() {
 
     handlePartyRoomDeepLink(partyParam);
   }
+
+  // Handle SHL Fantasy invite link ?shl=CODE
+  const shlParam = (url.searchParams.get('shl') || '').trim().toUpperCase();
+  if (shlParam) {
+    url.searchParams.delete('shl');
+    window.history.replaceState({}, '', url);
+
+    import('./components/shlFantasy.js').then(mod => {
+      mod.openShlFantasyModal({ joinCode: shlParam });
+    }).catch(err => {
+      showToast('Kunde inte öppna SHL Fantasy', 'error');
+    });
+  }
 }
 
 async function handlePartyRoomDeepLink(code) {

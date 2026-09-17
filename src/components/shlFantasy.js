@@ -1,13 +1,25 @@
 // ── 🏒 SHL Mini Fantasy Component ─────────────────────────
 import { showModal, closeModal } from "./modal.js";
 import { t, getLang } from "../i18n.js";
-import { getStoredUser } from "../auth.js";
-import { getFriends } from "../api.js";
+import { getStoredUser, isLoggedIn } from "../auth.js";
+import { getFriends, createShlLeague, getShlLeague, joinShlLeague, inviteFriendsToShlLeague, settleShlLeague, toggleShlPaid, connectWebSocket, onWebSocketMessage, disconnectWebSocket } from "../api.js";
+import { showToast, createSwishUrl } from "../utils.js";
 import { SHL_SEASON, SHL_TEAMS, SHL_PLAYERS, SHL_ROUNDS, getGamesForRound, FANTASY_SCORING } from "../data/shlPlayers.js";
 
-export async function openShlFantasyModal() {
+export async function openShlFantasyModal(options = {}) {
   const isEn = getLang() === "en";
   const currentUser = getStoredUser() || { nickname: "Du", avatar_emoji: "🏒" };
+  const initialJoinCode = options.joinCode || options.leagueCode || null;
+
+  // Real multiplayer league state
+  let currentLeague = null; // Backend league object if in multiplayer room
+  let isMultiplayer = false;
+  let userFriends = [];
+  try {
+    if (isLoggedIn()) {
+      userFriends = await getFriends();
+    }
+  } catch (e) {}
 
   let activeTab = "draft"; // draft, pot, live, rules
   let selectedStake = 50; // kr
@@ -17,8 +29,30 @@ export async function openShlFantasyModal() {
   let roundSimulated = false;
   let isAddingPlayer = false;
 
+  // If initialJoinCode passed, load league immediately
+  if (initialJoinCode) {
+    try {
+      const l = await getShlLeague(initialJoinCode);
+      if (l) {
+        currentLeague = l;
+        isMultiplayer = true;
+        selectedRoundId = l.round_id;
+        selectedStake = l.stake_amount;
+        selectedMode = l.mode;
+        // If current user already submitted a lineup in this league, restore it
+        const myEntry = l.entries.find(e => e.user_id === currentUser.id);
+        if (myEntry && myEntry.lineup) {
+          myLineup = myEntry.lineup;
+          isLockedIn = true;
+        }
+      }
+    } catch (e) {
+      showToast('Kunde inte ladda ligan: ' + e.message, 'error');
+    }
+  }
+
   // Round selection state (Defaults to Omgång 3 which runs over 2 days!)
-  let selectedRoundId = "omg_3";
+  let selectedRoundId = currentLeague?.round_id || "omg_3";
   function getCurrentRound() {
     return SHL_ROUNDS.find(r => r.id === selectedRoundId) || SHL_ROUNDS[0];
   }
@@ -166,6 +200,38 @@ export async function openShlFantasyModal() {
                 </span>
               </div>
             `).join("")}
+          </div>
+        </div>
+
+        <!-- Multiplayer / Solo Switch Banner -->
+        <div class="card mb-sm" style="background: ${isMultiplayer ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(16,185,129,0.1))" : "rgba(255,255,255,0.03)"}; border: 1px solid ${isMultiplayer ? "var(--gold)" : "var(--border-glass)"}; padding: 8px 10px; border-radius: var(--radius-md);">
+          <div class="flex-between align-center">
+            <div>
+              <div style="font-size: 0.78rem; font-weight: 800; color: ${isMultiplayer ? "var(--gold)" : "#fff"}; display: flex; align-items: center; gap: 6px;">
+                <span>${isMultiplayer ? "👥 KOMPIS-LIGA AKTIV" : "🎮 SOLO / TESTLÄGE"}</span>
+                ${isMultiplayer ? `<span class="badge badge-accent" style="font-family: monospace; font-size: 0.7rem; font-weight: 900;">#${currentLeague.code}</span>` : ""}
+              </div>
+              <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 2px;">
+                ${isMultiplayer 
+                  ? `${currentLeague.entries.length} deltagare anslutna · ${currentLeague.stake_amount} kr i Swish-pott`
+                  : "Spela mot datormotståndare eller starta en riktig liga med kompisarna!"}
+              </div>
+            </div>
+
+            <div class="flex gap-xs">
+              ${isMultiplayer ? `
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-share-shl-league" style="font-size: 0.72rem; padding: 4px 8px; border-color: var(--gold); color: var(--gold); font-weight: 700;" title="Dela länk med vänner">
+                  🔗 Bjud in
+                </button>
+              ` : `
+                <button type="button" class="btn btn-sm btn-primary" id="btn-create-shl-league" style="font-size: 0.72rem; padding: 5px 10px; font-weight: 700;">
+                  👥 Skapa Liga
+                </button>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-join-shl-league" style="font-size: 0.72rem; padding: 5px 8px; color: var(--text-secondary);">
+                  Gå med
+                </button>
+              `}
+            </div>
           </div>
         </div>
 
@@ -451,64 +517,101 @@ export async function openShlFantasyModal() {
 
   // ── VIEW 2: SWISH & POT TAB ───────────────────────────────
   function renderPotTab() {
-    const totalPot = selectedMode === "swish" ? (competitors.length + 1) * selectedStake : 0;
+    const participants = isMultiplayer ? currentLeague.entries : [
+      {
+        id: "me",
+        user_name: `${currentUser.nickname || "Du"} (Du)`,
+        avatar_emoji: currentUser.avatar_emoji || "👤",
+        swish_number: currentUser.swish_number || "",
+        lineup: myLineup
+      },
+      ...competitors.map(c => ({
+        id: c.id,
+        user_name: c.name,
+        avatar_emoji: c.avatar,
+        swish_number: "0701234567",
+        lineup: c.lineup
+      }))
+    ];
+
+    const activeStake = isMultiplayer ? currentLeague.stake_amount : selectedStake;
+    const activeMode = isMultiplayer ? currentLeague.mode : selectedMode;
+    const totalPot = activeMode === "swish" ? participants.length * activeStake : 0;
 
     return `
       <div style="padding: 4px 0;">
         <div class="card mb-md" style="background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(16,185,129,0.1)); border: 1px solid var(--gold); padding: 14px; text-align: center;">
           <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
-            💰 ${isEn ? "TOTAL PRIZE POT" : "KVÄLLENS TOTALA POTT"}
+            💰 ${isEn ? "TOTAL PRIZE POT" : "TOTALA POTTEN"}
           </div>
           <div style="font-family: var(--font-heading); font-size: 1.8rem; font-weight: 900; color: var(--gold); margin: 4px 0;">
-            ${selectedMode === "swish" ? `${totalPot} KR` : "ÄRAN & SKRYT 🪙"}
+            ${activeMode === "swish" ? `${totalPot} KR` : "ÄRAN & SKRYT 🪙"}
           </div>
           <div style="font-size: 0.75rem; color: rgba(255,255,255,0.7);">
-            ${competitors.length + 1} ${isEn ? "players entered" : "deltagare i potten"} (${selectedStake} kr / pers)
+            ${participants.length} ${isEn ? "players entered" : "deltagare i potten"} (${activeStake} kr / pers)
           </div>
         </div>
 
-        <!-- Stake Selector -->
-        <div class="mb-md">
-          <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 6px;">
-            💵 ${isEn ? "Choose Stake per Person:" : "Välj insats per person:"}
-          </label>
-          <div class="flex gap-xs mb-sm">
-            <button type="button" class="btn btn-sm stake-btn ${selectedMode === "free" ? "active" : ""}" data-mode="free" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "free" ? "border-color: #10b981; color: #10b981;" : ""}">
-              🪙 Gratis
-            </button>
-            <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 20 ? "active" : ""}" data-mode="swish" data-stake="20" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 20 ? "border-color: var(--gold); color: var(--gold);" : ""}">
-              20 kr
-            </button>
-            <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 50 ? "active" : ""}" data-mode="swish" data-stake="50" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 50 ? "border-color: var(--gold); color: var(--gold);" : ""}">
-              50 kr 🔥
-            </button>
-            <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 100 ? "active" : ""}" data-mode="swish" data-stake="100" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 100 ? "border-color: var(--gold); color: var(--gold);" : ""}">
-              100 kr
-            </button>
+        ${!isMultiplayer ? `
+          <!-- Stake Selector (Solo/Test) -->
+          <div class="mb-md">
+            <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 6px;">
+              💵 ${isEn ? "Choose Stake per Person:" : "Välj insats per person:"}
+            </label>
+            <div class="flex gap-xs mb-sm">
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "free" ? "active" : ""}" data-mode="free" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "free" ? "border-color: #10b981; color: #10b981;" : ""}">
+                🪙 Gratis
+              </button>
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 20 ? "active" : ""}" data-mode="swish" data-stake="20" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 20 ? "border-color: var(--gold); color: var(--gold);" : ""}">
+                20 kr
+              </button>
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 50 ? "active" : ""}" data-mode="swish" data-stake="50" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 50 ? "border-color: var(--gold); color: var(--gold);" : ""}">
+                50 kr 🔥
+              </button>
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 100 ? "active" : ""}" data-mode="swish" data-stake="100" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 100 ? "border-color: var(--gold); color: var(--gold);" : ""}">
+                100 kr
+              </button>
+            </div>
           </div>
-        </div>
+        ` : ""}
 
         <!-- Participants List -->
         <div class="card mb-md" style="padding: 10px 12px; background: rgba(0,0,0,0.3);">
           <div class="flex-between mb-xs align-center">
             <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">
-              👥 ${isEn ? "Friends in Pot:" : "Kompisar i potten:"}
+              👥 ${isMultiplayer ? `Kompisar i ligan (${participants.length}):` : `Kompisar i potten:`}
             </span>
             <span class="badge badge-success" style="font-size: 0.65rem;">KLARA FÖR NEDSLÄPP 🏒</span>
           </div>
 
-          <!-- Me -->
-          <div class="flex-between align-center py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.82rem;">
-            <span>${currentUser.avatar_emoji || "👤"} ${currentUser.nickname || "Du"} (Du)</span>
-            <span style="color: #10b981; font-weight: 700;">✓ Inlämnad trupp</span>
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            ${participants.map(p => {
+              const pCount = (p.lineup?.goalie ? 1 : 0) + (p.lineup?.defenders?.length || 0) + (p.lineup?.forwards?.length || 0);
+              const isMe = p.user_id === currentUser.id || p.id === "me";
+              return `
+                <div class="flex-between align-center py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.82rem;">
+                  <div class="flex align-center gap-xs">
+                    <span>${p.avatar_emoji || "🏒"}</span>
+                    <span style="color: ${isMe ? "#10b981" : "#fff"}; font-weight: ${isMe ? "700" : "600"};">
+                      ${escapeHtml(p.user_name || p.name)} ${isMe ? "(Du)" : ""}
+                    </span>
+                    ${p.swish_number ? `<span class="badge" style="font-size: 0.65rem; background: rgba(255,255,255,0.08); padding: 1px 4px;">📱 ${p.swish_number}</span>` : ""}
+                  </div>
+                  <span style="color: ${pCount === 6 ? "#10b981" : "var(--gold)"}; font-size: 0.75rem; font-weight: 700;">
+                    ${pCount === 6 ? "✓ 6/6 klara" : `${pCount}/6 valda`}
+                  </span>
+                </div>
+              `;
+            }).join("")}
           </div>
-          <!-- Friends -->
-          ${competitors.map(c => `
-            <div class="flex-between align-center py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.82rem;">
-              <span>${c.avatar} ${escapeHtml(c.name)}</span>
-              <span style="color: rgba(255,255,255,0.7); font-size: 0.75rem;">6/6 spelare</span>
+
+          ${isMultiplayer ? `
+            <div class="flex gap-xs mt-sm">
+              <button type="button" class="btn btn-sm btn-secondary w-100" id="btn-pot-invite-friends" style="font-size: 0.75rem; font-weight: 700; border-color: var(--gold); color: var(--gold);">
+                📲 Bjud in fler vänner till ligan
+              </button>
             </div>
-          `).join("")}
+          ` : ""}
         </div>
 
         <button type="button" class="btn btn-primary w-100" id="btn-go-to-live" style="font-weight: 800; padding: 12px; font-size: 0.95rem;">
@@ -520,23 +623,52 @@ export async function openShlFantasyModal() {
 
   // ── VIEW 3: LIVE ROUND & LEADERBOARD ─────────────────────
   function renderLiveTab() {
-    // Sort competitors and me by points
-    const myTotalPoints = calculateLineupPoints(myLineup);
-    const allSquads = [
-      {
-        id: "me",
-        name: `${currentUser.nickname || "Du"} (Ditt lag)`,
-        avatar: currentUser.avatar_emoji || "👑",
-        points: myTotalPoints,
-        lineup: myLineup
-      },
-      ...competitors
-    ];
+    let allSquads = [];
+
+    if (isMultiplayer) {
+      allSquads = currentLeague.entries.map(e => ({
+        id: e.user_id,
+        name: e.user_name,
+        avatar: e.avatar_emoji || "🏒",
+        swish: e.swish_number || "",
+        points: typeof e.points === "number" ? e.points : calculateLineupPoints(e.lineup || {}),
+        lineup: e.lineup || { goalie: null, defenders: [], forwards: [] },
+        isPaid: !!e.is_paid,
+        isMe: e.user_id === currentUser.id
+      }));
+    } else {
+      const myTotalPoints = calculateLineupPoints(myLineup);
+      allSquads = [
+        {
+          id: currentUser.id || "me",
+          name: `${currentUser.nickname || "Du"} (Ditt lag)`,
+          avatar: currentUser.avatar_emoji || "👑",
+          swish: currentUser.swish_number || "0701234567",
+          points: myTotalPoints,
+          lineup: myLineup,
+          isPaid: true,
+          isMe: true
+        },
+        ...competitors.map(c => ({
+          id: c.id,
+          name: c.name,
+          avatar: c.avatar,
+          swish: "0709876543",
+          points: c.points,
+          lineup: c.lineup,
+          isPaid: false,
+          isMe: false
+        }))
+      ];
+    }
 
     allSquads.sort((a, b) => b.points - a.points);
-    const leader = allSquads[0];
+    const leader = allSquads[0] || { name: "Ingen", points: 0 };
     const totalDays = currentRound.days.length;
-    const isRoundComplete = currentSimulatedDay >= totalDays;
+    const isRoundComplete = currentSimulatedDay >= totalDays || (isMultiplayer && currentLeague.status === "finished");
+    const activeStake = isMultiplayer ? currentLeague.stake_amount : selectedStake;
+    const activeMode = isMultiplayer ? currentLeague.mode : selectedMode;
+    const totalPot = activeMode === "swish" ? allSquads.length * activeStake : 0;
 
     let simBtnLabel = "⚡ Simulera Mål!";
     if (totalDays > 1) {
@@ -555,7 +687,7 @@ export async function openShlFantasyModal() {
     let statusDesc = "Matcher i full gång!";
     if (isRoundComplete) {
       statusText = "OMGÅNG AVSLUTAD 🏆";
-      statusDesc = `Alla ${roundGames.length} matcher färdigspelade!`;
+      statusDesc = `Alla matcher färdigspelade!`;
     } else if (currentSimulatedDay > 0) {
       statusText = `DAG ${currentSimulatedDay} AVKLARAD ⏳`;
       statusDesc = `Dag ${currentSimulatedDay} klar, väntar på nästa matchdag`;
@@ -590,18 +722,20 @@ export async function openShlFantasyModal() {
           <div style="display: flex; flex-direction: column; gap: 6px;">
             ${allSquads.map((sq, rank) => {
               const isFirst = rank === 0 && sq.points > 0;
-              const isMe = sq.id === "me";
               return `
-                <div class="card" style="padding: 10px 12px; background: ${isFirst ? "linear-gradient(135deg, rgba(251,191,36,0.15), rgba(16,185,129,0.08))" : "rgba(255,255,255,0.02)"}; border: 1px solid ${isFirst ? "var(--gold)" : isMe ? "rgba(16,185,129,0.4)" : "var(--border-glass)"};">
+                <div class="card" style="padding: 10px 12px; background: ${isFirst ? "linear-gradient(135deg, rgba(251,191,36,0.15), rgba(16,185,129,0.08))" : "rgba(255,255,255,0.02)"}; border: 1px solid ${isFirst ? "var(--gold)" : sq.isMe ? "rgba(16,185,129,0.4)" : "var(--border-glass)"};">
                   <div class="flex-between align-center">
                     <div class="flex align-center gap-xs">
                       <span style="font-weight: 900; font-size: 1rem; width: 22px; color: ${rank === 0 ? "var(--gold)" : "var(--text-secondary)"};">
                         ${rank === 0 ? "🥇" : rank === 1 ? "🥈" : rank === 2 ? "🥉" : `#${rank + 1}`}
                       </span>
                       <span style="font-size: 1.1rem;">${sq.avatar}</span>
-                      <span style="font-weight: 700; font-size: 0.88rem; color: ${isMe ? "#10b981" : "#fff"};">
-                        ${escapeHtml(sq.name)}
-                      </span>
+                      <div>
+                        <div style="font-weight: 700; font-size: 0.88rem; color: ${sq.isMe ? "#10b981" : "#fff"};">
+                          ${escapeHtml(sq.name)} ${sq.isMe ? "(Du)" : ""}
+                        </div>
+                        ${sq.swish ? `<div style="font-size: 0.65rem; color: var(--text-secondary);">📱 ${sq.swish}</div>` : ""}
+                      </div>
                     </div>
                     <div style="text-align: right;">
                       <span style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 900; color: var(--gold);">
@@ -612,9 +746,9 @@ export async function openShlFantasyModal() {
 
                   <!-- Mini squad points detail -->
                   <div class="mt-xs" style="font-size: 0.68rem; color: rgba(255,255,255,0.6); display: flex; gap: 6px; flex-wrap: wrap;">
-                    ${sq.lineup.goalie ? `<span>🧤 ${sq.lineup.goalie.name.split(" ")[1]} (${sq.lineup.goalie.pts || 0}p)</span> · ` : ""}
-                    ${sq.lineup.defenders.map(d => `<span>🛡️ ${d.name.split(" ")[1]} (${d.pts || 0}p)</span>`).join(" · ")} ·
-                    ${sq.lineup.forwards.map(f => `<span>🏒 ${f.name.split(" ")[1]} (${f.pts || 0}p)</span>`).join(" · ")}
+                    ${sq.lineup?.goalie ? `<span>🧤 ${sq.lineup.goalie.name?.split(" ")[1] || sq.lineup.goalie.name} (${sq.lineup.goalie.pts || 0}p)</span> · ` : ""}
+                    ${(sq.lineup?.defenders || []).map(d => `<span>🛡️ ${d.name?.split(" ")[1] || d.name} (${d.pts || 0}p)</span>`).join(" · ")} ·
+                    ${(sq.lineup?.forwards || []).map(f => `<span>🏒 ${f.name?.split(" ")[1] || f.name} (${f.pts || 0}p)</span>`).join(" · ")}
                   </div>
                 </div>
               `;
@@ -622,19 +756,73 @@ export async function openShlFantasyModal() {
           </div>
         </div>
 
-        <!-- Payout banner if finished -->
-        ${isRoundComplete && selectedMode === "swish" ? `
-          <div class="card mb-md" style="background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(251,191,36,0.2)); border: 2px solid #10b981; padding: 14px; text-align: center;">
-            <div style="font-size: 1.6rem; margin-bottom: 4px;">🏆</div>
-            <div style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: #10b981; margin-bottom: 2px;">
-              ${leader.name} VANN POTTEN!
+        <!-- Real Swish Settlement Section if round finished -->
+        ${isRoundComplete && activeMode === "swish" ? `
+          <div class="card mb-md" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(251,191,36,0.15)); border: 2px solid #10b981; padding: 14px;">
+            <div style="text-align: center; margin-bottom: 12px;">
+              <div style="font-size: 1.8rem; margin-bottom: 2px;">🏆</div>
+              <div style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #10b981; margin-bottom: 2px;">
+                ${leader.name} VANN OMGÅNGEN!
+              </div>
+              <div style="font-size: 0.85rem; color: #fff;">
+                Tar hem hela potten på <strong class="text-gold">${totalPot} kr</strong>!
+              </div>
             </div>
-            <div style="font-size: 0.85rem; color: #fff; margin-bottom: 12px;">
-              Tar hem hela omgångens pott på <strong class="text-gold">${(competitors.length + 1) * selectedStake} kr</strong>!
+
+            <!-- Settlement Transfers -->
+            <div style="background: rgba(0,0,0,0.4); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 12px;">
+              <div style="font-size: 0.72rem; font-weight: 800; color: var(--gold); margin-bottom: 6px; text-transform: uppercase;">
+                📱 Swish-avräkning till vinnaren:
+              </div>
+              
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                ${allSquads.filter(sq => sq.id !== leader.id).map(loser => {
+                  const winnerSwish = leader.swish || "0701234567";
+                  const swishMsg = `SHL Fantasy ${currentRound.name} - ${loser.name}`;
+                  const swishUrl = createSwishUrl({
+                    phone: winnerSwish,
+                    amount: activeStake,
+                    message: swishMsg
+                  });
+
+                  return `
+                    <div class="flex-between align-center" style="padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.78rem;">
+                      <div>
+                        <span style="font-weight: 700; color: #fff;">${loser.name}</span>
+                        <div style="font-size: 0.68rem; color: var(--text-secondary);">
+                          Ska swisha ${activeStake} kr → ${leader.name}
+                        </div>
+                      </div>
+
+                      <div class="flex align-center gap-xs">
+                        ${loser.isPaid ? `
+                          <span class="badge badge-success" style="font-size: 0.65rem; padding: 3px 6px;">Betald ✅</span>
+                        ` : `
+                          ${loser.isMe ? `
+                            <a href="${swishUrl}" class="btn btn-sm btn-success" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none; font-weight: 700;">
+                              📱 Swisha ${activeStake} kr
+                            </a>
+                          ` : `
+                            <span class="badge badge-warning" style="font-size: 0.65rem;">Väntar</span>
+                          `}
+                        `}
+
+                        ${(leader.isMe || loser.isMe || !isMultiplayer) ? `
+                          <button type="button" class="btn btn-xs ${loser.isPaid ? "btn-ghost" : "btn-secondary"} btn-toggle-shl-paid" data-user-id="${loser.id}" data-is-paid="${loser.isPaid ? "0" : "1"}" style="font-size: 0.68rem; padding: 3px 6px;">
+                            ${loser.isPaid ? "Ångra" : "Kvitto ✓"}
+                          </button>
+                        ` : ""}
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
             </div>
-            <a href="https://app.swish.nu" target="_blank" class="btn btn-success btn-sm w-100" style="font-weight: 700; padding: 8px; text-decoration: none; display: inline-block;">
-              📱 Öppna Swish & Betala Vinnaren
-            </a>
+
+            <!-- Share results to friends chat -->
+            <button type="button" class="btn btn-secondary btn-sm w-100" id="btn-copy-shl-results" style="font-weight: 700; font-size: 0.8rem; padding: 8px;">
+              📋 Kopiera resultat & Swish till kompis-chatten
+            </button>
           </div>
         ` : ""}
 
@@ -945,8 +1133,20 @@ export async function openShlFantasyModal() {
       });
 
       // Lock in button
-      root.querySelector("#btn-lock-squad")?.addEventListener("click", () => {
+      root.querySelector("#btn-lock-squad")?.addEventListener("click", async () => {
         isLockedIn = true;
+        if (isMultiplayer && currentLeague) {
+          try {
+            const updated = await joinShlLeague(currentLeague.code, {
+              lineup: myLineup,
+              swishNumber: currentUser.swish_number || ""
+            });
+            currentLeague = updated;
+            showToast("Ditt lag har låsts in i ligan! 🏒", "success");
+          } catch (err) {
+            showToast(err.message, "error");
+          }
+        }
         activeTab = "pot";
         refreshAll();
       });
@@ -968,7 +1168,142 @@ export async function openShlFantasyModal() {
         activeTab = "live";
         refreshAll();
       });
+
+      // Pot tab invite button
+      root.querySelector("#btn-pot-invite-friends")?.addEventListener("click", () => {
+        openInviteFriendsDialog();
+      });
     }
+
+    // Multiplayer room banner actions
+    root.querySelector("#btn-share-shl-league")?.addEventListener("click", () => {
+      openInviteFriendsDialog();
+    });
+
+    root.querySelector("#btn-create-shl-league")?.addEventListener("click", async () => {
+      if (!isLoggedIn()) {
+        alert("Du behöver vara inloggad för att skapa en kompis-liga!");
+        return;
+      }
+      const defaultName = `SHL Fantasy ${currentRound.name} (${currentUser.nickname})`;
+      const name = prompt("Vad vill du döpa kompis-ligan till?", defaultName);
+      if (!name) return;
+
+      try {
+        const created = await createShlLeague({
+          name,
+          roundId: selectedRoundId,
+          stakeAmount: selectedStake,
+          mode: selectedMode
+        });
+        currentLeague = created;
+        isMultiplayer = true;
+        showToast(`Kompis-ligan #${created.code} skapades! 🎉`, 'success');
+
+        // Automatically join with current lineup if complete
+        if (getTotalSelectedCount() === 6) {
+          await joinShlLeague(created.code, {
+            lineup: myLineup,
+            swishNumber: currentUser.swish_number || ""
+          });
+          const reloaded = await getShlLeague(created.code);
+          if (reloaded) currentLeague = reloaded;
+        }
+
+        refreshAll();
+      } catch (err) {
+        showToast(err.message || 'Kunde inte skapa ligan', 'error');
+      }
+    });
+
+    root.querySelector("#btn-join-shl-league")?.addEventListener("click", async () => {
+      const code = prompt("Ange ligakoden (t.ex. SHL123):");
+      if (!code) return;
+      try {
+        const l = await getShlLeague(code.trim().toUpperCase());
+        if (!l) {
+          showToast("Ligan hittades inte", "error");
+          return;
+        }
+        currentLeague = l;
+        isMultiplayer = true;
+        selectedRoundId = l.round_id;
+        selectedStake = l.stake_amount;
+        selectedMode = l.mode;
+        currentRound = getCurrentRound();
+        roundGames = getGamesForRound(currentRound);
+
+        const myEntry = l.entries.find(e => e.user_id === currentUser.id);
+        if (myEntry && myEntry.lineup) {
+          myLineup = myEntry.lineup;
+          isLockedIn = true;
+        }
+
+        showToast(`Gick med i ${l.name}! 🏒`, 'success');
+        refreshAll();
+      } catch (err) {
+        showToast(err.message || "Kunde inte ansluta", "error");
+      }
+    });
+
+    // Copy settlement results
+    root.querySelector("#btn-copy-shl-results")?.addEventListener("click", async () => {
+      const activeStake = isMultiplayer ? currentLeague.stake_amount : selectedStake;
+      let text = `🏆 SHL MINI FANTASY RESULTAT (${currentRound.name})\n\n`;
+      const allEntries = isMultiplayer ? currentLeague.entries : [];
+      if (allEntries.length > 0) {
+        const sorted = [...allEntries].sort((a, b) => (b.points || 0) - (a.points || 0));
+        const winner = sorted[0];
+        text += `👑 Vinnare: ${winner.user_name} (${winner.points || 0}p)\n`;
+        text += `💰 Vinstpott: ${sorted.length * activeStake} kr\n`;
+        if (winner.swish_number) text += `📱 Swisha vinnaren på: ${winner.swish_number}\n\n`;
+        text += `Slutställning:\n`;
+        sorted.forEach((s, idx) => {
+          text += `${idx + 1}. ${s.user_name} - ${s.points || 0}p\n`;
+        });
+      } else {
+        text += `Alla matcher spelade i ${currentRound.name}! Kolla tabellen i appen!`;
+      }
+
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          showToast("Kopierade resultaten till urklipp! 📋", "success");
+        } else {
+          prompt("Kopiera texten:", text);
+        }
+      } catch (e) {
+        prompt("Kopiera texten:", text);
+      }
+    });
+
+    // Toggle Swish Paid Receipt
+    root.querySelectorAll(".btn-toggle-shl-paid").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const targetUserId = btn.dataset.userId;
+        const newStatus = btn.dataset.isPaid === "1";
+
+        if (isMultiplayer && currentLeague) {
+          try {
+            const updated = await toggleShlPaid(currentLeague.code, {
+              userId: targetUserId,
+              isPaid: newStatus
+            });
+            currentLeague = updated;
+            refresh();
+          } catch (e) {
+            showToast(e.message, "error");
+          }
+        } else {
+          // Solo mode mock
+          const target = competitors.find(c => c.id === targetUserId);
+          if (target) {
+            target.paid = newStatus;
+            refresh();
+          }
+        }
+      });
+    });
 
     // Live tab actions
     if (activeTab === "live") {
@@ -983,6 +1318,110 @@ export async function openShlFantasyModal() {
         }
       });
     }
+  }
+
+  // Dialog to invite friends via link, web share, or in-app push
+  function openInviteFriendsDialog() {
+    if (!currentLeague) {
+      alert("Starta först en kompis-liga!");
+      return;
+    }
+
+    const shareUrl = `${window.location.origin}/?shl=${currentLeague.code}`;
+    const shareText = `🏒 Häng med i SHL Fantasy (${currentRound.name})! Välj din femma + målvakt och tävla om Swish-potten (${currentLeague.stake_amount} kr).`;
+
+    const friendCheckboxes = userFriends.length > 0 ? `
+      <div style="margin: 12px 0 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 6px;">
+          👥 Skicka notis direkt i appen:
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;">
+          ${userFriends.map(f => `
+            <label class="flex align-center gap-xs" style="font-size: 0.8rem; cursor: pointer; padding: 4px 6px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+              <input type="checkbox" class="shl-invite-friend-checkbox" value="${f.id}" checked />
+              <span>${f.avatar || "👤"}</span>
+              <span style="font-weight: 600;">${escapeHtml(f.realName || f.nickname)}</span>
+              <span style="color: var(--text-secondary); font-size: 0.7rem;">@${escapeHtml(f.nickname)}</span>
+            </label>
+          `).join("")}
+        </div>
+        <button type="button" class="btn btn-sm btn-primary w-100 mt-xs" id="btn-send-in-app-invites" style="font-size: 0.75rem; padding: 6px;">
+          🔔 Skicka inbjudan till valda (${userFriends.length})
+        </button>
+      </div>
+    ` : "";
+
+    const contentHtml = `
+      <div style="text-align: center; padding: 4px 0;">
+        <div style="font-size: 1.8rem; margin-bottom: 4px;">🏒 👥</div>
+        <div style="font-family: var(--font-heading); font-size: 1.1rem; font-weight: 800; color: var(--gold); margin-bottom: 4px;">
+          Bjud in till "${escapeHtml(currentLeague.name)}"
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+          Dela ligakoden eller skicka en direktlänk till polarna:
+        </div>
+
+        <div class="card mb-sm" style="background: rgba(0,0,0,0.4); border: 1px dashed var(--gold); padding: 10px;">
+          <div style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">LIGAKOD:</div>
+          <div style="font-family: monospace; font-size: 1.6rem; font-weight: 900; color: var(--gold); letter-spacing: 0.1em;">
+            ${currentLeague.code}
+          </div>
+        </div>
+
+        <div class="flex gap-xs mb-sm">
+          <button type="button" class="btn btn-primary w-100" id="btn-copy-invite-link" style="font-size: 0.82rem; font-weight: 700; padding: 10px;">
+            📋 Kopiera inbjudningslänk
+          </button>
+          ${navigator.share ? `
+            <button type="button" class="btn btn-secondary" id="btn-web-share" style="padding: 10px 14px; font-size: 1.1rem;">
+              📲
+            </button>
+          ` : ""}
+        </div>
+
+        ${friendCheckboxes}
+      </div>
+    `;
+
+    const subModal = showModal("Bjud in vänner 🏒", contentHtml);
+
+    subModal.root.querySelector("#btn-copy-invite-link")?.addEventListener("click", async () => {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+          showToast("Inbjudningslänk kopierad till urklipp! 📋", "success");
+        } else {
+          prompt("Kopiera länk:", shareUrl);
+        }
+      } catch (e) {
+        prompt("Kopiera länk:", shareUrl);
+      }
+    });
+
+    subModal.root.querySelector("#btn-web-share")?.addEventListener("click", async () => {
+      try {
+        await navigator.share({
+          title: `SHL Fantasy - ${currentLeague.name}`,
+          text: shareText,
+          url: shareUrl
+        });
+      } catch (e) {}
+    });
+
+    subModal.root.querySelector("#btn-send-in-app-invites")?.addEventListener("click", async () => {
+      const selected = Array.from(subModal.root.querySelectorAll(".shl-invite-friend-checkbox:checked")).map(cb => cb.value);
+      if (selected.length === 0) {
+        alert("Välj minst en vän att bjuda in.");
+        return;
+      }
+      try {
+        await inviteFriendsToShlLeague(currentLeague.code, selected);
+        showToast(`Inbjudan skickad till ${selected.length} vänner! 🔔`, 'success');
+        subModal.close();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
   }
 
   function refreshAll() {
@@ -1073,16 +1512,45 @@ export async function openShlFantasyModal() {
     myLineup.defenders.forEach(awardPlayerPts);
     myLineup.forwards.forEach(awardPlayerPts);
 
-    competitors.forEach(c => {
-      if (c.lineup.goalie) awardPlayerPts(c.lineup.goalie);
-      c.lineup.defenders.forEach(awardPlayerPts);
-      c.lineup.forwards.forEach(awardPlayerPts);
-      c.points = calculateLineupPoints(c.lineup);
-    });
+    if (isMultiplayer && currentLeague) {
+      currentLeague.entries.forEach(entry => {
+        if (entry.user_id === currentUser.id) {
+          entry.lineup = myLineup;
+        } else if (entry.lineup) {
+          if (entry.lineup.goalie) awardPlayerPts(entry.lineup.goalie);
+          (entry.lineup.defenders || []).forEach(awardPlayerPts);
+          (entry.lineup.forwards || []).forEach(awardPlayerPts);
+        }
+        entry.points = calculateLineupPoints(entry.lineup || {});
+      });
+    } else {
+      competitors.forEach(c => {
+        if (c.lineup.goalie) awardPlayerPts(c.lineup.goalie);
+        c.lineup.defenders.forEach(awardPlayerPts);
+        c.lineup.forwards.forEach(awardPlayerPts);
+        c.points = calculateLineupPoints(c.lineup);
+      });
+    }
 
     currentSimulatedDay += 1;
     if (currentSimulatedDay >= currentRound.days.length) {
       roundSimulated = true;
+      if (isMultiplayer && currentLeague) {
+        // Find winner
+        const sorted = [...currentLeague.entries].sort((a, b) => (b.points || 0) - (a.points || 0));
+        const winner = sorted[0];
+        if (winner) {
+          const entryPoints = {};
+          currentLeague.entries.forEach(e => { entryPoints[e.user_id] = e.points || 0; });
+          settleShlLeague(currentLeague.code, {
+            winnerId: winner.user_id,
+            entryPoints
+          }).then(updated => {
+            currentLeague = updated;
+            refresh();
+          }).catch(e => console.error(e));
+        }
+      }
     }
 
     refresh();

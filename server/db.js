@@ -398,6 +398,45 @@ try {
   `);
 } catch {}
 
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shl_fantasy_leagues (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      creator_id TEXT NOT NULL,
+      round_id TEXT NOT NULL,
+      stake_amount INTEGER NOT NULL DEFAULT 50,
+      mode TEXT NOT NULL DEFAULT 'swish',
+      status TEXT NOT NULL DEFAULT 'open',
+      winner_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (winner_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shl_league_code ON shl_fantasy_leagues(code);
+    CREATE INDEX IF NOT EXISTS idx_shl_league_creator ON shl_fantasy_leagues(creator_id);
+
+    CREATE TABLE IF NOT EXISTS shl_fantasy_entries (
+      id TEXT PRIMARY KEY,
+      league_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      avatar_emoji TEXT DEFAULT '🏒',
+      swish_number TEXT,
+      lineup TEXT NOT NULL,
+      points INTEGER NOT NULL DEFAULT 0,
+      is_paid INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (league_id) REFERENCES shl_fantasy_leagues(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(league_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shl_entries_league ON shl_fantasy_entries(league_id);
+    CREATE INDEX IF NOT EXISTS idx_shl_entries_user ON shl_fantasy_entries(user_id);
+  `);
+} catch {}
+
 // ── Prepared Statements ──────────────
 const stmts = {
   // Settings
@@ -2884,4 +2923,99 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
       ticket_count: db.prepare(`SELECT COUNT(*) as count FROM lotto_tickets WHERE draw_id = ?`).get(d.id)?.count || 0
     }));
   }
+
+  // ── SHL Fantasy Leagues ─────────────────────────────────────
+  export function createShlLeague({ name, creatorId, roundId, stakeAmount, mode = 'swish' }) {
+    const id = crypto.randomUUID();
+    // Generate 6 char unique alphanumeric code e.g. SHL482
+    const code = 'SHL' + Math.floor(100 + Math.random() * 900);
+    const stmt = db.prepare(`
+      INSERT INTO shl_fantasy_leagues (id, code, name, creator_id, round_id, stake_amount, mode, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
+    `);
+    stmt.run(id, code, name, creatorId, roundId, stakeAmount, mode);
+    return getShlLeagueByCode(code);
+  }
+
+  export function getShlLeagueByCode(code) {
+    const league = db.prepare(`
+      SELECT l.*, u.nickname as creator_name, u.avatar_emoji as creator_avatar
+      FROM shl_fantasy_leagues l
+      JOIN users u ON l.creator_id = u.id
+      WHERE UPPER(l.code) = UPPER(?)
+    `).get(code);
+
+    if (!league) return null;
+
+    const entries = db.prepare(`
+      SELECT e.*, u.swish_number as user_saved_swish
+      FROM shl_fantasy_entries e
+      LEFT JOIN users u ON e.user_id = u.id
+      WHERE e.league_id = ?
+      ORDER BY e.points DESC, e.created_at ASC
+    `).all(league.id);
+
+    return {
+      ...league,
+      entries: entries.map(e => ({
+        ...e,
+        swish_number: e.swish_number || e.user_saved_swish || '',
+        lineup: JSON.parse(e.lineup || '{}')
+      }))
+    };
+  }
+
+  export function getShlLeagueById(id) {
+    const league = db.prepare('SELECT * FROM shl_fantasy_leagues WHERE id = ?').get(id);
+    if (!league) return null;
+    return getShlLeagueByCode(league.code);
+  }
+
+  export function joinOrUpdateShlEntry({ leagueId, userId, userName, avatarEmoji, swishNumber, lineup, points = 0 }) {
+    const existing = db.prepare('SELECT id FROM shl_fantasy_entries WHERE league_id = ? AND user_id = ?').get(leagueId, userId);
+    const lineupStr = JSON.stringify(lineup || {});
+
+    if (existing) {
+      db.prepare(`
+        UPDATE shl_fantasy_entries
+        SET user_name = ?, avatar_emoji = ?, swish_number = COALESCE(?, swish_number), lineup = ?, points = ?
+        WHERE id = ?
+      `).run(userName, avatarEmoji, swishNumber || null, lineupStr, points, existing.id);
+      return existing.id;
+    } else {
+      const id = crypto.randomUUID();
+      db.prepare(`
+        INSERT INTO shl_fantasy_entries (id, league_id, user_id, user_name, avatar_emoji, swish_number, lineup, points)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, leagueId, userId, userName, avatarEmoji, swishNumber || null, lineupStr, points);
+      return id;
+    }
+  }
+
+  export function updateShlEntryPoints(leagueId, userId, points) {
+    db.prepare(`
+      UPDATE shl_fantasy_entries
+      SET points = ?
+      WHERE league_id = ? AND user_id = ?
+    `).run(points, leagueId, userId);
+  }
+
+  export function settleShlLeague(leagueId, winnerId) {
+    db.prepare(`
+      UPDATE shl_fantasy_leagues
+      SET status = 'finished', winner_id = ?
+      WHERE id = ?
+    `).run(winnerId, leagueId);
+    return getShlLeagueById(leagueId);
+  }
+
+  export function toggleShlEntryPaid(leagueId, userId, isPaid) {
+    db.prepare(`
+      UPDATE shl_fantasy_entries
+      SET is_paid = ?
+      WHERE league_id = ? AND user_id = ?
+    `).run(isPaid ? 1 : 0, leagueId, userId);
+    return getShlLeagueById(leagueId);
+  }
+
 
