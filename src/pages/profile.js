@@ -1,11 +1,13 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs } from '../api.js';
+import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush } from '../push.js';
+import { navigate } from '../main.js';
+import { openBlind10Modal, openMafiaModal } from '../components/minigames.js';
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -149,6 +151,7 @@ function renderAuthScreen(content) {
         const user = await loginWithBiometrics();
         storeUser(user);
         await checkPendingFriendInvite();
+        await checkPendingPartyJoin();
         showToast(`Välkommen tillbaka, ${user.nickname}! 👋`, 'success');
         renderProfile();
       } catch (err) {
@@ -178,6 +181,7 @@ function renderAuthScreen(content) {
       const user = await registerUser({ name, nickname, swishNumber, pin, avatarEmoji: '👤' });
       storeUser(user);
       await checkPendingFriendInvite();
+      await checkPendingPartyJoin();
       showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
       renderProfile();
     } catch (err) {
@@ -207,6 +211,7 @@ function renderAuthScreen(content) {
 
       storeUser(res);
       await checkPendingFriendInvite();
+      await checkPendingPartyJoin();
       showToast(`Välkommen tillbaka, ${res.nickname}! 👋`, 'success');
       renderProfile();
     } catch (err) {
@@ -227,6 +232,27 @@ async function checkPendingFriendInvite() {
       // ignore
     }
     sessionStorage.removeItem('pending_friend_invite');
+  }
+}
+
+async function checkPendingPartyJoin() {
+  const pendingCode = sessionStorage.getItem('pending_party_join');
+  if (pendingCode) {
+    sessionStorage.removeItem('pending_party_join');
+    try {
+      const joinRes = await joinPartyRoom({ code: pendingCode });
+      if (joinRes && joinRes.room) {
+        showToast(`Ansluten till rummet! 🎉`, 'success');
+        navigate('home');
+        if (joinRes.room.gameType === 'mafia') {
+          openMafiaModal(joinRes.room);
+        } else {
+          openBlind10Modal(joinRes.room);
+        }
+      }
+    } catch (e) {
+      showToast(e.message || 'Kunde inte ansluta till rummet', 'error');
+    }
   }
 }
 

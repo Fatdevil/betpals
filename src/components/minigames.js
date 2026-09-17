@@ -17,6 +17,7 @@ import {
   startPartyGame,
   submitPartyTime,
   resolvePartyTie,
+  getPartyRoomQR,
   createAnyBet,
   getAnyBets,
   getAnyBet,
@@ -2535,6 +2536,55 @@ function openDiceModal(initialDuel = null) {
 }
 
 // ────────────────────────────────────────────────────────
+// 📱 PARTY ROOM QR CODE MODAL
+// ────────────────────────────────────────────────────────
+export async function showPartyRoomQRModal(roomCode, gameType = 'party') {
+  const isEn = getLang() === 'en';
+  try {
+    const res = await getPartyRoomQR(roomCode);
+    if (!res || !res.qr) throw new Error('Ingen QR');
+
+    const isMafia = gameType === 'mafia';
+    const gameName = isMafia ? 'Maffia' : 'The Blind 10.00';
+    const gameIcon = isMafia ? '/mafia-gold.png' : '/stopwatch-gold.png';
+
+    const { close, root } = showModal(`📱 ${isEn ? 'Scan QR to Join' : 'Skanna QR för att gå med'}`, `
+      <div class="text-center" style="padding: 6px 0;">
+        <img src="${gameIcon}" alt="" style="width: 48px; height: 48px; margin: 0 auto 10px auto; display: block; filter: drop-shadow(0 2px 10px rgba(255,215,0,0.5));" />
+        <h3 style="color: var(--gold); margin-bottom: 4px; font-size: 1.15rem;">
+          ${gameName}
+        </h3>
+        <p class="text-muted" style="font-size: 0.82rem; margin: 0 auto 14px auto; max-width: 280px;">
+          ${isEn ? 'Point your phone camera at the QR code to join instantly!' : 'Rikta mobilkameran mot QR-koden för att gå med i rummet direkt!'}
+        </p>
+
+        <div style="background: #07070e; border: 2px solid var(--gold); border-radius: var(--radius-lg); padding: 14px; display: inline-block; box-shadow: 0 8px 32px rgba(255,215,0,0.25); margin-bottom: 12px;">
+          <img src="${res.qr}" alt="QR Code" style="width: 210px; height: 210px; display: block; border-radius: 8px;" />
+        </div>
+
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">
+          ${isEn ? 'Room Code' : 'Rumskod'}: <strong style="color: var(--gold); font-family: monospace; font-size: 1.2rem; letter-spacing: 3px;">${res.code || roomCode}</strong>
+        </div>
+
+        <button type="button" class="btn btn-secondary btn-block mt-md" id="btn-copy-party-qr-url" style="font-size: 0.85rem;">
+          🔗 ${isEn ? 'Copy Direct Link' : 'Kopiera direktlänk'}
+        </button>
+      </div>
+    `);
+
+    root.querySelector('#btn-copy-party-qr-url')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(res.url).then(() => {
+        showToast(isEn ? 'Link copied to clipboard!' : 'Länk kopierad till urklipp!', 'success');
+      }).catch(() => {
+        showToast(res.url, 'info');
+      });
+    });
+  } catch (err) {
+    showToast(isEn ? 'Failed to load QR code' : 'Kunde inte ladda QR-kod', 'error');
+  }
+}
+
+// ────────────────────────────────────────────────────────
 // ⏱️ THE BLIND 10.00 SKILLS GAME & PARTY ROOMS
 // ────────────────────────────────────────────────────────
 export async function openBlind10Modal(initialRoom = null) {
@@ -2979,9 +3029,14 @@ export async function openBlind10Modal(initialRoom = null) {
           <div style="font-size: 2.4rem; font-weight: 900; letter-spacing: 6px; color: var(--gold); font-family: monospace; margin: 4px 0;">
             ${currentRoom.code}
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-party-code" style="font-size: 0.8rem; padding: 4px 14px;">
-            📋 ${isEn ? 'Copy Room Code' : 'Kopiera rumskod'}
-          </button>
+          <div class="flex gap-xs justify-center" style="margin-top: 6px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-party-code" style="font-size: 0.8rem; padding: 4px 12px;">
+              📋 ${isEn ? 'Copy Code' : 'Kopiera kod'}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-show-party-qr" style="font-size: 0.8rem; padding: 4px 12px; border-color: var(--gold); color: var(--gold); font-weight: 700;">
+              📱 ${isEn ? 'Show QR' : 'Visa QR-kod'}
+            </button>
+          </div>
         </div>
 
         <div class="flex justify-between align-center" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-md); padding: 8px 14px; margin-bottom: 14px; border: 1px solid var(--border-glass);">
@@ -3035,6 +3090,10 @@ export async function openBlind10Modal(initialRoom = null) {
       }).catch(() => {
         showToast(currentRoom.code, 'info');
       });
+    });
+
+    document.getElementById('btn-show-party-qr')?.addEventListener('click', () => {
+      showPartyRoomQRModal(currentRoom.code, 'blind10');
     });
 
     document.getElementById('btn-start-party-game')?.addEventListener('click', async () => {
@@ -3939,9 +3998,14 @@ export async function openMafiaModal(initialRoom = null) {
           <div style="font-size: 2.4rem; font-weight: 900; letter-spacing: 6px; color: #ef4444; font-family: monospace; margin: 4px 0;">
             ${currentRoom.code}
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-mafia-code" style="font-size: 0.8rem; padding: 4px 14px;">
-            📋 ${isEn ? 'Copy Room Code' : 'Kopiera rumskod'}
-          </button>
+          <div class="flex gap-xs justify-center" style="margin-top: 6px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-mafia-code" style="font-size: 0.8rem; padding: 4px 12px;">
+              📋 ${isEn ? 'Copy Code' : 'Kopiera kod'}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-show-mafia-qr" style="font-size: 0.8rem; padding: 4px 12px; border-color: #ef4444; color: #ef4444; font-weight: 700;">
+              📱 ${isEn ? 'Show QR' : 'Visa QR-kod'}
+            </button>
+          </div>
         </div>
 
         <div class="flex justify-between align-center" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-md); padding: 8px 14px; margin-bottom: 12px; border: 1px solid var(--border-glass);">
@@ -4009,6 +4073,10 @@ export async function openMafiaModal(initialRoom = null) {
       }).catch(() => {
         showToast(currentRoom.code, 'info');
       });
+    });
+
+    document.getElementById('btn-show-mafia-qr')?.addEventListener('click', () => {
+      showPartyRoomQRModal(currentRoom.code, 'mafia');
     });
 
     document.getElementById('btn-start-mafia-game')?.addEventListener('click', async () => {

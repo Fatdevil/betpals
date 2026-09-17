@@ -1,9 +1,10 @@
 import { renderNavbar } from './components/navbar.js';
 import { renderHome } from './pages/home.js';
 import { initAds } from './components/ads.js';
-import { addFriend } from './api.js';
+import { addFriend, getPartyRoom, joinPartyRoom } from './api.js';
 import { isLoggedIn } from './auth.js';
 import { showToast } from './utils.js';
+import { openBlind10Modal, openMafiaModal } from './components/minigames.js';
 
 let currentPage = 'home';
 let currentParams = {};
@@ -139,6 +140,45 @@ function init() {
     }
     url.searchParams.delete('addFriend');
     window.history.replaceState({}, '', url);
+  }
+
+  // Handle party/room QR link ?party=CODE or ?room=CODE
+  const partyParam = (url.searchParams.get('party') || url.searchParams.get('room') || '').trim().toUpperCase();
+  if (partyParam) {
+    url.searchParams.delete('party');
+    url.searchParams.delete('room');
+    window.history.replaceState({}, '', url);
+
+    handlePartyRoomDeepLink(partyParam);
+  }
+}
+
+async function handlePartyRoomDeepLink(code) {
+  try {
+    const res = await getPartyRoom(code);
+    const room = res?.room;
+    if (!room) {
+      showToast('Rummet hittades inte eller har löpt ut', 'error');
+      return;
+    }
+
+    if (isLoggedIn()) {
+      const joinRes = await joinPartyRoom({ code });
+      const joinedRoom = joinRes?.room || room;
+      const gameLabel = joinedRoom.gameType === 'mafia' ? 'Maffia' : 'The Blind 10.00';
+      showToast(`Ansluten till ${gameLabel}! 🎉`, 'success');
+      if (joinedRoom.gameType === 'mafia') {
+        openMafiaModal(joinedRoom);
+      } else {
+        openBlind10Modal(joinedRoom);
+      }
+    } else {
+      sessionStorage.setItem('pending_party_join', code);
+      showToast(`Skapa profil eller logga in för att gå med i ${room.gameType === 'mafia' ? 'Maffia' : 'The Blind 10.00'}! 🎮`, 'info');
+      navigate('profile');
+    }
+  } catch (err) {
+    showToast(err.message || 'Kunde inte ansluta till rummet', 'error');
   }
 }
 

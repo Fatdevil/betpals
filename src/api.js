@@ -223,6 +223,7 @@ export const inviteToParty = (id, friendIds) => request('/minigames/party/' + id
 export const startPartyGame = (id) => request('/minigames/party/' + id + '/start', { method: 'POST', body: {} });
 export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: { stoppedTime } });
 export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
+export const getPartyRoomQR = (query, baseUrl) => request('/minigames/party/' + encodeURIComponent(query) + '/qr' + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : ''));
 
 // ── Mafia (Varulv) Party Game ────────────────────────
 export const startMafiaGame = (id, data) => request('/minigames/mafia/' + id + '/start', { method: 'POST', body: data || {} });

@@ -2340,6 +2340,28 @@ app.get('/api/minigames/party/:query', (req, res) => {
   res.json({ room });
 });
 
+// Party Room QR Code
+app.get('/api/minigames/party/:query/qr', async (req, res) => {
+  const query = req.params.query.toUpperCase();
+  const roomId = partyCodeToId.get(query) || req.params.query;
+  const room = partyRooms.get(roomId);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+
+  const baseUrl = req.query.baseUrl || `${req.protocol}://${req.get('host').replace('3001', '5173')}`;
+  const url = `${baseUrl}/?party=${room.code}`;
+
+  try {
+    const qrDataUrl = await QRCode.toDataURL(url, {
+      width: 320,
+      margin: 2,
+      color: { dark: '#FFD700', light: '#07070e' }
+    });
+    res.json({ qr: qrDataUrl, url, code: room.code, gameType: room.gameType });
+  } catch (err) {
+    res.status(500).json({ error: 'Kunde inte generera QR-kod' });
+  }
+});
+
 app.post('/api/minigames/party/join', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
