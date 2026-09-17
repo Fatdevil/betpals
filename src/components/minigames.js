@@ -10145,7 +10145,7 @@ export async function openGimmeModal() {
     'No free rides today! Show us what you got! 🔥'
   ];
 
-  const modalTitle = `<img src="/golf-gimme.png" alt="" style="width: 28px; height: 24px; object-fit: contain; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? 'Is it a Gimme? ⛳️' : 'Is it a Gimme? ⛳️'}`;
+  const modalTitle = `<img src="/golf-gimme.png" alt="" style="width: 28px; height: 24px; object-fit: contain; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? 'Is it a Gimme?' : 'Is it a Gimme?'}`;
 
   const contentHtml = `
     <div class="gimme-modal-container" style="max-width: 480px; margin: 0 auto; text-align: center; user-select: none;">
