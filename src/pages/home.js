@@ -77,7 +77,9 @@ export async function renderHome() {
     if (events.length === 0 && tournaments.length === 0) {
       document.getElementById('events-list').innerHTML = `
         <div class="empty-state">
-          <div class="empty-state-icon">🎯</div>
+          <div style="display: flex; justify-content: center; margin-bottom: var(--space-md);">
+            <img src="/malta-betting-chips.png" alt="Malta Betting" class="animate-in" style="width: 140px; max-width: 60vw; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(0,0,0,0.7)) drop-shadow(0 0 16px rgba(255, 215, 0, 0.25));" />
+          </div>
           <p class="empty-state-text">${t('home.noEvents')}</p>
           <div class="flex gap-md" style="justify-content: center;">
             <button class="btn btn-primary" id="go-admin-btn">${t('admin.createEvent')}</button>
