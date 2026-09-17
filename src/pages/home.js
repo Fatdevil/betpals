@@ -11,12 +11,12 @@ export async function renderHome() {
   const content = document.getElementById('page-content');
   content.innerHTML = `
     <div id="home-live-banner-container"></div>
-    ${renderMinigamesRoller()}
-    <div class="page-header animate-in" style="padding-top: var(--space-xs); margin-bottom: var(--space-xs);">
-      <div class="home-logo-wrap">
+    <div class="page-header animate-in" style="padding-top: 4px; margin-bottom: 10px;">
+      <div class="home-logo-wrap" style="max-width: 320px; margin: 0 auto;">
         <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
       </div>
     </div>
+    ${renderMinigamesRoller()}
     <div id="home-lotto-jackpot-banner-container"></div>
     <div id="tournaments-list"></div>
     <div id="events-list">
