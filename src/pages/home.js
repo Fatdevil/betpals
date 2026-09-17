@@ -35,7 +35,7 @@ export async function renderHome() {
     const tList = document.getElementById('tournaments-list');
     if (tournaments.length > 0) {
       const hasActive = tournaments.some(t => t.status === 'active');
-      const badgeText = hasActive ? 'LIVE 🏆' : 'SEASON 2026 🏆';
+      const badgeText = hasActive ? 'LIVE' : 'SEASON 2026';
       tList.innerHTML = `
         <div class="section-header-bar">
           <div class="section-header-title">
@@ -117,7 +117,7 @@ export async function renderHome() {
             </div>
             <div class="flex gap-xs" style="align-items: center;">
               <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
-                MATCHES 🎲
+                MATCHES
               </span>
             </div>
           </div>
