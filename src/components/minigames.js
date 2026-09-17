@@ -10095,6 +10095,21 @@ export async function openGimmeModal() {
   let selectedBetMode = 'free';
   let selectedStake = 20;
 
+  // Auto-Vision & Lock-on state
+  let detectedHole = null; // { x, y, radius, confidence }
+  let detectedBall = null; // { x, y, radius, confidence }
+  let isHoleLocked = false;
+  let lockSoundPlayed = false;
+  let manualBallTarget = null; // { x, y } if user manually taps screen
+  let lastVisionScanTime = 0;
+  let measuredDistanceCm = null;
+
+  // Hidden vision processing canvas (low resolution for 60fps performance)
+  const visionCanvas = document.createElement('canvas');
+  visionCanvas.width = 160;
+  visionCanvas.height = 120;
+  const visionCtx = visionCanvas.getContext('2d', { willReadFrequently: true });
+
   // Funny roast quotes
   const approvedRoastsSv = [
     'Plocka upp bollen innan du skämmer ut dig! 🏆',
@@ -10248,10 +10263,10 @@ export async function openGimmeModal() {
         </div>
 
         <!-- Realtime Guide Banner at bottom of AR View -->
-        <div id="gimme-hud-guide" style="position: absolute; bottom: 8px; left: 10px; right: 10px; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); border-radius: 8px; padding: 6px 10px; font-size: 0.75rem; color: #fff; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,0.15); pointer-events: none;">
+        <div id="gimme-hud-guide" style="position: absolute; bottom: 8px; left: 10px; right: 10px; background: rgba(0,0,0,0.78); backdrop-filter: blur(8px); border-radius: 8px; padding: 6px 10px; font-size: 0.75rem; color: #fff; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,0.15); pointer-events: none;">
           <div class="flex items-center gap-xs">
-            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; animation: pulse 1.5s infinite;"></span>
-            <span id="gimme-hud-text">${isEn ? 'Pass hole inside gold ring' : 'Passa in hålet i guldringen'}</span>
+            <span id="gimme-hud-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 8px #fbbf24; animation: pulse 1.5s infinite;"></span>
+            <span id="gimme-hud-text" style="font-weight: 600;">🔍 Söker hål & boll...</span>
           </div>
           <span style="font-weight: 700; color: #10b981;" id="gimme-hud-radius">60 cm</span>
         </div>
@@ -10450,6 +10465,117 @@ export async function openGimmeModal() {
     } catch (_) {}
   }
 
+  // Vision Scan Function (Runs every ~120ms to save battery and keep 60fps)
+  function processVisionFrame(video, width, height) {
+    if (!video || video.readyState < 2) return;
+    const vW = visionCanvas.width;
+    const vH = visionCanvas.height;
+
+    try {
+      visionCtx.drawImage(video, 0, 0, vW, vH);
+      const imgData = visionCtx.getImageData(0, 0, vW, vH);
+      const data = imgData.data;
+
+      // 1. Detect Hole (find darkest circular cluster with highest contrast against surroundings)
+      let minBrightness = 255;
+      let darkX = -1;
+      let darkY = -1;
+
+      // 2. Detect Ball (find brightest, high-contrast white sphere candidate)
+      let maxBrightDiff = 0;
+      let ballCandX = -1;
+      let ballCandY = -1;
+
+      // Scan interior grid (skip extreme edges)
+      for (let y = 15; y < vH - 15; y += 3) {
+        for (let x = 15; x < vW - 15; x += 3) {
+          const idx = (y * vW + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const brightness = (r * 0.299 + g * 0.587 + b * 0.114);
+
+          // Check for dark hole candidate
+          // Hole is dark, non-green, with darker center than 10px radius perimeter
+          if (brightness < minBrightness && brightness < 75) {
+            // Sample perimeter 8px away to ensure it is a circular shadow/hole
+            const p1Idx = ((y - 8) * vW + x) * 4;
+            const p2Idx = ((y + 8) * vW + x) * 4;
+            const p3Idx = (y * vW + (x - 8)) * 4;
+            const p4Idx = (y * vW + (x + 8)) * 4;
+            const avgPerim = ((data[p1Idx] + data[p2Idx] + data[p3Idx] + data[p4Idx]) / 4);
+
+            if (avgPerim - brightness > 30) {
+              minBrightness = brightness;
+              darkX = x;
+              darkY = y;
+            }
+          }
+
+          // Check for bright white golf ball candidate (high brightness, balanced RGB)
+          const isWhiteish = Math.abs(r - g) < 25 && Math.abs(g - b) < 25 && brightness > 180;
+          if (isWhiteish) {
+            // Check that background around candidate is darker (contrast)
+            const pIdx = ((y - 5) * vW + x) * 4;
+            const bgBright = data[pIdx] * 0.299 + data[pIdx + 1] * 0.587 + data[pIdx + 2] * 0.114;
+            const diff = brightness - bgBright;
+            if (diff > maxBrightDiff && diff > 40) {
+              maxBrightDiff = diff;
+              ballCandX = x;
+              ballCandY = y;
+            }
+          }
+        }
+      }
+
+      // Map back to screen coordinates
+      const scaleX = width / vW;
+      const scaleY = height / vH;
+
+      if (darkX > 0 && darkY > 0) {
+        const targetScreenX = darkX * scaleX;
+        const targetScreenY = darkY * scaleY;
+
+        if (!detectedHole) {
+          detectedHole = { x: targetScreenX, y: targetScreenY, confidence: 1 };
+        } else {
+          // Smooth lerp movement towards locked target
+          detectedHole.x += (targetScreenX - detectedHole.x) * 0.25;
+          detectedHole.y += (targetScreenY - detectedHole.y) * 0.25;
+          detectedHole.confidence = Math.min(10, (detectedHole.confidence || 0) + 1);
+        }
+        isHoleLocked = detectedHole.confidence >= 3;
+      } else {
+        if (detectedHole) {
+          detectedHole.confidence = Math.max(0, detectedHole.confidence - 0.5);
+          if (detectedHole.confidence <= 0) {
+            detectedHole = null;
+            isHoleLocked = false;
+            lockSoundPlayed = false;
+          }
+        }
+      }
+
+      // Ball candidate mapping (only if reasonably separated from hole)
+      if (ballCandX > 0 && ballCandY > 0) {
+        const screenBallX = ballCandX * scaleX;
+        const screenBallY = ballCandY * scaleY;
+        const holeX = detectedHole ? detectedHole.x : width / 2;
+        const holeY = detectedHole ? detectedHole.y : height / 2;
+        const distFromHole = Math.hypot(screenBallX - holeX, screenBallY - holeY);
+
+        if (distFromHole > 35) { // Must not be inside hole itself
+          if (!detectedBall) {
+            detectedBall = { x: screenBallX, y: screenBallY };
+          } else {
+            detectedBall.x += (screenBallX - detectedBall.x) * 0.3;
+            detectedBall.y += (screenBallY - detectedBall.y) * 0.3;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   // Draw AR Overlays in realtime loop
   let pulseAngle = 0;
   function renderARFrame() {
@@ -10465,97 +10591,177 @@ export async function openGimmeModal() {
 
       ctx.clearRect(0, 0, w, h);
 
-      const centerX = w / 2;
-      const centerY = h / 2;
+      // Run computer vision scan every 100ms
+      const now = performance.now();
+      if (now - lastVisionScanTime > 100 && videoEl && videoEl.videoWidth > 0) {
+        lastVisionScanTime = now;
+        processVisionFrame(videoEl, w, h);
+      }
 
-      // The inner gold ring represents the 10.8 cm hole cup
-      // We calibrate the inner ring radius to approx 38px on mobile screen
-      const holeRadiusPx = Math.min(w, h) * 0.13; // ~45px
+      // Determine Hole Center: Either auto-locked hole position or screen center fallback
+      const defaultCenterX = w / 2;
+      const defaultCenterY = h / 2;
+      const holeX = (detectedHole && isHoleLocked) ? detectedHole.x : defaultCenterX;
+      const holeY = (detectedHole && isHoleLocked) ? detectedHole.y : defaultCenterY;
+
+      // Visual scale: calibrate hole radius to ~28px on mobile screen (compact to fit full 60cm gimme ring!)
+      const holeRadiusPx = Math.min(w, h) * 0.085; // ~30px
       // 1 cm = holeRadiusPx / (10.8 / 2) px
       const pxPerCm = holeRadiusPx / 5.4;
       const gimmeRadiusPx = customGimmeCm * pxPerCm;
 
       pulseAngle += 0.05;
-      const pulseEffect = Math.sin(pulseAngle) * 3;
+      const pulseEffect = Math.sin(pulseAngle) * 2;
 
-      // 1. Draw outer Gimme Perimeter (Glowing Neon Green Circle)
+      // Update HUD status banner
+      const hudDot = root.querySelector('#gimme-hud-dot');
+      const hudText = root.querySelector('#gimme-hud-text');
+      if (hudDot && hudText) {
+        if (isHoleLocked) {
+          hudDot.style.background = '#10b981';
+          hudDot.style.boxShadow = '0 0 10px #10b981';
+          hudText.textContent = isEn ? '🔒 HOLE LOCKED-ON (10.8 cm)' : '🔒 HÅL LÅST (10,8 cm)';
+          if (!lockSoundPlayed) {
+            playTone(880, 'sine', 0.08, 0.08);
+            lockSoundPlayed = true;
+          }
+        } else {
+          hudDot.style.background = '#fbbf24';
+          hudDot.style.boxShadow = '0 0 8px #fbbf24';
+          hudText.textContent = isEn ? '🔍 Aim circle over hole...' : '🔍 Passa in hålet i siktet...';
+        }
+      }
+
+      // 1. Draw outer Gimme Perimeter (Glowing Neon Green Laser Circle)
       ctx.save();
       ctx.beginPath();
-      ctx.arc(centerX, centerY, Math.max(10, gimmeRadiusPx + pulseEffect), 0, Math.PI * 2);
-      ctx.lineWidth = 3;
+      ctx.arc(holeX, holeY, Math.max(10, gimmeRadiusPx + pulseEffect), 0, Math.PI * 2);
+      ctx.lineWidth = isHoleLocked ? 3.5 : 2.5;
       ctx.strokeStyle = '#10b981';
       ctx.shadowColor = '#10b981';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = isHoleLocked ? 16 : 10;
       ctx.stroke();
 
       // Translucent Gimme zone fill
-      ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+      ctx.fillStyle = isHoleLocked ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.06)';
       ctx.fill();
       ctx.restore();
 
-      // Gimme radar dash ticks
+      // Gimme radar dashed inner ring
       ctx.save();
       ctx.setLineDash([6, 8]);
       ctx.beginPath();
-      ctx.arc(centerX, centerY, Math.max(10, gimmeRadiusPx * 0.7), 0, Math.PI * 2);
-      ctx.lineWidth = 1.5;
+      ctx.arc(holeX, holeY, Math.max(10, gimmeRadiusPx * 0.65), 0, Math.PI * 2);
+      ctx.lineWidth = 1.2;
       ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
       ctx.stroke();
       ctx.restore();
 
-      // 2. Draw Center Hole Alignment Ring (Gold Target)
+      // 2. Draw Hole Alignment Ring (Gold Target with Sci-Fi Reticle)
       ctx.save();
       ctx.beginPath();
-      ctx.arc(centerX, centerY, holeRadiusPx, 0, Math.PI * 2);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.shadowColor = '#fbbf24';
+      ctx.arc(holeX, holeY, holeRadiusPx, 0, Math.PI * 2);
+      ctx.lineWidth = isHoleLocked ? 3.5 : 2.5;
+      ctx.strokeStyle = isHoleLocked ? '#10b981' : '#fbbf24';
+      ctx.shadowColor = isHoleLocked ? '#10b981' : '#fbbf24';
       ctx.shadowBlur = 10;
       ctx.stroke();
 
-      // Crosshair markers for precision hole alignment
-      ctx.strokeStyle = '#fbbf24';
+      // Crosshair tick marks
+      ctx.strokeStyle = isHoleLocked ? '#10b981' : '#fbbf24';
       ctx.lineWidth = 2;
-      const chLen = 10;
+      const chLen = 8;
       // Top
       ctx.beginPath();
-      ctx.moveTo(centerX, centerY - holeRadiusPx - chLen);
-      ctx.lineTo(centerX, centerY - holeRadiusPx + chLen);
+      ctx.moveTo(holeX, holeY - holeRadiusPx - chLen);
+      ctx.lineTo(holeX, holeY - holeRadiusPx + chLen);
       ctx.stroke();
       // Bottom
       ctx.beginPath();
-      ctx.moveTo(centerX, centerY + holeRadiusPx - chLen);
-      ctx.lineTo(centerX, centerY + holeRadiusPx + chLen);
+      ctx.moveTo(holeX, holeY + holeRadiusPx - chLen);
+      ctx.lineTo(holeX, holeY + holeRadiusPx + chLen);
       ctx.stroke();
       // Left
       ctx.beginPath();
-      ctx.moveTo(centerX - holeRadiusPx - chLen, centerY);
-      ctx.lineTo(centerX - holeRadiusPx + chLen, centerY);
+      ctx.moveTo(holeX - holeRadiusPx - chLen, holeY);
+      ctx.lineTo(holeX - holeRadiusPx + chLen, holeY);
       ctx.stroke();
       // Right
       ctx.beginPath();
-      ctx.moveTo(centerX + holeRadiusPx - chLen, centerY);
-      ctx.lineTo(centerX + holeRadiusPx + chLen, centerY);
+      ctx.moveTo(holeX + holeRadiusPx - chLen, holeY);
+      ctx.lineTo(holeX + holeRadiusPx + chLen, holeY);
       ctx.stroke();
 
       // Center dot
       ctx.beginPath();
-      ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#fbbf24';
+      ctx.arc(holeX, holeY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = isHoleLocked ? '#10b981' : '#fbbf24';
       ctx.fill();
 
       // Label on hole
-      ctx.font = 'bold 11px system-ui, sans-serif';
-      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.fillStyle = isHoleLocked ? '#10b981' : '#fbbf24';
       ctx.textAlign = 'center';
-      ctx.fillText(isEn ? 'HOLE 10.8 cm' : 'HÅL 10,8 cm', centerX, centerY - holeRadiusPx - 14);
+      ctx.fillText(isHoleLocked ? '🔒 HÅL (10.8 cm)' : 'HÅL (10.8 cm)', holeX, holeY - holeRadiusPx - 10);
 
       // Label on gimme ring
-      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.font = 'bold 11px system-ui, sans-serif';
       ctx.fillStyle = '#10b981';
-      ctx.fillText(`🟢 GIMME (${customGimmeCm} cm)`, centerX, centerY + gimmeRadiusPx + 18);
-
+      ctx.fillText(`🟢 GIMME ZON (${customGimmeCm} cm)`, holeX, holeY + gimmeRadiusPx + 15);
       ctx.restore();
+
+      // 3. Draw Ball Target & Realtime Connecting Laser (Auto-detected or Manual Tap)
+      const activeBall = manualBallTarget || detectedBall;
+      if (activeBall) {
+        const ballDistPx = Math.hypot(activeBall.x - holeX, activeBall.y - holeY);
+        // Distance in cm (minus hole radius to measure to cup rim)
+        const distCm = Math.max(0, Math.round((ballDistPx - holeRadiusPx) / pxPerCm));
+        measuredDistanceCm = distCm;
+        const isWithinGimme = distCm <= customGimmeCm;
+
+        // Laser line connecting hole and ball
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(holeX, holeY);
+        ctx.lineTo(activeBall.x, activeBall.y);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = isWithinGimme ? '#10b981' : '#ef4444';
+        ctx.shadowColor = isWithinGimme ? '#10b981' : '#ef4444';
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+
+        // Distance Tag in center of laser line
+        const midX = (holeX + activeBall.x) / 2;
+        const midY = (holeY + activeBall.y) / 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillRect(midX - 34, midY - 12, 68, 24);
+        ctx.strokeStyle = isWithinGimme ? '#10b981' : '#ef4444';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(midX - 34, midY - 12, 68, 24);
+
+        ctx.font = 'bold 11px system-ui, sans-serif';
+        ctx.fillStyle = isWithinGimme ? '#10b981' : '#ef4444';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${distCm} cm ${isWithinGimme ? '✓' : '✗'}`, midX, midY + 4);
+
+        // Ball target ring
+        ctx.beginPath();
+        ctx.arc(activeBall.x, activeBall.y, 14, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#fff';
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(activeBall.x, activeBall.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+
+        ctx.font = 'bold 9px system-ui, sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚪️ BOLL', activeBall.x, activeBall.y - 18);
+        ctx.restore();
+      }
     }
 
     animFrameId = requestAnimationFrame(renderARFrame);
@@ -10628,8 +10834,24 @@ export async function openGimmeModal() {
 
   btnRetake?.addEventListener('click', () => {
     isFrozen = false;
+    manualBallTarget = null;
+    detectedBall = null;
+    measuredDistanceCm = null;
     if (verdictOverlay) verdictOverlay.style.display = 'none';
     renderARFrame();
+  });
+
+  // Tap-to-set ball position (Manual override if auto-detect misses or user wants precision)
+  const viewportWrapper = root.querySelector('#gimme-viewport-wrapper');
+  viewportWrapper?.addEventListener('click', (e) => {
+    if (isFrozen) return;
+    const rect = viewportWrapper.getBoundingClientRect();
+    const tapX = e.clientX - rect.left;
+    const tapY = e.clientY - rect.top;
+
+    manualBallTarget = { x: tapX, y: tapY };
+    playTone(1200, 'sine', 0.05, 0.06);
+    showToast(isEn ? '⚪️ Ball target placed!' : '⚪️ Bollpunkt markerad!', 'info');
   });
 
   btnShare?.addEventListener('click', () => {
