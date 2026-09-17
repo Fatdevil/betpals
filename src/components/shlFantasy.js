@@ -3,7 +3,7 @@ import { showModal, closeModal } from "./modal.js";
 import { t, getLang } from "../i18n.js";
 import { getStoredUser } from "../auth.js";
 import { getFriends } from "../api.js";
-import { SHL_TEAMS, SHL_PLAYERS, SHL_ROUND_GAMES, FANTASY_SCORING } from "../data/shlPlayers.js";
+import { SHL_SEASON, SHL_TEAMS, SHL_PLAYERS, SHL_ROUND_GAMES, FANTASY_SCORING } from "../data/shlPlayers.js";
 
 export async function openShlFantasyModal() {
   const isEn = getLang() === "en";
@@ -15,6 +15,20 @@ export async function openShlFantasyModal() {
   let isLockedIn = false;
   let isSimulating = false;
   let roundSimulated = false;
+  let isAddingPlayer = false;
+
+  // Load custom players from localStorage if any
+  let customPlayers = [];
+  try {
+    const raw = localStorage.getItem("betpals_shl_custom_players");
+    if (raw) customPlayers = JSON.parse(raw);
+  } catch (e) {}
+
+  let allPlayers = [...SHL_PLAYERS, ...customPlayers];
+
+  function reloadAllPlayers() {
+    allPlayers = [...SHL_PLAYERS, ...customPlayers];
+  }
 
   // Selected lineup: 1 G, 2 D, 3 F
   let myLineup = {
@@ -36,9 +50,16 @@ export async function openShlFantasyModal() {
       avatar: "🦁",
       paid: true,
       lineup: {
-        goalie: SHL_PLAYERS.find(p => p.id === "g_lagace"),
-        defenders: [SHL_PLAYERS.find(p => p.id === "d_tommernes"), SHL_PLAYERS.find(p => p.id === "d_nygren")],
-        forwards: [SHL_PLAYERS.find(p => p.id === "f_tomasek"), SHL_PLAYERS.find(p => p.id === "f_nygard"), SHL_PLAYERS.find(p => p.id === "f_dahlen")]
+        goalie: allPlayers.find(p => p.id === "g_larmi") || allPlayers.find(p => p.pos === "G"),
+        defenders: [
+          allPlayers.find(p => p.id === "d_tommernes") || allPlayers.find(p => p.pos === "D"),
+          allPlayers.find(p => p.id === "d_nygren") || allPlayers.find(p => p.pos === "D")
+        ],
+        forwards: [
+          allPlayers.find(p => p.id === "f_tomasek") || allPlayers.find(p => p.pos === "F"),
+          allPlayers.find(p => p.id === "f_nygard") || allPlayers.find(p => p.pos === "F"),
+          allPlayers.find(p => p.id === "f_dahlen") || allPlayers.find(p => p.pos === "F")
+        ]
       },
       points: 0,
       breakdown: []
@@ -49,9 +70,16 @@ export async function openShlFantasyModal() {
       avatar: "🍺",
       paid: true,
       lineup: {
-        goalie: SHL_PLAYERS.find(p => p.id === "g_soderstrom"),
-        defenders: [SHL_PLAYERS.find(p => p.id === "d_pudas"), SHL_PLAYERS.find(p => p.id === "d_gustafsson")],
-        forwards: [SHL_PLAYERS.find(p => p.id === "f_lindberg"), SHL_PLAYERS.find(p => p.id === "f_omark"), SHL_PLAYERS.find(p => p.id === "f_friberg")]
+        goalie: allPlayers.find(p => p.id === "g_soderstrom") || allPlayers.find(p => p.pos === "G"),
+        defenders: [
+          allPlayers.find(p => p.id === "d_pudas") || allPlayers.find(p => p.pos === "D"),
+          allPlayers.find(p => p.id === "d_gustafsson") || allPlayers.find(p => p.pos === "D")
+        ],
+        forwards: [
+          allPlayers.find(p => p.id === "f_lindberg") || allPlayers.find(p => p.pos === "F"),
+          allPlayers.find(p => p.id === "f_wallmark") || allPlayers.find(p => p.pos === "F"),
+          allPlayers.find(p => p.id === "f_friberg") || allPlayers.find(p => p.pos === "F")
+        ]
       },
       points: 0,
       breakdown: []
@@ -62,9 +90,16 @@ export async function openShlFantasyModal() {
       avatar: "🔥",
       paid: true,
       lineup: {
-        goalie: SHL_PLAYERS.find(p => p.id === "g_persson"),
-        defenders: [SHL_PLAYERS.find(p => p.id === "d_djoos"), SHL_PLAYERS.find(p => p.id === "d_caito")],
-        forwards: [SHL_PLAYERS.find(p => p.id === "f_silfverberg"), SHL_PLAYERS.find(p => p.id === "f_lindblom"), SHL_PLAYERS.find(p => p.id === "f_cehlarik")]
+        goalie: allPlayers.find(p => p.id === "g_clara") || allPlayers.find(p => p.pos === "G"),
+        defenders: [
+          allPlayers.find(p => p.id === "d_djoos") || allPlayers.find(p => p.pos === "D"),
+          allPlayers.find(p => p.id === "d_niemela") || allPlayers.find(p => p.pos === "D")
+        ],
+        forwards: [
+          allPlayers.find(p => p.id === "f_silfverberg") || allPlayers.find(p => p.pos === "F"),
+          allPlayers.find(p => p.id === "f_lindblom") || allPlayers.find(p => p.pos === "F"),
+          allPlayers.find(p => p.id === "f_steen") || allPlayers.find(p => p.pos === "F")
+        ]
       },
       points: 0,
       breakdown: []
@@ -81,7 +116,7 @@ export async function openShlFantasyModal() {
     events: []
   }));
 
-  const modalTitle = `<img src="/hockey-gold.png" alt="" style="width: 28px; height: 28px; object-fit: contain; vertical-align: -5px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? "SHL Mini Fantasy 🏒" : "SHL Mini Fantasy 🏒"}`;
+  const modalTitle = `<img src="/hockey-gold.png" alt="" style="width: 28px; height: 28px; object-fit: contain; vertical-align: -5px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? "SHL 2026/2027 Mini Fantasy 🏒" : "SHL 2026/2027 Mini Fantasy 🏒"}`;
 
   function getTotalSelectedCount() {
     return (myLineup.goalie ? 1 : 0) + myLineup.defenders.length + myLineup.forwards.length;
@@ -123,7 +158,7 @@ export async function openShlFantasyModal() {
     const isComplete = selectedCount === 6;
 
     // Filter players
-    let filteredPlayers = SHL_PLAYERS.filter(p => {
+    let filteredPlayers = allPlayers.filter(p => {
       if (activePosFilter !== "all" && p.pos !== activePosFilter) return false;
       if (activeTeamFilter !== "all" && p.team !== activeTeamFilter) return false;
       if (searchQuery.trim()) {
@@ -253,11 +288,57 @@ export async function openShlFantasyModal() {
           <!-- Team Select -->
           <select id="shl-team-select" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1;">
             <option value="all">${isEn ? "All 14 SHL Teams" : "Alla 14 SHL-Lag"}</option>
-            ${SHL_TEAMS.map(t => `<option value="${t.short}" ${activeTeamFilter === t.short ? "selected" : ""}>${t.name}</option>`).join("")}
+            ${SHL_TEAMS.map(t => `<option value="${t.short}" ${activeTeamFilter === t.short ? "selected" : ""}>${t.name} (${t.city})</option>`).join("")}
           </select>
           <!-- Search input -->
           <input type="text" id="shl-search-input" placeholder="${isEn ? "Search player..." : "Sök spelare..."}" value="${escapeHtml(searchQuery)}" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1.2;" />
         </div>
+
+        <!-- Action bar: Count + Add missing player + Reset -->
+        <div class="flex-between align-center mt-xs" style="font-size: 0.72rem; padding: 2px 2px;">
+          <span style="color: var(--text-secondary);">
+            Visar <strong style="color: #fff;">${filteredPlayers.length}</strong> spelare (av ${allPlayers.length})
+          </span>
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-xs ${isAddingPlayer ? "btn-secondary" : "btn-ghost"}" id="btn-toggle-add-player" style="padding: 2px 8px; font-size: 0.72rem; color: var(--gold); border: 1px dashed rgba(255,215,0,0.4);">
+              ${isAddingPlayer ? "✕ Avbryt" : "➕ Lägg till spelare"}
+            </button>
+            ${customPlayers.length > 0 ? `
+              <button type="button" class="btn btn-xs btn-ghost text-danger" id="btn-reset-custom-players" style="padding: 2px 6px; font-size: 0.7rem;" title="Rensa egna tillagda spelare">
+                🔄 Rensa (${customPlayers.length})
+              </button>
+            ` : ""}
+          </div>
+        </div>
+
+        <!-- Inline Add Player Form -->
+        ${isAddingPlayer ? `
+          <div class="card my-xs" style="background: rgba(15, 23, 42, 0.95); border: 1px solid var(--gold); border-radius: 8px; padding: 10px;">
+            <div style="font-size: 0.78rem; font-weight: 800; color: var(--gold); margin-bottom: 6px;">
+              ➕ Skapa / Lägg till spelare i SHL 2026/2027
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <input type="text" id="new-player-name" placeholder="Spelarens namn (t.ex. Lucas Wallmark)" style="background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 6px 8px; font-size: 0.8rem;" />
+              <div class="flex gap-xs">
+                <select id="new-player-team" style="flex: 1.2; background: #0f172a; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem;">
+                  ${SHL_TEAMS.map(t => `<option value="${t.short}">${t.name} (${t.short})</option>`).join("")}
+                </select>
+                <select id="new-player-pos" style="flex: 1; background: #0f172a; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem;">
+                  <option value="G">🧤 Målvakt</option>
+                  <option value="D">🛡️ Back</option>
+                  <option value="F" selected>🏒 Forward</option>
+                </select>
+                <input type="number" id="new-player-num" placeholder="Nr" value="10" min="1" max="99" style="width: 50px; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem; text-align: center;" />
+              </div>
+              <div class="flex-between align-center mt-xs">
+                <span style="font-size: 0.7rem; color: var(--text-secondary);">Sparas direkt i din trupp</span>
+                <button type="button" class="btn btn-xs btn-primary font-bold" id="btn-submit-new-player" style="padding: 4px 10px; font-size: 0.75rem;">
+                  Spara & Välj direkt 🏒
+                </button>
+              </div>
+            </div>
+          </div>
+        ` : ""}
       </div>
 
       <!-- Players List -->
@@ -637,11 +718,75 @@ export async function openShlFantasyModal() {
         });
       });
 
+      // Toggle inline add player
+      root.querySelector("#btn-toggle-add-player")?.addEventListener("click", () => {
+        isAddingPlayer = !isAddingPlayer;
+        refresh();
+      });
+
+      // Reset custom players
+      root.querySelector("#btn-reset-custom-players")?.addEventListener("click", () => {
+        if (confirm("Vill du ta bort alla egna tillagda spelare och återställa truppen?")) {
+          customPlayers = [];
+          try {
+            localStorage.removeItem("betpals_shl_custom_players");
+          } catch (e) {}
+          reloadAllPlayers();
+          refresh();
+        }
+      });
+
+      // Submit new custom player
+      root.querySelector("#btn-submit-new-player")?.addEventListener("click", () => {
+        const nameInput = root.querySelector("#new-player-name");
+        const teamSelect = root.querySelector("#new-player-team");
+        const posSelect = root.querySelector("#new-player-pos");
+        const numInput = root.querySelector("#new-player-num");
+
+        const name = nameInput?.value?.trim();
+        if (!name) {
+          alert("Vänligen ange spelarens namn.");
+          nameInput?.focus();
+          return;
+        }
+
+        const team = teamSelect?.value || "IFB";
+        const pos = posSelect?.value || "F";
+        const num = parseInt(numInput?.value, 10) || 10;
+        const newPlayer = {
+          id: `custom_${Date.now()}`,
+          name,
+          team,
+          pos,
+          num,
+          price: 8,
+          form: 8.5
+        };
+
+        customPlayers.push(newPlayer);
+        try {
+          localStorage.setItem("betpals_shl_custom_players", JSON.stringify(customPlayers));
+        } catch (e) {}
+        reloadAllPlayers();
+        isAddingPlayer = false;
+
+        // Auto-select if slot is free
+        if (pos === "G" && !myLineup.goalie) {
+          myLineup.goalie = newPlayer;
+        } else if (pos === "D" && myLineup.defenders.length < 2) {
+          myLineup.defenders.push(newPlayer);
+        } else if (pos === "F" && myLineup.forwards.length < 3) {
+          myLineup.forwards.push(newPlayer);
+        }
+
+        refresh();
+      });
+
       // Toggle / Add player
       root.querySelectorAll(".btn-toggle-player").forEach(btn => {
         btn.addEventListener("click", () => {
           const pId = btn.dataset.playerId;
-          const player = SHL_PLAYERS.find(p => p.id === pId);
+          const player = allPlayers.find(p => p.id === pId);
           if (!player) return;
 
           if (isPlayerSelected(pId)) {
