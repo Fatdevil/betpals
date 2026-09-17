@@ -246,6 +246,13 @@ export function renderMinigamesRoller() {
       tag: t('arcade.mafiaTag'),
       title: t('arcade.mafiaTitle'),
       iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'gimme',
+      name: t('arcade.gimme'),
+      tag: t('arcade.gimmeTag'),
+      title: t('arcade.gimmeTitle'),
+      iconHtml: `<img src="/golf-gimme.jpg" alt="${t('arcade.gimme')}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 2px 8px rgba(16,185,129,0.4); border: 1px solid rgba(16,185,129,0.6);" />`
     }
   ];
 
@@ -375,6 +382,13 @@ export function openAllArcadeGamesModal() {
       tag: t('arcade.mafiaTag'),
       desc: isEn ? 'Psychological party game! Secret roles, night murders, detective investigations and town square lynching' : 'Klassiskt sällskapsspel! Dolda roller, nattliga mord, detektiv och lynchning på torget',
       iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'gimme',
+      name: t('arcade.gimme'),
+      tag: t('arcade.gimmeTag'),
+      desc: isEn ? 'Live AR golf putt referee! Instantly settle if the ball is within the gimme circle using phone camera' : 'Live AR-domare på greenen! Avgör blixtsnabbt om bollen är inom gimme-zonen med mobilkameran',
+      iconHtml: `<img src="/golf-gimme.jpg" alt="${t('arcade.gimme')}" style="width: 44px; height: 44px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 8px rgba(16,185,129,0.5); border: 1px solid rgba(16,185,129,0.6);" />`
     }
   ];
 
@@ -427,6 +441,7 @@ export function launchGameById(game) {
   else if (game === 'space-invaders') openSpaceInvadersModal();
   else if (game === 'mega-lotto') openMegaLottoModal();
   else if (game === 'mafia') openMafiaModal();
+  else if (game === 'gimme') openGimmeModal();
 }
 
 // ── 3. Event Listeners for Roller (Native Swipe + Drag + Click) ──
@@ -10044,4 +10059,416 @@ export function openMegaLottoModal(initialOptions = {}) {
 
   // Initial stage binding
   attachStageEvents();
+}
+
+// ── 13. Is it a Gimme? ⛳️ (Live AR Golf Putt Checker) ─────────────
+export async function openGimmeModal() {
+  const isEn = getLang() === 'en';
+  let videoStream = null;
+  let animFrameId = null;
+  let customGimmeCm = 60; // Standard gimme distance: 60 cm (approx putter grip)
+  let isFrozen = false;
+  let verdictState = null; // 'approved' | 'denied'
+
+  // Funny roast quotes
+  const approvedRoastsSv = [
+    'Plocka upp bollen innan du skämmer ut dig! 🏆',
+    'Gimme godkänd! Till och med farmor sätter den där med förbundna ögon. 👵',
+    'Godkänd! Men bara för att vi ska hinna till 19:e hålet innan ölen blir ljummen. 🍻',
+    'Gimme! Rädda ditt ego medan du fortfarande har chansen. 😉',
+    'Den är så given att bollen praktiskt taget redan ligger i koppen! ⛳️',
+    'Gimme! Men du är skyldig bollen en öl i klubbhuset. 🏌️'
+  ];
+
+  const approvedRoastsEn = [
+    'Pick it up before you embarrass yourself! 🏆',
+    'Gimme granted! Even grandma drains that blindfolded. 👵',
+    'Approved! But only so we get to the 19th hole before the beers get warm. 🍻',
+    'Gimme! Save your dignity while you still have some left. 😉',
+    'That is so good the ball is practically already swimming in the cup! ⛳️'
+  ];
+
+  const deniedRoastsSv = [
+    'PUTTA DIN FEGIS! Det där är ingen gimme på den här touren! 😈',
+    'Glöm det! Ner med blicken, böj på knäna och gör jobbet! 🏌️‍♂️',
+    'Kanske en gimme om du spelar på Gröna Lund. Putta nu! 🎡',
+    'Försöker du fuska nu igen? Hela bollen skriker: PUTTA! 🚨',
+    'Ingen gratis fika här inte! Lägg ner puttern och visa vad du går för! 🔥',
+    'Hahaha nej! Den där putten vill hela bollen se dig darra på! 🥶'
+  ];
+
+  const deniedRoastsEn = [
+    'PUTT IT, COWARD! That is not a gimme on this tour! 😈',
+    'Nice try! Eyes down, knees bent, finish the job! 🏌️‍♂️',
+    'Maybe a gimme at miniature golf. Putt it! 🎡',
+    'Are you trying to cheat again? Everyone wants to see you shake! 🥶',
+    'No free rides today! Show us what you got! 🔥'
+  ];
+
+  const modalTitle = `<img src="/golf-gimme.jpg" alt="" style="width: 24px; height: 24px; border-radius: 6px; object-fit: cover; vertical-align: -4px; margin-right: 6px;" /> ${isEn ? 'Is it a Gimme? ⛳️' : 'Is it a Gimme? ⛳️'}`;
+
+  const contentHtml = `
+    <div class="gimme-modal-container" style="max-width: 480px; margin: 0 auto; text-align: center; user-select: none;">
+      
+      <!-- Top instructions & quick settings -->
+      <div class="flex justify-between items-center mb-sm" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 8px 12px;">
+        <div style="text-align: left;">
+          <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold);">
+            ⛳️ ${isEn ? 'AR Putt Referee' : 'Live AR-Domare'}
+          </div>
+          <div style="font-size: 0.72rem; color: rgba(255,255,255,0.6);">
+            ${isEn ? 'Hole diameter: 10.8 cm' : 'Hålets officiella mått: 10,8 cm'}
+          </div>
+        </div>
+
+        <div class="flex gap-xs items-center">
+          <span style="font-size: 0.75rem; color: rgba(255,255,255,0.7);">${isEn ? 'Limit:' : 'Gräns:'}</span>
+          <select id="gimme-dist-select" style="background: rgba(0,0,0,0.6); color: #10b981; border: 1px solid #10b981; border-radius: 6px; padding: 2px 6px; font-size: 0.8rem; font-weight: 700; cursor: pointer;">
+            <option value="45">45 cm (Strikt)</option>
+            <option value="60" selected>60 cm (Standard)</option>
+            <option value="75">75 cm (Snäll)</option>
+            <option value="90">90 cm (Putter)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- AR Viewport Wrapper -->
+      <div id="gimme-viewport-wrapper" style="position: relative; width: 100%; height: 380px; background: #000; border-radius: 14px; overflow: hidden; border: 2px solid var(--border-glass); box-shadow: 0 8px 24px rgba(0,0,0,0.6);">
+        
+        <!-- Live Video Element -->
+        <video id="gimme-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(1);"></video>
+
+        <!-- Canvas for Live AR Overlays (Crosshair, hole ring, laser gimme perimeter) -->
+        <canvas id="gimme-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+
+        <!-- Fallback camera banner if permission denied -->
+        <div id="gimme-cam-fallback" style="display: none; position: absolute; inset: 0; background: rgba(10,12,18,0.92); flex-direction: column; align-items: center; justify-content: center; padding: 20px; z-index: 10;">
+          <div style="font-size: 3rem; margin-bottom: 8px;">📷</div>
+          <p style="font-size: 0.88rem; color: #f87171; font-weight: 700; margin-bottom: 6px;">
+            ${isEn ? 'Camera access needed' : 'Kameratillstånd krävs'}
+          </p>
+          <p class="text-muted" style="font-size: 0.78rem; line-height: 1.4; margin-bottom: 12px;">
+            ${isEn ? 'Allow camera access to aim at the hole, or take a quick photo:' : 'Tillåt kameran för att rikta mot hålet, eller knäpp ett snabbt foto:'}
+          </p>
+          <label class="btn btn-secondary btn-sm" style="cursor: pointer;">
+            📁 ${isEn ? 'Take / Upload Photo' : 'Knäpp / Välj bild'}
+            <input type="file" id="gimme-file-input" accept="image/*" capture="environment" style="display: none;" />
+          </label>
+        </div>
+
+        <!-- Realtime Guide Banner at bottom of AR View -->
+        <div id="gimme-hud-guide" style="position: absolute; bottom: 8px; left: 10px; right: 10px; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); border-radius: 8px; padding: 6px 10px; font-size: 0.75rem; color: #fff; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,0.15); pointer-events: none;">
+          <div class="flex items-center gap-xs">
+            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; animation: pulse 1.5s infinite;"></span>
+            <span id="gimme-hud-text">${isEn ? 'Pass hole inside gold ring' : 'Passa in hålet i guldringen'}</span>
+          </div>
+          <span style="font-weight: 700; color: #10b981;" id="gimme-hud-radius">60 cm</span>
+        </div>
+
+        <!-- Stamp Verdict Overlay (Shows when judged) -->
+        <div id="gimme-verdict-overlay" style="display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); flex-direction: column; align-items: center; justify-content: center; padding: 16px; z-index: 20; animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+          <div id="gimme-verdict-stamp" style="border: 4px solid #10b981; border-radius: 12px; padding: 12px 20px; font-size: 1.6rem; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; transform: rotate(-6deg); box-shadow: 0 0 30px rgba(0,0,0,0.8); margin-bottom: 12px;">
+            GIMME! 🏆
+          </div>
+          <div id="gimme-verdict-comment" style="font-size: 0.88rem; font-weight: 600; color: #fff; max-width: 280px; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.8); margin-bottom: 16px;">
+            Plocka upp bollen innan du skämmer ut dig!
+          </div>
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-gimme-retake" style="font-size: 0.8rem;">
+              🔄 ${isEn ? 'Measure Again' : 'Mät igen'}
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-gimme-share" style="font-size: 0.8rem;">
+              📋 ${isEn ? 'Copy Verdict' : 'Kopiera dom'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Quick Action Bar -->
+      <div class="mt-md flex gap-sm justify-center">
+        <button type="button" class="btn btn-success" id="btn-gimme-judge-yes" style="flex: 1; padding: 14px 10px; font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          🟢 ${isEn ? 'YES - GIMME! 🏆' : 'JA - GIMME! 🏆'}
+        </button>
+        <button type="button" class="btn btn-danger" id="btn-gimme-judge-no" style="flex: 1; padding: 14px 10px; font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, #ef4444, #b91c1c); border: none; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);">
+          🔴 ${isEn ? 'NO - PUTT IT! 🏌️‍♂️' : 'NEJ - PUTTA! 🏌️‍♂️'}
+        </button>
+      </div>
+
+      <div style="font-size: 0.72rem; color: rgba(255,255,255,0.45); margin-top: 10px;">
+        💡 ${isEn ? 'Hole is exactly 10.8 cm. Hold phone above the cup to calibrate scale.' : 'Golfhålet är alltid 10,8 cm. Håll mobilen över koppen för automatisk skala.'}
+      </div>
+
+    </div>
+  `;
+
+  const { close, root } = showModal(modalTitle, contentHtml);
+
+  const videoEl = root.querySelector('#gimme-video');
+  const canvasEl = root.querySelector('#gimme-canvas');
+  const ctx = canvasEl?.getContext('2d');
+  const distSelect = root.querySelector('#gimme-dist-select');
+  const hudRadius = root.querySelector('#gimme-hud-radius');
+  const verdictOverlay = root.querySelector('#gimme-verdict-overlay');
+  const verdictStamp = root.querySelector('#gimme-verdict-stamp');
+  const verdictComment = root.querySelector('#gimme-verdict-comment');
+  const btnJudgeYes = root.querySelector('#btn-gimme-judge-yes');
+  const btnJudgeNo = root.querySelector('#btn-gimme-judge-no');
+  const btnRetake = root.querySelector('#btn-gimme-retake');
+  const btnShare = root.querySelector('#btn-gimme-share');
+  const camFallback = root.querySelector('#gimme-cam-fallback');
+  const fileInput = root.querySelector('#gimme-file-input');
+
+  // Handle Gimme distance limit selector
+  distSelect?.addEventListener('change', () => {
+    customGimmeCm = parseInt(distSelect.value, 10) || 60;
+    if (hudRadius) hudRadius.textContent = `${customGimmeCm} cm`;
+  });
+
+  // Sound effects
+  function playVerdictSound(isApproved) {
+    try {
+      const audio = getAudioContext();
+      if (!audio) return;
+      if (isApproved) {
+        // Cheerful ascending chime
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((freq, idx) => {
+          setTimeout(() => playTone(freq, 'triangle', 0.25, 0.15), idx * 80);
+        });
+      } else {
+        // Dramatic low buzzer / buzzer-fail
+        playTone(180, 'sawtooth', 0.2, 0.18);
+        setTimeout(() => playTone(130, 'sawtooth', 0.35, 0.2), 180);
+      }
+    } catch (_) {}
+  }
+
+  // Draw AR Overlays in realtime loop
+  let pulseAngle = 0;
+  function renderARFrame() {
+    if (isFrozen) return;
+
+    if (canvasEl && ctx && canvasEl.clientWidth > 0) {
+      const w = canvasEl.clientWidth;
+      const h = canvasEl.clientHeight;
+      if (canvasEl.width !== w || canvasEl.height !== h) {
+        canvasEl.width = w;
+        canvasEl.height = h;
+      }
+
+      ctx.clearRect(0, 0, w, h);
+
+      const centerX = w / 2;
+      const centerY = h / 2;
+
+      // The inner gold ring represents the 10.8 cm hole cup
+      // We calibrate the inner ring radius to approx 38px on mobile screen
+      const holeRadiusPx = Math.min(w, h) * 0.13; // ~45px
+      // 1 cm = holeRadiusPx / (10.8 / 2) px
+      const pxPerCm = holeRadiusPx / 5.4;
+      const gimmeRadiusPx = customGimmeCm * pxPerCm;
+
+      pulseAngle += 0.05;
+      const pulseEffect = Math.sin(pulseAngle) * 3;
+
+      // 1. Draw outer Gimme Perimeter (Glowing Neon Green Circle)
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, Math.max(10, gimmeRadiusPx + pulseEffect), 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#10b981';
+      ctx.shadowColor = '#10b981';
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+
+      // Translucent Gimme zone fill
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+      ctx.fill();
+      ctx.restore();
+
+      // Gimme radar dash ticks
+      ctx.save();
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, Math.max(10, gimmeRadiusPx * 0.7), 0, Math.PI * 2);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+      ctx.stroke();
+      ctx.restore();
+
+      // 2. Draw Center Hole Alignment Ring (Gold Target)
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, holeRadiusPx, 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+
+      // Crosshair markers for precision hole alignment
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      const chLen = 10;
+      // Top
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - holeRadiusPx - chLen);
+      ctx.lineTo(centerX, centerY - holeRadiusPx + chLen);
+      ctx.stroke();
+      // Bottom
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY + holeRadiusPx - chLen);
+      ctx.lineTo(centerX, centerY + holeRadiusPx + chLen);
+      ctx.stroke();
+      // Left
+      ctx.beginPath();
+      ctx.moveTo(centerX - holeRadiusPx - chLen, centerY);
+      ctx.lineTo(centerX - holeRadiusPx + chLen, centerY);
+      ctx.stroke();
+      // Right
+      ctx.beginPath();
+      ctx.moveTo(centerX + holeRadiusPx - chLen, centerY);
+      ctx.lineTo(centerX + holeRadiusPx + chLen, centerY);
+      ctx.stroke();
+
+      // Center dot
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fill();
+
+      // Label on hole
+      ctx.font = 'bold 11px system-ui, sans-serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.textAlign = 'center';
+      ctx.fillText(isEn ? 'HOLE 10.8 cm' : 'HÅL 10,8 cm', centerX, centerY - holeRadiusPx - 14);
+
+      // Label on gimme ring
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.fillStyle = '#10b981';
+      ctx.fillText(`🟢 GIMME (${customGimmeCm} cm)`, centerX, centerY + gimmeRadiusPx + 18);
+
+      ctx.restore();
+    }
+
+    animFrameId = requestAnimationFrame(renderARFrame);
+  }
+
+  // Trigger Verdict
+  function applyVerdict(approved) {
+    isFrozen = true;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    verdictState = approved ? 'approved' : 'denied';
+
+    playVerdictSound(approved);
+
+    const roasts = approved 
+      ? (isEn ? approvedRoastsEn : approvedRoastsSv)
+      : (isEn ? deniedRoastsEn : deniedRoastsSv);
+    const randomRoast = roasts[Math.floor(Math.random() * roasts.length)];
+
+    if (verdictOverlay && verdictStamp && verdictComment) {
+      verdictOverlay.style.display = 'flex';
+      if (approved) {
+        verdictStamp.style.borderColor = '#10b981';
+        verdictStamp.style.color = '#10b981';
+        verdictStamp.style.textShadow = '0 0 15px rgba(16,185,129,0.8)';
+        verdictStamp.textContent = isEn ? 'GIMME! 🏆' : 'GIMME GODKÄND! 🏆';
+        launchConfetti();
+      } else {
+        verdictStamp.style.borderColor = '#ef4444';
+        verdictStamp.style.color = '#ef4444';
+        verdictStamp.style.textShadow = '0 0 15px rgba(239,68,68,0.8)';
+        verdictStamp.textContent = isEn ? 'PUTT IT! 😈' : 'PUTTA DIN FEGIS! 😈';
+      }
+      verdictComment.textContent = randomRoast;
+    }
+  }
+
+  btnJudgeYes?.addEventListener('click', () => applyVerdict(true));
+  btnJudgeNo?.addEventListener('click', () => applyVerdict(false));
+
+  btnRetake?.addEventListener('click', () => {
+    isFrozen = false;
+    if (verdictOverlay) verdictOverlay.style.display = 'none';
+    renderARFrame();
+  });
+
+  btnShare?.addEventListener('click', () => {
+    const isApproved = verdictState === 'approved';
+    const text = isApproved 
+      ? `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (< ${customGimmeCm}cm)! 🏆\nPlocka upp bollen!`
+      : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${customGimmeCm}cm)! 😈\nPutta din fegis!`;
+    navigator.clipboard?.writeText(text).then(() => {
+      showToast(isEn ? 'Verdict copied to clipboard! 📋' : 'Domen kopierad till urklipp! 📋', 'success');
+    }).catch(() => {
+      showToast(text, 'info');
+    });
+  });
+
+  // Start Camera
+  async function initCamera() {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia not supported');
+      }
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      if (videoEl) {
+        videoEl.srcObject = videoStream;
+        await videoEl.play().catch(() => {});
+      }
+      renderARFrame();
+    } catch (err) {
+      console.warn('Camera failed or rejected, falling back to static overlay:', err);
+      if (camFallback) camFallback.style.display = 'flex';
+      renderARFrame();
+    }
+  }
+
+  // Fallback image capture
+  fileInput?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const imgUrl = URL.createObjectURL(file);
+      if (videoEl) {
+        videoEl.style.display = 'none';
+        const img = new Image();
+        img.src = imgUrl;
+        img.onload = () => {
+          const wrapper = root.querySelector('#gimme-viewport-wrapper');
+          if (wrapper) {
+            wrapper.style.backgroundImage = `url(${imgUrl})`;
+            wrapper.style.backgroundSize = 'cover';
+            wrapper.style.backgroundPosition = 'center';
+          }
+          if (camFallback) camFallback.style.display = 'none';
+          renderARFrame();
+        };
+      }
+    }
+  });
+
+  // Initialize camera
+  initCamera();
+
+  // Clean up video stream when modal closes
+  const origClose = close;
+  const cleanup = () => {
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => t.stop());
+      videoStream = null;
+    }
+  };
+
+  root.querySelector('.modal-close-btn')?.addEventListener('click', cleanup);
+  root.addEventListener('modal-closed', cleanup);
 }

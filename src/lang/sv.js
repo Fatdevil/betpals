@@ -555,6 +555,19 @@ export const sv = {
     mafiaAdvanceDayBtn: '🏛️ Starta dagens röstning',
     mafiaResolveVotesBtn: '⚖️ Avsluta röstning & kalla till domslut',
     mafiaNextNightBtn: '🌙 Låt natten falla på nytt',
-    mafiaPlayAgain: '🔄 Spela igen'
+    mafiaPlayAgain: '🔄 Spela igen',
+    gimme: 'Is it a Gimme?',
+    gimmeTag: 'Live AR · Golf ⛳️',
+    gimmeTitle: '⛳️ Is it a Gimme? (Live AR Domare)',
+    gimmeDesc: 'Avgör blixtsnabbt om bollen är en gimme! Rikta mobilens kamera mot golfhålet – AR-lasern visar direkt om bollen är innanför gimme-gränsen.',
+    gimmeZoneLabel: 'Gimme-gräns:',
+    gimmeAimPrompt: 'Rikta cirkeln över hålet – bollen innanför grön ring?',
+    gimmeBtnJudge: '⚖️ DÖM NU!',
+    gimmeApproved: 'GIMME GODKÄND! 🏆',
+    gimmeDenied: 'PUTTA DIN FEGIS! 😈🏌️‍♂️',
+    gimmePickUp: 'Plocka upp bollen innan du skämmer ut dig!',
+    gimmeMustPutt: 'Det där är ingen gimme på den här touren!',
+    gimmeRetake: '🔄 Mät igen',
+    gimmeShare: '📸 Kopiera dom'
   }
 };

@@ -555,6 +555,19 @@ export const en = {
     mafiaAdvanceDayBtn: '🏛️ Start Town Voting',
     mafiaResolveVotesBtn: '⚖️ End voting & deliver verdict',
     mafiaNextNightBtn: '🌙 Let night fall again',
-    mafiaPlayAgain: '🔄 Play Again'
+    mafiaPlayAgain: '🔄 Play Again',
+    gimme: 'Is it a Gimme?',
+    gimmeTag: 'Live AR · Golf ⛳️',
+    gimmeTitle: '⛳️ Is it a Gimme? (Live AR Judge)',
+    gimmeDesc: 'Instantly settle if the putt is a gimme! Aim your phone camera at the golf cup – the AR laser reveals if the ball is inside the gimme zone.',
+    gimmeZoneLabel: 'Gimme limit:',
+    gimmeAimPrompt: 'Aim circle over the hole – is ball inside green ring?',
+    gimmeBtnJudge: '⚖️ RULE NOW!',
+    gimmeApproved: 'GIMME APPROVED! 🏆',
+    gimmeDenied: 'PUTT IT, COWARD! 😈🏌️‍♂️',
+    gimmePickUp: 'Pick it up before you embarrass yourself!',
+    gimmeMustPutt: 'That is definitely no gimme on this tour!',
+    gimmeRetake: '🔄 Measure again',
+    gimmeShare: '📸 Copy verdict'
   }
 };
