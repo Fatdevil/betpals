@@ -66,7 +66,6 @@
   padding: 4px 4px 10px 4px;
   user-select: none;
   cursor: grab;
-  scroll-behavior: smooth;
 }
 
 .minigames-scroll-wrapper::-webkit-scrollbar {
@@ -75,7 +74,6 @@
 
 .minigames-scroll-wrapper.is-dragging {
   cursor: grabbing;
-  scroll-behavior: auto;
 }
 
 .minigames-scroll-track {

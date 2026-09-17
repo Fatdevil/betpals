@@ -343,39 +343,60 @@ export function attachMinigamesListeners() {
 
     // ── Smooth Infinite Autoscroll Loop (requestAnimationFrame) ──
     let isUserInteracting = false;
-    let autoScrollSpeed = 0.55; // Pixels per frame (~33px/s)
+    let autoScrollSpeed = 0.6; // Pixels per frame
     let autoScrollRaf = null;
+    let resumeTimer = null;
 
-    const startAutoScroll = () => {
-      if (autoScrollRaf) return;
-      const step = () => {
-        if (!isUserInteracting && container) {
-          container.scrollLeft += autoScrollSpeed;
-          // Loop seamlessly when reaching half of the duplicated content
-          if (container.scrollLeft >= container.scrollWidth / 2) {
-            container.scrollLeft = 0;
+    const step = () => {
+      if (!isUserInteracting && container) {
+        // Calculate max wrap point based on single set width
+        const halfWidth = container.scrollWidth / 2;
+        if (halfWidth > 0) {
+          if (container.scrollLeft >= halfWidth) {
+            container.scrollLeft -= halfWidth;
+          } else if (container.scrollLeft <= 0) {
+            container.scrollLeft += halfWidth;
           }
         }
-        autoScrollRaf = requestAnimationFrame(step);
-      };
+        container.scrollLeft += autoScrollSpeed;
+      }
       autoScrollRaf = requestAnimationFrame(step);
+    };
+
+    const startAutoScroll = () => {
+      if (!autoScrollRaf) {
+        autoScrollRaf = requestAnimationFrame(step);
+      }
     };
 
     const pauseAutoScroll = () => {
       isUserInteracting = true;
+      if (resumeTimer) {
+        clearTimeout(resumeTimer);
+        resumeTimer = null;
+      }
     };
 
     const resumeAutoScroll = (delay = 2000) => {
-      setTimeout(() => {
+      if (resumeTimer) clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(() => {
         if (!isDown) {
           isUserInteracting = false;
         }
       }, delay);
     };
 
+    // User manual scroll / swipe event (handles momentum scrolling on touch & trackpads)
+    container.addEventListener('scroll', () => {
+      // If user is actively scrolling, ensure timer keeps restarting
+      if (isUserInteracting) {
+        resumeAutoScroll(2000);
+      }
+    }, { passive: true });
+
     // Pause on hover
     container.addEventListener('mouseenter', pauseAutoScroll);
-    container.addEventListener('mouseleave', () => resumeAutoScroll(500));
+    container.addEventListener('mouseleave', () => resumeAutoScroll(1000));
 
     // Mouse drag support for desktop
     container.addEventListener('mousedown', (e) => {
@@ -429,11 +450,11 @@ export function attachMinigamesListeners() {
     }, { passive: true });
 
     container.addEventListener('touchend', () => {
-      resumeAutoScroll(2500);
+      resumeAutoScroll(2000);
     }, { passive: true });
 
     container.addEventListener('touchcancel', () => {
-      resumeAutoScroll(1000);
+      resumeAutoScroll(1500);
     }, { passive: true });
 
     // Click handler for all cards
