@@ -580,6 +580,10 @@ export const en = {
     gimmeActiveBetTitle: '🎯 ACTIVE GIMME-BET',
     gimmeBetBanner: 'Walk to the green and judge with the AR laser!',
     gimmeWinnerWins: 'won the bet and takes home',
-    gimmePaySwish: '📱 Pay winner via Swish'
+    gimmePaySwish: '📱 Pay winner via Swish',
+    shlFantasy: 'SHL Mini Fantasy',
+    shlFantasyTag: 'SHL · Fantasy 🏒',
+    shlFantasyTitle: '🏒 SHL Mini Fantasy (1 Goalie + 5 Skaters)',
+    shlFantasyDesc: 'Fast-paced fantasy for the SHL game day! Pick 1 goalie, 2 defenders and 3 forwards. Compete for the Swish pot with friends!'
   }
 };

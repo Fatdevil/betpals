@@ -43,8 +43,8 @@ import {
 import { compressImage } from '../imageUtils.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 import { getStoredUser, getToken } from '../auth.js';
-import { t, getLang } from '../i18n.js';
 import { openInstantLiveModal, openLiveStreamModal } from './livestream.js';
+import { openShlFantasyModal } from './shlFantasy.js';
 
 // ── Web Audio Synth SFX (Zero-dependency & instant) ───────
 let audioCtx = null;
@@ -258,6 +258,13 @@ export function renderMinigamesRoller() {
       tag: t('arcade.slotsTag'),
       title: t('arcade.slotsTitle'),
       iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'shl-fantasy',
+      name: t('arcade.shlFantasy'),
+      tag: t('arcade.shlFantasyTag'),
+      title: t('arcade.shlFantasyTitle'),
+      iconHtml: `<img src="/hockey-gold.png" alt="${t('arcade.shlFantasy')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -406,6 +413,13 @@ export function openAllArcadeGamesModal() {
       tag: t('arcade.gimmeTag'),
       desc: isEn ? 'Live AR golf putt referee! Instantly settle if the ball is within the gimme circle using phone camera' : 'Live AR-domare på greenen! Avgör blixtsnabbt om bollen är inom gimme-zonen med mobilkameran',
       iconHtml: `<img src="/golf-gimme.png" alt="${t('arcade.gimme')}" style="width: 48px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'shl-fantasy',
+      name: t('arcade.shlFantasy'),
+      tag: t('arcade.shlFantasyTag'),
+      desc: isEn ? 'Draft 1 Goalie, 2 Defenders and 3 Forwards for tonight SHL round! Compete for the Swish pot' : 'Välj 1 Målvakt, 2 Backar och 3 Forwards inför kvällens SHL-omgång! Tävla om Swish-potten',
+      iconHtml: `<img src="/hockey-gold.png" alt="${t('arcade.shlFantasy')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -459,6 +473,7 @@ export function launchGameById(game) {
   else if (game === 'mega-lotto') openMegaLottoModal();
   else if (game === 'mafia') openMafiaModal();
   else if (game === 'gimme') openGimmeModal();
+  else if (game === 'shl-fantasy') openShlFantasyModal();
 }
 
 // ── 3. Event Listeners for Roller (Native Swipe + Drag + Click for both rows) ──
