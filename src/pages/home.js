@@ -242,82 +242,31 @@ async function initHomeLottoBanner() {
   }
 
   function renderLottoBanner(lotto) {
-    if (!lotto || lotto.status !== 'open') {
-      // Empty or finished state: offer button to start a new Kompis-Lotto
-      container.innerHTML = `
-        <div class="home-lotto-banner animate-in mb-md" id="home-lotto-clickable-banner" style="background: radial-gradient(circle at 50% 0%, rgba(245, 158, 11, 0.12) 0%, rgba(15, 23, 42, 0.95) 75%), #0a0e1a;">
-          <div class="flex justify-between items-center">
-            <div class="flex items-center gap-sm">
-              <span style="font-size: 2rem;">🔮</span>
-              <div>
-                <div class="home-lotto-badge mb-xs">
-                  ✨ ${isEn ? 'FRIENDS JACKPOT' : 'KOMPIS-JACKPOTT'}
-                </div>
-                <div style="font-weight: 800; font-size: 1.05rem; color: #fff;">
-                  ${isEn ? 'Start a Jackpot with Friends!' : 'Starta en Kompis-Jackpott!'}
-                </div>
-                <div class="text-secondary" style="font-size: 0.78rem;">
-                  ${isEn ? 'Pick 5+2 numbers · Set timer · Winner takes the pot via Swish' : 'Välj 5+2 nummer · Sätt nedräkningsklocka · Flest rätt tar hela potten'}
-                </div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" style="font-weight: 800; font-size: 0.82rem; white-space: nowrap;">
-              ✨ ${isEn ? 'Create Jackpot' : 'Starta Jackpott'}
-            </button>
-          </div>
-        </div>
-      `;
+    if (homeLottoTimerInterval) {
+      clearInterval(homeLottoTimerInterval);
+      homeLottoTimerInterval = null;
+    }
 
-      container.querySelector('#home-lotto-clickable-banner')?.addEventListener('click', () => {
-        openMegaLottoModal({ tab: 'create' });
-      });
+    if (!lotto || lotto.status !== 'open') {
+      // Empty or finished: remove banner completely until someone starts one from Arcade
+      container.innerHTML = '';
       return;
     }
 
-    // Active Lotto Draw state with real countdown and real pot
-    const title = lotto.title || (isEn ? 'Friends Jackpot' : 'Kompis-Jackpot');
+    // Active Malta Jackpot: sleek, compact, and minimized for mobile
     const pot = lotto.jackpot_amount || (lotto.stake_amount || 25);
-    const count = lotto.participant_count || 1;
-    const participants = lotto.participants || [];
 
     container.innerHTML = `
-      <div class="home-lotto-banner animate-in mb-md" id="home-lotto-clickable-banner">
-        <div class="flex justify-between items-center mb-xs">
-          <div class="home-lotto-badge">
-            🔮 ${escapeHtml(title).toUpperCase()}
+      <div class="home-lotto-banner animate-in" id="home-lotto-clickable-banner">
+        <div class="home-lotto-compact-wrap">
+          <div class="home-lotto-left-group">
+            <span class="home-lotto-badge">🇲🇹 Malta Jackpot</span>
+            <span class="home-lotto-pot" id="home-lotto-pot-val">${pot.toLocaleString()} kr</span>
           </div>
-          <div class="home-lotto-timer">
-            ⏳ <span id="home-lotto-timer-val">${formatTimeRemaining(lotto.draw_time)}</span>
-          </div>
-        </div>
-
-        <div class="flex justify-between items-center mt-xs">
-          <div>
-            <div class="home-lotto-pot" id="home-lotto-pot-val">
-              ${pot.toLocaleString()} KR
-            </div>
-            <div style="font-size: 0.75rem; color: #fbbf24; font-weight: 700; margin-top: 2px;">
-              ${count} ${isEn ? 'participants in the pot' : 'vänner i potten'} (${lotto.stake_amount} kr / lott)
-            </div>
-          </div>
-
-          <div class="flex items-center gap-sm">
-            ${participants.length > 0 ? `
-              <div class="home-lotto-avatars">
-                ${participants.slice(0, 4).map(p => `
-                  <div class="home-lotto-avatar-item" title="${escapeHtml(p.nickname)}">
-                    ${p.avatar_emoji || '🎲'}
-                  </div>
-                `).join('')}
-                ${participants.length > 4 ? `
-                  <div class="home-lotto-avatar-item" style="font-weight: 800; font-size: 0.65rem; color: #fbbf24;">
-                    +${participants.length - 4}
-                  </div>
-                ` : ''}
-              </div>
-            ` : ''}
-            <button type="button" class="btn btn-primary btn-sm" style="font-weight: 800; font-size: 0.85rem; padding: 7px 14px; box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);">
-              ${lotto.has_participated ? (isEn ? 'View Draw 🔮' : 'Följ dragning 🔮') : (isEn ? 'Join Jackpot 🎟️' : 'Lägg din rad 🎟️')}
+          <div class="home-lotto-right-group">
+            <span class="home-lotto-timer" id="home-lotto-timer-val">⏳ ${formatTimeRemaining(lotto.draw_time)}</span>
+            <button type="button" class="btn btn-primary btn-sm home-lotto-btn">
+              ${lotto.has_participated ? (isEn ? 'Följ 🔮' : 'Följ 🔮') : (isEn ? 'Spela 🎟️' : 'Spela 🎟️')}
             </button>
           </div>
         </div>
@@ -332,7 +281,7 @@ async function initHomeLottoBanner() {
     homeLottoTimerInterval = setInterval(() => {
       const timerValEl = document.getElementById('home-lotto-timer-val');
       if (timerValEl && lotto.draw_time) {
-        timerValEl.textContent = formatTimeRemaining(lotto.draw_time);
+        timerValEl.textContent = `⏳ ${formatTimeRemaining(lotto.draw_time)}`;
       }
     }, 1000);
   }

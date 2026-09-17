@@ -7730,7 +7730,7 @@ export function openMegaLottoModal(initialOptions = {}) {
   function renderJackpotHero() {
     const pot = currentLotto ? currentLotto.jackpot_amount : 0;
     const drawTime = currentLotto?.draw_time;
-    const title = currentLotto?.title || (isEn ? 'Friends Jackpot' : 'Kompis-Jackpot');
+    const title = currentLotto?.title || 'Malta Jackpot';
     const participants = currentLotto?.participant_count || 0;
 
     return `
@@ -7784,9 +7784,9 @@ export function openMegaLottoModal(initialOptions = {}) {
       return `
         <div class="card p-md text-center">
           <div style="font-size: 2.2rem; margin-bottom: 8px;">🎯</div>
-          <h4 style="color: var(--gold);">${isEn ? 'No active jackpot right now' : 'Ingen aktiv Kompis-Jackpott just nu'}</h4>
+          <h4 style="color: var(--gold);">${isEn ? 'No active Malta Jackpot right now' : 'Ingen aktiv Malta Jackpot just nu'}</h4>
           <p class="text-secondary mt-xs mb-md" style="font-size: 0.85rem;">
-            ${isEn ? 'Be the first to create a jackpot, pick your line, and invite friends!' : 'Bli först med att starta en jackpott, välj din lott och bjud in vännerna!'}
+            ${isEn ? 'Be the first to create a Malta Jackpot, pick your line, and invite friends!' : 'Bli först med att starta en Malta Jackpot, välj din lott och bjud in vännerna!'}
           </p>
           <button type="button" class="btn btn-primary" id="btn-go-create-lotto" style="font-weight: 800;">
             ${t('arcade.lottoCreateTitle')}
@@ -7887,7 +7887,7 @@ export function openMegaLottoModal(initialOptions = {}) {
     return `
       <div class="animate-in">
         <div class="card p-md mb-md">
-          <h4 style="color: var(--gold); margin-bottom: 6px;">✨ ${isEn ? 'Create New Kompis-Jackpot' : 'Starta Ny Kompis-Jackpott'}</h4>
+          <h4 style="color: var(--gold); margin-bottom: 6px;">✨ ${isEn ? 'Create New Malta Jackpot' : 'Starta Ny Malta Jackpot'}</h4>
           <p class="text-secondary" style="font-size: 0.82rem; margin-bottom: 14px;">
             ${isEn ? 'Start a real-money jackpot, pick your countdown timer, choose which friends can participate, and pick your first ticket.' : 'Starta en riktig jackpott, välj nedräkningsklocka, bjud in vänner och lägg din första rad direkt.'}
           </p>
@@ -7897,7 +7897,7 @@ export function openMegaLottoModal(initialOptions = {}) {
             <label style="font-size: 0.8rem; font-weight: 700; color: #cbd5e1; display: block; margin-bottom: 4px;">
               ${isEn ? 'Jackpot Title' : 'Namn på jackpotten'}
             </label>
-            <input type="text" id="create-lotto-title" class="form-input" placeholder="${isEn ? 'e.g. Weekend Big Win' : 't.ex. Helgens Grabb-Lotto'}" value="${escapeHtml(createTitle)}" />
+            <input type="text" id="create-lotto-title" class="form-input" placeholder="${isEn ? 'e.g. Weekend Big Win' : 't.ex. Helgens Malta Jackpot'}" value="${escapeHtml(createTitle)}" />
           </div>
 
           <!-- Stake amount selection -->
@@ -8460,7 +8460,7 @@ export function openMegaLottoModal(initialOptions = {}) {
             'Authorization': `Bearer ${currentUser?.token || ''}`
           },
           body: JSON.stringify({
-            title: createTitle || 'Kompis-Jackpot',
+            title: createTitle || 'Malta Jackpot',
             stakeAmount: createStake,
             drawTime: drawDate.toISOString(),
             targetUserIds: selectedFriends.size > 0 ? Array.from(selectedFriends) : null,
@@ -8474,7 +8474,7 @@ export function openMegaLottoModal(initialOptions = {}) {
 
         playWinFanfare();
         launchConfetti();
-        showToast(isEn ? '🎉 Kompis-Jackpot started!' : '🎉 Kompis-Jackpott startad! Bjud in fler vänner!', 'success');
+        showToast(isEn ? '🎉 Malta Jackpot started!' : '🎉 Malta Jackpot startad! Bjud in fler vänner!', 'success');
 
         await loadLottoInfo();
         const playTab = root.querySelector('[data-tab="play"]');
@@ -8752,7 +8752,7 @@ export function openMegaLottoModal(initialOptions = {}) {
               <div class="lotto-ticket-card ${isWin ? 'winner' : ''}">
                 <div class="flex justify-between items-center">
                   <span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
-                    ${new Date(t.created_at).toLocaleDateString('sv-SE')} · ${escapeHtml(t.draw_title || 'Kompis-Jackpot')}
+                    ${new Date(t.created_at).toLocaleDateString('sv-SE')} · ${escapeHtml(t.draw_title || 'Malta Jackpot')}
                   </span>
                   <span class="badge ${t.draw_status === 'completed' ? (isWin ? 'badge-success' : 'badge-secondary') : 'badge-accent'}" style="font-size: 0.7rem;">
                     ${t.draw_status === 'completed' ? (isWin ? `🏆 Vinst: ${t.prize_amount.toLocaleString()} kr` : (isEn ? 'No win' : 'Ingen vinst')) : (isEn ? 'Active' : 'Aktiv')}
@@ -8788,7 +8788,7 @@ export function openMegaLottoModal(initialOptions = {}) {
             <div class="p-sm mb-xs" style="background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
               <div class="flex justify-between items-center mb-xs">
                 <span style="font-weight: 700; font-size: 0.85rem; color: var(--gold);">
-                  ${escapeHtml(d.title || 'Kompis-Jackpot')}
+                  ${escapeHtml(d.title || 'Malta Jackpot')}
                 </span>
                 <span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
                   ${new Date(d.completed_at || d.draw_date).toLocaleDateString('sv-SE')}

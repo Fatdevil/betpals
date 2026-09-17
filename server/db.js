@@ -2454,18 +2454,7 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
       }
     }
 
-    // If no open draw, get the latest completed draw for history/banner
-    const lastCompleted = db.prepare(`
-      SELECT * FROM lotto_draws 
-      WHERE status = 'completed' 
-      ORDER BY completed_at DESC 
-      LIMIT 1
-    `).get();
-
-    if (lastCompleted) {
-      return formatLottoDetails(lastCompleted, userId);
-    }
-
+    // If no open draw is currently active, return null
     return null;
   }
 
@@ -2516,7 +2505,7 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
 
     return {
       id: draw.id,
-      title: draw.title || 'Kompis-Jackpot',
+      title: draw.title || 'Malta Jackpot',
       creator_id: draw.creator_id,
       creator_name: draw.creator_name,
       stake_amount: stake,
@@ -2545,7 +2534,7 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
   export function createKompisLotto({
     creatorId,
     creatorName,
-    title = 'Kompis-Jackpot',
+    title = 'Malta Jackpot',
     stakeAmount = 25,
     drawTime,
     targetUserIds = null,

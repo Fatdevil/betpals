@@ -2621,7 +2621,7 @@ app.post('/api/lotto/create', (req, res) => {
     const lotto = db.createKompisLotto({
       creatorId: user.id,
       creatorName: user.nickname,
-      title: title || 'Kompis-Jackpot',
+      title: title || 'Malta Jackpot',
       stakeAmount: stakeAmount || 25,
       drawTime,
       targetUserIds: targetUserIds || null,
