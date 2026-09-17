@@ -38,7 +38,7 @@ export function renderNavbar(activePage) {
       <div class="top-header-left">
         ${renderBell()}
       </div>
-      <span class="top-header-logo" style="letter-spacing: 0.12em; font-size: 0.85rem; font-weight: 800;">BETTING WITH FRIENDS</span>
+      <span class="top-header-logo" style="letter-spacing: 0.12em; font-size: 0.85rem; font-weight: 800;">THE SOCIAL BETWORK</span>
       <div class="top-header-right">
         <button class="lang-toggle-btn" id="lang-toggle-btn" title="${currentLang === 'sv' ? 'Switch to English' : 'Byt till svenska'}">
           ${currentLang === 'sv' ? '🇸🇪 SV' : '🇬🇧 EN'}
