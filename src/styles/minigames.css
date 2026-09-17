@@ -975,6 +975,8 @@
   height: auto;
   background: radial-gradient(circle at center, #070b19 0%, #020308 100%);
   image-rendering: pixelated;
+  touch-action: none;
+  cursor: crosshair;
 }
 
 /* CRT Scanlines Overlay effect */
@@ -1024,8 +1026,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  touch-action: manipulation;
+  touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: background 0.1s, transform 0.05s;
 }

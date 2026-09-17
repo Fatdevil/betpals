@@ -6526,12 +6526,23 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     `;
   }
 
-  const { close, root } = showModal(modalTitle, renderContent());
+  let activeSpaceEngineCleanup = null;
+
+  const { close, root } = showModal(modalTitle, renderContent(), () => {
+    if (activeSpaceEngineCleanup) {
+      activeSpaceEngineCleanup();
+      activeSpaceEngineCleanup = null;
+    }
+  });
 
   // Attach tab switching
   function attachTabs() {
     root.querySelectorAll('.space-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (activeSpaceEngineCleanup) {
+          activeSpaceEngineCleanup();
+          activeSpaceEngineCleanup = null;
+        }
         activeMode = btn.dataset.tab;
         root.querySelectorAll('.space-tab-btn').forEach(b => {
           b.classList.remove('btn-primary');
@@ -7020,6 +7031,11 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
   // ── 5. CANVAS RETRO SPACE INVADERS ENGINE ─────────────────
   function initSpaceEngine({ onGameOver }) {
+    if (activeSpaceEngineCleanup) {
+      activeSpaceEngineCleanup();
+      activeSpaceEngineCleanup = null;
+    }
+
     const canvas = root.querySelector('#space-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -7037,6 +7053,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     let isRunning = true;
     let animId = null;
     let timerInterval = null;
+    let fireInterval = null;
 
     // Player ship
     const player = {
@@ -7044,7 +7061,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       y: height - 34,
       w: 28,
       h: 18,
-      speed: 4.5,
+      speed: 6.0,
       isMovingLeft: false,
       isMovingRight: false,
       lastShotTime: 0
@@ -7117,8 +7134,9 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     }
 
     function fireBullet() {
+      if (!isRunning) return;
       const now = Date.now();
-      if (now - player.lastShotTime < 240) return; // rate limit
+      if (now - player.lastShotTime < 220) return; // rate limit
       player.lastShotTime = now;
       bullets.push({
         x: player.x + player.w / 2 - 2,
@@ -7146,63 +7164,132 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       }
     }
 
-    // Keyboard controls
+    // Keyboard controls (Arrow keys, WASD, Space, Enter)
     const handleKeyDown = (e) => {
-      if (e.code === 'ArrowLeft' || e.code === 'KeyA') player.isMovingLeft = true;
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') player.isMovingRight = true;
-      if (e.code === 'Space') {
+      const code = e.code || '';
+      const key = e.key || '';
+      if (code === 'ArrowLeft' || key === 'ArrowLeft' || key === 'Left' || code === 'KeyA' || key === 'a' || key === 'A') {
+        e.preventDefault();
+        player.isMovingLeft = true;
+      }
+      if (code === 'ArrowRight' || key === 'ArrowRight' || key === 'Right' || code === 'KeyD' || key === 'd' || key === 'D') {
+        e.preventDefault();
+        player.isMovingRight = true;
+      }
+      if (code === 'Space' || key === ' ' || key === 'Spacebar' || code === 'ArrowUp' || key === 'ArrowUp' || code === 'KeyW' || key === 'w' || key === 'W' || code === 'Enter' || key === 'Enter') {
         e.preventDefault();
         fireBullet();
       }
     };
     const handleKeyUp = (e) => {
-      if (e.code === 'ArrowLeft' || e.code === 'KeyA') player.isMovingLeft = false;
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') player.isMovingRight = false;
+      const code = e.code || '';
+      const key = e.key || '';
+      if (code === 'ArrowLeft' || key === 'ArrowLeft' || key === 'Left' || code === 'KeyA' || key === 'a' || key === 'A') {
+        e.preventDefault();
+        player.isMovingLeft = false;
+      }
+      if (code === 'ArrowRight' || key === 'ArrowRight' || key === 'Right' || code === 'KeyD' || key === 'd' || key === 'D') {
+        e.preventDefault();
+        player.isMovingRight = false;
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    // Touch button controls
+    // On-screen Button Controls (Left, Right, Fire)
     const btnLeft = root.querySelector('#btn-space-left');
     const btnRight = root.querySelector('#btn-space-right');
     const btnFire = root.querySelector('#btn-space-fire');
 
-    const bindTouchBtn = (btn, onStart, onEnd) => {
-      if (!btn) return;
-      btn.addEventListener('touchstart', (e) => { e.preventDefault(); onStart(); }, { passive: false });
-      btn.addEventListener('touchend', (e) => { e.preventDefault(); onEnd(); }, { passive: false });
-      btn.addEventListener('mousedown', onStart);
-      btn.addEventListener('mouseup', onEnd);
-      btn.addEventListener('mouseleave', onEnd);
+    const startMovingLeft = (e) => {
+      if (e) e.preventDefault();
+      player.x = Math.max(6, player.x - 18);
+      player.isMovingLeft = true;
+    };
+    const stopMovingLeft = (e) => {
+      if (e) e.preventDefault();
+      player.isMovingLeft = false;
     };
 
-    bindTouchBtn(btnLeft, () => { player.isMovingLeft = true; }, () => { player.isMovingLeft = false; });
-    bindTouchBtn(btnRight, () => { player.isMovingRight = true; }, () => { player.isMovingRight = false; });
-    bindTouchBtn(btnFire, () => { fireBullet(); }, () => {});
+    const startMovingRight = (e) => {
+      if (e) e.preventDefault();
+      player.x = Math.min(width - player.w - 6, player.x + 18);
+      player.isMovingRight = true;
+    };
+    const stopMovingRight = (e) => {
+      if (e) e.preventDefault();
+      player.isMovingRight = false;
+    };
 
-    // Direct touch-slide on canvas for mobile
-    let isTouchingCanvas = false;
-    canvas.addEventListener('touchstart', (e) => {
-      if (e.touches && e.touches.length > 0) {
-        isTouchingCanvas = true;
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = width / rect.width;
-        const touchX = (e.touches[0].clientX - rect.left) * scaleX;
-        player.x = Math.max(0, Math.min(width - player.w, touchX - player.w / 2));
-        fireBullet();
+    const startFiring = (e) => {
+      if (e) e.preventDefault();
+      fireBullet();
+      if (!fireInterval) {
+        fireInterval = setInterval(fireBullet, 220);
       }
-    }, { passive: true });
-
-    canvas.addEventListener('touchmove', (e) => {
-      if (isTouchingCanvas && e.touches && e.touches.length > 0) {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = width / rect.width;
-        const touchX = (e.touches[0].clientX - rect.left) * scaleX;
-        player.x = Math.max(0, Math.min(width - player.w, touchX - player.w / 2));
+    };
+    const stopFiring = (e) => {
+      if (e) e.preventDefault();
+      if (fireInterval) {
+        clearInterval(fireInterval);
+        fireInterval = null;
       }
-    }, { passive: true });
+    };
 
-    canvas.addEventListener('touchend', () => { isTouchingCanvas = false; });
+    const bindControlBtn = (btn, onStart, onEnd) => {
+      if (!btn) return;
+      btn.addEventListener('pointerdown', (e) => {
+        try { btn.setPointerCapture?.(e.pointerId); } catch (_) {}
+        onStart(e);
+      });
+      btn.addEventListener('pointerup', (e) => {
+        try { btn.releasePointerCapture?.(e.pointerId); } catch (_) {}
+        onEnd(e);
+      });
+      btn.addEventListener('pointercancel', onEnd);
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    };
+
+    bindControlBtn(btnLeft, startMovingLeft, stopMovingLeft);
+    bindControlBtn(btnRight, startMovingRight, stopMovingRight);
+    bindControlBtn(btnFire, startFiring, stopFiring);
+    btnFire?.addEventListener('click', (e) => {
+      e.preventDefault();
+      fireBullet();
+    });
+
+    // Direct touch-slide & mouse dragging on canvas
+    let isPointerDragging = false;
+    const updateShipPositionFromPointer = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = width / rect.width;
+      const clientX = e.clientX ?? (e.touches && e.touches[0] ? e.touches[0].clientX : width / 2);
+      const touchX = (clientX - rect.left) * scaleX;
+      player.x = Math.max(6, Math.min(width - player.w - 6, touchX - player.w / 2));
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      isPointerDragging = true;
+      try { canvas.setPointerCapture?.(e.pointerId); } catch (_) {}
+      updateShipPositionFromPointer(e);
+      fireBullet();
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (isPointerDragging) {
+        e.preventDefault();
+        updateShipPositionFromPointer(e);
+      }
+    });
+
+    const stopCanvasPointer = (e) => {
+      if (!isPointerDragging) return;
+      isPointerDragging = false;
+      try { canvas.releasePointerCapture?.(e.pointerId); } catch (_) {}
+    };
+    canvas.addEventListener('pointerup', stopCanvasPointer);
+    canvas.addEventListener('pointercancel', stopCanvasPointer);
 
     // HUD update helper
     const updateHud = () => {
@@ -7224,13 +7311,19 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       }
     }, 1000);
 
-    function endGame() {
+    function stopEngine() {
       isRunning = false;
       if (animId) cancelAnimationFrame(animId);
       if (timerInterval) clearInterval(timerInterval);
+      if (fireInterval) clearInterval(fireInterval);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+    }
+    activeSpaceEngineCleanup = stopEngine;
 
+    function endGame() {
+      stopEngine();
+      activeSpaceEngineCleanup = null;
       onGameOver({
         score,
         wave,
@@ -7327,7 +7420,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
         // Hit shields
         for (const s of shields) {
-          if (s.hp > 0 && ab.x + ab.w >= s.x && ab.x <= s.x + s.w && ab.y <= s.y + s.h && ab.y + b.h >= s.y) {
+          if (s.hp > 0 && ab.x + ab.w >= s.x && ab.x <= s.x + s.w && ab.y <= s.y + s.h && ab.y + ab.h >= s.y) {
             s.hp--;
             alienBullets.splice(i, 1);
             break;
