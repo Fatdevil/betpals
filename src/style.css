@@ -405,23 +405,6 @@ body::before {
   filter: drop-shadow(0 8px 25px rgba(255, 215, 0, 0.5));
 }
 
-.home-logo-qr-badge {
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: 20px;
-  padding: 3px 10px;
-  display: inline-flex;
-  margin: 4px auto 0;
-  transition: all 0.2s ease;
-}
-
-.home-logo-wrap:hover .home-logo-qr-badge {
-  background: rgba(245, 158, 11, 0.16);
-  border-color: rgba(245, 158, 11, 0.5);
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
-  opacity: 1 !important;
-}
-
 .page-title {
   font-family: var(--font-heading);
   font-weight: 800;
