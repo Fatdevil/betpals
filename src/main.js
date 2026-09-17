@@ -1,12 +1,5 @@
-// ── Main: Router & App Init ───────────────────────────
 import { renderNavbar } from './components/navbar.js';
 import { renderHome } from './pages/home.js';
-import { renderEvent, cleanupEvent } from './pages/event.js';
-import { renderJoin } from './pages/join.js';
-import { renderAdmin } from './pages/admin.js';
-import { renderProfile } from './pages/profile.js';
-import { renderLeaderboard } from './pages/leaderboard.js';
-import { renderTournament, cleanupTournament } from './pages/tournament.js';
 import { initAds } from './components/ads.js';
 import { addFriend } from './api.js';
 import { isLoggedIn } from './auth.js';
@@ -14,10 +7,13 @@ import { showToast } from './utils.js';
 
 let currentPage = 'home';
 let currentParams = {};
+let activeCleanup = null;
 
 function cleanupActivePage() {
-  if (currentPage === 'event') cleanupEvent();
-  if (currentPage === 'tournament') cleanupTournament();
+  if (activeCleanup) {
+    try { activeCleanup(); } catch {}
+    activeCleanup = null;
+  }
 }
 
 export function navigate(page, params = {}) {
@@ -37,7 +33,7 @@ export function navigate(page, params = {}) {
   renderApp();
 }
 
-function renderApp() {
+async function renderApp() {
   // Render navbar
   document.getElementById('navbar').innerHTML = renderNavbar(currentPage);
 
@@ -48,29 +44,43 @@ function renderApp() {
     });
   });
 
-  // Render current page
+  // Render current page (Home is instant, other pages lazy loaded on demand)
   switch (currentPage) {
     case 'home':
       renderHome();
       break;
-    case 'event':
+    case 'event': {
+      const { renderEvent, cleanupEvent } = await import('./pages/event.js');
+      activeCleanup = cleanupEvent;
       renderEvent(currentParams);
       break;
-    case 'join':
+    }
+    case 'join': {
+      const { renderJoin } = await import('./pages/join.js');
       renderJoin();
       break;
-    case 'admin':
+    }
+    case 'admin': {
+      const { renderAdmin } = await import('./pages/admin.js');
       renderAdmin();
       break;
-    case 'profile':
+    }
+    case 'profile': {
+      const { renderProfile } = await import('./pages/profile.js');
       renderProfile();
       break;
-    case 'leaderboard':
+    }
+    case 'leaderboard': {
+      const { renderLeaderboard } = await import('./pages/leaderboard.js');
       renderLeaderboard();
       break;
-    case 'tournament':
+    }
+    case 'tournament': {
+      const { renderTournament, cleanupTournament } = await import('./pages/tournament.js');
+      activeCleanup = cleanupTournament;
       renderTournament(currentParams);
       break;
+    }
     default:
       renderHome();
   }

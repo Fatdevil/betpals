@@ -9,5 +9,26 @@ export default defineConfig({
         ws: true
       }
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/components/minigames.js')) {
+            return 'arcade-minigames';
+          }
+          if (id.includes('/pages/admin.js')) {
+            return 'page-admin';
+          }
+          if (id.includes('/pages/profile.js')) {
+            return 'page-profile';
+          }
+          if (id.includes('/components/livestream.js')) {
+            return 'livestream';
+          }
+        }
+      }
+    }
   }
 });
