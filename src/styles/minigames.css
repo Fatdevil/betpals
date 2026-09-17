@@ -1313,4 +1313,108 @@
   box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
 }
 
+/* ── HOME SCREEN KOMPIS-LOTTO TICKER BANNER ──────────────── */
+.home-lotto-banner {
+  background: radial-gradient(circle at 50% 0%, rgba(245, 158, 11, 0.2) 0%, rgba(15, 23, 42, 0.95) 75%), #0a0e1a;
+  border: 2px solid rgba(245, 158, 11, 0.5);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  margin-bottom: var(--space-md);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 25px rgba(245, 158, 11, 0.2);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.home-lotto-banner:hover {
+  transform: translateY(-2px);
+  border-color: #fbbf24;
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.6), 0 0 35px rgba(245, 158, 11, 0.35);
+}
+
+.home-lotto-banner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  transform: skewX(-20deg);
+  animation: shine 4s infinite;
+}
+
+@keyframes shine {
+  0% { left: -100%; }
+  25% { left: 200%; }
+  100% { left: 200%; }
+}
+
+.home-lotto-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.home-lotto-timer {
+  font-family: monospace;
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: #ef4444;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  padding: 2px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.home-lotto-pot {
+  font-family: monospace;
+  font-size: clamp(1.4rem, 4.5vw, 1.9rem);
+  font-weight: 900;
+  color: #fff;
+  background: linear-gradient(180deg, #ffffff 40%, #fde68a 75%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 2px 14px rgba(245, 158, 11, 0.6);
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+}
+
+.home-lotto-avatars {
+  display: flex;
+  align-items: center;
+}
+
+.home-lotto-avatar-item {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #0f172a;
+  background: #1e293b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  margin-left: -8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+}
+
+.home-lotto-avatar-item:first-child {
+  margin-left: 0;
+}
+
+
 

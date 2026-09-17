@@ -2584,51 +2584,117 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
   }
 });
 
-// ── MEGA LOTTO (Eurojackpot-style weekly lotto) ─────────
-app.get('/api/lotto/current', (req, res) => {
+// ── KOMPIS-LOTTO (Real-Money Eurojackpot with Friends & Home Ticker) ───
+app.get('/api/lotto/active', (req, res) => {
   try {
-    const currentDraw = db.getOrCreateCurrentLottoDraw();
-    const history = db.getLottoHistory(1);
-    const lastDraw = history.length > 0 ? history[0] : null;
+    const user = getUserFromToken(req);
+    const lotto = db.getActiveLottoForUser(user?.id || null);
     res.json({
       ok: true,
-      currentDraw,
-      lastDraw
+      lotto
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/lotto/tickets', (req, res) => {
+app.get('/api/lotto/details/:id', (req, res) => {
+  try {
+    const user = getUserFromToken(req);
+    const lotto = db.getLottoDrawById(req.params.id, user?.id || null);
+    if (!lotto) return res.status(404).json({ error: 'Lotto hittades inte' });
+    res.json({ ok: true, lotto });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/create', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const { tickets, syndicateId } = req.body;
-  if (!tickets || !Array.isArray(tickets) || tickets.length === 0) {
-    return res.status(400).json({ error: 'Inga rader angivna' });
-  }
+  const { title, stakeAmount, drawTime, targetUserIds, mainNumbers, starNumbers } = req.body;
+  if (!drawTime) return res.status(400).json({ error: 'Välj när dragningen ska ske' });
+  if (!mainNumbers || !starNumbers) return res.status(400).json({ error: 'Välj dina nummer för första lotten' });
 
   try {
-    const result = db.submitLottoTickets({
-      userId: user.id,
-      syndicateId: syndicateId || null,
-      tickets
+    const lotto = db.createKompisLotto({
+      creatorId: user.id,
+      creatorName: user.nickname,
+      title: title || 'Kompis-Jackpot',
+      stakeAmount: stakeAmount || 25,
+      drawTime,
+      targetUserIds: targetUserIds || null,
+      mainNumbers,
+      starNumbers
     });
 
     broadcastGlobal({
-      type: 'lotto_jackpot_update',
-      jackpotAmount: result.newJackpot,
-      ticketsCount: tickets.length,
-      buyerName: user.nickname
+      type: 'lotto_created',
+      lottoId: lotto.id,
+      title: lotto.title,
+      jackpotAmount: lotto.jackpot_amount,
+      creatorName: user.nickname,
+      drawTime: lotto.draw_time
     });
 
-    res.json({
-      ok: true,
-      ...result
-    });
+    res.json({ ok: true, lotto });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/participate', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { drawId, mainNumbers, starNumbers } = req.body;
+  if (!drawId) return res.status(400).json({ error: 'Dragning-ID saknas' });
+
+  try {
+    const lotto = db.participateKompisLotto({
+      drawId,
+      userId: user.id,
+      userNickname: user.nickname,
+      mainNumbers,
+      starNumbers
+    });
+
+    broadcastGlobal({
+      type: 'lotto_ticket_added',
+      drawId: lotto.id,
+      jackpotAmount: lotto.jackpot_amount,
+      participantCount: lotto.participant_count,
+      ticketCount: lotto.ticket_count,
+      buyerName: user.nickname,
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        avatar_url: user.avatar_url,
+        avatar_emoji: user.avatar_emoji || '🎲'
+      }
+    });
+
+    res.json({ ok: true, lotto });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/lotto/draw/:id', (req, res) => {
+  try {
+    const user = getUserFromToken(req);
+    const { winningNumbers } = req.body || {};
+    const result = db.executeKompisLottoDraw(req.params.id, winningNumbers);
+
+    broadcastGlobal({
+      type: 'lotto_draw_completed',
+      result
+    });
+
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -2649,72 +2715,6 @@ app.get('/api/lotto/history', (req, res) => {
   try {
     const history = db.getLottoHistory(15);
     res.json({ ok: true, history });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/lotto/syndicate/create', (req, res) => {
-  const user = getUserFromToken(req);
-  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
-
-  const { name, stakePerPerson } = req.body;
-  if (!name) return res.status(400).json({ error: 'Lottolaget måste ha ett namn' });
-
-  try {
-    const syndicate = db.createLottoSyndicate({
-      name,
-      creatorId: user.id,
-      creatorNickname: user.nickname,
-      stakePerPerson: stakePerPerson || 25
-    });
-    res.json({ ok: true, syndicate });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/lotto/syndicate/join', (req, res) => {
-  const user = getUserFromToken(req);
-  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
-
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Lagkod saknas' });
-
-  try {
-    const syndicate = db.joinLottoSyndicate({
-      code,
-      userId: user.id,
-      nickname: user.nickname
-    });
-    res.json({ ok: true, syndicate });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get('/api/lotto/syndicate/:idOrCode', (req, res) => {
-  try {
-    const { idOrCode } = req.params;
-    let synd = db.getLottoSyndicateById(idOrCode);
-    if (!synd) return res.status(404).json({ error: 'Lottolaget hittades inte' });
-    res.json({ ok: true, syndicate: synd });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/lotto/draw/trigger', (req, res) => {
-  try {
-    const { drawId, winningNumbers } = req.body || {};
-    const result = db.executeLottoDraw(drawId, winningNumbers);
-
-    broadcastGlobal({
-      type: 'lotto_draw_completed',
-      result
-    });
-
-    res.json({ ok: true, result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

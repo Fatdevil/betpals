@@ -7629,24 +7629,27 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 }
 
 // ────────────────────────────────────────────────────────
-// 🔮 GAME 11: MEGA LOTTO (Progressive Eurojackpot Weekly Lotto)
+// 🔮 GAME 11: KOMPIS-LOTTO (Real-Money Eurojackpot with Friends)
 // ────────────────────────────────────────────────────────
 export function openMegaLottoModal(initialOptions = {}) {
   const isEn = getLang() === 'en';
   const currentUser = getStoredUser();
 
-  let activeTab = initialOptions.tab || 'play'; // 'play' | 'draw' | 'syndicate' | 'tickets'
-  let currentJackpot = 500000;
-  let nextDrawDate = null;
-  let drawNumber = 1;
-  let currentDrawId = null;
+  let activeTab = initialOptions.tab || 'play'; // 'play' | 'create' | 'draw' | 'tickets'
+  let currentLotto = null;
   let tickerInterval = null;
   let sphereAnimId = null;
 
-  // Ticket builder state
+  // Creation State
+  let createStake = 25;
+  let createDurationHours = 1; // 1, 4, 12, 24, 72 (or Friday 20:00)
+  let createTitle = '';
+  let availableFriends = [];
+  let selectedFriends = new Set(); // Empty = all friends
+
+  // Ticket builder state (used for play or create)
   let selectedMain = new Set(); // max 5 (1-50)
   let selectedStars = new Set(); // max 2 (1-12)
-  let preparedLines = []; // list of { mainNumbers: [], starNumbers: [] }
 
   // Draw simulation state
   let isDrawing = false;
@@ -7714,19 +7717,40 @@ export function openMegaLottoModal(initialOptions = {}) {
 
   const modalTitle = `🔮 ${t('arcade.megaLottoTitle')}`;
 
+  function formatTimeRemaining(targetIso) {
+    if (!targetIso) return '00:00:00';
+    const diff = new Date(targetIso).getTime() - Date.now();
+    if (diff <= 0) return isEn ? 'DUE NOW' : 'DAGS FÖR DRAGNING!';
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
   function renderJackpotHero() {
+    const pot = currentLotto ? currentLotto.jackpot_amount : 0;
+    const drawTime = currentLotto?.draw_time;
+    const title = currentLotto?.title || (isEn ? 'Friends Jackpot' : 'Kompis-Jackpot');
+    const participants = currentLotto?.participant_count || 0;
+
     return `
       <div class="lotto-jackpot-hero">
         <div class="lotto-jackpot-title">
           <span>✨</span>
-          <span>${t('arcade.lottoJackpotLabel')}</span>
+          <span>${escapeHtml(title).toUpperCase()}</span>
           <span>✨</span>
         </div>
         <div class="lotto-jackpot-val" id="lotto-live-jackpot">
-          ${currentJackpot.toLocaleString()} KR
+          ${pot.toLocaleString()} KR
+        </div>
+        <div style="font-size: 0.8rem; color: #fbbf24; font-weight: 700; margin-bottom: 6px;">
+          👥 ${participants} ${isEn ? 'friends in the pot' : 'vänner i potten'} (${currentLotto?.stake_amount || 25} kr / lott)
         </div>
         <div class="lotto-timer-badge" id="lotto-countdown-timer">
-          ⏳ ${t('arcade.lottoNextDraw')}: ${nextDrawDate ? new Date(nextDrawDate).toLocaleDateString('sv-SE', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Fredag 20:00'}
+          ⏳ ${t('arcade.lottoNextDraw')}: <strong style="font-family: monospace; font-size: 0.9rem; color: #ef4444; margin-left: 4px;">${formatTimeRemaining(drawTime)}</strong>
+        </div>
+        <div style="font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 6px;">
+          ${t('arcade.lottoMostHitsRule')}
         </div>
       </div>
     `;
@@ -7735,15 +7759,19 @@ export function openMegaLottoModal(initialOptions = {}) {
   function renderTabs() {
     return `
       <div class="flex gap-xs mb-md" style="justify-content: center; flex-wrap: wrap;">
-        <button type="button" class="btn ${activeTab === 'play' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="play">
-          ${t('arcade.lottoTabPlay')}
+        ${currentLotto && currentLotto.status === 'open' ? `
+          <button type="button" class="btn ${activeTab === 'play' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="play">
+            ${t('arcade.lottoTabPlay')}
+          </button>
+        ` : ''}
+        <button type="button" class="btn ${activeTab === 'create' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="create">
+          ${t('arcade.lottoCreateTitle')}
         </button>
-        <button type="button" class="btn ${activeTab === 'draw' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="draw">
-          ${t('arcade.lottoTabDraw')}
-        </button>
-        <button type="button" class="btn ${activeTab === 'syndicate' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="syndicate">
-          ${t('arcade.lottoTabSyndicate')}
-        </button>
+        ${currentLotto ? `
+          <button type="button" class="btn ${activeTab === 'draw' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="draw">
+            ${t('arcade.lottoTabDraw')}
+          </button>
+        ` : ''}
         <button type="button" class="btn ${activeTab === 'tickets' ? 'btn-primary' : 'btn-secondary'} btn-sm lotto-tab-btn" data-tab="tickets">
           ${t('arcade.lottoTabMyTickets')}
         </button>
@@ -7752,13 +7780,35 @@ export function openMegaLottoModal(initialOptions = {}) {
   }
 
   function renderPlayTab() {
+    if (!currentLotto || currentLotto.status !== 'open') {
+      return `
+        <div class="card p-md text-center">
+          <div style="font-size: 2.2rem; margin-bottom: 8px;">🎯</div>
+          <h4 style="color: var(--gold);">${isEn ? 'No active jackpot right now' : 'Ingen aktiv Kompis-Jackpott just nu'}</h4>
+          <p class="text-secondary mt-xs mb-md" style="font-size: 0.85rem;">
+            ${isEn ? 'Be the first to create a jackpot, pick your line, and invite friends!' : 'Bli först med att starta en jackpott, välj din lott och bjud in vännerna!'}
+          </p>
+          <button type="button" class="btn btn-primary" id="btn-go-create-lotto" style="font-weight: 800;">
+            ${t('arcade.lottoCreateTitle')}
+          </button>
+        </div>
+      `;
+    }
+
+    const hasPlayed = currentLotto.has_participated;
+
     return `
       <div class="animate-in">
         <div class="card p-md mb-md">
           <div class="flex justify-between items-center mb-sm">
-            <span style="font-weight: 700; font-size: 0.9rem; color: #fbbf24;">
-              ${t('arcade.lottoPickMainPrompt')} <span id="lotto-main-count">(${selectedMain.size}/5)</span>
-            </span>
+            <div>
+              <span style="font-weight: 700; font-size: 0.95rem; color: #fbbf24;">
+                ${t('arcade.lottoPickMainPrompt')} <span id="lotto-main-count">(${selectedMain.size}/5)</span>
+              </span>
+              <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
+                ${isEn ? 'Pick 5 unique numbers' : 'Välj 5 unika nummer'}
+              </div>
+            </div>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-lotto-huxflux" style="font-weight: 700;">
               ${t('arcade.lottoHuxFluxBtn')}
             </button>
@@ -7774,9 +7824,14 @@ export function openMegaLottoModal(initialOptions = {}) {
           </div>
 
           <div class="flex justify-between items-center mb-sm">
-            <span style="font-weight: 700; font-size: 0.9rem; color: #93c5fd;">
-              ${t('arcade.lottoPickStarPrompt')} <span id="lotto-star-count">(${selectedStars.size}/2)</span>
-            </span>
+            <div>
+              <span style="font-weight: 700; font-size: 0.95rem; color: #93c5fd;">
+                ${t('arcade.lottoPickStarPrompt')} <span id="lotto-star-count">(${selectedStars.size}/2)</span>
+              </span>
+              <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
+                ${isEn ? 'Pick 2 stars' : 'Välj 2 stjärnnummer'}
+              </div>
+            </div>
             <button type="button" class="btn btn-text btn-sm text-muted" id="btn-lotto-clear" style="font-size: 0.8rem;">
               ${t('arcade.lottoClearBtn')}
             </button>
@@ -7791,37 +7846,158 @@ export function openMegaLottoModal(initialOptions = {}) {
             `).join('')}
           </div>
 
-          <button type="button" class="btn btn-secondary btn-block" id="btn-lotto-add-line" style="font-weight: 700;">
-            ${t('arcade.lottoAddRowBtn')}
+          <!-- Current Selection Preview -->
+          <div class="flex justify-between items-center p-sm mb-md" style="background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+            <div class="flex items-center gap-xs flex-wrap">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--gold);">${isEn ? 'Your line:' : 'Din rad:'}</span>
+              ${Array.from(selectedMain).sort((a,b)=>a-b).map(n => `<span class="lotto-ball-chip main" style="width:26px; height:26px; font-size:0.75rem;">${n}</span>`).join('')}
+              ${selectedMain.size > 0 && selectedStars.size > 0 ? '<span style="color:rgba(255,255,255,0.3);">|</span>' : ''}
+              ${Array.from(selectedStars).sort((a,b)=>a-b).map(n => `<span class="lotto-ball-chip star" style="width:26px; height:26px; font-size:0.75rem;">★${n}</span>`).join('')}
+            </div>
+            <span style="font-weight: 800; font-size: 0.85rem; color: #fbbf24;">
+              ${currentLotto.stake_amount} kr
+            </span>
+          </div>
+
+          <button type="button" class="btn btn-primary btn-block" id="btn-lotto-submit-tickets" style="font-weight: 800; padding: 14px;" ${(selectedMain.size !== 5 || selectedStars.size !== 2) ? 'disabled' : ''}>
+            ${t('arcade.lottoSubmitBtn')} (${currentLotto.stake_amount} kr)
           </button>
         </div>
 
-        <!-- Selected Lines Basket -->
-        <div class="card p-md mb-md">
-          <h4 style="font-size: 0.95rem; margin-bottom: 8px; color: var(--gold);">
-            🎟️ ${isEn ? 'Lines Ready for Submission' : 'Rader redo för inlämning'} (${preparedLines.length})
+        <!-- Participants preview -->
+        <div class="card p-md">
+          <h4 style="font-size: 0.9rem; color: var(--gold); margin-bottom: 8px;">
+            👥 ${isEn ? 'Friends in this draw' : 'Med i denna dragning'} (${currentLotto.participants.length})
           </h4>
-
-          <div id="lotto-lines-container">
-            ${preparedLines.length === 0 ? `
-              <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
-                ${isEn ? 'No lines added yet. Pick 5 numbers + 2 stars or tap HuxFlux!' : 'Inga rader tillagda än. Välj 5 nummer + 2 stjärnor eller tryck HuxFlux!'}
-              </div>
-            ` : preparedLines.map((line, idx) => `
-              <div class="flex justify-between items-center p-sm mb-xs" style="background: rgba(255,255,255,0.04); border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
-                <div class="flex items-center gap-xs flex-wrap">
-                  <span style="font-weight: 700; font-size: 0.8rem; margin-right: 4px; color: var(--gold);">Rad ${idx + 1}:</span>
-                  ${line.mainNumbers.map(n => `<span class="lotto-ball-chip main" style="width:26px; height:26px; font-size:0.75rem;">${n}</span>`).join('')}
-                  <span style="margin: 0 4px; color: rgba(255,255,255,0.3);">|</span>
-                  ${line.starNumbers.map(n => `<span class="lotto-ball-chip star" style="width:26px; height:26px; font-size:0.75rem;">★${n}</span>`).join('')}
-                </div>
-                <button type="button" class="btn btn-text text-danger btn-sm lotto-remove-line" data-index="${idx}">✕</button>
+          <div class="flex gap-xs flex-wrap">
+            ${currentLotto.participants.map(p => `
+              <div class="badge badge-secondary" style="padding: 5px 10px; display: inline-flex; align-items: center; gap: 6px;">
+                <span>${p.avatar_emoji || '🎲'}</span>
+                <span style="font-weight: 700;">${escapeHtml(p.nickname)}</span>
+                <span style="opacity: 0.6; font-size: 0.75rem;">(${p.ticketCount} rad)</span>
               </div>
             `).join('')}
           </div>
+        </div>
+      </div>
+    `;
+  }
 
-          <button type="button" class="btn btn-primary btn-block mt-md" id="btn-lotto-submit-tickets" style="font-weight: 800; padding: 14px;" ${preparedLines.length === 0 ? 'disabled' : ''}>
-            ${t('arcade.lottoSubmitBtn')} (${preparedLines.length} ${isEn ? 'lines' : 'rader'} · ${preparedLines.length * 25} kr)
+  function renderCreateTab() {
+    return `
+      <div class="animate-in">
+        <div class="card p-md mb-md">
+          <h4 style="color: var(--gold); margin-bottom: 6px;">✨ ${isEn ? 'Create New Kompis-Jackpot' : 'Starta Ny Kompis-Jackpott'}</h4>
+          <p class="text-secondary" style="font-size: 0.82rem; margin-bottom: 14px;">
+            ${isEn ? 'Start a real-money jackpot, pick your countdown timer, choose which friends can participate, and pick your first ticket.' : 'Starta en riktig jackpott, välj nedräkningsklocka, bjud in vänner och lägg din första rad direkt.'}
+          </p>
+
+          <!-- Jackpot Title -->
+          <div class="mb-sm">
+            <label style="font-size: 0.8rem; font-weight: 700; color: #cbd5e1; display: block; margin-bottom: 4px;">
+              ${isEn ? 'Jackpot Title' : 'Namn på jackpotten'}
+            </label>
+            <input type="text" id="create-lotto-title" class="form-input" placeholder="${isEn ? 'e.g. Weekend Big Win' : 't.ex. Helgens Grabb-Lotto'}" value="${escapeHtml(createTitle)}" />
+          </div>
+
+          <!-- Stake amount selection -->
+          <div class="mb-sm">
+            <label style="font-size: 0.8rem; font-weight: 700; color: #cbd5e1; display: block; margin-bottom: 4px;">
+              ${isEn ? 'Stake per ticket' : 'Insats per lott'}
+            </label>
+            <div class="flex gap-xs">
+              ${[25, 50, 100, 150].map(s => `
+                <button type="button" class="btn ${createStake === s ? 'btn-primary' : 'btn-secondary'} btn-sm create-stake-btn" data-stake="${s}" style="flex: 1; font-weight: 800;">
+                  ${s} kr
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Countdown timer presets -->
+          <div class="mb-sm">
+            <label style="font-size: 0.8rem; font-weight: 700; color: #cbd5e1; display: block; margin-bottom: 4px;">
+              ⏳ ${isEn ? 'Countdown Timer (Draw Time)' : 'Nedräkningsklocka (Dragningstid)'}
+            </label>
+            <div class="flex gap-xs flex-wrap">
+              <button type="button" class="btn ${createDurationHours === 1 ? 'btn-primary' : 'btn-secondary'} btn-sm create-timer-btn" data-hours="1">
+                ⏱️ 1 timme
+              </button>
+              <button type="button" class="btn ${createDurationHours === 4 ? 'btn-primary' : 'btn-secondary'} btn-sm create-timer-btn" data-hours="4">
+                🌙 Ikväll (4h)
+              </button>
+              <button type="button" class="btn ${createDurationHours === 24 ? 'btn-primary' : 'btn-secondary'} btn-sm create-timer-btn" data-hours="24">
+                📅 24 timmar
+              </button>
+              <button type="button" class="btn ${createDurationHours === 72 ? 'btn-primary' : 'btn-secondary'} btn-sm create-timer-btn" data-hours="72">
+                🎉 Fredag 20:00
+              </button>
+            </div>
+          </div>
+
+          <!-- Friends visibility selector -->
+          <div class="mb-md">
+            <div class="flex justify-between items-center mb-xs">
+              <label style="font-size: 0.8rem; font-weight: 700; color: #cbd5e1;">
+                👥 ${isEn ? 'Who can see & play?' : 'Vilka vänner får delta?'}
+              </label>
+              <button type="button" class="btn btn-text btn-sm text-muted" id="btn-toggle-all-friends" style="font-size: 0.75rem;">
+                ${selectedFriends.size === 0 ? (isEn ? 'Select specific friends' : 'Alla vänner (Standard)') : (isEn ? 'Reset to all' : 'Återställ till alla')}
+              </button>
+            </div>
+
+            <div id="create-lotto-friends-list" class="flex gap-xs flex-wrap" style="max-height: 120px; overflow-y: auto; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+              ${availableFriends.length === 0 ? `
+                <div class="text-muted p-xs" style="font-size: 0.8rem;">${isEn ? 'All friends on BetPals can participate' : 'Alla vänner på BetPals får delta'}</div>
+              ` : availableFriends.map(f => {
+                const isSelected = selectedFriends.has(f.id);
+                return `
+                  <label class="badge ${isSelected ? 'badge-primary' : 'badge-secondary'}" style="cursor: pointer; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;">
+                    <input type="checkbox" class="create-friend-checkbox" data-user-id="${f.id}" ${isSelected ? 'checked' : ''} style="display:none;" />
+                    <span>${f.avatar_emoji || '🎲'}</span>
+                    <span>${escapeHtml(f.nickname)}</span>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- First Ticket Builder -->
+          <div class="p-sm" style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; margin-bottom: 14px;">
+            <div class="flex justify-between items-center mb-xs">
+              <span style="font-weight: 800; font-size: 0.85rem; color: #fbbf24;">
+                🎟️ ${isEn ? 'Your First Ticket (Included)' : 'Din första lott (Startar potten)'}
+              </span>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-create-huxflux" style="font-weight: 700;">
+                🎲 HuxFlux
+              </button>
+            </div>
+
+            <!-- Number Picker -->
+            <div class="lotto-balls-grid mb-xs" style="gap: 4px;">
+              ${Array.from({ length: 50 }, (_, i) => i + 1).map(num => `
+                <button type="button" class="lotto-ball-btn create-ball-btn ${selectedMain.has(num) ? 'selected' : ''}" data-main="${num}" style="font-size: 0.75rem;">
+                  ${num}
+                </button>
+              `).join('')}
+            </div>
+
+            <div class="lotto-stars-grid mb-xs" style="gap: 4px; max-width: 260px;">
+              ${Array.from({ length: 12 }, (_, i) => i + 1).map(num => `
+                <button type="button" class="lotto-star-btn create-star-btn ${selectedStars.has(num) ? 'selected' : ''}" data-star="${num}" style="font-size: 0.75rem;">
+                  ★${num}
+                </button>
+              `).join('')}
+            </div>
+
+            <div class="flex justify-between items-center mt-xs" style="font-size: 0.8rem;">
+              <span class="text-secondary">${selectedMain.size}/5 huvud · ${selectedStars.size}/2 stjärnor</span>
+              <span style="color: var(--gold); font-weight: 800;">Startpott: ${createStake} kr</span>
+            </div>
+          </div>
+
+          <button type="button" class="btn btn-primary btn-block" id="btn-submit-create-lotto" style="font-weight: 800; padding: 14px;" ${(selectedMain.size !== 5 || selectedStars.size !== 2) ? 'disabled' : ''}>
+            🚀 ${isEn ? 'Launch Jackpot' : 'Starta Jackpott'} (${createStake} kr)
           </button>
         </div>
       </div>
@@ -7846,35 +8022,6 @@ export function openMegaLottoModal(initialOptions = {}) {
         </button>
 
         <div id="lotto-draw-outcome-container" class="mt-md"></div>
-      </div>
-    `;
-  }
-
-  function renderSyndicateTab() {
-    return `
-      <div class="animate-in">
-        <div class="card p-md mb-md">
-          <h4 style="color: var(--gold);">${t('arcade.lottoSyndicateTitle')}</h4>
-          <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 12px;">
-            ${t('arcade.lottoSyndicateDesc')}
-          </p>
-
-          <div class="flex gap-sm mb-md">
-            <input type="text" id="lotto-syndicate-name" class="form-input" placeholder="${isEn ? 'Syndicate Name (e.g. The Millions Club)' : 'Lottolagets namn (t.ex. Fredagsklubben)'}" style="flex: 1;" />
-            <button type="button" class="btn btn-primary" id="btn-lotto-create-syndicate" style="font-weight: 700;">
-              ${t('arcade.lottoSyndicateCreateBtn')}
-            </button>
-          </div>
-
-          <div class="flex gap-sm">
-            <input type="text" id="lotto-syndicate-join-code" class="form-input" placeholder="${isEn ? 'Enter 4-letter code (e.g. KRWW)' : 'Ange 4-siffrig lagkod (t.ex. KRWW)'}" style="flex: 1; text-transform: uppercase; font-family: monospace;" maxlength="4" />
-            <button type="button" class="btn btn-secondary" id="btn-lotto-join-syndicate" style="font-weight: 700;">
-              ${t('arcade.lottoSyndicateJoinBtn')}
-            </button>
-          </div>
-        </div>
-
-        <div id="lotto-active-syndicate-info"></div>
       </div>
     `;
   }
@@ -7914,8 +8061,8 @@ export function openMegaLottoModal(initialOptions = {}) {
         ${renderTabs()}
         <div id="lotto-stage-content">
           ${activeTab === 'play' ? renderPlayTab() :
-            activeTab === 'draw' ? renderDrawTab() :
-            activeTab === 'syndicate' ? renderSyndicateTab() : renderTicketsTab()}
+            activeTab === 'create' ? renderCreateTab() :
+            activeTab === 'draw' ? renderDrawTab() : renderTicketsTab()}
         </div>
       </div>
     `;
@@ -7926,38 +8073,44 @@ export function openMegaLottoModal(initialOptions = {}) {
     if (sphereAnimId) cancelAnimationFrame(sphereAnimId);
   });
 
-  // Fetch current lotto draw info from backend
+  // Load Active Lotto Info & Friends
   async function loadLottoInfo() {
     try {
-      const res = await fetch('/api/lotto/current');
-      const data = await res.json();
-      if (data?.currentDraw) {
-        currentJackpot = data.currentDraw.jackpot_amount;
-        nextDrawDate = data.currentDraw.draw_date;
-        drawNumber = data.currentDraw.draw_number;
-        currentDrawId = data.currentDraw.id;
+      const [lottoRes, friendsRes] = await Promise.all([
+        fetch('/api/lotto/active', {
+          headers: { 'Authorization': `Bearer ${currentUser?.token || ''}` }
+        }),
+        getFriends().catch(() => [])
+      ]);
 
-        const jackpotEl = root.querySelector('#lotto-live-jackpot');
-        if (jackpotEl) jackpotEl.textContent = `${currentJackpot.toLocaleString()} KR`;
+      const lottoData = await lottoRes.json();
+      currentLotto = lottoData?.lotto || null;
+      availableFriends = friendsRes || [];
 
-        const timerEl = root.querySelector('#lotto-countdown-timer');
-        if (timerEl && nextDrawDate) {
-          timerEl.innerHTML = `⏳ ${t('arcade.lottoNextDraw')}: ${new Date(nextDrawDate).toLocaleDateString('sv-SE', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
-        }
+      // Update hero jackpot and countdown
+      const jackpotEl = root.querySelector('#lotto-live-jackpot');
+      if (jackpotEl) {
+        jackpotEl.textContent = `${(currentLotto?.jackpot_amount || 0).toLocaleString()} KR`;
+      }
+
+      const timerEl = root.querySelector('#lotto-countdown-timer');
+      if (timerEl && currentLotto?.draw_time) {
+        timerEl.innerHTML = `⏳ ${t('arcade.lottoNextDraw')}: <strong style="font-family: monospace; font-size: 0.9rem; color: #ef4444; margin-left: 4px;">${formatTimeRemaining(currentLotto.draw_time)}</strong>`;
       }
     } catch (_) {}
   }
 
   loadLottoInfo();
 
-  // Progressive Live Ticker: smoothly increment pot slightly every 2 seconds
+  // 1-second countdown clock update
   tickerInterval = setInterval(() => {
-    currentJackpot += Math.floor(Math.random() * 8) + 2;
-    const jackpotEl = root.querySelector('#lotto-live-jackpot');
-    if (jackpotEl) {
-      jackpotEl.textContent = `${currentJackpot.toLocaleString()} KR`;
+    if (currentLotto?.draw_time) {
+      const timerEl = root.querySelector('#lotto-countdown-timer');
+      if (timerEl) {
+        timerEl.innerHTML = `⏳ ${t('arcade.lottoNextDraw')}: <strong style="font-family: monospace; font-size: 0.9rem; color: #ef4444; margin-left: 4px;">${formatTimeRemaining(currentLotto.draw_time)}</strong>`;
+      }
     }
-  }, 2000);
+  }, 1000);
 
   // Tab switching
   function attachTabEvents() {
@@ -7979,8 +8132,8 @@ export function openMegaLottoModal(initialOptions = {}) {
         const stage = root.querySelector('#lotto-stage-content');
         if (stage) {
           if (activeTab === 'play') stage.innerHTML = renderPlayTab();
+          else if (activeTab === 'create') stage.innerHTML = renderCreateTab();
           else if (activeTab === 'draw') stage.innerHTML = renderDrawTab();
-          else if (activeTab === 'syndicate') stage.innerHTML = renderSyndicateTab();
           else if (activeTab === 'tickets') stage.innerHTML = renderTicketsTab();
 
           attachStageEvents();
@@ -7995,10 +8148,10 @@ export function openMegaLottoModal(initialOptions = {}) {
   function attachStageEvents() {
     if (activeTab === 'play') {
       attachPlayEvents();
+    } else if (activeTab === 'create') {
+      attachCreateEvents();
     } else if (activeTab === 'draw') {
       attachDrawEvents();
-    } else if (activeTab === 'syndicate') {
-      attachSyndicateEvents();
     } else if (activeTab === 'tickets') {
       attachTicketsEvents();
     }
@@ -8006,11 +8159,23 @@ export function openMegaLottoModal(initialOptions = {}) {
 
   // ── 1. PLAY STAGE EVENTS ─────────────────────────────────
   function attachPlayEvents() {
+    root.querySelector('#btn-go-create-lotto')?.addEventListener('click', () => {
+      const createTabBtn = root.querySelector('[data-tab="create"]');
+      if (createTabBtn) createTabBtn.click();
+    });
+
     const mainCountEl = root.querySelector('#lotto-main-count');
     const starCountEl = root.querySelector('#lotto-star-count');
+    const submitBtn = root.querySelector('#btn-lotto-submit-tickets');
+
+    function updatePlaySubmitBtn() {
+      if (submitBtn) {
+        submitBtn.disabled = (selectedMain.size !== 5 || selectedStars.size !== 2);
+      }
+    }
 
     // Main ball clicks
-    root.querySelectorAll('.lotto-ball-btn').forEach(btn => {
+    root.querySelectorAll('.lotto-ball-btn:not(.create-ball-btn)').forEach(btn => {
       btn.addEventListener('click', () => {
         const num = parseInt(btn.dataset.main, 10);
         if (selectedMain.has(num)) {
@@ -8018,7 +8183,7 @@ export function openMegaLottoModal(initialOptions = {}) {
           btn.classList.remove('selected');
         } else {
           if (selectedMain.size >= 5) {
-            showToast(isEn ? 'Max 5 main numbers' : 'Max 5 huvudnummer valda', 'info');
+            showToast(isEn ? 'Max 5 main numbers!' : 'Du kan bara välja 5 huvudnummer!', 'warning');
             return;
           }
           selectedMain.add(num);
@@ -8026,11 +8191,12 @@ export function openMegaLottoModal(initialOptions = {}) {
           playPickSound();
         }
         if (mainCountEl) mainCountEl.textContent = `(${selectedMain.size}/5)`;
+        updatePlaySubmitBtn();
       });
     });
 
-    // Star ball clicks
-    root.querySelectorAll('.lotto-star-btn').forEach(btn => {
+    // Star clicks
+    root.querySelectorAll('.lotto-star-btn:not(.create-star-btn)').forEach(btn => {
       btn.addEventListener('click', () => {
         const num = parseInt(btn.dataset.star, 10);
         if (selectedStars.has(num)) {
@@ -8038,7 +8204,7 @@ export function openMegaLottoModal(initialOptions = {}) {
           btn.classList.remove('selected');
         } else {
           if (selectedStars.size >= 2) {
-            showToast(isEn ? 'Max 2 star numbers' : 'Max 2 stjärnnummer valda', 'info');
+            showToast(isEn ? 'Max 2 star numbers!' : 'Du kan bara välja 2 stjärnnummer!', 'warning');
             return;
           }
           selectedStars.add(num);
@@ -8046,13 +8212,16 @@ export function openMegaLottoModal(initialOptions = {}) {
           playStarPickSound();
         }
         if (starCountEl) starCountEl.textContent = `(${selectedStars.size}/2)`;
+        updatePlaySubmitBtn();
       });
     });
 
-    // HuxFlux (Random Quick Pick)
+    // HuxFlux (Quick Pick)
     root.querySelector('#btn-lotto-huxflux')?.addEventListener('click', () => {
       selectedMain.clear();
       selectedStars.clear();
+      root.querySelectorAll('.lotto-ball-btn:not(.create-ball-btn)').forEach(b => b.classList.remove('selected'));
+      root.querySelectorAll('.lotto-star-btn:not(.create-star-btn)').forEach(b => b.classList.remove('selected'));
 
       const pool50 = Array.from({ length: 50 }, (_, i) => i + 1);
       for (let i = pool50.length - 1; i > 0; i--) {
@@ -8064,20 +8233,20 @@ export function openMegaLottoModal(initialOptions = {}) {
       const pool12 = Array.from({ length: 12 }, (_, i) => i + 1);
       for (let i = pool12.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [pool12[i], pool12[j]] = [pool12[j], pool12[i]];
+        [pool12[j], pool12[i]] = [pool12[i], pool12[j]];
       }
       pool12.slice(0, 2).forEach(n => selectedStars.add(n));
 
-      // Refresh button classes
-      root.querySelectorAll('.lotto-ball-btn').forEach(b => {
-        b.classList.toggle('selected', selectedMain.has(parseInt(b.dataset.main, 10)));
+      root.querySelectorAll('.lotto-ball-btn:not(.create-ball-btn)').forEach(b => {
+        if (selectedMain.has(parseInt(b.dataset.main, 10))) b.classList.add('selected');
       });
-      root.querySelectorAll('.lotto-star-btn').forEach(b => {
-        b.classList.toggle('selected', selectedStars.has(parseInt(b.dataset.star, 10)));
+      root.querySelectorAll('.lotto-star-btn:not(.create-star-btn)').forEach(b => {
+        if (selectedStars.has(parseInt(b.dataset.star, 10))) b.classList.add('selected');
       });
 
-      if (mainCountEl) mainCountEl.textContent = `(${selectedMain.size}/5)`;
-      if (starCountEl) starCountEl.textContent = `(${selectedStars.size}/2)`;
+      if (mainCountEl) mainCountEl.textContent = `(5/5)`;
+      if (starCountEl) starCountEl.textContent = `(2/2)`;
+      updatePlaySubmitBtn();
       playPickSound();
     });
 
@@ -8085,124 +8254,241 @@ export function openMegaLottoModal(initialOptions = {}) {
     root.querySelector('#btn-lotto-clear')?.addEventListener('click', () => {
       selectedMain.clear();
       selectedStars.clear();
-      root.querySelectorAll('.lotto-ball-btn').forEach(b => b.classList.remove('selected'));
-      root.querySelectorAll('.lotto-star-btn').forEach(b => b.classList.remove('selected'));
+      root.querySelectorAll('.lotto-ball-btn:not(.create-ball-btn)').forEach(b => b.classList.remove('selected'));
+      root.querySelectorAll('.lotto-star-btn:not(.create-star-btn)').forEach(b => b.classList.remove('selected'));
       if (mainCountEl) mainCountEl.textContent = `(0/5)`;
       if (starCountEl) starCountEl.textContent = `(0/2)`;
+      updatePlaySubmitBtn();
     });
 
-    // Add line
-    root.querySelector('#btn-lotto-add-line')?.addEventListener('click', () => {
-      if (selectedMain.size !== 5 || selectedStars.size !== 2) {
-        showToast(isEn ? 'Please select 5 main numbers and 2 stars!' : 'Välj 5 huvudnummer och 2 stjärnnummer!', 'warning');
-        return;
-      }
-
-      preparedLines.push({
-        mainNumbers: Array.from(selectedMain).sort((a, b) => a - b),
-        starNumbers: Array.from(selectedStars).sort((a, b) => a - b)
-      });
-
-      selectedMain.clear();
-      selectedStars.clear();
-      root.querySelectorAll('.lotto-ball-btn').forEach(b => b.classList.remove('selected'));
-      root.querySelectorAll('.lotto-star-btn').forEach(b => b.classList.remove('selected'));
-      if (mainCountEl) mainCountEl.textContent = `(0/5)`;
-      if (starCountEl) starCountEl.textContent = `(0/2)`;
-
-      renderPreparedLinesList();
-      playPickSound();
-    });
-
-    // Submit tickets
-    root.querySelector('#btn-lotto-submit-tickets')?.addEventListener('click', async () => {
-      if (preparedLines.length === 0) return;
-      const submitBtn = root.querySelector('#btn-lotto-submit-tickets');
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = isEn ? 'Submitting tickets...' : 'Lämnar in rader...';
-      }
+    // Submit ticket
+    submitBtn?.addEventListener('click', async () => {
+      if (selectedMain.size !== 5 || selectedStars.size !== 2) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = isEn ? 'Submitting line...' : 'Lämnar in rad...';
 
       try {
-        const res = await fetch('/api/lotto/tickets', {
+        const res = await fetch('/api/lotto/participate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${currentUser?.token || ''}`
           },
-          body: JSON.stringify({ tickets: preparedLines })
+          body: JSON.stringify({
+            drawId: currentLotto.id,
+            mainNumbers: Array.from(selectedMain).sort((a, b) => a - b),
+            starNumbers: Array.from(selectedStars).sort((a, b) => a - b)
+          })
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Kunde inte lämna in rader');
+        if (!res.ok) throw new Error(data.error || 'Kunde inte lämna in rad');
 
         playWinFanfare();
         launchConfetti();
-        showToast(isEn ? `🎉 Successfully submitted ${preparedLines.length} lines!` : `🎉 ${preparedLines.length} rader inlämnade! Lycka till!`, 'success');
+        showToast(isEn ? '🎉 Line submitted successfully!' : '🎉 Rad inlämnad! Lycka till i dragningen!', 'success');
 
-        preparedLines = [];
-        loadLottoInfo();
-
-        // Switch to tickets tab
-        const ticketsTabBtn = root.querySelector('[data-tab="tickets"]');
-        if (ticketsTabBtn) ticketsTabBtn.click();
+        await loadLottoInfo();
+        const ticketsTab = root.querySelector('[data-tab="tickets"]');
+        if (ticketsTab) ticketsTab.click();
 
       } catch (err) {
         showToast(err.message, 'error');
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = `${t('arcade.lottoSubmitBtn')} (${preparedLines.length} rader)`;
-        }
+        submitBtn.disabled = false;
+        submitBtn.textContent = `${t('arcade.lottoSubmitBtn')} (${currentLotto.stake_amount} kr)`;
       }
     });
-
-    renderPreparedLinesList();
   }
 
-  function renderPreparedLinesList() {
-    const container = root.querySelector('#lotto-lines-container');
-    const submitBtn = root.querySelector('#btn-lotto-submit-tickets');
-    if (!container) return;
+  // ── 2. CREATE STAGE EVENTS ───────────────────────────────
+  function attachCreateEvents() {
+    const titleInput = root.querySelector('#create-lotto-title');
+    titleInput?.addEventListener('input', (e) => {
+      createTitle = e.target.value;
+    });
 
-    if (preparedLines.length === 0) {
-      container.innerHTML = `
-        <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
-          ${isEn ? 'No lines added yet. Pick 5 numbers + 2 stars or tap HuxFlux!' : 'Inga rader tillagda än. Välj 5 nummer + 2 stjärnor eller tryck HuxFlux!'}
-        </div>
-      `;
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = t('arcade.lottoSubmitBtn');
-      }
-    } else {
-      container.innerHTML = preparedLines.map((line, idx) => `
-        <div class="flex justify-between items-center p-sm mb-xs" style="background: rgba(255,255,255,0.04); border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);">
-          <div class="flex items-center gap-xs flex-wrap">
-            <span style="font-weight: 700; font-size: 0.8rem; margin-right: 4px; color: var(--gold);">Rad ${idx + 1}:</span>
-            ${line.mainNumbers.map(n => `<span class="lotto-ball-chip main" style="width:26px; height:26px; font-size:0.75rem;">${n}</span>`).join('')}
-            <span style="margin: 0 4px; color: rgba(255,255,255,0.3);">|</span>
-            ${line.starNumbers.map(n => `<span class="lotto-ball-chip star" style="width:26px; height:26px; font-size:0.75rem;">★${n}</span>`).join('')}
-          </div>
-          <button type="button" class="btn btn-text text-danger btn-sm lotto-remove-line" data-index="${idx}">✕</button>
-        </div>
-      `).join('');
-
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = `${t('arcade.lottoSubmitBtn')} (${preparedLines.length} ${isEn ? 'lines' : 'rader'} · ${preparedLines.length * 25} kr)`;
-      }
-
-      container.querySelectorAll('.lotto-remove-line').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = parseInt(btn.dataset.index, 10);
-          preparedLines.splice(idx, 1);
-          renderPreparedLinesList();
+    // Stake presets
+    root.querySelectorAll('.create-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        createStake = parseInt(btn.dataset.stake, 10);
+        root.querySelectorAll('.create-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
         });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+        updateCreateSubmitBtn();
       });
+    });
+
+    // Timer presets
+    root.querySelectorAll('.create-timer-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        createDurationHours = parseInt(btn.dataset.hours, 10);
+        root.querySelectorAll('.create-timer-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    // Friends checklist
+    root.querySelectorAll('.create-friend-checkbox').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const uId = cb.dataset.userId;
+        if (cb.checked) {
+          selectedFriends.add(uId);
+          cb.closest('label')?.classList.remove('badge-secondary');
+          cb.closest('label')?.classList.add('badge-primary');
+        } else {
+          selectedFriends.delete(uId);
+          cb.closest('label')?.classList.remove('badge-primary');
+          cb.closest('label')?.classList.add('badge-secondary');
+        }
+      });
+    });
+
+    root.querySelector('#btn-toggle-all-friends')?.addEventListener('click', () => {
+      selectedFriends.clear();
+      root.querySelectorAll('.create-friend-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.closest('label')?.classList.remove('badge-primary');
+        cb.closest('label')?.classList.add('badge-secondary');
+      });
+      showToast(isEn ? 'All friends can participate' : 'Alla vänner får delta', 'info');
+    });
+
+    const submitCreateBtn = root.querySelector('#btn-submit-create-lotto');
+    function updateCreateSubmitBtn() {
+      if (submitCreateBtn) {
+        submitCreateBtn.disabled = (selectedMain.size !== 5 || selectedStars.size !== 2);
+        submitCreateBtn.textContent = `🚀 ${isEn ? 'Launch Jackpot' : 'Starta Jackpott'} (${createStake} kr)`;
+      }
     }
+
+    // Number picker on create
+    root.querySelectorAll('.create-ball-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const num = parseInt(btn.dataset.main, 10);
+        if (selectedMain.has(num)) {
+          selectedMain.delete(num);
+          btn.classList.remove('selected');
+        } else {
+          if (selectedMain.size >= 5) return;
+          selectedMain.add(num);
+          btn.classList.add('selected');
+          playPickSound();
+        }
+        updateCreateSubmitBtn();
+      });
+    });
+
+    root.querySelectorAll('.create-star-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const num = parseInt(btn.dataset.star, 10);
+        if (selectedStars.has(num)) {
+          selectedStars.delete(num);
+          btn.classList.remove('selected');
+        } else {
+          if (selectedStars.size >= 2) return;
+          selectedStars.add(num);
+          btn.classList.add('selected');
+          playStarPickSound();
+        }
+        updateCreateSubmitBtn();
+      });
+    });
+
+    // Quick Pick on create
+    root.querySelector('#btn-create-huxflux')?.addEventListener('click', () => {
+      selectedMain.clear();
+      selectedStars.clear();
+      root.querySelectorAll('.create-ball-btn').forEach(b => b.classList.remove('selected'));
+      root.querySelectorAll('.create-star-btn').forEach(b => b.classList.remove('selected'));
+
+      const pool50 = Array.from({ length: 50 }, (_, i) => i + 1);
+      for (let i = pool50.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool50[i], pool50[j]] = [pool50[j], pool50[i]];
+      }
+      pool50.slice(0, 5).forEach(n => selectedMain.add(n));
+
+      const pool12 = Array.from({ length: 12 }, (_, i) => i + 1);
+      for (let i = pool12.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool12[j], pool12[i]] = [pool12[i], pool12[j]];
+      }
+      pool12.slice(0, 2).forEach(n => selectedStars.add(n));
+
+      root.querySelectorAll('.create-ball-btn').forEach(b => {
+        if (selectedMain.has(parseInt(b.dataset.main, 10))) b.classList.add('selected');
+      });
+      root.querySelectorAll('.create-star-btn').forEach(b => {
+        if (selectedStars.has(parseInt(b.dataset.star, 10))) b.classList.add('selected');
+      });
+
+      updateCreateSubmitBtn();
+      playPickSound();
+    });
+
+    // Create & Submit
+    submitCreateBtn?.addEventListener('click', async () => {
+      if (selectedMain.size !== 5 || selectedStars.size !== 2) return;
+      submitCreateBtn.disabled = true;
+      submitCreateBtn.textContent = isEn ? 'Launching jackpot...' : 'Startar jackpotten...';
+
+      try {
+        // Calculate draw time based on preset
+        let drawDate = new Date();
+        if (createDurationHours === 72) {
+          // Friday 20:00
+          const day = drawDate.getDay();
+          let days = (5 - day + 7) % 7;
+          if (days === 0 && drawDate.getHours() >= 20) days = 7;
+          drawDate.setDate(drawDate.getDate() + days);
+          drawDate.setHours(20, 0, 0, 0);
+        } else {
+          drawDate = new Date(Date.now() + createDurationHours * 3600 * 1000);
+        }
+
+        const res = await fetch('/api/lotto/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUser?.token || ''}`
+          },
+          body: JSON.stringify({
+            title: createTitle || 'Kompis-Jackpot',
+            stakeAmount: createStake,
+            drawTime: drawDate.toISOString(),
+            targetUserIds: selectedFriends.size > 0 ? Array.from(selectedFriends) : null,
+            mainNumbers: Array.from(selectedMain).sort((a, b) => a - b),
+            starNumbers: Array.from(selectedStars).sort((a, b) => a - b)
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Kunde inte starta jackpott');
+
+        playWinFanfare();
+        launchConfetti();
+        showToast(isEn ? '🎉 Kompis-Jackpot started!' : '🎉 Kompis-Jackpott startad! Bjud in fler vänner!', 'success');
+
+        await loadLottoInfo();
+        const playTab = root.querySelector('[data-tab="play"]');
+        if (playTab) playTab.click();
+
+      } catch (err) {
+        showToast(err.message, 'error');
+        submitCreateBtn.disabled = false;
+        submitCreateBtn.textContent = `🚀 ${isEn ? 'Launch Jackpot' : 'Starta Jackpott'} (${createStake} kr)`;
+      }
+    });
   }
 
-  // ── 2. LIVE DRAW STAGE EVENTS ────────────────────────────
+  // ── 3. LIVE DRAW STAGE EVENTS ────────────────────────────
   function attachDrawEvents() {
     const canvas = root.querySelector('#lotto-canvas');
     if (canvas) {
@@ -8273,10 +8559,8 @@ export function openMegaLottoModal(initialOptions = {}) {
         const dy = b.y - cy;
         const dist = Math.hypot(dx, dy);
 
-        // Vortex force
         b.vx += (-dy / (dist || 1)) * 0.18 * speedMult;
         b.vy += (dx / (dist || 1)) * 0.18 * speedMult;
-
         b.vy += 0.08;
         b.vx += (Math.random() - 0.5) * 0.5 * speedMult;
         b.vy += (Math.random() - 0.5) * 0.5 * speedMult;
@@ -8348,7 +8632,7 @@ export function openMegaLottoModal(initialOptions = {}) {
   }
 
   async function runDrawSequence() {
-    if (isDrawing) return;
+    if (isDrawing || !currentLotto) return;
     isDrawing = true;
     drawnMain = [];
     drawnStars = [];
@@ -8364,11 +8648,16 @@ export function openMegaLottoModal(initialOptions = {}) {
     if (outcomeContainer) outcomeContainer.innerHTML = '';
 
     try {
-      const res = await fetch('/api/lotto/draw/trigger', {
+      const res = await fetch(`/api/lotto/draw/${currentLotto.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser?.token || ''}`
+        }
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Kunde inte köra dragning');
+
       const winningMain = data?.result?.winningMain || [7, 14, 21, 35, 42];
       const winningStars = data?.result?.winningStars || [3, 9];
 
@@ -8415,124 +8704,22 @@ export function openMegaLottoModal(initialOptions = {}) {
 
     container.innerHTML = `
       <div class="card p-md animate-in" style="background: rgba(245, 158, 11, 0.08); border-color: var(--gold);">
-        <h4 style="color: var(--gold); margin-bottom: 6px;">
-          ${result.jackpotWon ? t('arcade.lottoJackpotWonAlert') : t('arcade.lottoRolloverAlert')}
-        </h4>
-        <div style="font-size: 0.85rem; color: #e2e8f0; margin-bottom: 8px;">
-          ${isEn ? `Draw #${result.drawNumber} officially completed.` : `Dragning #${result.drawNumber} officiellt avslutad.`}
+        <h3 style="color: var(--gold); margin-bottom: 6px;">
+          👑 ${result.isTie ? (isEn ? 'SPLIT JACKPOT WIN!' : 'DELAD SEGER!') : (isEn ? `WINNER: ${escapeHtml(result.winnerNickname)}!` : `VINNARE: ${escapeHtml(result.winnerNickname)}!`)}
+        </h3>
+        <div style="font-size: 0.95rem; color: #e2e8f0; margin-bottom: 8px;">
+          ${result.winnerHits} ${isEn ? 'hits! Entire pot won:' : 'rätt! Tog hem hela potten:'} <strong>${result.totalPot.toLocaleString()} kr</strong>
         </div>
         <div class="flex gap-xs justify-center items-center flex-wrap" style="margin: 10px 0;">
           ${result.winningMain.map(n => `<span class="lotto-ball-chip main">${n}</span>`).join('')}
           <span style="color: rgba(255,255,255,0.4); margin: 0 4px;">|</span>
           ${result.winningStars.map(n => `<span class="lotto-ball-chip star">★${n}</span>`).join('')}
         </div>
-        <div style="font-size: 0.85rem; color: var(--gold); font-weight: 700; margin-top: 6px;">
-          ${isEn ? `Total winners: ${result.totalWinners} · Total payout: ${result.totalPayout.toLocaleString()} kr` : `Totalt ${result.totalWinners} vinnare · Utbetalat: ${result.totalPayout.toLocaleString()} kr`}
+        <div style="font-size: 0.85rem; color: #10b981; font-weight: 700; margin-top: 10px; background: rgba(16, 185, 129, 0.1); padding: 8px; border-radius: 6px;">
+          ⚖️ Swish-uppgörelse bokförd! Skulderna har automatiskt lagts in på Notan & Swishlistan.
         </div>
       </div>
     `;
-  }
-
-  // ── 3. SYNDICATE STAGE EVENTS ────────────────────────────
-  function attachSyndicateEvents() {
-    root.querySelector('#btn-lotto-create-syndicate')?.addEventListener('click', async () => {
-      const nameInput = root.querySelector('#lotto-syndicate-name');
-      const name = nameInput ? nameInput.value.trim() : '';
-      if (!name) {
-        showToast(isEn ? 'Please enter a syndicate name' : 'Ange ett lottolagsnamn', 'warning');
-        return;
-      }
-
-      try {
-        const res = await fetch('/api/lotto/syndicate/create', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${currentUser?.token || ''}`
-          },
-          body: JSON.stringify({ name })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
-
-        playWinFanfare();
-        launchConfetti();
-        showToast(isEn ? 'Syndicate created!' : 'Lottolag skapat!', 'success');
-        renderSyndicateCard(data.syndicate);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    root.querySelector('#btn-lotto-join-syndicate')?.addEventListener('click', async () => {
-      const codeInput = root.querySelector('#lotto-syndicate-join-code');
-      const code = codeInput ? codeInput.value.trim() : '';
-      if (!code) {
-        showToast(isEn ? 'Please enter 4-letter code' : 'Ange 4-siffrig kod', 'warning');
-        return;
-      }
-
-      try {
-        const res = await fetch('/api/lotto/syndicate/join', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${currentUser?.token || ''}`
-          },
-          body: JSON.stringify({ code })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
-
-        playPickSound();
-        showToast(isEn ? 'Joined syndicate!' : 'Gick med i lottolaget!', 'success');
-        renderSyndicateCard(data.syndicate);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-  }
-
-  function renderSyndicateCard(synd) {
-    const container = root.querySelector('#lotto-active-syndicate-info');
-    if (!container) return;
-
-    container.innerHTML = `
-      <div class="card p-md animate-in" style="border-color: var(--gold); background: rgba(245, 158, 11, 0.06);">
-        <div class="flex justify-between items-center mb-sm">
-          <h4 style="color: var(--gold); font-size: 1.1rem; font-family: var(--font-heading);">
-            🤝 ${escapeHtml(synd.name)}
-          </h4>
-          <span class="badge badge-accent" style="font-family: monospace; font-size: 0.9rem; letter-spacing: 1px;">
-            ${synd.code}
-          </span>
-        </div>
-
-        <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 12px;">
-          ${isEn ? 'Invite friends with code' : 'Bjud in vänner med koden'} <strong>${synd.code}</strong>. ${isEn ? 'All prize money is split equally!' : 'Alla vinster delas lika via Swish!'}
-        </p>
-
-        <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 6px; color: #fff;">
-          👥 ${isEn ? 'Team Members' : 'Medlemmar'} (${synd.members.length}):
-        </div>
-        <div class="flex gap-xs flex-wrap mb-md">
-          ${synd.members.map(m => `
-            <span class="badge badge-secondary" style="padding: 4px 10px;">
-              ${escapeHtml(m.nickname)} ${m.role === 'leader' ? '👑' : ''}
-            </span>
-          `).join('')}
-        </div>
-
-        <button type="button" class="btn btn-secondary btn-block btn-sm" id="btn-copy-syndicate-code">
-          📋 ${isEn ? 'Copy Invitation Code' : 'Kopiera inbjudningskod'}
-        </button>
-      </div>
-    `;
-
-    container.querySelector('#btn-copy-syndicate-code')?.addEventListener('click', () => {
-      navigator.clipboard?.writeText(synd.code);
-      showToast(isEn ? 'Code copied to clipboard!' : 'Lagkod kopierad!', 'success');
-    });
   }
 
   // ── 4. TICKETS STAGE EVENTS ──────────────────────────────
@@ -8555,7 +8742,7 @@ export function openMegaLottoModal(initialOptions = {}) {
         if (!ticketsData?.tickets || ticketsData.tickets.length === 0) {
           listEl.innerHTML = `
             <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
-              ${isEn ? 'You have no tickets yet. Go to "Play Ticket" to pick your numbers!' : 'Du har inga inlämnade rader än. Gå till "Spela rad" och välj dina nummer!'}
+              ${isEn ? 'You have no tickets yet. Go to "Play Line" to submit!' : 'Du har inga inlämnade rader än. Gå till "Lägg rad" för att delta!'}
             </div>
           `;
         } else {
@@ -8565,10 +8752,10 @@ export function openMegaLottoModal(initialOptions = {}) {
               <div class="lotto-ticket-card ${isWin ? 'winner' : ''}">
                 <div class="flex justify-between items-center">
                   <span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
-                    ${new Date(t.created_at).toLocaleDateString('sv-SE')} · ${t.syndicate_name ? `🤝 ${escapeHtml(t.syndicate_name)}` : (isEn ? 'Solo Line' : 'Enskild rad')}
+                    ${new Date(t.created_at).toLocaleDateString('sv-SE')} · ${escapeHtml(t.draw_title || 'Kompis-Jackpot')}
                   </span>
                   <span class="badge ${t.draw_status === 'completed' ? (isWin ? 'badge-success' : 'badge-secondary') : 'badge-accent'}" style="font-size: 0.7rem;">
-                    ${t.draw_status === 'completed' ? (isWin ? `🏆 ${t.prize_amount.toLocaleString()} kr` : (isEn ? 'No win' : 'Ingen vinst')) : (isEn ? 'Active' : 'Aktiv')}
+                    ${t.draw_status === 'completed' ? (isWin ? `🏆 Vinst: ${t.prize_amount.toLocaleString()} kr` : (isEn ? 'No win' : 'Ingen vinst')) : (isEn ? 'Active' : 'Aktiv')}
                   </span>
                 </div>
 
@@ -8593,7 +8780,7 @@ export function openMegaLottoModal(initialOptions = {}) {
         if (!histData?.history || histData.history.length === 0) {
           histEl.innerHTML = `
             <div class="text-muted text-center p-md" style="font-size: 0.85rem;">
-              ${isEn ? 'No completed draws yet. Run a live draw!' : 'Inga avslutade dragningar än. Kör en live-dragning!'}
+              ${isEn ? 'No completed draws yet.' : 'Inga avslutade dragningar än.'}
             </div>
           `;
         } else {
@@ -8601,7 +8788,7 @@ export function openMegaLottoModal(initialOptions = {}) {
             <div class="p-sm mb-xs" style="background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
               <div class="flex justify-between items-center mb-xs">
                 <span style="font-weight: 700; font-size: 0.85rem; color: var(--gold);">
-                  Dragning #${d.draw_number}
+                  ${escapeHtml(d.title || 'Kompis-Jackpot')}
                 </span>
                 <span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">
                   ${new Date(d.completed_at || d.draw_date).toLocaleDateString('sv-SE')}
@@ -8612,6 +8799,11 @@ export function openMegaLottoModal(initialOptions = {}) {
                 <span style="color: rgba(255,255,255,0.4); margin: 0 2px;">|</span>
                 ${d.winning_stars.map(n => `<span class="lotto-ball-chip star" style="width:24px; height:24px; font-size:0.7rem;">★${n}</span>`).join('')}
               </div>
+              ${d.winner_nickname ? `
+                <div style="font-size: 0.75rem; color: #fbbf24; margin-top: 4px;">
+                  👑 Vinnare: <strong>${escapeHtml(d.winner_nickname)}</strong> (${d.winner_hits} rätt)
+                </div>
+              ` : ''}
             </div>
           `).join('');
         }
@@ -8623,6 +8815,3 @@ export function openMegaLottoModal(initialOptions = {}) {
   // Initial stage binding
   attachStageEvents();
 }
-
-
-

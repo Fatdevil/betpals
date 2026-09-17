@@ -261,4 +261,13 @@ export const convertTabExpenseToEvenSteven = (id) => request('/tab/expenses/' + 
 export const getMyTabExpenses = () => request('/tab/expenses/my');
 export const getTabExpense = (id) => request('/tab/expenses/' + id);
 
+// ── Kompis-Lotto (Real-Money Eurojackpot) ─────────────
+export const getActiveLotto = () => request('/lotto/active');
+export const getLottoDetails = (id) => request('/lotto/details/' + id);
+export const createKompisLotto = (data) => request('/lotto/create', { method: 'POST', body: data });
+export const participateKompisLotto = (data) => request('/lotto/participate', { method: 'POST', body: data });
+export const triggerLottoDraw = (id, data = {}) => request('/lotto/draw/' + id, { method: 'POST', body: data });
+export const getMyLottoTickets = (drawId = null) => request('/lotto/my-tickets' + (drawId ? `?drawId=${drawId}` : ''));
+export const getLottoHistory = () => request('/lotto/history');
+
 
