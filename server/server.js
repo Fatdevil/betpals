@@ -2714,6 +2714,419 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
   }
 });
 
+// ── MAFFIA / WEREWOLF PARTY ENGINE ────────────────────────────────
+function assignMafiaRoles(players, narratorMode = 'ai', hostId = null) {
+  // If host chosen as narrator, host does not play actively
+  const activePlayers = narratorMode === 'human' 
+    ? players.filter(p => p.id !== hostId)
+    : [...players];
+
+  const total = activePlayers.length;
+  // Role distribution rules:
+  // 4-6 players: 1 mafia, 1 detective, 1 doctor, rest villagers
+  // 7-9 players: 2 mafia, 1 detective, 1 doctor, rest villagers
+  // 10-14 players: 3 mafia, 1 detective, 1 doctor, rest villagers
+  // 15+ players: 4 mafia, 1 detective, 1 doctor, rest villagers
+  let mafiaCount = 1;
+  if (total >= 15) mafiaCount = 4;
+  else if (total >= 10) mafiaCount = 3;
+  else if (total >= 7) mafiaCount = 2;
+
+  const roles = [];
+  for (let i = 0; i < mafiaCount; i++) roles.push('mafia');
+  roles.push('detective');
+  if (total >= 5) roles.push('doctor');
+  while (roles.length < total) roles.push('villager');
+
+  // Shuffle roles cryptographically
+  for (let i = roles.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [roles[i], roles[j]] = [roles[j], roles[i]];
+  }
+
+  const assigned = {};
+  activePlayers.forEach((p, idx) => {
+    assigned[p.id] = {
+      role: roles[idx],
+      isAlive: true,
+      nickname: p.nickname,
+      avatarEmoji: p.avatarEmoji || '👤'
+    };
+  });
+
+  if (narratorMode === 'human' && hostId) {
+    assigned[hostId] = {
+      role: 'narrator',
+      isAlive: true,
+      nickname: players.find(p => p.id === hostId)?.nickname || 'Spelledare',
+      avatarEmoji: '🎩'
+    };
+  }
+
+  return assigned;
+}
+
+app.post('/api/minigames/mafia/:id/start', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
+  if (room.hostId !== user.id) return res.status(403).json({ error: 'Endast hosten kan starta Maffia' });
+
+  const minPlayers = 4;
+  if (room.players.length < minPlayers) {
+    return res.status(400).json({ error: `Minst ${minPlayers} spelare krävs för att starta Maffia` });
+  }
+
+  const narratorMode = req.body.narratorMode || 'ai'; // 'ai' | 'human'
+  const mafiaState = {
+    narratorMode,
+    phase: 'night', // 'roles' -> 'night' -> 'morning' -> 'day' -> 'lynch' -> 'ended'
+    roundNumber: 1,
+    subPhase: 'mafia', // 'mafia' -> 'detective' -> 'doctor' -> 'done'
+    roles: assignMafiaRoles(room.players, narratorMode, user.id),
+    nightActions: {
+      mafiaTargetId: null,
+      mafiaVotes: {}, // voterId -> targetId
+      detectiveCheckedId: null,
+      detectiveResult: null,
+      doctorProtectedId: null
+    },
+    dayVotes: {}, // voterId -> targetId
+    history: [],
+    lastKilled: null,
+    winner: null // 'villagers' | 'mafia'
+  };
+
+  room.status = 'mafia_running';
+  room.mafiaState = mafiaState;
+
+  broadcastToParty(room.id, {
+    type: 'mafia_game_started',
+    room: sanitizeMafiaRoomForBroadcast(room)
+  });
+
+  res.json({ ok: true, room: sanitizeMafiaRoomForBroadcast(room) });
+});
+
+function sanitizeMafiaRoomForBroadcast(room) {
+  if (!room.mafiaState) return room;
+  // Return room without leaking secret roles publicly to everyone
+  const publicRoles = {};
+  for (const [pId, pData] of Object.entries(room.mafiaState.roles)) {
+    publicRoles[pId] = {
+      isAlive: pData.isAlive,
+      nickname: pData.nickname,
+      avatarEmoji: pData.avatarEmoji,
+      // If dead or game ended, reveal role
+      role: (!pData.isAlive || room.mafiaState.phase === 'ended') ? pData.role : null
+    };
+  }
+
+  return {
+    ...room,
+    mafiaState: {
+      ...room.mafiaState,
+      roles: publicRoles
+    }
+  };
+}
+
+// Get player's secret mafia perspective
+app.get('/api/minigames/mafia/:id/my-role', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room || !room.mafiaState) return res.status(404).json({ error: 'Inget aktivt Maffiaspel' });
+
+  const myPlayerRole = room.mafiaState.roles[user.id];
+  if (!myPlayerRole) return res.status(403).json({ error: 'Du deltar inte i detta Maffiaspel' });
+
+  // If mafia, also return list of fellow mafia members
+  let fellowMafia = [];
+  if (myPlayerRole.role === 'mafia') {
+    fellowMafia = Object.entries(room.mafiaState.roles)
+      .filter(([id, data]) => data.role === 'mafia')
+      .map(([id, data]) => ({ id, nickname: data.nickname, isAlive: data.isAlive }));
+  }
+
+  // If human narrator, return full God Mode state
+  const isNarrator = myPlayerRole.role === 'narrator';
+  const godModeRoles = isNarrator ? room.mafiaState.roles : null;
+
+  res.json({
+    role: myPlayerRole.role,
+    isAlive: myPlayerRole.isAlive,
+    fellowMafia,
+    godModeRoles,
+    nightActions: isNarrator ? room.mafiaState.nightActions : undefined,
+    phase: room.mafiaState.phase,
+    subPhase: room.mafiaState.subPhase
+  });
+});
+
+// Submit night action (Mafia target, Detective investigate, Doctor protect)
+app.post('/api/minigames/mafia/:id/night-action', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room || !room.mafiaState) return res.status(404).json({ error: 'Inget aktivt Maffiaspel' });
+
+  const state = room.mafiaState;
+  const myPlayer = state.roles[user.id];
+  if (!myPlayer || !myPlayer.isAlive) {
+    return res.status(403).json({ error: 'Endast levande spelare kan agera' });
+  }
+
+  const { actionType, targetId } = req.body;
+  let detectiveResult = null;
+
+  if (actionType === 'mafia_kill') {
+    if (myPlayer.role !== 'mafia') return res.status(403).json({ error: 'Endast maffian kan mörda' });
+    state.nightActions.mafiaVotes[user.id] = targetId;
+    state.nightActions.mafiaTargetId = targetId;
+  } else if (actionType === 'detective_check') {
+    if (myPlayer.role !== 'detective') return res.status(403).json({ error: 'Endast detektiven kan undersöka' });
+    const target = state.roles[targetId];
+    if (target) {
+      detectiveResult = target.role === 'mafia' ? 'mafia' : 'innocent';
+      state.nightActions.detectiveCheckedId = targetId;
+      state.nightActions.detectiveResult = detectiveResult;
+    }
+  } else if (actionType === 'doctor_protect') {
+    if (myPlayer.role !== 'doctor') return res.status(403).json({ error: 'Endast läkaren kan skydda' });
+    state.nightActions.doctorProtectedId = targetId;
+  }
+
+  broadcastToParty(room.id, {
+    type: 'mafia_night_progress',
+    subPhase: state.subPhase,
+    actionReceivedFrom: user.id
+  });
+
+  res.json({ ok: true, detectiveResult });
+});
+
+// Advance phase (Night -> Day / Day -> Vote -> Lynch)
+app.post('/api/minigames/mafia/:id/advance-phase', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room || !room.mafiaState) return res.status(404).json({ error: 'Inget aktivt Maffiaspel' });
+  if (room.hostId !== user.id) return res.status(403).json({ error: 'Endast hosten kan växla fas' });
+
+  const state = room.mafiaState;
+
+  if (state.phase === 'night') {
+    // Resolve night kills
+    const targetId = state.nightActions.mafiaTargetId;
+    const protectedId = state.nightActions.doctorProtectedId;
+    let killedPlayer = null;
+
+    if (targetId && targetId !== protectedId) {
+      if (state.roles[targetId]) {
+        state.roles[targetId].isAlive = false;
+        killedPlayer = {
+          id: targetId,
+          nickname: state.roles[targetId].nickname,
+          role: state.roles[targetId].role
+        };
+      }
+    }
+
+    state.lastKilled = killedPlayer;
+    state.phase = 'morning';
+
+    // Check win condition
+    const winCheck = evaluateMafiaWinner(state.roles);
+    if (winCheck) {
+      state.phase = 'ended';
+      state.winner = winCheck;
+      resolveMafiaDebts(room, winCheck);
+    }
+
+    broadcastToParty(room.id, {
+      type: 'mafia_morning',
+      killedPlayer,
+      saved: targetId && targetId === protectedId,
+      winner: state.winner,
+      room: sanitizeMafiaRoomForBroadcast(room)
+    });
+
+  } else if (state.phase === 'morning') {
+    // Start discussion
+    state.phase = 'day';
+    state.dayVotes = {};
+
+    broadcastToParty(room.id, {
+      type: 'mafia_day_started',
+      room: sanitizeMafiaRoomForBroadcast(room)
+    });
+
+  } else if (state.phase === 'day') {
+    // Resolve day votes / lynch
+    const voteCounts = {};
+    for (const [voterId, targetId] of Object.entries(state.dayVotes)) {
+      voteCounts[targetId] = (voteCounts[targetId] || 0) + 1;
+    }
+
+    let highestVoteId = null;
+    let maxVotes = 0;
+    let isTie = false;
+
+    for (const [tId, count] of Object.entries(voteCounts)) {
+      if (count > maxVotes) {
+        maxVotes = count;
+        highestVoteId = tId;
+        isTie = false;
+      } else if (count === maxVotes) {
+        isTie = true;
+      }
+    }
+
+    let lynchedPlayer = null;
+    if (highestVoteId && !isTie && maxVotes >= 1) {
+      if (state.roles[highestVoteId]) {
+        state.roles[highestVoteId].isAlive = false;
+        lynchedPlayer = {
+          id: highestVoteId,
+          nickname: state.roles[highestVoteId].nickname,
+          role: state.roles[highestVoteId].role
+        };
+      }
+    }
+
+    state.phase = 'lynch_result';
+
+    // Check win condition
+    const winCheck = evaluateMafiaWinner(state.roles);
+    if (winCheck) {
+      state.phase = 'ended';
+      state.winner = winCheck;
+      resolveMafiaDebts(room, winCheck);
+    }
+
+    broadcastToParty(room.id, {
+      type: 'mafia_lynch_result',
+      lynchedPlayer,
+      isTie,
+      winner: state.winner,
+      voteCounts,
+      room: sanitizeMafiaRoomForBroadcast(room)
+    });
+
+  } else if (state.phase === 'lynch_result') {
+    // Start new night
+    state.phase = 'night';
+    state.roundNumber++;
+    state.subPhase = 'mafia';
+    state.nightActions = {
+      mafiaTargetId: null,
+      mafiaVotes: {},
+      detectiveCheckedId: null,
+      detectiveResult: null,
+      doctorProtectedId: null
+    };
+
+    broadcastToParty(room.id, {
+      type: 'mafia_night_started',
+      roundNumber: state.roundNumber,
+      room: sanitizeMafiaRoomForBroadcast(room)
+    });
+  }
+
+  res.json({ ok: true, room: sanitizeMafiaRoomForBroadcast(room) });
+});
+
+// Vote during day lynch
+app.post('/api/minigames/mafia/:id/vote', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const room = partyRooms.get(req.params.id);
+  if (!room || !room.mafiaState) return res.status(404).json({ error: 'Inget aktivt Maffiaspel' });
+
+  const state = room.mafiaState;
+  const myPlayer = state.roles[user.id];
+  if (!myPlayer || !myPlayer.isAlive) {
+    return res.status(403).json({ error: 'Döda spelare har inte rösträtt' });
+  }
+
+  const { targetId } = req.body;
+  state.dayVotes[user.id] = targetId;
+
+  broadcastToParty(room.id, {
+    type: 'mafia_vote_cast',
+    voterId: user.id,
+    targetId,
+    totalVotes: Object.keys(state.dayVotes).length,
+    aliveCount: Object.values(state.roles).filter(p => p.isAlive && p.role !== 'narrator').length
+  });
+
+  res.json({ ok: true });
+});
+
+function evaluateMafiaWinner(roles) {
+  const alive = Object.values(roles).filter(p => p.isAlive && p.role !== 'narrator');
+  const aliveMafia = alive.filter(p => p.role === 'mafia');
+  const aliveVillagers = alive.filter(p => p.role !== 'mafia');
+
+  if (aliveMafia.length === 0) {
+    return 'villagers'; // All mafia dead
+  }
+  if (aliveMafia.length >= aliveVillagers.length) {
+    return 'mafia'; // Mafia equal or outnumber villagers
+  }
+  return null;
+}
+
+function resolveMafiaDebts(room, winnerSide) {
+  if (!room.stakeAmount || room.stakeAmount <= 0) return;
+
+  const roles = room.mafiaState.roles;
+  const winners = Object.entries(roles).filter(([id, p]) => {
+    if (winnerSide === 'mafia') return p.role === 'mafia';
+    return p.role !== 'mafia' && p.role !== 'narrator';
+  }).map(([id]) => id);
+
+  const losers = Object.entries(roles).filter(([id, p]) => {
+    if (winnerSide === 'mafia') return p.role !== 'mafia' && p.role !== 'narrator';
+    return p.role === 'mafia';
+  }).map(([id]) => id);
+
+  if (winners.length === 0 || losers.length === 0) return;
+
+  const totalPot = room.stakeAmount * (winners.length + losers.length);
+  const winPerPlayer = Math.round((totalPot / winners.length) * 100) / 100;
+  const stakePerLoser = room.stakeAmount;
+
+  for (const loserId of losers) {
+    for (const winnerId of winners) {
+      try {
+        const duel = db.createDuel({
+          gameType: 'mafia',
+          creatorId: winnerId,
+          opponentId: loserId,
+          stakeAmount: Math.round((stakePerLoser / winners.length) * 100) / 100,
+          mode: 'online'
+        });
+        if (duel) {
+          db.submitDuelResult({
+            duelId: duel.id,
+            creatorScore: 1,
+            opponentScore: 0,
+            winnerId
+          });
+        }
+      } catch (e) {}
+    }
+  }
+}
+
 // ── KOMPIS-LOTTO (Real-Money Eurojackpot with Friends & Home Ticker) ───
 app.get('/api/lotto/active', (req, res) => {
   try {

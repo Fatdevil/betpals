@@ -224,6 +224,13 @@ export const startPartyGame = (id) => request('/minigames/party/' + id + '/start
 export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: { stoppedTime } });
 export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
 
+// ── Mafia (Varulv) Party Game ────────────────────────
+export const startMafiaGame = (id, data) => request('/minigames/mafia/' + id + '/start', { method: 'POST', body: data || {} });
+export const getMyMafiaRole = (id) => request('/minigames/mafia/' + id + '/my-role');
+export const submitMafiaNightAction = (id, data) => request('/minigames/mafia/' + id + '/night-action', { method: 'POST', body: data });
+export const advanceMafiaPhase = (id) => request('/minigames/mafia/' + id + '/advance-phase', { method: 'POST', body: {} });
+export const voteMafiaLynch = (id, targetId) => request('/minigames/mafia/' + id + '/vote', { method: 'POST', body: { targetId } });
+
 // ── AnyBet (Kompisbettet) ─────────────────────────────
 export const createAnyBet = (data) => request('/anybets/create', { method: 'POST', body: data });
 export const getAnyBets = () => request('/anybets');

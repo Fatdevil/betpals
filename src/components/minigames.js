@@ -32,7 +32,12 @@ import {
   startLiveNotanRoulette,
   convertTabExpenseToEvenSteven,
   getTabExpense,
-  getMyTabExpenses
+  getMyTabExpenses,
+  startMafiaGame,
+  getMyMafiaRole,
+  submitMafiaNightAction,
+  advanceMafiaPhase,
+  voteMafiaLynch
 } from '../api.js';
 import { compressImage } from '../imageUtils.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
@@ -233,6 +238,13 @@ export function renderMinigamesRoller() {
       tag: t('arcade.megaLottoTag'),
       title: t('arcade.megaLottoTitle'),
       iconHtml: `<img src="/malta-jackpot.png" alt="${t('arcade.megaLotto')}" style="width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'mafia',
+      name: t('arcade.mafia'),
+      tag: t('arcade.mafiaTag'),
+      title: t('arcade.mafiaTitle'),
+      iconHtml: `<span style="font-size: 2.1rem; line-height: 1; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));">🕵️‍♂️</span>`
     }
   ];
 
@@ -355,6 +367,13 @@ export function openAllArcadeGamesModal() {
       tag: t('arcade.megaLottoTag'),
       desc: isEn ? 'Progressive weekly jackpot in Eurojackpot format with syndicates' : 'Progressiv veckojackpott i Eurojackpot-format med lottolag',
       iconHtml: `<img src="/malta-jackpot.png" alt="${t('arcade.megaLotto')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'mafia',
+      name: t('arcade.mafia'),
+      tag: t('arcade.mafiaTag'),
+      desc: isEn ? 'Psychological party game! Secret roles, night murders, detective investigations and town square lynching' : 'Klassiskt sällskapsspel! Dolda roller, nattliga mord, detektiv och lynchning på torget',
+      iconHtml: `<span style="font-size: 2.5rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7));">🕵️‍♂️</span>`
     }
   ];
 
@@ -406,6 +425,7 @@ export function launchGameById(game) {
   else if (game === 'notan-roulette') openNotanRouletteModal();
   else if (game === 'space-invaders') openSpaceInvadersModal();
   else if (game === 'mega-lotto') openMegaLottoModal();
+  else if (game === 'mafia') openMafiaModal();
 }
 
 // ── 3. Event Listeners for Roller (Native Swipe + Drag + Click) ──
@@ -3536,21 +3556,35 @@ export function showIncomingPartyModal(room) {
   playTone(587.33, 'sine', 0.25, 0.15); // D5 chime
   setTimeout(() => playTone(880, 'sine', 0.3, 0.15), 150);
 
-  const titleHtml = `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
+  const isMafia = room.gameType === 'mafia';
+
+  const titleHtml = isMafia
+    ? `<span style="font-size: 1.3rem; vertical-align: -2px; margin-right: 6px;">🕵️‍♂️</span> ${t('arcade.mafiaTitle')}`
+    : `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
+
+  const iconHtml = isMafia
+    ? `<div style="font-size: 4rem; line-height: 1; margin: 0 auto 12px auto; filter: drop-shadow(0 4px 16px rgba(239,68,68,0.5));">🕵️‍♂️</div>`
+    : `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />`;
+
+  const inviteText = isMafia
+    ? (isEn ? 'invited you to Mafia (Werewolf)!' : 'bjöd in dig till Maffia (Varulv)!')
+    : (isEn ? 'invited you to The Blind 10.00!' : 'bjöd in dig till The Blind 10.00!');
+
+  const descText = isMafia
+    ? (isEn ? 'Secret roles, night murders, deception and town square voting on your phone!' : 'Hemliga roller, nattmord, manipulation och lynchning på torget direkt i mobilen!')
+    : (isEn ? 'Stop the clock as close to 10.00s as possible. At 3.00s the display turns black!' : 'Stanna klockan så nära 10:00.00s som möjligt. Vid 3.00s blir skärmen kolsvart!');
 
   showModal(titleHtml, `
     <div class="text-center" style="padding: 10px 0;">
-      <img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 72px; height: 72px; margin: 0 auto 12px auto; display: block; filter: drop-shadow(0 4px 16px rgba(255,215,0,0.5));" />
+      ${iconHtml}
       <h3 style="color: var(--gold); margin-bottom: 6px; font-size: 1.2rem;">
-        ${escapeHtml(room.hostNickname)} ${isEn ? 'invited you to The Blind 10.00!' : 'bjöd in dig till The Blind 10.00!'}
+        ${escapeHtml(room.hostNickname)} ${inviteText}
       </h3>
       <div class="badge badge-accent mb-md" style="font-size: 0.95rem; padding: 6px 16px;">
         ${room.stakeAmount > 0 ? `💰 ${room.stakeAmount} kr ${isEn ? 'per player' : 'per deltagare'}` : '✨ Bara ära (0 kr)'}
       </div>
       <p class="text-muted mb-lg" style="font-size: 0.85rem; max-width: 300px; margin: 0 auto 16px auto;">
-        ${isEn 
-          ? 'Stop the clock as close to 10.00s as possible. At 3.00s the display turns black!' 
-          : 'Stanna klockan så nära 10:00.00s som möjligt. Vid 3.00s blir skärmen kolsvart!'}
+        ${descText}
       </p>
 
       <div class="flex gap-sm">
@@ -3573,12 +3607,1079 @@ export function showIncomingPartyModal(room) {
       const res = await joinPartyRoom({ roomId: room.id });
       if (res && res.room) {
         closeModal();
-        openBlind10Modal(res.room);
+        if (isMafia) {
+          openMafiaModal(res.room);
+        } else {
+          openBlind10Modal(res.room);
+        }
       }
     } catch (e) {
       showToast(isEn ? 'Failed to join party room' : 'Kunde inte gå med i rummet', 'error');
     }
   });
+}
+
+// ────────────────────────────────────────────────────────
+// 🕵️‍♂️ MAFFIA (VARULV / WEREWOLF) PARTY GAME
+// ────────────────────────────────────────────────────────
+export async function openMafiaModal(initialRoom = null) {
+  const isEn = getLang() === 'en';
+  const user = getStoredUser();
+
+  let activeWs = null;
+  let currentRoom = initialRoom || null;
+  let selectedStake = 20;
+  let narratorMode = 'ai'; // 'ai' | 'human'
+  let invitedFriendIds = new Set();
+  let friendsList = [];
+  let mySecretData = null; // { role, isAlive, fellowMafia, godModeRoles, phase, subPhase, nightActions }
+  let myNightActionDone = false;
+  let myInvestigateResult = null;
+  let myDayVoteTargetId = null;
+
+  function cleanup() {
+    if (activeWs) {
+      try {
+        activeWs.send(JSON.stringify({ action: 'leave_party', partyId: currentRoom?.id }));
+        activeWs.close();
+      } catch (e) {}
+      activeWs = null;
+    }
+  }
+
+  const modalTitle = `<span style="font-size: 1.3rem; vertical-align: -2px; margin-right: 6px;">🕵️‍♂️</span> ${t('arcade.mafiaTitle')}`;
+
+  showModal(modalTitle, `
+    <div id="mafia-container" class="mafia-container">
+      <div class="text-center text-muted" style="padding: 40px 0;">
+        <span class="spinner">⏳</span>
+      </div>
+    </div>
+  `);
+
+  const container = document.getElementById('mafia-container');
+  if (!container) return;
+
+  const modalCloseBtn = document.querySelector('.modal-close');
+  if (modalCloseBtn) {
+    const origClose = modalCloseBtn.onclick;
+    modalCloseBtn.onclick = (e) => {
+      cleanup();
+      if (origClose) origClose.call(modalCloseBtn, e);
+    };
+  }
+
+  if (initialRoom) {
+    setupMafiaLobby(initialRoom);
+  } else {
+    try {
+      if (user) {
+        friendsList = await getFriends().catch(() => []);
+      }
+    } catch (e) {}
+    renderSetupView();
+  }
+
+  // ── VIEW 1: CREATION / JOIN SETUP ────────────────────────
+  function renderSetupView() {
+    const friendsHtml = (friendsList && friendsList.length > 0) ? `
+      <div style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+          👥 ${t('arcade.blind10InviteFriends')} (${isEn ? 'optional' : 'valfritt'}):
+        </label>
+        <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 8px; background: rgba(0,0,0,0.2);">
+          ${friendsList.map(f => `
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; cursor: pointer; border-radius: var(--radius-sm); margin-bottom: 4px; background: rgba(255,255,255,0.02);">
+              <span style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
+                <span style="font-size: 1.1rem;">${f.avatar_emoji || '👤'}</span>
+                <strong>${escapeHtml(f.nickname)}</strong>
+              </span>
+              <input type="checkbox" class="mafia-friend-invite-cb" value="${f.id}" ${invitedFriendIds.has(f.id) ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
+    container.innerHTML = `
+      <div class="text-center" style="margin-bottom: 16px;">
+        <div style="font-size: 3.5rem; line-height: 1; margin-bottom: 8px; filter: drop-shadow(0 4px 16px rgba(239,68,68,0.4));">
+          🕵️‍♂️
+        </div>
+        <p class="text-muted" style="font-size: 0.85rem; margin: 0 auto 14px auto; max-width: 320px;">
+          ${t('arcade.mafiaDesc')}
+        </p>
+      </div>
+
+      <!-- Spelledarläge Selector -->
+      <div style="margin-bottom: 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; font-weight: 700; color: var(--gold); display: block;">
+          ⚙️ ${t('arcade.mafiaNarratorModeLabel')}
+        </label>
+        <div class="flex gap-xs" style="flex-direction: column;">
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 8px 10px; border-radius: var(--radius-sm); background: ${narratorMode === 'ai' ? 'rgba(255,215,0,0.1)' : 'transparent'}; border: 1px solid ${narratorMode === 'ai' ? 'var(--gold)' : 'transparent'};">
+            <input type="radio" name="mafia-narrator" value="ai" ${narratorMode === 'ai' ? 'checked' : ''} style="margin-top: 3px; accent-color: var(--gold);" />
+            <div>
+              <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">
+                ${t('arcade.mafiaNarratorAI')}
+              </div>
+              <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">
+                ${isEn ? 'Automated night/day phases. Everyone at the table gets a secret role, including you!' : 'Automatiserade faser. Alla vid bordet får en hemlig spelarroll, inklusive du!'}
+              </div>
+            </div>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 8px 10px; border-radius: var(--radius-sm); background: ${narratorMode === 'human' ? 'rgba(255,215,0,0.1)' : 'transparent'}; border: 1px solid ${narratorMode === 'human' ? 'var(--gold)' : 'transparent'};">
+            <input type="radio" name="mafia-narrator" value="human" ${narratorMode === 'human' ? 'checked' : ''} style="margin-top: 3px; accent-color: var(--gold);" />
+            <div>
+              <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">
+                ${t('arcade.mafiaNarratorHuman')}
+              </div>
+              <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">
+                ${isEn ? 'You get "God Mode" and see all roles. You narrate the story aloud for the room!' : 'Du får "Gudavy" och ser allas roller. Du leder snacket och berättar storyn högt!'}
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Stake Selector -->
+      <div style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block;">
+          💰 ${t('arcade.blind10StakeLabel')}
+        </label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          <button type="button" class="btn ${selectedStake === 0 ? 'btn-primary' : 'btn-secondary'} btn-sm mafia-stake-btn" data-stake="0">0 kr (Ära)</button>
+          <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm mafia-stake-btn" data-stake="20">20 kr</button>
+          <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm mafia-stake-btn" data-stake="50">50 kr</button>
+          <button type="button" class="btn ${selectedStake === 100 ? 'btn-primary' : 'btn-secondary'} btn-sm mafia-stake-btn" data-stake="100">100 kr</button>
+        </div>
+      </div>
+
+      ${friendsHtml}
+
+      <button type="button" class="btn btn-primary btn-block mb-lg" id="btn-create-mafia" style="padding: 14px; font-weight: 800; font-size: 1rem; background: linear-gradient(135deg, #ef4444, #b91c1c); border: none; box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);">
+        ➕ ${isEn ? 'Create Mafia Room' : 'Skapa Maffiarum'}
+      </button>
+
+      <!-- Join with code section -->
+      <div style="position: relative; text-align: center; margin: 18px 0 14px 0;">
+        <hr style="border: 0; border-top: 1px solid var(--border-glass);" />
+        <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #14141e; padding: 0 10px; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">
+          ${isEn ? 'or join with room code' : 'eller gå med via kod'}
+        </span>
+      </div>
+
+      <div class="flex gap-sm">
+        <input type="text" id="mafia-join-code" class="form-input" placeholder="KOD (T.EX. AB12)" maxlength="6" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
+        <button type="button" class="btn btn-secondary" id="btn-join-mafia" style="white-space: nowrap; padding: 0 18px; font-weight: 700;">
+          ${t('arcade.blind10JoinBtn')}
+        </button>
+      </div>
+    `;
+
+    // Narrator Mode Radios
+    container.querySelectorAll('input[name="mafia-narrator"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        narratorMode = e.target.value;
+        renderSetupView();
+      });
+    });
+
+    // Stake Buttons
+    container.querySelectorAll('.mafia-stake-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStake = parseInt(btn.dataset.stake, 10);
+        container.querySelectorAll('.mafia-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+      });
+    });
+
+    // Friend checkboxes
+    container.querySelectorAll('.mafia-friend-invite-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          invitedFriendIds.add(cb.value);
+        } else {
+          invitedFriendIds.delete(cb.value);
+        }
+      });
+    });
+
+    // Create Mafia Room
+    document.getElementById('btn-create-mafia')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-create-mafia');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await createPartyRoom({
+          gameType: 'mafia',
+          stakeAmount: selectedStake
+        });
+
+        if (res && res.room) {
+          currentRoom = res.room;
+          if (invitedFriendIds.size > 0) {
+            try {
+              await inviteToParty(currentRoom.id, Array.from(invitedFriendIds));
+              showToast(isEn ? 'Invites sent to friends!' : 'Inbjudningar skickade till vännerna!', 'success');
+            } catch (e) {}
+          }
+          setupMafiaLobby(currentRoom);
+        }
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Failed to create room' : 'Kunde inte skapa rum'), 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+
+    // Join with Code
+    document.getElementById('btn-join-mafia')?.addEventListener('click', async () => {
+      const codeInput = document.getElementById('mafia-join-code');
+      const code = (codeInput?.value || '').trim().toUpperCase();
+      if (!code) {
+        showToast(isEn ? 'Please enter a room code' : 'Ange en rumskod', 'warning');
+        return;
+      }
+      try {
+        const res = await joinPartyRoom({ code });
+        if (res && res.room) {
+          setupMafiaLobby(res.room);
+        }
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Failed to join room' : 'Kunde inte gå med i rummet'), 'error');
+      }
+    });
+  }
+
+  // ── VIEW 2: LOBBY & WEBSOCKET SYNC ──────────────────────
+  function setupMafiaLobby(room) {
+    currentRoom = room;
+    cleanup();
+
+    const token = getToken();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}?token=${token || ''}&party=${room.id}`;
+
+    try {
+      activeWs = new WebSocket(wsUrl);
+      activeWs.onopen = () => {
+        activeWs.send(JSON.stringify({ action: 'join_party', partyId: room.id }));
+      };
+      activeWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleMafiaWsMessage(data);
+        } catch (e) {}
+      };
+      activeWs.onclose = () => {
+        activeWs = null;
+      };
+    } catch (e) {}
+
+    if (currentRoom.status === 'mafia_running' && currentRoom.mafiaState) {
+      loadRoleAndRenderPhase();
+    } else {
+      renderLobbyView();
+    }
+  }
+
+  function handleMafiaWsMessage(data) {
+    if (data.type === 'party_updated' && data.room) {
+      currentRoom = data.room;
+      renderLobbyView();
+    } else if (data.type === 'mafia_game_started' && data.room) {
+      currentRoom = data.room;
+      loadRoleAndShowCardReveal();
+    } else if (data.type === 'mafia_night_progress') {
+      // Someone submitted their night action
+      const statusEl = document.getElementById('mafia-night-status');
+      if (statusEl) {
+        statusEl.textContent = isEn ? 'Actions are being taken in secret...' : 'Hemliga drag registreras i mörkret...';
+      }
+    } else if (data.type === 'mafia_morning' && data.room) {
+      currentRoom = data.room;
+      playTone(523.25, 'triangle', 0.25, 0.12);
+      renderMorningView(data.killedPlayer, data.saved);
+    } else if (data.type === 'mafia_day_started' && data.room) {
+      currentRoom = data.room;
+      myDayVoteTargetId = null;
+      renderDayView();
+    } else if (data.type === 'mafia_vote_cast') {
+      updateDayVoteChip(data.targetId, data.totalVotes, data.aliveCount);
+    } else if (data.type === 'mafia_lynch_result' && data.room) {
+      currentRoom = data.room;
+      playTone(130, 'square', 0.5, 0.2);
+      renderLynchResultView(data.lynchedPlayer, data.isTie);
+    } else if (data.type === 'mafia_night_started' && data.room) {
+      currentRoom = data.room;
+      myNightActionDone = false;
+      myInvestigateResult = null;
+      playTone(180, 'sawtooth', 0.4, 0.15);
+      renderNightView();
+    }
+  }
+
+  function renderLobbyView() {
+    if (!currentRoom) return;
+    const isHost = user && currentRoom.hostId === user.id;
+    const players = currentRoom.players || [];
+    const count = players.length;
+    const minNeeded = narratorMode === 'human' ? 5 : 4;
+    const canStart = count >= minNeeded;
+    const totalPot = currentRoom.stakeAmount * count;
+
+    container.innerHTML = `
+      <div class="text-center" style="margin-bottom: 14px;">
+        <div style="font-size: 3rem; line-height: 1; margin-bottom: 6px;">🕵️‍♂️</div>
+        <div style="background: rgba(239, 68, 68, 0.08); border: 2px dashed #ef4444; border-radius: var(--radius-lg); padding: 12px 10px; margin-bottom: 12px;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700;">
+            ${t('arcade.blind10CodePrompt')}
+          </div>
+          <div style="font-size: 2.4rem; font-weight: 900; letter-spacing: 6px; color: #ef4444; font-family: monospace; margin: 4px 0;">
+            ${currentRoom.code}
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-mafia-code" style="font-size: 0.8rem; padding: 4px 14px;">
+            📋 ${isEn ? 'Copy Room Code' : 'Kopiera rumskod'}
+          </button>
+        </div>
+
+        <div class="flex justify-between align-center" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-md); padding: 8px 14px; margin-bottom: 12px; border: 1px solid var(--border-glass);">
+          <span style="font-size: 0.85rem; color: var(--text-secondary);">
+            ${isEn ? 'Stake' : 'Insats'}: <strong>${currentRoom.stakeAmount} kr</strong>
+          </span>
+          <span style="font-size: 0.88rem; font-weight: 700; color: #10b981;">
+            💰 ${t('arcade.blind10TotalPot')} ${totalPot} kr
+          </span>
+        </div>
+      </div>
+
+      <!-- Player List -->
+      <div style="margin-bottom: 16px;">
+        <div class="flex justify-between align-center" style="margin-bottom: 8px;">
+          <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">
+            👥 ${t('arcade.blind10PlayersJoined')} (${count}/${minNeeded}+):
+          </div>
+          <span class="badge ${canStart ? 'badge-success' : 'badge-warning'}" style="font-size: 0.72rem;">
+            ${canStart ? (isEn ? 'Ready to Start' : 'Klar att starta') : (isEn ? `Need ${minNeeded - count} more` : `Behöver ${minNeeded - count} till`)}
+          </span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          ${players.map(p => `
+            <div class="party-player-chip ${p.isHost ? 'host' : ''}">
+              <span>${p.avatarEmoji || (p.isHost ? '👑' : '👤')}</span>
+              <span>${escapeHtml(p.nickname)}</span>
+              ${p.isHost ? `<span style="font-size: 0.7rem; opacity: 0.8;">(${isEn ? 'Host' : 'Värd'})</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Roles distribution guide -->
+      <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 10px 12px; margin-bottom: 16px; border: 1px solid var(--border-glass); font-size: 0.78rem; color: var(--text-secondary);">
+        <div style="font-weight: 700; color: var(--gold); margin-bottom: 4px;">🃏 ${isEn ? 'Role Balance' : 'Rollfördelning'}:</div>
+        <div>🗡️ <strong>${t('arcade.mafiaRoleMafia')}</strong>: ${count <= 6 ? 1 : (count <= 9 ? 2 : 3)} spelare</div>
+        <div>🔍 <strong>${t('arcade.mafiaRoleDetective')}</strong>: 1 spelare</div>
+        <div>💉 <strong>${t('arcade.mafiaRoleDoctor')}</strong>: 1 spelare</div>
+        <div>🌾 <strong>${t('arcade.mafiaRoleVillager')}</strong>: ${Math.max(1, count - (count <= 6 ? 3 : (count <= 9 ? 4 : 5)))} spelare</div>
+      </div>
+
+      <!-- Action Button -->
+      ${isHost ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-start-mafia-game" ${!canStart ? 'disabled' : ''} style="padding: 16px; font-size: 1.05rem; font-weight: 800; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; box-shadow: 0 4px 16px rgba(239, 68, 68, 0.45);">
+          🚀 ${isEn ? 'START MAFIA GAME!' : 'STARTA MAFFIA!'}
+        </button>
+      ` : `
+        <div class="text-center" style="padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); margin-bottom: 12px;">
+          <span class="spinner" style="margin-bottom: 6px;">⏳</span>
+          <div style="font-size: 0.88rem; font-weight: 600; color: var(--gold);">
+            ${isEn ? 'Waiting for host to start the game...' : 'Väntar på att värden ska starta spelet...'}
+          </div>
+        </div>
+      `}
+
+      <button type="button" class="btn btn-secondary btn-block btn-sm" id="btn-leave-mafia">
+        🚪 ${isEn ? 'Leave Room' : 'Lämna rummet'}
+      </button>
+    `;
+
+    document.getElementById('btn-copy-mafia-code')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(currentRoom.code).then(() => {
+        showToast(isEn ? 'Code copied!' : 'Rumskod kopierad!', 'success');
+      }).catch(() => {
+        showToast(currentRoom.code, 'info');
+      });
+    });
+
+    document.getElementById('btn-start-mafia-game')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-start-mafia-game');
+      if (btn) btn.disabled = true;
+      try {
+        await startMafiaGame(currentRoom.id, { narratorMode });
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Failed to start game' : 'Kunde inte starta spelet'), 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btn-leave-mafia')?.addEventListener('click', () => {
+      cleanup();
+      renderSetupView();
+    });
+  }
+
+  // ── VIEW 3: SECRET ROLE PEEK (HOLD-TO-REVEAL) ───────────
+  async function loadRoleAndShowCardReveal() {
+    try {
+      mySecretData = await getMyMafiaRole(currentRoom.id);
+    } catch (e) {
+      showToast(isEn ? 'Could not load your role' : 'Kunde inte hämta din roll', 'error');
+      return;
+    }
+
+    const role = mySecretData.role;
+    let roleTitle = t('arcade.mafiaRoleVillager');
+    let roleDesc = t('arcade.mafiaRoleVillagerDesc');
+    let roleIcon = '🌾';
+    let roleClass = 'role-villager';
+
+    if (role === 'mafia') {
+      roleTitle = t('arcade.mafiaRoleMafia');
+      roleDesc = t('arcade.mafiaRoleMafiaDesc');
+      roleIcon = '🗡️';
+      roleClass = 'role-mafia';
+    } else if (role === 'detective') {
+      roleTitle = t('arcade.mafiaRoleDetective');
+      roleDesc = t('arcade.mafiaRoleDetectiveDesc');
+      roleIcon = '🔍';
+      roleClass = 'role-detective';
+    } else if (role === 'doctor') {
+      roleTitle = t('arcade.mafiaRoleDoctor');
+      roleDesc = t('arcade.mafiaRoleDoctorDesc');
+      roleIcon = '💉';
+      roleClass = 'role-doctor';
+    } else if (role === 'narrator') {
+      roleTitle = t('arcade.mafiaGodModeTitle');
+      roleDesc = t('arcade.mafiaGodModeDesc');
+      roleIcon = '👁️';
+      roleClass = 'role-narrator';
+    }
+
+    const teammatesHtml = (mySecretData.fellowMafia && mySecretData.fellowMafia.length > 1) ? `
+      <div style="margin-top: 10px; padding: 6px; background: rgba(239,68,68,0.2); border-radius: var(--radius-sm); font-size: 0.75rem;">
+        <span style="font-weight: 700; color: #ef4444;">${t('arcade.mafiaTeammates')}</span>
+        <div>${mySecretData.fellowMafia.map(m => escapeHtml(m.nickname)).join(', ')}</div>
+      </div>
+    ` : '';
+
+    container.innerHTML = `
+      <div class="text-center" style="margin-bottom: 12px;">
+        <h3 style="color: var(--gold); font-size: 1.15rem; margin-bottom: 4px;">
+          🃏 ${isEn ? 'Your Secret Role' : 'Din Hemliga Roll'}
+        </h3>
+        <p class="text-muted" style="font-size: 0.8rem; margin: 0;">
+          ${isEn ? 'Keep your screen hidden from nearby players!' : 'Se till att ingen bredvid kan kika på din skärm!'}
+        </p>
+      </div>
+
+      <!-- 3D Card Flip Wrap -->
+      <div class="mafia-card-reveal-wrap" id="mafia-card-wrap">
+        <div class="mafia-card-inner" id="mafia-card-inner">
+          <!-- Card Front (Covered / Mystery) -->
+          <div class="mafia-card-front">
+            <div style="font-size: 3.5rem; margin-bottom: 12px; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.6));">🔒</div>
+            <div style="font-size: 0.85rem; font-weight: 800; color: var(--gold); letter-spacing: 1px; text-transform: uppercase;">
+              ${t('arcade.mafiaRoleCardPrompt')}
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 8px;">
+              ${isEn ? 'Press and hold down to view' : 'Håll fingret nedtryckt'}
+            </div>
+          </div>
+
+          <!-- Card Back (Revealed Identity) -->
+          <div class="mafia-card-back ${roleClass}">
+            <div style="font-size: 4rem; margin-bottom: 8px;">${roleIcon}</div>
+            <div style="font-size: 1.4rem; font-weight: 900; color: var(--gold); margin-bottom: 6px;">
+              ${roleTitle}
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4; margin-bottom: 6px;">
+              ${roleDesc}
+            </div>
+            ${teammatesHtml}
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 10px;">
+              ${t('arcade.mafiaRoleCardRelease')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-continue-to-night" style="padding: 14px; font-weight: 700; background: linear-gradient(135deg, #4f46e5, #3730a3); border: none;">
+        🌙 ${isEn ? 'I memorized my role 👉 Continue to Night' : 'Jag har sett min roll 👉 Fortsätt till natten'}
+      </button>
+    `;
+
+    const cardInner = document.getElementById('mafia-card-inner');
+    const cardWrap = document.getElementById('mafia-card-wrap');
+
+    const reveal = () => {
+      cardInner?.classList.add('revealed');
+      playTone(400, 'sine', 0.1, 0.08);
+    };
+    const hide = () => {
+      cardInner?.classList.remove('revealed');
+    };
+
+    if (cardWrap) {
+      cardWrap.addEventListener('mousedown', reveal);
+      cardWrap.addEventListener('mouseup', hide);
+      cardWrap.addEventListener('mouseleave', hide);
+      cardWrap.addEventListener('touchstart', (e) => { e.preventDefault(); reveal(); });
+      cardWrap.addEventListener('touchend', hide);
+      cardWrap.addEventListener('touchcancel', hide);
+    }
+
+    document.getElementById('btn-continue-to-night')?.addEventListener('click', () => {
+      renderNightView();
+    });
+  }
+
+  async function loadRoleAndRenderPhase() {
+    try {
+      mySecretData = await getMyMafiaRole(currentRoom.id);
+    } catch (e) {}
+
+    const phase = currentRoom.mafiaState?.phase || 'night';
+    if (phase === 'night') renderNightView();
+    else if (phase === 'morning') renderMorningView(currentRoom.mafiaState?.lastKilled, false);
+    else if (phase === 'day') renderDayView();
+    else if (phase === 'lynch_result') renderLynchResultView(null, false);
+    else if (phase === 'ended') renderVictoryView(currentRoom.mafiaState?.winner);
+  }
+
+  // ── VIEW 4: NIGHT PHASE ──────────────────────────────────
+  function renderNightView() {
+    const isHost = user && currentRoom.hostId === user.id;
+    const state = currentRoom.mafiaState || {};
+    const roles = state.roles || {};
+    const roundNumber = state.roundNumber || 1;
+    const myRole = mySecretData?.role || 'villager';
+    const isAlive = mySecretData?.isAlive !== false;
+    const isNarrator = myRole === 'narrator';
+
+    let actionCardHtml = '';
+
+    if (!isAlive) {
+      actionCardHtml = `
+        <div class="text-center" style="padding: 20px; background: rgba(0,0,0,0.4); border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.1);">
+          <div style="font-size: 2.5rem; margin-bottom: 6px;">👻</div>
+          <div style="font-size: 1rem; font-weight: 700; color: var(--text-muted);">
+            ${isEn ? 'You are dead' : 'Du är död'}
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+            ${isEn ? 'Spirits can observe in silence...' : 'Spöken kan bara betrakta spelet i tystnad...'}
+          </div>
+        </div>
+      `;
+    } else if (isNarrator) {
+      // Narrator God Mode View
+      const allPlayers = Object.entries(roles);
+      actionCardHtml = `
+        <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px;">
+          <div style="font-size: 0.9rem; font-weight: 800; color: #c084fc; margin-bottom: 6px;">
+            👁️ ${t('arcade.mafiaGodModeTitle')}
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 10px;">
+            ${t('arcade.mafiaGodModeDesc')}
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${allPlayers.map(([pId, p]) => `
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm); font-size: 0.82rem;">
+                <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
+                <span class="mafia-badge-pill" style="background: ${p.role === 'mafia' ? '#ef4444' : (p.role === 'detective' ? '#3b82f6' : (p.role === 'doctor' ? '#10b981' : '#f59e0b'))}; color: #fff;">
+                  ${p.role} ${!p.isAlive ? '(Död)' : ''}
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    } else if (myRole === 'mafia') {
+      // Mafia Kill Target
+      const aliveTargets = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator' && id !== user.id);
+      if (myNightActionDone) {
+        actionCardHtml = `
+          <div class="text-center" style="padding: 16px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: var(--radius-md);">
+            <div style="font-size: 2rem; margin-bottom: 4px;">🗡️</div>
+            <div style="font-size: 0.9rem; font-weight: 700; color: #ef4444;">
+              ${t('arcade.mafiaActionSubmitted')}
+            </div>
+          </div>
+        `;
+      } else {
+        actionCardHtml = `
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 0.88rem; font-weight: 700; color: #ef4444; margin-bottom: 8px;">
+              🗡️ ${t('arcade.mafiaNightVictimPrompt')}
+            </div>
+            <div class="mafia-player-action-list">
+              ${aliveTargets.map(([id, p]) => `
+                <button type="button" class="mafia-player-btn btn-night-target" data-target="${id}">
+                  <span>${p.avatarEmoji || '👤'} ${escapeHtml(p.nickname)}</span>
+                  <span style="font-size: 0.78rem; color: #ef4444; font-weight: 700;">Likvidera 🎯</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+    } else if (myRole === 'detective') {
+      // Detective Inspect Target
+      const aliveTargets = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator' && id !== user.id);
+      if (myInvestigateResult) {
+        actionCardHtml = `
+          <div class="text-center" style="padding: 16px; background: rgba(59, 130, 246, 0.15); border: 1px solid #3b82f6; border-radius: var(--radius-md);">
+            <div style="font-size: 2rem; margin-bottom: 4px;">🔍</div>
+            <div style="font-size: 1rem; font-weight: 800; color: ${myInvestigateResult === 'mafia' ? '#ef4444' : '#10b981'};">
+              ${myInvestigateResult === 'mafia' ? t('arcade.mafiaInvestigateResultMafia') : t('arcade.mafiaInvestigateResultInnocent')}
+            </div>
+          </div>
+        `;
+      } else {
+        actionCardHtml = `
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 0.88rem; font-weight: 700; color: #3b82f6; margin-bottom: 8px;">
+              🔍 ${t('arcade.mafiaNightInvestigatePrompt')}
+            </div>
+            <div class="mafia-player-action-list">
+              ${aliveTargets.map(([id, p]) => `
+                <button type="button" class="mafia-player-btn btn-investigate-target" data-target="${id}">
+                  <span>${p.avatarEmoji || '👤'} ${escapeHtml(p.nickname)}</span>
+                  <span style="font-size: 0.78rem; color: #3b82f6; font-weight: 700;">Undersök 🔍</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+    } else if (myRole === 'doctor') {
+      // Doctor Protect Target
+      const aliveTargets = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator');
+      if (myNightActionDone) {
+        actionCardHtml = `
+          <div class="text-center" style="padding: 16px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: var(--radius-md);">
+            <div style="font-size: 2rem; margin-bottom: 4px;">💉</div>
+            <div style="font-size: 0.9rem; font-weight: 700; color: #10b981;">
+              ${t('arcade.mafiaActionSubmitted')}
+            </div>
+          </div>
+        `;
+      } else {
+        actionCardHtml = `
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 0.88rem; font-weight: 700; color: #10b981; margin-bottom: 8px;">
+              💉 ${t('arcade.mafiaNightHealPrompt')}
+            </div>
+            <div class="mafia-player-action-list">
+              ${aliveTargets.map(([id, p]) => `
+                <button type="button" class="mafia-player-btn btn-heal-target" data-target="${id}">
+                  <span>${p.avatarEmoji || '👤'} ${escapeHtml(p.nickname)} ${id === user.id ? `(${isEn ? 'You' : 'Dig själv'})` : ''}</span>
+                  <span style="font-size: 0.78rem; color: #10b981; font-weight: 700;">Skydda 🛡️</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+    } else {
+      // Villager Sleeping
+      actionCardHtml = `
+        <div class="text-center" style="padding: 24px 16px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-md);">
+          <div style="font-size: 3rem; margin-bottom: 6px;">😴💤</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: var(--gold);">
+            ${isEn ? 'You are fast asleep...' : 'Byn sover sött...'}
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+            ${isEn ? 'Pray the doctor and detective do their jobs!' : 'Hoppas läkaren och polisen gör sitt jobb inatt!'}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="mafia-night-theme mb-md text-center">
+        <div style="font-size: 2.8rem; line-height: 1; margin-bottom: 6px; filter: drop-shadow(0 0 14px rgba(255,255,255,0.7));">
+          🌙
+        </div>
+        <h3 style="color: #fff; font-size: 1.15rem; margin-bottom: 4px;">
+          ${t('arcade.mafiaPhaseNight')} (${isEn ? 'Round' : 'Runda'} ${roundNumber})
+        </h3>
+        <p class="text-muted" style="font-size: 0.8rem; margin: 0 auto 10px auto; max-width: 320px;">
+          ${t('arcade.mafiaPhaseNightDesc')}
+        </p>
+        <div id="mafia-night-status" style="font-size: 0.75rem; color: var(--gold); font-weight: 600;">
+          ${isEn ? 'Night actions underway...' : 'Nattens hemliga handlingar pågår...'}
+        </div>
+      </div>
+
+      ${actionCardHtml}
+
+      ${isHost ? `
+        <button type="button" class="btn btn-primary btn-block mt-md" id="btn-advance-to-morning" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);">
+          ${t('arcade.mafiaAdvanceNightBtn')}
+        </button>
+      ` : ''}
+    `;
+
+    // Hook Mafia Kill
+    container.querySelectorAll('.btn-night-target').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const targetId = btn.dataset.target;
+        btn.disabled = true;
+        try {
+          await submitMafiaNightAction(currentRoom.id, { actionType: 'mafia_kill', targetId });
+          myNightActionDone = true;
+          showToast(isEn ? 'Target marked for elimination' : 'Offer markerat för likvidering', 'success');
+          renderNightView();
+        } catch (e) {
+          showToast(e.message || 'Error', 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Hook Detective Inspect
+    container.querySelectorAll('.btn-investigate-target').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const targetId = btn.dataset.target;
+        btn.disabled = true;
+        try {
+          const res = await submitMafiaNightAction(currentRoom.id, { actionType: 'detective_check', targetId });
+          myInvestigateResult = res?.detectiveResult || 'innocent';
+          renderNightView();
+        } catch (e) {
+          showToast(e.message || 'Error', 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Hook Doctor Heal
+    container.querySelectorAll('.btn-heal-target').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const targetId = btn.dataset.target;
+        btn.disabled = true;
+        try {
+          await submitMafiaNightAction(currentRoom.id, { actionType: 'doctor_protect', targetId });
+          myNightActionDone = true;
+          showToast(isEn ? 'Protection administered' : 'Skydd administrerat', 'success');
+          renderNightView();
+        } catch (e) {
+          showToast(e.message || 'Error', 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Advance to Morning (Host only)
+    document.getElementById('btn-advance-to-morning')?.addEventListener('click', async () => {
+      const advBtn = document.getElementById('btn-advance-to-morning');
+      if (advBtn) advBtn.disabled = true;
+      try {
+        await advanceMafiaPhase(currentRoom.id);
+      } catch (e) {
+        showToast(e.message || 'Error', 'error');
+        if (advBtn) advBtn.disabled = false;
+      }
+    });
+  }
+
+  // ── VIEW 5: MORNING REPORT ───────────────────────────────
+  function renderMorningView(killedPlayer, saved) {
+    const isHost = user && currentRoom.hostId === user.id;
+
+    let headlineHtml = '';
+    if (killedPlayer) {
+      headlineHtml = `
+        <div style="padding: 14px 0;">
+          <div style="font-size: 2.4rem; margin-bottom: 4px;">🩸</div>
+          <div style="font-size: 1.15rem; font-weight: 900; color: #b91c1c; margin-bottom: 4px;">
+            ${t('arcade.mafiaMorningMurdered')}
+          </div>
+          <div style="font-size: 1.4rem; font-weight: 900; color: #111;">
+            ${escapeHtml(killedPlayer.nickname)}
+          </div>
+          <div class="badge badge-error mt-xs" style="font-size: 0.8rem; padding: 4px 12px; margin-top: 6px;">
+            ${isEn ? 'Role revealed' : 'Avslöjad roll'}: ${killedPlayer.role}
+          </div>
+        </div>
+      `;
+    } else {
+      headlineHtml = `
+        <div style="padding: 14px 0;">
+          <div style="font-size: 2.4rem; margin-bottom: 4px;">🕊️</div>
+          <div style="font-size: 1.15rem; font-weight: 900; color: #059669; margin-bottom: 4px;">
+            ${isEn ? 'PEACEFUL NIGHT!' : 'INGEN MÖRDADES!'}
+          </div>
+          <div style="font-size: 0.88rem; color: #333; line-height: 1.4;">
+            ${t('arcade.mafiaMorningNoDeaths')}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="mafia-newspaper text-center mb-md">
+        <div style="font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; color: #666; margin-bottom: 2px;">
+          📰 THE DAILY VILLAGE DISPATCH · MORGONBLADET
+        </div>
+        <h3>${t('arcade.mafiaPhaseMorning')}</h3>
+        ${headlineHtml}
+      </div>
+
+      ${isHost ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-advance-to-day" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          ${t('arcade.mafiaAdvanceDayBtn')}
+        </button>
+      ` : `
+        <div class="text-center text-muted" style="font-size: 0.82rem; padding: 12px;">
+          <span class="spinner">⏳</span> ${isEn ? 'Waiting for host to begin town meeting...' : 'Väntar på att värden ska samla bymötet...'}
+        </div>
+      `}
+    `;
+
+    document.getElementById('btn-advance-to-day')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-advance-to-day');
+      if (btn) btn.disabled = true;
+      try {
+        await advanceMafiaPhase(currentRoom.id);
+      } catch (e) {
+        showToast(e.message || 'Error', 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
+  // ── VIEW 6: DAY TOWN MEETING & VOTING ─────────────────────
+  function renderDayView() {
+    const isHost = user && currentRoom.hostId === user.id;
+    const state = currentRoom.mafiaState || {};
+    const roles = state.roles || {};
+    const isAlive = mySecretData?.isAlive !== false;
+    const isNarrator = mySecretData?.role === 'narrator';
+    const alivePlayers = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator');
+
+    container.innerHTML = `
+      <div class="text-center" style="margin-bottom: 14px;">
+        <div style="font-size: 3rem; line-height: 1; margin-bottom: 6px;">🏛️</div>
+        <h3 style="color: var(--gold); font-size: 1.15rem; margin-bottom: 4px;">
+          ${t('arcade.mafiaPhaseDay')}
+        </h3>
+        <p class="text-muted" style="font-size: 0.8rem; margin: 0 auto 12px auto; max-width: 320px;">
+          ${t('arcade.mafiaPhaseDayDesc')}
+        </p>
+      </div>
+
+      <!-- Voting booth -->
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 0.85rem; font-weight: 700; color: var(--gold); margin-bottom: 8px;">
+          ⚖️ ${isEn ? 'Vote for execution in the square' : 'Rösta för lynchning på torget'}:
+        </div>
+        <div class="mafia-player-action-list" id="mafia-day-player-list">
+          ${alivePlayers.map(([id, p]) => `
+            <div class="mafia-player-btn ${myDayVoteTargetId === id ? 'selected' : ''}" id="mafia-vote-row-${id}">
+              <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
+              <div class="flex align-center gap-xs">
+                <span class="badge badge-accent" id="vote-count-${id}" style="font-size: 0.72rem; padding: 2px 8px;">
+                  0 ${isEn ? 'votes' : 'röster'}
+                </span>
+                ${(isAlive && !isNarrator) ? `
+                  <button type="button" class="btn btn-sm ${myDayVoteTargetId === id ? 'btn-primary' : 'btn-secondary'} btn-mafia-vote" data-target="${id}" style="padding: 4px 10px; font-size: 0.78rem;">
+                    ${myDayVoteTargetId === id ? '✅ Röst lagd' : '🗳️ Rösta'}
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      ${isHost ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-resolve-day-votes" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);">
+          ${t('arcade.mafiaResolveVotesBtn')}
+        </button>
+      ` : `
+        <div class="text-center text-muted" style="font-size: 0.82rem; padding: 10px;">
+          <span class="spinner">⏳</span> ${isEn ? 'Voting is live. Host will announce the verdict...' : 'Röstning pågår. Värden avslutar och tillkännager domslutet...'}
+        </div>
+      `}
+    `;
+
+    // Hook Day Vote Buttons
+    container.querySelectorAll('.btn-mafia-vote').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const targetId = btn.dataset.target;
+        btn.disabled = true;
+        try {
+          await voteMafiaLynch(currentRoom.id, targetId);
+          myDayVoteTargetId = targetId;
+          showToast(isEn ? 'Vote registered!' : 'Röst registrerad!', 'success');
+          renderDayView();
+        } catch (e) {
+          showToast(e.message || 'Error', 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    document.getElementById('btn-resolve-day-votes')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-resolve-day-votes');
+      if (btn) btn.disabled = true;
+      try {
+        await advanceMafiaPhase(currentRoom.id);
+      } catch (e) {
+        showToast(e.message || 'Error', 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
+  function updateDayVoteChip(targetId, totalVotes, aliveCount) {
+    const chip = document.getElementById(`vote-count-${targetId}`);
+    if (chip) {
+      const current = parseInt(chip.textContent, 10) || 0;
+      chip.textContent = `${current + 1} ${isEn ? 'votes' : 'röster'}`;
+    }
+  }
+
+  // ── VIEW 7: LYNCH RESULT / VERDICT ────────────────────────
+  function renderLynchResultView(lynchedPlayer, isTie) {
+    const isHost = user && currentRoom.hostId === user.id;
+
+    let verdictHtml = '';
+    if (lynchedPlayer) {
+      verdictHtml = `
+        <div style="padding: 16px 0;">
+          <div style="font-size: 3rem; margin-bottom: 6px;">⚖️</div>
+          <div style="font-size: 1.15rem; font-weight: 900; color: #ef4444; margin-bottom: 4px;">
+            ${t('arcade.mafiaLynchedDesc')}
+          </div>
+          <div style="font-size: 1.5rem; font-weight: 900; color: #fff; margin-bottom: 4px;">
+            ${escapeHtml(lynchedPlayer.nickname)}
+          </div>
+          <div class="badge badge-accent mt-xs" style="font-size: 0.85rem; padding: 4px 14px;">
+            ${isEn ? 'True Identity' : 'Sann identitet'}: ${lynchedPlayer.role}
+          </div>
+        </div>
+      `;
+    } else {
+      verdictHtml = `
+        <div style="padding: 16px 0;">
+          <div style="font-size: 3rem; margin-bottom: 6px;">🤝</div>
+          <div style="font-size: 1.15rem; font-weight: 900; color: var(--gold); margin-bottom: 4px;">
+            ${isEn ? 'NO ONE WAS LYNCHED' : 'INGEN LYNCHADES'}
+          </div>
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">
+            ${t('arcade.mafiaLynchedTie')}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="text-center" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px;">
+        ${verdictHtml}
+      </div>
+
+      ${isHost ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-next-night" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #4f46e5, #3730a3); border: none; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);">
+          ${t('arcade.mafiaNextNightBtn')}
+        </button>
+      ` : `
+        <div class="text-center text-muted" style="font-size: 0.82rem; padding: 10px;">
+          <span class="spinner">⏳</span> ${isEn ? 'Waiting for the next night to fall...' : 'Väntar på att natten ska falla...'}
+        </div>
+      `}
+    `;
+
+    document.getElementById('btn-next-night')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-next-night');
+      if (btn) btn.disabled = true;
+      try {
+        await advanceMafiaPhase(currentRoom.id);
+      } catch (e) {
+        showToast(e.message || 'Error', 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
+  // ── VIEW 8: VICTORY & SWISH SETTLEMENT ───────────────────
+  function renderVictoryView(winner) {
+    launchConfetti();
+    playTone(523.25, 'triangle', 0.2, 0.2);
+    setTimeout(() => playTone(659.25, 'triangle', 0.2, 0.2), 150);
+    setTimeout(() => playTone(783.99, 'triangle', 0.4, 0.25), 300);
+
+    const isMafiaWin = winner === 'mafia';
+    const state = currentRoom.mafiaState || {};
+    const roles = state.roles || {};
+    const stake = currentRoom.stakeAmount || 0;
+
+    container.innerHTML = `
+      <div class="text-center" style="margin-bottom: 16px;">
+        <div style="font-size: 4rem; line-height: 1; margin-bottom: 8px; filter: drop-shadow(0 4px 16px ${isMafiaWin ? 'rgba(239,68,68,0.5)' : 'rgba(16,185,129,0.5)'});">
+          ${isMafiaWin ? '🗡️' : '🌾'}
+        </div>
+        <h2 style="font-size: 1.5rem; font-weight: 900; color: ${isMafiaWin ? '#ef4444' : '#10b981'}; margin-bottom: 6px;">
+          ${isMafiaWin ? t('arcade.mafiaWinnerMafia') : t('arcade.mafiaWinnerVillagers')}
+        </h2>
+        <p class="text-muted" style="font-size: 0.85rem; margin: 0 auto 14px auto;">
+          ${isMafiaWin 
+            ? (isEn ? 'The mafia outnumbered the town and took over!' : 'Maffian tog kontroll över staden!') 
+            : (isEn ? 'The village worked together and eradicated the mafia!' : 'Byn avslöjade och utplånade all maffia!')}
+        </p>
+      </div>
+
+      <!-- Full Table Role Reveal -->
+      <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px;">
+        <div style="font-size: 0.85rem; font-weight: 700; color: var(--gold); margin-bottom: 8px;">
+          🎭 ${isEn ? 'All Players Revealed' : 'Samtliga roller vid bordet'}:
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          ${Object.entries(roles).map(([id, p]) => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.82rem;">
+              <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
+              <span class="mafia-badge-pill" style="background: ${p.role === 'mafia' ? '#ef4444' : (p.role === 'detective' ? '#3b82f6' : (p.role === 'doctor' ? '#10b981' : '#f59e0b'))}; color: #fff;">
+                ${p.role} ${!p.isAlive ? '(Död)' : '(Överlevde)'}
+              </span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      ${stake > 0 ? `
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: var(--radius-md); padding: 12px; text-align: center; margin-bottom: 16px;">
+          <div style="font-weight: 800; color: #10b981; margin-bottom: 4px;">
+            💰 ${isEn ? 'Stakes Settled via Duels' : 'Swish-uppgörelse skapad!'}
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary);">
+            ${isEn ? 'Check your active Duels tab to settle payments with friends.' : 'Förlorarna har tilldelats förluster i Duell-fliken för enkel Swish-betalning.'}
+          </div>
+        </div>
+      ` : ''}
+
+      <button type="button" class="btn btn-primary btn-block" id="btn-mafia-play-again" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
+        ${t('arcade.mafiaPlayAgain')}
+      </button>
+    `;
+
+    document.getElementById('btn-mafia-play-again')?.addEventListener('click', () => {
+      cleanup();
+      renderSetupView();
+    });
+  }
 }
 
 // ────────────────────────────────────────────────────────
