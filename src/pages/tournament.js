@@ -33,9 +33,9 @@ export async function renderTournament(params = {}) {
     const t = await getTournament(code);
     const [photos, activeFlashBets] = await Promise.all([
       getTournamentPhotos(t.id).catch(() => []),
-      getActiveFlashBets().catch(() => [])
+      getActiveFlashBets(t.id).catch(() => [])
     ]);
-    const tournamentFlashBets = (activeFlashBets || []).filter(fb => fb.tournament_id === t.id);
+    const tournamentFlashBets = (activeFlashBets || []).filter(fb => (fb.tournamentId || fb.tournament_id) === t.id);
     renderTournamentContent(content, t, photos, tournamentFlashBets);
 
     if (t.status === 'settled') {

@@ -1,24 +1,36 @@
 // ── Components: Live Stream Video & Interactive BlixtBet Overlay ──
 import { showModal, closeModal } from './modal.js';
 import { launchConfetti, escapeHtml, showToast, formatCurrency, createSwishUrl } from '../utils.js';
-import { startLocalCamera, stopLocalCamera, switchCamera, toggleAudio, isAudioEnabled } from '../livekitClient.js';
-import { 
-  getFlashBet, 
-  placeFlashBet, 
-  getActiveFlashBets, 
-  sendWebSocketMessage, 
-  onWebSocketMessage, 
-  connectWebSocket, 
-  getFriends, 
-  startFlashLive, 
-  settleFlashLive, 
-  stopFlashLive 
+import {
+  startLocalCamera,
+  stopLocalCamera,
+  switchCamera,
+  toggleAudio,
+  isAudioEnabled,
+  testCameraAccess,
+  initBroadcasterWebRTC,
+  handleBroadcasterWebRTCMessage,
+  startViewerStream,
+  handleViewerWebRTCMessage,
+  stopAllStreams
+} from '../livekitClient.js';
+import {
+  getFlashBet,
+  placeFlashBet,
+  getActiveFlashBets,
+  sendWebSocketMessage,
+  onWebSocketMessage,
+  connectWebSocket,
+  getFriends,
+  startFlashLive,
+  settleFlashLive,
+  attachFlashLiveBet,
+  stopFlashLive
 } from '../api.js';
 import { getStoredUser } from '../auth.js';
 
 let streamActive = false;
 let viewerCount = 1;
-let viewerInterval = null;
 let wsUnsub = null;
 let activeLiveId = null;
 
@@ -66,11 +78,11 @@ function addCommentToStream({ userName, userAvatar, text, isBetNotice = false })
   }, 8000);
 }
 
-export async function openLiveStreamModal({ 
-  tournamentId = null, 
-  tournamentCode = null, 
-  tournamentName = null, 
-  isBroadcaster = true, 
+export async function openLiveStreamModal({
+  tournamentId = null,
+  tournamentCode = null,
+  tournamentName = null,
+  isBroadcaster = true,
   flashBetId = null,
   liveId = null,
   isStandalone = false,
@@ -81,7 +93,7 @@ export async function openLiveStreamModal({
   const user = getStoredUser();
   streamActive = true;
   activeLiveId = liveId;
-  viewerCount = isBroadcaster ? 1 : Math.floor(Math.random() * 4) + 2;
+  viewerCount = 1;
 
   // Render Fullscreen Live Stream Modal
   showModal('', `
@@ -96,12 +108,32 @@ export async function openLiveStreamModal({
       flex-direction: column;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     ">
+      <!-- Viewer Connecting Placeholder (until remote stream loads) -->
+      ${!isBroadcaster ? `
+        <div id="livestream-placeholder" style="
+          position: absolute;
+          top: 0; left: 0; width: 100%; height: 100%;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          background: radial-gradient(circle at center, #1b2838 0%, #0a0d14 100%);
+          z-index: 1;
+        ">
+          <div style="font-size: 3.5rem; margin-bottom: 12px;">🏌️‍♂️</div>
+          <div style="font-weight: 800; font-size: 1.1rem; color: #fff; margin-bottom: 6px;">
+            ${escapeHtml(tournamentName || 'Livesändning')}
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--gold);">
+            <span style="width: 8px; height: 8px; background: #ff334b; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #ff334b;"></span>
+            Ansluter till videoströmmen...
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Video Element (Full screen 9:16 background) -->
       <video id="livestream-video" autoplay playsinline style="
         position: absolute;
         top: 0; left: 0; width: 100%; height: 100%;
         object-fit: cover;
-        z-index: 1;
+        z-index: 2;
       "></video>
 
       <!-- Video Gradient Overlay for readability -->
@@ -109,7 +141,7 @@ export async function openLiveStreamModal({
         position: absolute;
         top: 0; left: 0; width: 100%; height: 100%;
         background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.85) 100%);
-        z-index: 2;
+        z-index: 3;
         pointer-events: none;
       "></div>
 
@@ -327,9 +359,18 @@ export async function openLiveStreamModal({
     if (!camRes.ok) {
       showToast('Kameratillstånd nekades eller kunde inte startas: ' + camRes.error, 'error');
     }
+    if (liveId) {
+      initBroadcasterWebRTC(liveId, (sig) => sendWebSocketMessage(sig));
+    }
   } else {
-    // For viewers in mock mode: simulate live feed with camera or background loop
-    await startLocalCamera(videoEl).catch(() => {});
+    // For viewers: subscribe to remote stream via WebRTC. NEVER call startLocalCamera()!
+    if (liveId) {
+      startViewerStream(videoEl, liveId, (sig) => sendWebSocketMessage(sig));
+    }
+    videoEl?.addEventListener('loadeddata', () => {
+      const ph = document.getElementById('livestream-placeholder');
+      if (ph) ph.style.display = 'none';
+    });
   }
 
   // Camera switch listener
@@ -410,8 +451,8 @@ export async function openLiveStreamModal({
     });
   });
 
-  // Listen to incoming WebSocket live comments & reactions
-  wsUnsub = onWebSocketMessage((msg) => {
+  // Listen to incoming WebSocket live comments, reactions, status & WebRTC
+  wsUnsub = onWebSocketMessage(async (msg) => {
     const isMatching = (tournamentCode && msg.tournamentCode === tournamentCode) || (liveId && msg.liveId === liveId);
     if (msg.type === 'live_comment_received' && isMatching) {
       // If message is from someone else, render it
@@ -420,13 +461,42 @@ export async function openLiveStreamModal({
       }
     } else if (msg.type === 'live_reaction_received' && isMatching) {
       spawnFloatingEmoji(msg.emoji);
+    } else if (msg.type === 'live_viewer_count' && msg.liveId === liveId) {
+      viewerCount = msg.viewerCount || 1;
+      const countEl = document.getElementById('live-viewer-count');
+      if (countEl) countEl.innerHTML = `👁️ ${viewerCount} tittare`;
     } else if (msg.type === 'flashlive_stopped' && msg.liveId === liveId) {
-      showToast('Sändningen avslutades av sändaren.', 'info');
+      const stopNotice = msg.cancelledBet
+        ? 'Sändningen avslutades. Pågående BlixtBet annullerades.'
+        : 'Sändningen avslutades av sändaren.';
+      showToast(stopNotice, 'info');
       closeLiveStream();
-    } else if (msg.type === 'flashlive_settled' && msg.liveId === liveId) {
-      showToast(`🏁 Live-vadet avgjort! ${msg.winningChoice === 'yes' ? '👍 JA' : '👎 NEJ'} vann!`, 'success');
+    } else if (msg.type === 'flashlive_bet_started' && msg.liveId === liveId) {
+      showToast(`⚡ Nytt BlixtBet startat: "${msg.flashBet?.question || ''}"!`, 'success');
+      renderLiveBlixtBetWidget(tournamentId, msg.flashBet?.id, tournamentCode, liveId, isBroadcaster, msg.flashBet);
+    } else if ((msg.type === 'flashlive_settled' && msg.liveId === liveId) ||
+               (msg.type === 'flash_bet_settled' && msg.flashBet && (msg.flashBet.id === flashBetId || (tournamentId && (msg.flashBet.tournamentId || msg.flashBet.tournament_id) === tournamentId)))) {
+      const winningChoice = msg.winningChoice || msg.flashBet?.winningChoice;
+      showToast(`🏁 Live-vadet avgjort! ${winningChoice === 'yes' ? '👍 JA' : '👎 NEJ'} vann!`, 'success');
       launchConfetti();
-      renderLiveBlixtBetWidget(tournamentId, flashBetId || msg.flashBet?.id, tournamentCode, liveId, isBroadcaster, msg.flashBet);
+      // Fetch personalized user entry so user sees their own outcome and Swish debts
+      let personalizedBet = msg.flashBet;
+      const targetBetId = flashBetId || msg.flashBet?.id;
+      if (targetBetId) {
+        try {
+          personalizedBet = await getFlashBet(targetBetId);
+        } catch (e) {
+          personalizedBet = msg.flashBet;
+        }
+      }
+      renderLiveBlixtBetWidget(tournamentId, targetBetId, tournamentCode, liveId, isBroadcaster, personalizedBet);
+    } else if (isMatching || msg.liveId === liveId) {
+      // Route WebRTC signaling messages
+      if (isBroadcaster) {
+        handleBroadcasterWebRTCMessage(msg);
+      } else {
+        handleViewerWebRTCMessage(msg);
+      }
     }
   });
 
@@ -465,17 +535,21 @@ export async function openLiveStreamModal({
           document.getElementById('live-fb-cancel')?.addEventListener('click', () => {
             betContainer.style.display = 'none';
           });
-          document.getElementById('live-fb-submit')?.addEventListener('click', () => {
+          document.getElementById('live-fb-submit')?.addEventListener('click', async () => {
             const title = document.getElementById('live-fb-title')?.value.trim() || 'Sätter han putten?';
-            showToast(`⚡ BlixtBet startat: "${title}"`, 'success');
-            renderMockActiveBlixtBet({
-              title,
-              options: ['Ja', 'Nej'],
-              betId: 'demo',
-              tournamentCode,
-              liveId,
-              isBroadcaster
-            });
+            try {
+              if (liveId) {
+                const res = await attachFlashLiveBet(liveId, {
+                  question: title,
+                  stakeAmount: 20,
+                  durationSeconds: 60
+                });
+                showToast(`⚡ BlixtBet startat: "${title}"`, 'success');
+                renderLiveBlixtBetWidget(tournamentId, res.flashBet?.id, tournamentCode, liveId, isBroadcaster, res.flashBet);
+              }
+            } catch (err) {
+              showToast('Kunde inte starta vad: ' + err.message, 'error');
+            }
           });
         });
       } else {
@@ -484,14 +558,6 @@ export async function openLiveStreamModal({
     }
   }
 
-  // Periodically increment viewer count to simulate engagement
-  viewerInterval = setInterval(() => {
-    if (!streamActive) return;
-    const delta = Math.random() > 0.4 ? 1 : -1;
-    viewerCount = Math.max(1, viewerCount + delta);
-    const countEl = document.getElementById('live-viewer-count');
-    if (countEl) countEl.innerHTML = `👁️ ${viewerCount} tittare`;
-  }, 4000);
 }
 
 export function closeLiveStream() {
@@ -503,15 +569,11 @@ export function closeLiveStream() {
     });
     activeLiveId = null;
   }
-  if (viewerInterval) {
-    clearInterval(viewerInterval);
-    viewerInterval = null;
-  }
   if (wsUnsub) {
     wsUnsub();
     wsUnsub = null;
   }
-  stopLocalCamera();
+  stopAllStreams();
   const fs = document.getElementById('livestream-fullscreen');
   if (fs) fs.remove();
   closeModal();
@@ -528,7 +590,8 @@ async function renderLiveBlixtBetWidget(tournamentId, specificFlashBetId = null,
     }
     if (!currentBet && tournamentId) {
       const activeBets = await getActiveFlashBets(tournamentId).catch(() => []);
-      if (activeBets.length > 0) currentBet = activeBets[0];
+      const matching = (activeBets || []).filter(b => (b.tournamentId || b.tournament_id) === tournamentId);
+      if (matching.length > 0) currentBet = matching[0];
     }
 
     if (!currentBet) {
@@ -541,39 +604,47 @@ async function renderLiveBlixtBetWidget(tournamentId, specificFlashBetId = null,
               <div style="font-size: 0.72rem; color: var(--text-secondary);">Redo när nästa slag startar!</div>
             </div>
           </div>
-          <button type="button" id="btn-trigger-new-flashbet" class="btn btn-sm btn-accent" style="font-size: 0.75rem; padding: 4px 10px; font-weight: 800;">
-            + Skapa bet
-          </button>
+          ${isBroadcaster ? `
+            <button type="button" id="btn-trigger-new-flashbet" class="btn btn-sm btn-accent" style="font-size: 0.75rem; padding: 4px 10px; font-weight: 800;">
+              + Skapa bet
+            </button>
+          ` : ''}
         </div>
       `;
 
-      document.getElementById('btn-trigger-new-flashbet')?.addEventListener('click', () => {
-        container.innerHTML = `
-          <div>
-            <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">⚡ Starta live BlixtBet</div>
-            <input type="text" id="live-fb-title" class="form-input mb-xs" placeholder="t.ex. Träffar Johan greenen?" style="font-size: 0.85rem;" />
-            <div style="display: flex; gap: 6px; margin-top: 6px;">
-              <button type="button" id="live-fb-submit" class="btn btn-sm btn-primary" style="flex: 1; font-weight: 800;">Starta röstning (60s) ⏱️</button>
-              <button type="button" id="live-fb-cancel" class="btn btn-sm btn-secondary" style="font-size: 0.75rem;">Avbryt</button>
+      if (isBroadcaster) {
+        document.getElementById('btn-trigger-new-flashbet')?.addEventListener('click', () => {
+          container.innerHTML = `
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;">⚡ Starta live BlixtBet</div>
+              <input type="text" id="live-fb-title" class="form-input mb-xs" placeholder="t.ex. Träffar Johan greenen?" style="font-size: 0.85rem;" />
+              <div style="display: flex; gap: 6px; margin-top: 6px;">
+                <button type="button" id="live-fb-submit" class="btn btn-sm btn-primary" style="flex: 1; font-weight: 800;">Starta röstning (60s) ⏱️</button>
+                <button type="button" id="live-fb-cancel" class="btn btn-sm btn-secondary" style="font-size: 0.75rem;">Avbryt</button>
+              </div>
             </div>
-          </div>
-        `;
-        document.getElementById('live-fb-cancel')?.addEventListener('click', () => {
-          renderLiveBlixtBetWidget(tournamentId, specificFlashBetId, tournamentCode, liveId, isBroadcaster);
-        });
-        document.getElementById('live-fb-submit')?.addEventListener('click', () => {
-          const title = document.getElementById('live-fb-title')?.value.trim() || 'Träffar bollen green på hål 7?';
-          showToast(`⚡ BlixtBet startat: "${title}"`, 'success');
-          renderMockActiveBlixtBet({
-            title,
-            options: ['Ja', 'Nej'],
-            betId: 'demo',
-            tournamentCode,
-            liveId,
-            isBroadcaster
+          `;
+          document.getElementById('live-fb-cancel')?.addEventListener('click', () => {
+            renderLiveBlixtBetWidget(tournamentId, specificFlashBetId, tournamentCode, liveId, isBroadcaster);
+          });
+          document.getElementById('live-fb-submit')?.addEventListener('click', async () => {
+            const title = document.getElementById('live-fb-title')?.value.trim() || 'Träffar bollen green på hål 7?';
+            try {
+              if (liveId) {
+                const res = await attachFlashLiveBet(liveId, {
+                  question: title,
+                  stakeAmount: 20,
+                  durationSeconds: 60
+                });
+                showToast(`⚡ BlixtBet startat: "${title}"`, 'success');
+                renderLiveBlixtBetWidget(tournamentId, res.flashBet?.id, tournamentCode, liveId, isBroadcaster, res.flashBet);
+              }
+            } catch (err) {
+              showToast('Kunde inte starta vad: ' + err.message, 'error');
+            }
           });
         });
-      });
+      }
       return;
     }
 
@@ -615,7 +686,11 @@ function renderMockActiveBlixtBet({
 
   // If already settled, show results & Swish settlements
   if (status === 'settled' || winnerChoice) {
-    const isWinner = flashBetObj?.myChoice === winnerChoice;
+    const myChoice = flashBetObj?.myEntry?.choice || flashBetObj?.myChoice;
+    const isWinner = myChoice && myChoice === winnerChoice;
+    const isLoser = myChoice && myChoice !== winnerChoice;
+    const debts = flashBetObj?.settlementSummary?.debts || [];
+
     container.innerHTML = `
       <div style="text-align: center; padding: 4px 0;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
@@ -627,18 +702,39 @@ function renderMockActiveBlixtBet({
         <div style="font-size: 0.9rem; font-weight: 800; color: #fff; margin-bottom: 8px;">
           ${escapeHtml(title)}
         </div>
-        ${!isBroadcaster && flashBetObj?.myChoice && !isWinner ? `
+        ${!isBroadcaster && isLoser ? `
           <div style="background: rgba(231, 76, 60, 0.2); border: 1px solid #e74c3c; border-radius: 8px; padding: 8px; margin-top: 6px;">
             <div style="font-size: 0.8rem; color: #fff; margin-bottom: 6px;">
-              Du röstade fel (${flashBetObj.myChoice.toUpperCase()}). Swisha vinnarpotten!
+              Du röstade fel (${escapeHtml(myChoice ? myChoice.toUpperCase() : 'NEJ')}). Swisha din insats till vinnarna:
             </div>
-            <a href="${createSwishUrl({ amount: stakeAmount, message: 'BetPals Live - ' + title })}" target="_blank" class="btn btn-sm btn-primary" style="font-weight: 800; display: inline-flex; align-items: center; gap: 4px;">
-              📱 Swisha ${stakeAmount} kr
-            </a>
+            ${debts.length > 0 ? `
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                ${debts.map(d => `
+                  <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px;">
+                    <span style="font-size: 0.8rem; color: #fff;">
+                      ${escapeHtml(d.winnerAvatar || '🏆')} <strong>${escapeHtml(d.winnerName)}</strong>: ${formatCurrency(d.amount)}
+                    </span>
+                    ${d.winnerSwish ? `
+                      <a href="${createSwishUrl({ phone: d.winnerSwish, amount: d.amount, message: 'BetPals Live - ' + title })}" target="_blank" class="btn btn-xs btn-primary" style="font-weight: 800; padding: 3px 8px; font-size: 0.75rem;">
+                        📱 Swisha
+                      </a>
+                    ` : `
+                      <span style="font-size: 0.72rem; color: var(--text-secondary);">Saknar Swish</span>
+                    `}
+                  </div>
+                `).join('')}
+              </div>
+            ` : `
+              <a href="${createSwishUrl({ amount: stakeAmount, message: 'BetPals Live - ' + title })}" target="_blank" class="btn btn-sm btn-primary" style="font-weight: 800; display: inline-flex; align-items: center; gap: 4px;">
+                📱 Swisha ${stakeAmount} kr
+              </a>
+            `}
           </div>
         ` : `
           <div style="font-size: 0.82rem; color: #2ecc71; font-weight: 700;">
-            ${isBroadcaster ? '✅ Vadet är avgjort och registrerat på deltagarnas saldon!' : (isWinner ? '🎉 Du vann! Snyggt gissat!' : 'Tack för rösten!')}
+            ${isBroadcaster
+              ? '✅ Vadet är avgjort och registrerat på deltagarnas saldon!'
+              : (isWinner ? '🎉 Du vann! Snyggt gissat!' : (myChoice ? 'Tack för rösten!' : 'Vadet är avgjort!'))}
           </div>
         `}
       </div>
@@ -663,25 +759,31 @@ function renderMockActiveBlixtBet({
         ${escapeHtml(title)} <span style="font-size: 0.75rem; color: var(--gold); font-weight: 600;">(${stakeAmount} kr)</span>
       </div>
 
-      <!-- Voting options -->
-      <div id="live-bet-action-grid" style="display: grid; grid-template-columns: repeat(${options.length}, 1fr); gap: 8px;">
-        ${options.map((opt, idx) => `
-          <button type="button" class="btn live-bet-option-btn" data-opt="${escapeHtml(opt)}" style="
-            background: ${idx === 0 ? 'linear-gradient(135deg, #2ecc71, #27ae60)' : 'linear-gradient(135deg, #e74c3c, #c0392b)'};
-            color: #fff;
-            border: none;
-            font-weight: 800;
-            font-size: 0.88rem;
-            padding: 9px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            cursor: pointer;
-            transition: transform 0.1s;
-          ">
-            ${idx === 0 ? '👍 ' : '👎 '}${escapeHtml(opt)}
-          </button>
-        `).join('')}
-      </div>
+      <!-- Voting options (only for viewers; broadcaster cannot bet in own stream) -->
+      ${!isBroadcaster ? `
+        <div id="live-bet-action-grid" style="display: grid; grid-template-columns: repeat(${options.length}, 1fr); gap: 8px;">
+          ${options.map((opt, idx) => `
+            <button type="button" class="btn live-bet-option-btn" data-opt="${escapeHtml(opt)}" style="
+              background: ${idx === 0 ? 'linear-gradient(135deg, #2ecc71, #27ae60)' : 'linear-gradient(135deg, #e74c3c, #c0392b)'};
+              color: #fff;
+              border: none;
+              font-weight: 800;
+              font-size: 0.88rem;
+              padding: 9px;
+              border-radius: 8px;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+              cursor: pointer;
+              transition: transform 0.1s;
+            ">
+              ${idx === 0 ? '👍 ' : '👎 '}${escapeHtml(opt)}
+            </button>
+          `).join('')}
+        </div>
+      ` : `
+        <div style="font-size: 0.8rem; color: rgba(255,255,255,0.7); text-align: center; padding: 4px 0;">
+          🏌️‍♂️ Du sänder detta vad. Vännerna röstar!
+        </div>
+      `}
 
       <!-- Broadcaster direct settlement control -->
       ${isBroadcaster ? `
@@ -713,6 +815,12 @@ function renderMockActiveBlixtBet({
       if (remainingSecs === 0) {
         timerEl.textContent = '⏱️ Spelstopp!';
         timerEl.style.color = '#e74c3c';
+        // Disable voting buttons immediately upon timeout
+        document.querySelectorAll('.live-bet-option-btn').forEach(btn => {
+          btn.disabled = true;
+          btn.style.opacity = '0.5';
+          btn.style.cursor = 'not-allowed';
+        });
         clearInterval(timerInterval);
       }
     }
@@ -722,10 +830,11 @@ function renderMockActiveBlixtBet({
   if (isBroadcaster) {
     const handleSettle = async (choice) => {
       try {
+        let res = null;
         if (liveId) {
-          await settleFlashLive(liveId, choice);
+          res = await settleFlashLive(liveId, choice);
         } else if (betId && betId !== 'demo') {
-          await settleFlashBet(betId, choice);
+          res = await settleFlashBet(betId, choice);
         }
         showToast(`🏁 Vadet rättades som ${choice.toUpperCase()}!`, 'success');
         launchConfetti();
@@ -738,7 +847,8 @@ function renderMockActiveBlixtBet({
           isBroadcaster,
           stakeAmount,
           status: 'settled',
-          winnerChoice: choice
+          winnerChoice: choice,
+          flashBetObj: res?.flashBet || flashBetObj
         });
       } catch (err) {
         showToast('Kunde inte rätta vadet: ' + err.message, 'error');
@@ -752,6 +862,11 @@ function renderMockActiveBlixtBet({
   // Voting option buttons
   container.querySelectorAll('.live-bet-option-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      if (remainingSecs <= 0) {
+        showToast('Spelstopp har redan inträffat!', 'warning');
+        return;
+      }
+
       const chosen = btn.dataset.opt;
       const choiceValue = chosen.toLowerCase().includes('ja') || chosen.toLowerCase().includes('yes') ? 'yes' : 'no';
       const myNick = user?.nickname || 'Jag';
@@ -762,7 +877,11 @@ function renderMockActiveBlixtBet({
           await placeFlashBet(betId, choiceValue);
         } catch (err) {
           showToast(err.message, 'error');
+          return; // Crucial fix: return on error, do NOT confirm bet!
         }
+      } else {
+        showToast('Inget aktivt vad på servern', 'error');
+        return;
       }
 
       launchConfetti();
@@ -1040,6 +1159,24 @@ export async function openInstantLiveModal() {
         finalTitle = pureTitle || '18:e hålet – Avgörandet! ⛳';
       }
 
+      // Pre-check camera access before creating session and broadcasting notifications
+      const startBtn = document.getElementById('btn-start-instant-live');
+      const originalBtnText = startBtn ? startBtn.innerHTML : '';
+      if (startBtn) {
+        startBtn.disabled = true;
+        startBtn.innerHTML = '⏳ Kontrollerar kamera...';
+      }
+
+      const camCheck = await testCameraAccess();
+      if (!camCheck.ok) {
+        showToast('Kameratillstånd nekades eller kunde inte startas: ' + camCheck.error + '. Sändningen startades inte.', 'error');
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.innerHTML = originalBtnText;
+        }
+        return;
+      }
+
       try {
         const res = await startFlashLive({
           question: finalTitle,
@@ -1066,6 +1203,10 @@ export async function openInstantLiveModal() {
         });
       } catch (err) {
         showToast('Kunde inte starta livesändning: ' + err.message, 'error');
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.innerHTML = originalBtnText;
+        }
       }
     });
   }

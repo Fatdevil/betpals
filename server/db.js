@@ -365,6 +365,26 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_flash_entries_bet ON flash_bet_entries(flash_bet_id);
     CREATE INDEX IF NOT EXISTS idx_flash_entries_user ON flash_bet_entries(user_id);
+
+    CREATE TABLE IF NOT EXISTS flash_live_streams (
+      id TEXT PRIMARY KEY,
+      host_id TEXT NOT NULL,
+      host_name TEXT NOT NULL,
+      host_avatar TEXT,
+      question TEXT NOT NULL,
+      has_bet INTEGER NOT NULL DEFAULT 1,
+      stake_amount INTEGER NOT NULL DEFAULT 20,
+      duration_seconds INTEGER NOT NULL DEFAULT 60,
+      expires_at TEXT,
+      target_user_ids TEXT,
+      flash_bet_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (flash_bet_id) REFERENCES flash_bets(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_flash_live_host ON flash_live_streams(host_id);
+    CREATE INDEX IF NOT EXISTS idx_flash_live_status ON flash_live_streams(status);
   `);
 } catch {}
 
@@ -520,18 +540,18 @@ const stmts = {
 
   // Tournament Photos
   getPhotosByTournament: db.prepare(`
-    SELECT p.*, 
-           u.nickname as uploader_name, 
+    SELECT p.*,
+           u.nickname as uploader_name,
            u.avatar_url as uploader_avatar,
            (SELECT COUNT(*) FROM tournament_photo_likes l WHERE l.photo_id = p.id) as like_count
-    FROM tournament_photos p 
-    JOIN users u ON p.user_id = u.id 
-    WHERE p.tournament_id = ? 
+    FROM tournament_photos p
+    JOIN users u ON p.user_id = u.id
+    WHERE p.tournament_id = ?
     ORDER BY p.created_at DESC
   `),
   getPhotoLikesByUser: db.prepare(`
-    SELECT photo_id 
-    FROM tournament_photo_likes 
+    SELECT photo_id
+    FROM tournament_photo_likes
     WHERE user_id = ? AND photo_id IN (
       SELECT id FROM tournament_photos WHERE tournament_id = ?
     )
@@ -604,8 +624,8 @@ const stmts = {
     SELECT id, nickname, real_name, avatar_emoji, avatar_url, swish_number
     FROM users
     WHERE id != ? AND (
-      nickname LIKE ? OR 
-      real_name LIKE ? OR 
+      nickname LIKE ? OR
+      real_name LIKE ? OR
       (swish_number IS NOT NULL AND swish_number LIKE ?)
     )
     ORDER BY nickname ASC
@@ -759,12 +779,12 @@ const stmts = {
     SELECT fb.*, u.nickname as creator_nickname, u.real_name as creator_real_name, u.avatar_emoji as creator_avatar, u.avatar_url as creator_avatar_url
     FROM flash_bets fb
     JOIN users u ON fb.creator_id = u.id
-    WHERE fb.status = 'open' AND datetime(fb.expires_at) > datetime('now')
+    WHERE fb.status IN ('open', 'locked')
     ORDER BY fb.created_at DESC
   `),
   updateFlashBetStatus: db.prepare('UPDATE flash_bets SET status = ? WHERE id = ?'),
   updateFlashBetSettle: db.prepare('UPDATE flash_bets SET status = \'settled\', winning_choice = ? WHERE id = ?'),
-  
+
   // Flash Bet Entries
   insertFlashBetEntry: db.prepare(`
     INSERT INTO flash_bet_entries (id, flash_bet_id, user_id, choice, amount)
@@ -779,6 +799,24 @@ const stmts = {
   `),
   getFlashBetEntryForUser: db.prepare(`
     SELECT * FROM flash_bet_entries WHERE flash_bet_id = ? AND user_id = ?
+  `),
+
+  // Flash Live Streams
+  insertFlashLiveStream: db.prepare(`
+    INSERT INTO flash_live_streams (id, host_id, host_name, host_avatar, question, has_bet, stake_amount, duration_seconds, expires_at, target_user_ids, flash_bet_id, status)
+    VALUES (@id, @hostId, @hostName, @hostAvatar, @question, @hasBet, @stakeAmount, @durationSeconds, @expiresAt, @targetUserIds, @flashBetId, @status)
+  `),
+  getActiveFlashLiveStreams: db.prepare(`
+    SELECT * FROM flash_live_streams WHERE status = 'active' ORDER BY created_at DESC
+  `),
+  getFlashLiveStreamById: db.prepare(`
+    SELECT * FROM flash_live_streams WHERE id = ?
+  `),
+  updateFlashLiveStreamStatus: db.prepare(`
+    UPDATE flash_live_streams SET status = ? WHERE id = ?
+  `),
+  updateFlashLiveStreamBet: db.prepare(`
+    UPDATE flash_live_streams SET flash_bet_id = ?, has_bet = 1, stake_amount = ?, duration_seconds = ?, expires_at = ? WHERE id = ?
   `),
 
   // Tab Expenses & Even Steven
@@ -1110,7 +1148,7 @@ export function findOrCreateGoogleUser(googleId, email, name, avatarUrl, token) 
     stmts.updateUserGoogle.run(email, avatarUrl, finalName, googleId);
     return { ...existing, email, avatar_url: avatarUrl, nickname: finalName };
   }
-  
+
   let finalName = name;
   let collision = stmts.getUserByNickname.get(finalName);
   while (collision) {
@@ -1162,7 +1200,7 @@ export function getUserBets(userId) {
 export function getPhotosByTournament(tournamentId, userId) {
   const photos = stmts.getPhotosByTournament.all(tournamentId);
   if (!userId) return photos.map(p => ({ ...p, user_liked: false }));
-  
+
   const userLikes = new Set(stmts.getPhotoLikesByUser.all(userId, tournamentId).map(l => l.photo_id));
   return photos.map(p => ({
     ...p,
@@ -1242,8 +1280,8 @@ export function getAllTournaments(userId = null) {
   let tournaments;
   if (!userId) {
     tournaments = db.prepare(`
-      SELECT * FROM tournaments 
-      WHERE COALESCE(visibility, 'friends') = 'public' 
+      SELECT * FROM tournaments
+      WHERE COALESCE(visibility, 'friends') = 'public'
       ORDER BY created_at DESC
     `).all();
   } else {
@@ -1258,7 +1296,7 @@ export function getAllTournaments(userId = null) {
                SELECT e.tournament_id FROM events e
                JOIN players p ON p.event_id = e.id
                JOIN users u ON (
-                 LOWER(p.name) = LOWER(u.real_name) 
+                 LOWER(p.name) = LOWER(u.real_name)
                  OR LOWER(p.name) = LOWER(u.nickname)
                )
                WHERE u.id = ?
@@ -1979,13 +2017,18 @@ export function getAnyBetsForUser(userId) {
 export function updateAnyBetChoice(betId, userId, choice) {
   const bet = getAnyBetById(betId);
   if (!bet) throw new Error('Bettet hittades inte');
-  if (bet.status !== 'active') throw new Error('Bettet är inte aktivt');
+  if (bet.status !== 'open' && bet.status !== 'active') throw new Error('Bettet är inte aktivt');
 
-  const info = stmts.updateAnyBetParticipantChoice.run(choice, betId, userId);
+  const normalizedChoice = (choice === 'yes' || choice === 'no') ? choice : 'participant';
+  const info = stmts.updateAnyBetParticipantChoice.run(normalizedChoice, betId, userId);
   if (info.changes === 0) {
     throw new Error('Du är inte inbjuden till detta AnyBet');
   }
   return getAnyBetById(betId);
+}
+
+export function acceptAnyBet(betId, userId) {
+  return updateAnyBetChoice(betId, userId, 'participant');
 }
 
 export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImageUrl }) {
@@ -1998,21 +2041,33 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
     throw new Error('Bettet är redan avgjort');
   }
 
-  stmts.settleAnyBet.run({
-    id: betId,
-    winner_id: winnerId || null,
-    winning_side: winningSide || null,
-    proof_image_url: proofImageUrl || null
-  });
+  const acceptedParticipants = bet.participants.filter(p => p.status === 'accepted');
 
-  // If there is money on the line, settle debts in minigame_duels for Notan & Swish!
-  if (bet.stake_amount > 0) {
-    const acceptedParticipants = bet.participants.filter(p => p.status === 'accepted');
+  if (bet.bet_type === 'winner_takes_all') {
+    if (!winnerId) throw new Error('Vinnare måste anges');
+    const isWinnerAccepted = acceptedParticipants.some(p => p.user_id === winnerId);
+    if (!isWinnerAccepted) {
+      throw new Error('Vald vinnare måste vara en godkänd deltagare i vadet');
+    }
+  } else if (bet.bet_type === 'yes_no') {
+    if (winningSide !== 'yes' && winningSide !== 'no') {
+      throw new Error('Vinnande sida måste vara ja eller nej');
+    }
+  }
 
-    if (bet.bet_type === 'winner_takes_all' && winnerId) {
-      const losers = acceptedParticipants.filter(p => p.user_id !== winnerId);
-      for (const loser of losers) {
-        try {
+  const settleTx = db.transaction(() => {
+    stmts.settleAnyBet.run({
+      id: betId,
+      winner_id: winnerId || null,
+      winning_side: winningSide || null,
+      proof_image_url: proofImageUrl || null
+    });
+
+    // If there is money on the line, settle debts in minigame_duels for Notan & Swish!
+    if (bet.stake_amount > 0) {
+      if (bet.bet_type === 'winner_takes_all' && winnerId) {
+        const losers = acceptedParticipants.filter(p => p.user_id !== winnerId);
+        for (const loser of losers) {
           const duelId = crypto.randomUUID();
           stmts.insertDuel.run({
             id: duelId,
@@ -2030,18 +2085,15 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
             winner_id: winnerId,
             status: 'completed'
           });
-        } catch (e) {
-          console.error('Failed to log anybet debt settlement:', e);
         }
-      }
-    } else if (bet.bet_type === 'yes_no' && winningSide) {
-      const winners = acceptedParticipants.filter(p => p.choice === winningSide);
-      const losers = acceptedParticipants.filter(p => p.choice && p.choice !== winningSide);
+      } else if (bet.bet_type === 'yes_no' && winningSide) {
+        const opposingSide = winningSide === 'yes' ? 'no' : 'yes';
+        const winners = acceptedParticipants.filter(p => p.choice === winningSide);
+        const losers = acceptedParticipants.filter(p => p.choice === opposingSide);
 
-      if (winners.length > 0 && losers.length > 0) {
-        for (const loser of losers) {
-          for (const winner of winners) {
-            try {
+        if (winners.length > 0 && losers.length > 0) {
+          for (const loser of losers) {
+            for (const winner of winners) {
               const perWinnerStake = Math.round((bet.stake_amount / winners.length) * 100) / 100;
               if (perWinnerStake <= 0) continue;
               const duelId = crypto.randomUUID();
@@ -2061,14 +2113,14 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
                 winner_id: winner.user_id,
                 status: 'completed'
               });
-            } catch (e) {
-              console.error('Failed to log anybet yes/no debt settlement:', e);
             }
           }
         }
       }
     }
-  }
+  });
+
+  settleTx();
 
   return getAnyBetById(betId);
 }
@@ -2185,6 +2237,37 @@ export function getFlashBet(id, currentUserId = null) {
     }
   }
 
+  // Build settlement summary if bet is settled
+  let settlementSummary = null;
+  if (status === 'settled' && fb.winning_choice) {
+    const winners = entries.filter(e => e.choice === fb.winning_choice);
+    const losers = entries.filter(e => e.choice !== fb.winning_choice);
+    const isWinner = myEntry ? myEntry.choice === fb.winning_choice : false;
+    const isLoser = myEntry ? myEntry.choice !== fb.winning_choice : false;
+
+    let debts = [];
+    if (isLoser && winners.length > 0) {
+      const perWinnerAmount = Math.round((myEntry.amount / winners.length) * 100) / 100;
+      debts = winners.map(w => ({
+        winnerId: w.user_id,
+        winnerName: w.nickname || w.real_name || 'Vinnare',
+        winnerAvatar: w.avatar_emoji || '🏆',
+        winnerSwish: w.swish_number || null,
+        amount: perWinnerAmount
+      }));
+    }
+
+    settlementSummary = {
+      winningChoice: fb.winning_choice,
+      isWinner,
+      isLoser,
+      hasVoted: !!myEntry,
+      winnersCount: winners.length,
+      losersCount: losers.length,
+      debts
+    };
+  }
+
   return {
     id: fb.id,
     creatorId: fb.creator_id,
@@ -2216,20 +2299,38 @@ export function getFlashBet(id, currentUserId = null) {
       avatarUrl: e.avatar_url,
       choice: e.choice,
       amount: e.amount,
+      swishNumber: (status === 'settled' || e.user_id === currentUserId) ? (e.swish_number || null) : null,
       createdAt: e.created_at
     })),
-    myEntry
+    myEntry,
+    myChoice: myEntry ? myEntry.choice : null,
+    settlementSummary
   };
 }
 
-export function getActiveFlashBets(userId = null) {
+export function getActiveFlashBets(userId = null, tournamentId = null) {
   const active = stmts.getActiveFlashBets.all();
-  return active.map(fb => getFlashBet(fb.id, userId)).filter(fb => fb && fb.status === 'open');
+  return active
+    .map(fb => getFlashBet(fb.id, userId))
+    .filter(fb => {
+      if (!fb) return false;
+      if (fb.status === 'settled' || fb.status === 'cancelled') return false;
+      if (tournamentId && (fb.tournamentId || fb.tournament_id) !== tournamentId) return false;
+      // Active and time left: everyone sees it
+      if (fb.status === 'open' && fb.secondsLeft > 0) return true;
+      // Pending settlement (time expired or locked): creator sees it to settle, and participants who voted see it
+      if (userId && (fb.creatorId === userId || fb.myEntry)) return true;
+      return false;
+    });
 }
 
 export function placeFlashBetEntry(id, flashBetId, userId, choice, amount) {
   const fb = stmts.getFlashBetById.get(flashBetId);
   if (!fb) throw new Error('BlixtBet hittades inte');
+
+  if (fb.creator_id === userId) {
+    throw new Error('Som skapare av vadet kan du inte rösta i det');
+  }
 
   const now = new Date();
   const expires = new Date(fb.expires_at);
@@ -2247,10 +2348,22 @@ export function placeFlashBetEntry(id, flashBetId, userId, choice, amount) {
   return getFlashBet(flashBetId, userId);
 }
 
+export function cancelFlashBet(flashBetId, userId) {
+  const fb = stmts.getFlashBetById.get(flashBetId);
+  if (!fb) throw new Error('BlixtBet hittades inte');
+  if (fb.creator_id !== userId) throw new Error('Endast skaparen kan avbryta vadet');
+  if (fb.status === 'settled') throw new Error('Vadet är redan avgjort');
+  stmts.updateFlashBetStatus.run('cancelled', fb.id);
+  return getFlashBet(flashBetId, userId);
+}
+
 export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
   const fb = stmts.getFlashBetById.get(flashBetId);
   if (!fb) throw new Error('BlixtBet hittades inte');
   if (fb.status === 'settled') throw new Error('Detta BlixtBet är redan avgjort');
+  if (winningChoice !== 'yes' && winningChoice !== 'no') {
+    throw new Error('Vinnande val måste vara ja eller nej');
+  }
 
   // Verify authorization: creator or tournament creator can settle
   let isAllowed = fb.creator_id === settleUserId;
@@ -2260,17 +2373,17 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
   }
   if (!isAllowed) throw new Error('Endast skaparen kan avgöra detta BlixtBet');
 
-  stmts.updateFlashBetSettle.run(winningChoice, flashBetId);
-
-  // Settlement and debt logging
   const entries = stmts.getFlashBetEntries.all(flashBetId);
   const winners = entries.filter(e => e.choice === winningChoice);
   const losers = entries.filter(e => e.choice !== winningChoice);
 
-  if (winners.length > 0 && losers.length > 0) {
-    for (const loser of losers) {
-      for (const winner of winners) {
-        try {
+  const settleTx = db.transaction(() => {
+    stmts.updateFlashBetSettle.run(winningChoice, flashBetId);
+
+    // Settlement and debt logging
+    if (winners.length > 0 && losers.length > 0) {
+      for (const loser of losers) {
+        for (const winner of winners) {
           const perWinnerStake = Math.round((loser.amount / winners.length) * 100) / 100;
           if (perWinnerStake <= 0) continue;
           const duelId = crypto.randomUUID();
@@ -2290,14 +2403,80 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
             winner_id: winner.user_id,
             status: 'completed'
           });
-        } catch (e) {
-          console.error('Failed to log flash bet debt duel:', e);
         }
       }
     }
-  }
+  });
+
+  settleTx();
 
   return getFlashBet(flashBetId, settleUserId);
+}
+
+// ── Flash Live Streams Public API ─────────────────────
+
+export function createFlashLiveStream(session) {
+  stmts.insertFlashLiveStream.run({
+    id: session.id,
+    hostId: session.hostId,
+    hostName: session.hostName,
+    hostAvatar: session.hostAvatar || '🏌️‍♂️',
+    question: session.question,
+    hasBet: session.hasBet ? 1 : 0,
+    stakeAmount: session.stakeAmount || 0,
+    durationSeconds: session.durationSeconds || 0,
+    expiresAt: session.expiresAt || null,
+    targetUserIds: JSON.stringify(session.targetUserIds || []),
+    flashBetId: session.flashBetId || null,
+    status: session.status || 'active'
+  });
+}
+
+export function getActiveFlashLiveStreams() {
+  const rows = stmts.getActiveFlashLiveStreams.all();
+  return rows.map(r => ({
+    id: r.id,
+    hostId: r.host_id,
+    hostName: r.host_name,
+    hostAvatar: r.host_avatar,
+    question: r.question,
+    hasBet: !!r.has_bet,
+    stakeAmount: r.stake_amount,
+    durationSeconds: r.duration_seconds,
+    expiresAt: r.expires_at,
+    targetUserIds: r.target_user_ids ? JSON.parse(r.target_user_ids) : [],
+    flashBetId: r.flash_bet_id,
+    status: r.status,
+    createdAt: r.created_at
+  }));
+}
+
+export function getFlashLiveStream(id) {
+  const r = stmts.getFlashLiveStreamById.get(id);
+  if (!r) return null;
+  return {
+    id: r.id,
+    hostId: r.host_id,
+    hostName: r.host_name,
+    hostAvatar: r.host_avatar,
+    question: r.question,
+    hasBet: !!r.has_bet,
+    stakeAmount: r.stake_amount,
+    durationSeconds: r.duration_seconds,
+    expiresAt: r.expires_at,
+    targetUserIds: r.target_user_ids ? JSON.parse(r.target_user_ids) : [],
+    flashBetId: r.flash_bet_id,
+    status: r.status,
+    createdAt: r.created_at
+  };
+}
+
+export function updateFlashLiveStreamStatus(id, status) {
+  stmts.updateFlashLiveStreamStatus.run(status, id);
+}
+
+export function updateFlashLiveStreamBet(id, flashBetId, stakeAmount, durationSeconds, expiresAt) {
+  stmts.updateFlashLiveStreamBet.run(flashBetId, stakeAmount, durationSeconds, expiresAt, id);
 }
 
 // ── Tab Expenses & Even Steven Public API ─────────────
@@ -2306,7 +2485,7 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
   if (!payerId) throw new Error('Payer is required');
   const amount = parseFloat(totalAmount);
   if (isNaN(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
-  
+
   const cleanTitle = (title && title.trim()) ? title.trim() : (mode === 'roulette' ? 'Not-Roulette' : 'Dela nota');
   const cleanNotes = (notes && notes.trim()) ? notes.trim() : null;
   const expenseId = crypto.randomUUID();
@@ -2509,9 +2688,9 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
   export function getActiveLottoForUser(userId) {
     // Get newest open lotto draw
     const openDraws = db.prepare(`
-      SELECT * FROM lotto_draws 
-      WHERE status = 'open' 
-      ORDER BY created_at DESC 
+      SELECT * FROM lotto_draws
+      WHERE status = 'open'
+      ORDER BY created_at DESC
       LIMIT 10
     `).all();
 
@@ -2740,8 +2919,8 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
 
       // Increase jackpot by stake_amount
       db.prepare(`
-        UPDATE lotto_draws 
-        SET jackpot_amount = jackpot_amount + ? 
+        UPDATE lotto_draws
+        SET jackpot_amount = jackpot_amount + ?
         WHERE id = ?
       `).run(draw.stake_amount, draw.id);
     });
@@ -2773,7 +2952,7 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     const starNums = pool12.slice(0, 2).sort((a, b) => a - b);
 
     const tickets = db.prepare(`
-      SELECT t.*, u.nickname as user_nickname 
+      SELECT t.*, u.nickname as user_nickname
       FROM lotto_tickets t
       LEFT JOIN users u ON t.user_id = u.id
       WHERE t.draw_id = ?
@@ -2829,8 +3008,8 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     const tx = db.transaction(() => {
       // 1. Update ticket match scores
       const updateTicketStmt = db.prepare(`
-        UPDATE lotto_tickets 
-        SET matches_main = ?, matches_stars = ?, prize_tier = ?, prize_amount = ? 
+        UPDATE lotto_tickets
+        SET matches_main = ?, matches_stars = ?, prize_tier = ?, prize_amount = ?
         WHERE id = ?
       `);
 
@@ -2843,7 +3022,7 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
 
       // 2. Complete draw record
       const updateResult = db.prepare(`
-        UPDATE lotto_draws 
+        UPDATE lotto_draws
         SET winning_main = ?, winning_stars = ?, status = 'completed',
             winner_id = ?, winner_nickname = ?, winner_hits = ?,
             is_tie = ?, tied_winners = ?, completed_at = datetime('now')

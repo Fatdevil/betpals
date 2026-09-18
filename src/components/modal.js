@@ -37,6 +37,10 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
     window.removeEventListener('keydown', handleKeydown);
     root.innerHTML = '';
     if (onClose) onClose();
+    try {
+      root.dispatchEvent(new CustomEvent('modal-closed'));
+      window.dispatchEvent(new CustomEvent('modal-closed'));
+    } catch (_) {}
   };
 
   const isBusy = () => {

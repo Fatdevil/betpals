@@ -5185,7 +5185,23 @@ export async function openAnyBetModal(initialBetId = null) {
                       </button>
                     </div>
                   </div>
-                ` : ''}
+                ` : `
+                  ${(myPart && myPart.status === 'invited') ? `
+                    <div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-glass); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px;">
+                      <div style="font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; color: var(--text-secondary);">
+                        ${isEn ? 'You are invited! Accept the challenge to join the pot:' : 'Du är inbjuden! Acceptera utmaningen för att delta:'}
+                      </div>
+                      <button type="button" class="btn btn-primary btn-sm btn-block btn-accept-wta" data-bet-id="${bet.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 9px;">
+                        🤝 ${isEn ? `Accept challenge (${bet.stake_amount > 0 ? bet.stake_amount + ' kr' : '0 kr'})` : `Acceptera vadet (${bet.stake_amount > 0 ? bet.stake_amount + ' kr' : '0 kr'})`}
+                      </button>
+                    </div>
+                  ` : ''}
+                  ${(myPart && myPart.status === 'accepted' && !isJudge) ? `
+                    <div style="padding: 6px 10px; margin-bottom: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); font-size: 0.78rem; color: #34d399; font-weight: 700; text-align: center;">
+                      ✅ ${isEn ? 'You are participating in this bet!' : 'Du deltar i detta vad!'}
+                    </div>
+                  ` : ''}
+                `}
 
                 <!-- Judge Settle Button -->
                 ${isJudge ? `
@@ -5210,6 +5226,22 @@ export async function openAnyBetModal(initialBetId = null) {
             renderActiveTab(tabContent);
           } catch (e) {
             showToast(e.message || 'Kunde inte välja sida', 'error');
+          }
+        });
+      });
+
+      // Accept WTA listeners
+      tabContent.querySelectorAll('.btn-accept-wta').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const betId = btn.dataset.betId;
+          btn.disabled = true;
+          try {
+            await joinAnyBet(betId, 'participant');
+            showToast(isEn ? 'Bet accepted! Good luck!' : 'Vadet accepterat! Lycka till 🤝', 'success');
+            renderActiveTab(tabContent);
+          } catch (e) {
+            showToast(e.message || 'Kunde inte acceptera vadet', 'error');
+            btn.disabled = false;
           }
         });
       });
@@ -5325,7 +5357,8 @@ export async function openAnyBetModal(initialBetId = null) {
   // ── MODAL: DOMARENS AVGÖRANDE ─────────────────────────
   function openSettleModal(bet) {
     const isYesNo = bet.bet_type === 'yes_no';
-    let chosenWinnerId = (bet.participants && bet.participants[0]) ? bet.participants[0].user_id : null;
+    const acceptedParticipants = (bet.participants || []).filter(p => p.status === 'accepted');
+    let chosenWinnerId = acceptedParticipants.length > 0 ? acceptedParticipants[0].user_id : null;
     let chosenSide = 'yes';
     proofImageData = null;
 
@@ -5358,7 +5391,7 @@ export async function openAnyBetModal(initialBetId = null) {
               🏆 Välj vem som vann bland deltagarna:
             </label>
             <div style="display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto;">
-              ${(bet.participants || []).map(p => `
+              ${acceptedParticipants.length > 0 ? acceptedParticipants.map(p => `
                 <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
                   <span style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
                     <span>${p.avatar_emoji || '👤'}</span>
@@ -5366,7 +5399,9 @@ export async function openAnyBetModal(initialBetId = null) {
                   </span>
                   <input type="radio" name="settle-winner" value="${p.user_id}" ${p.user_id === chosenWinnerId ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
                 </label>
-              `).join('')}
+              `).join('') : `
+                <div class="text-muted text-center" style="padding: 12px;">Inga deltagare har accepterat vadet än.</div>
+              `}
             </div>
           </div>
         `}
@@ -5851,7 +5886,15 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     tabContent.innerHTML = `<div class="text-center text-muted" style="padding: 30px;">Laddar BlixtBets... ⚡</div>`;
 
     try {
-      const flashBets = await getActiveFlashBets();
+      let flashBets = await getActiveFlashBets(defaultTournamentId);
+      if (initialFlashBetId && (!flashBets || !flashBets.some(fb => fb.id === initialFlashBetId))) {
+        try {
+          const specific = await getFlashBet(initialFlashBetId);
+          if (specific && specific.status !== 'settled') {
+            flashBets = [specific, ...(flashBets || [])];
+          }
+        } catch {}
+      }
       countdowns.clear();
 
       if (!flashBets || flashBets.length === 0) {
@@ -5914,7 +5957,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
               <div style="font-size: 0.7rem; color: var(--text-muted);">Insats: <strong>${fb.stakeAmount} kr</strong></div>
             </div>
           </div>
-          <div class="flashbet-timer-badge" id="timer-${fb.id}" style="padding: 4px 10px; border-radius: var(--radius-full); font-size: 0.82rem; font-weight: 800; font-family: monospace; letter-spacing: 0.05em; background: ${seconds <= 15 ? 'rgba(231,76,60,0.2)' : 'rgba(245,166,35,0.15)'}; color: ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'}; border: 1px solid ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'};">
+          <div class="flashbet-timer-badge" id="timer-${fb.id}" style="padding: 4px 10px; border-radius: var(--radius-full); font-size: 0.82rem; font-weight: 800; font-family: monospace; letter-spacing: 0.05em; min-width: 78px; text-align: center; background: ${seconds <= 15 ? 'rgba(231,76,60,0.2)' : 'rgba(245,166,35,0.15)'}; color: ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'}; border: 1px solid ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'};">
             ⏱️ ${formatSeconds(seconds)}
           </div>
         </div>
@@ -5959,8 +6002,8 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         <!-- Settle Controls (Only for creator) -->
         ${isCreator && fb.status !== 'settled' ? `
           <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-glass);">
-            <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 6px; text-align: center;">
-              ⚖️ ${t('arcade.flashbetSettlePrompt')}
+            <div style="font-size: 0.78rem; font-weight: 800; color: ${isExpired ? '#f59e0b' : 'var(--gold)'}; margin-bottom: 6px; text-align: center;">
+              ${isExpired ? '⏱️ Tiden har gått ut – dags att rätta vadet:' : `⚖️ ${t('arcade.flashbetSettlePrompt')}`}
             </div>
             <div class="flex gap-xs">
               <button type="button" class="btn btn-sm flashbet-settle-btn" data-fb-id="${fb.id}" data-winner="yes" style="flex: 1; background: #2ecc71; color: #000; font-weight: 700; padding: 6px;">
@@ -10101,20 +10144,36 @@ export async function openGimmeModal() {
   let customGimmeCm = 60; // Standard gimme distance: 60 cm (approx putter grip)
   let isFrozen = false;
   let verdictState = null; // 'approved' | 'denied'
+  let activeFallbackImg = null;
 
   // Betting state
-  let activeBet = null; // { mode: 'free' | 'swish', stake: 20, p1: 'Kalle', p2: 'Johan' }
+  let activeBet = null; // { mode: 'free' | 'swish', stake: 20, p1: 'Kalle', p2: 'Johan', p1Phone: '', p2Phone: '' }
   let selectedBetMode = 'free';
   let selectedStake = 20;
+  let userFriends = [];
+  let selectedFriend = null;
 
   // Auto-Vision & Lock-on state
-  let detectedHole = null; // { x, y, radius, confidence }
-  let detectedBall = null; // { x, y, radius, confidence }
+  let detectedHole = null; // { x, y, radiusPx, confidence }
+  let detectedBall = null; // { x, y, confidence, lastSeen }
   let isHoleLocked = false;
   let lockSoundPlayed = false;
   let manualBallTarget = null; // { x, y } if user manually taps screen
   let lastVisionScanTime = 0;
   let measuredDistanceCm = null;
+
+  // Cleanup helper declared before modal creation
+  const cleanup = () => {
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => t.stop());
+      videoStream = null;
+    }
+    isFrozen = true;
+  };
 
   // Hidden vision processing canvas (low resolution for 60fps performance)
   const visionCanvas = document.createElement('canvas');
@@ -10169,7 +10228,7 @@ export async function openGimmeModal() {
             ⛳️ ${isEn ? 'AR Putt Referee' : 'Live AR-Domare'}
           </div>
           <div style="font-size: 0.72rem; color: rgba(255,255,255,0.6);">
-            ${isEn ? 'Hole diameter: 10.8 cm' : 'Hålets officiella mått: 10,8 cm'}
+            ${isEn ? 'Official cup diameter: 10.8 cm' : 'Hålets officiella mått: 10,8 cm'}
           </div>
         </div>
 
@@ -10179,10 +10238,10 @@ export async function openGimmeModal() {
           </button>
           <span style="font-size: 0.75rem; color: rgba(255,255,255,0.7);">${isEn ? 'Limit:' : 'Gräns:'}</span>
           <select id="gimme-dist-select" style="background: rgba(0,0,0,0.6); color: #10b981; border: 1px solid #10b981; border-radius: 6px; padding: 2px 6px; font-size: 0.8rem; font-weight: 700; cursor: pointer;">
-            <option value="45">45 cm (Strikt)</option>
-            <option value="60" selected>60 cm (Standard)</option>
-            <option value="75">75 cm (Snäll)</option>
-            <option value="90">90 cm (Putter)</option>
+            <option value="45">${isEn ? '45 cm (Strict)' : '45 cm (Strikt)'}</option>
+            <option value="60" selected>${isEn ? '60 cm (Standard)' : '60 cm (Standard)'}</option>
+            <option value="75">${isEn ? '75 cm (Generous)' : '75 cm (Snäll)'}</option>
+            <option value="90">${isEn ? '90 cm (Putter)' : '90 cm (Putter)'}</option>
           </select>
         </div>
       </div>
@@ -10190,11 +10249,11 @@ export async function openGimmeModal() {
       <!-- Active Bet Banner (if bet is ongoing) -->
       <div id="gimme-active-bet-banner" style="display: none; background: linear-gradient(135deg, rgba(251,191,36,0.15), rgba(16,185,129,0.15)); border: 1px solid #fbbf24; border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 0.78rem; text-align: left;">
         <div class="flex justify-between items-center">
-          <span style="font-weight: 700; color: #fbbf24;" id="gimme-bet-info-header">🎯 AKTIVT BET: 50 kr</span>
+          <span style="font-weight: 700; color: #fbbf24;" id="gimme-bet-info-header">${isEn ? '🎯 ACTIVE BET: 50 kr' : '🎯 AKTIVT BET: 50 kr'}</span>
           <button type="button" id="btn-cancel-gimme-bet" style="background: none; border: none; color: rgba(255,255,255,0.5); font-size: 0.85rem; cursor: pointer;">✕</button>
         </div>
         <div style="font-size: 0.72rem; color: #fff; margin-top: 2px;" id="gimme-bet-info-players">
-          Kalle (GIMME) vs Johan (PUTT)
+          ${isEn ? 'Player 1 (Gimme) vs Player 2 (Putt)' : 'Spelare 1 (Gimme) vs Spelare 2 (Putt)'}
         </div>
       </div>
 
@@ -10233,16 +10292,25 @@ export async function openGimmeModal() {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
           <div>
             <label style="font-size: 0.72rem; color: #10b981; font-weight: 700; display: block; margin-bottom: 2px;">
-              🟢 ${isEn ? 'Tror på Gimme:' : 'Tror på Gimme:'}
+              🟢 ${isEn ? 'Claims Gimme:' : 'Tror på Gimme:'}
             </label>
-            <input type="text" id="gimme-p1-name" placeholder="Namn (t.ex. Kalle)" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #10b981; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+            <input type="text" id="gimme-p1-name" placeholder="${isEn ? 'Name (e.g. Charlie)' : 'Namn (t.ex. Kalle)'}" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #10b981; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
           </div>
           <div>
             <label style="font-size: 0.72rem; color: #ef4444; font-weight: 700; display: block; margin-bottom: 2px;">
-              🔴 ${isEn ? 'Kräver Putt:' : 'Kräver Putt:'}
+              🔴 ${isEn ? 'Demands Putt:' : 'Kräver Putt:'}
             </label>
-            <input type="text" id="gimme-p2-name" placeholder="Namn (t.ex. Johan)" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+            <input type="text" id="gimme-p2-name" placeholder="${isEn ? 'Name (e.g. Dave)' : 'Namn (t.ex. Johan)'}" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
           </div>
+        </div>
+
+        <!-- Optional Swish Phone Number & Friends Quickselect -->
+        <div id="gimme-swish-phone-wrapper" style="display: none; margin-bottom: 10px;">
+          <label style="font-size: 0.75rem; color: rgba(255,255,255,0.8); display: block; margin-bottom: 4px;">
+            ${isEn ? 'Opponent Swish number (optional):' : 'Motståndarens Swish-nummer (valfritt):'}
+          </label>
+          <input type="tel" id="gimme-swish-phone" placeholder="0701234567" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #fbbf24; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+          <div id="gimme-friends-quickselect" style="margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap;"></div>
         </div>
 
         <button type="button" class="btn btn-primary btn-sm" id="btn-start-gimme-bet" style="width: 100%; padding: 8px; font-weight: 700; font-size: 0.85rem; background: linear-gradient(135deg, #fbbf24, #d97706); border: none; color: #000;">
@@ -10278,9 +10346,9 @@ export async function openGimmeModal() {
         <div id="gimme-hud-guide" style="position: absolute; bottom: 8px; left: 10px; right: 10px; background: rgba(0,0,0,0.78); backdrop-filter: blur(8px); border-radius: 8px; padding: 6px 10px; font-size: 0.75rem; color: #fff; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,0.15); pointer-events: none;">
           <div class="flex items-center gap-xs">
             <span id="gimme-hud-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 8px #fbbf24; animation: pulse 1.5s infinite;"></span>
-            <span id="gimme-hud-text" style="font-weight: 600;">🔍 Söker hål & boll...</span>
+            <span id="gimme-hud-text" style="font-weight: 600;">${isEn ? '🔍 Searching cup & ball...' : '🔍 Söker hål & boll...'}</span>
           </div>
-          <span style="font-weight: 700; color: #10b981;" id="gimme-hud-radius">60 cm</span>
+          <span style="font-weight: 700; color: #10b981;" id="gimme-hud-radius">${customGimmeCm} cm</span>
         </div>
 
         <!-- Stamp Verdict Overlay (Shows when judged) -->
@@ -10288,18 +10356,16 @@ export async function openGimmeModal() {
           <div id="gimme-verdict-stamp" style="border: 4px solid #10b981; border-radius: 12px; padding: 12px 20px; font-size: 1.6rem; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; transform: rotate(-6deg); box-shadow: 0 0 30px rgba(0,0,0,0.8); margin-bottom: 12px;">
             GIMME! 🏆
           </div>
-          <div id="gimme-verdict-comment" style="font-size: 0.88rem; font-weight: 600; color: #fff; max-width: 280px; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.8); margin-bottom: 16px;">
+          <div id="gimme-verdict-comment" style="font-size: 0.88rem; font-weight: 600; color: #fff; max-width: 280px; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.8); margin-bottom: 16px;"></div>
+
           <!-- Bet Outcome Box (if bet was active) -->
           <div id="gimme-bet-payout-box" style="display: none; background: rgba(0,0,0,0.85); border: 2px solid #fbbf24; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; width: 100%; max-width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,0.7);">
-            <div style="font-weight: 800; font-size: 0.95rem; color: #fbbf24; margin-bottom: 4px;" id="gimme-bet-winner-text">
-              👑 Kalle vann 100 kr!
-            </div>
-            <div style="font-size: 0.78rem; color: rgba(255,255,255,0.85); margin-bottom: 8px;" id="gimme-bet-loser-text">
-              Johan ska swisha Kalle
-            </div>
+            <div style="font-weight: 800; font-size: 0.95rem; color: #fbbf24; margin-bottom: 4px;" id="gimme-bet-winner-text"></div>
+            <div style="font-size: 0.78rem; color: rgba(255,255,255,0.85); margin-bottom: 8px;" id="gimme-bet-loser-text"></div>
             <a href="#" id="gimme-bet-swish-link" target="_blank" class="btn btn-success btn-sm" style="display: none; width: 100%; font-size: 0.85rem; font-weight: 700; text-decoration: none; padding: 6px 0; background: #00d26a; border: none; color: #fff;">
-              📱 Swisha vinnaren direkt
+              📱 ${isEn ? 'Swish Winner Directly' : 'Swisha vinnaren direkt'}
             </a>
+            <div id="gimme-bet-swish-fallback" style="display: none; font-size: 0.75rem; color: #fbbf24; background: rgba(251,191,36,0.1); border: 1px dashed #fbbf24; border-radius: 6px; padding: 6px; margin-top: 4px;"></div>
           </div>
 
           <div class="flex gap-xs">
@@ -10315,23 +10381,34 @@ export async function openGimmeModal() {
       </div>
 
       <!-- Quick Action Bar -->
-      <div class="mt-md flex gap-sm justify-center">
-        <button type="button" class="btn btn-success" id="btn-gimme-judge-yes" style="flex: 1; padding: 14px 10px; font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
-          🟢 ${isEn ? 'YES - GIMME! 🏆' : 'JA - GIMME! 🏆'}
+      <div class="mt-md flex flex-col gap-xs items-center">
+        <button type="button" class="btn btn-primary" id="btn-gimme-judge-auto" style="width: 100%; padding: 14px 10px; font-size: 1.05rem; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          ⚖️ ${isEn ? 'JUDGE WITH AR' : 'DÖM MED AR'}
         </button>
-        <button type="button" class="btn btn-danger" id="btn-gimme-judge-no" style="flex: 1; padding: 14px 10px; font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, #ef4444, #b91c1c); border: none; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);">
-          🔴 ${isEn ? 'NO - PUTT IT! 🏌️‍♂️' : 'NEJ - PUTTA! 🏌️‍♂️'}
+
+        <button type="button" id="btn-gimme-override-toggle" style="background: none; border: none; color: rgba(255,255,255,0.5); font-size: 0.72rem; cursor: pointer; text-decoration: underline; margin-top: 4px;">
+          ⚙️ ${isEn ? 'Manual Override (if camera angle fails)' : 'Manuell överstyrning (om vinkeln trilskas)'}
         </button>
+
+        <div id="gimme-manual-override-box" style="display: none; width: 100%; gap: 8px; margin-top: 6px;">
+          <button type="button" class="btn btn-success btn-sm" id="btn-gimme-judge-yes" style="flex: 1; padding: 8px; font-size: 0.85rem; font-weight: 700; background: rgba(16,185,129,0.25); border: 1px solid #10b981; color: #10b981;">
+            🟢 ${isEn ? 'Force YES (Gimme)' : 'Tvinga JA (Gimme)'}
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" id="btn-gimme-judge-no" style="flex: 1; padding: 8px; font-size: 0.85rem; font-weight: 700; background: rgba(239,68,68,0.25); border: 1px solid #ef4444; color: #ef4444;">
+            🔴 ${isEn ? 'Force NO (Putt)' : 'Tvinga NEJ (Putta)'}
+          </button>
+        </div>
       </div>
 
-      <div style="font-size: 0.72rem; color: rgba(255,255,255,0.45); margin-top: 10px;">
-        💡 ${isEn ? 'Hole is exactly 10.8 cm. Hold phone above the cup to calibrate scale.' : 'Golfhålet är alltid 10,8 cm. Håll mobilen över koppen för automatisk skala.'}
+      <div style="font-size: 0.72rem; color: rgba(255,255,255,0.5); margin-top: 10px;">
+        💡 ${isEn ? 'Official cup diameter is 10.8 cm. Hold phone 1–1.5m straight above cup for AR scale.' : 'Golfhålets officiella mått är 10,8 cm. Håll mobilen 1–1,5m rakt ovanför koppen för AR-skala.'}
       </div>
 
     </div>
   `;
 
-  const { close, root, setBusy } = showModal(modalTitle, contentHtml);
+  // Fix 2: Pass cleanup as 3rd parameter to showModal so every close route frees camera/animation
+  const { close, root, setBusy } = showModal(modalTitle, contentHtml, cleanup);
   setBusy(() => activeBet !== null);
 
   const videoEl = root.querySelector('#gimme-video');
@@ -10342,6 +10419,9 @@ export async function openGimmeModal() {
   const verdictOverlay = root.querySelector('#gimme-verdict-overlay');
   const verdictStamp = root.querySelector('#gimme-verdict-stamp');
   const verdictComment = root.querySelector('#gimme-verdict-comment');
+  const btnJudgeAuto = root.querySelector('#btn-gimme-judge-auto');
+  const btnOverrideToggle = root.querySelector('#btn-gimme-override-toggle');
+  const overrideBox = root.querySelector('#gimme-manual-override-box');
   const btnJudgeYes = root.querySelector('#btn-gimme-judge-yes');
   const btnJudgeNo = root.querySelector('#btn-gimme-judge-no');
   const btnRetake = root.querySelector('#btn-gimme-retake');
@@ -10358,6 +10438,8 @@ export async function openGimmeModal() {
   const btnModeFree = root.querySelector('#btn-gimme-mode-free');
   const btnModeSwish = root.querySelector('#btn-gimme-mode-swish');
   const stakeWrapper = root.querySelector('#gimme-stake-wrapper');
+  const swishPhoneWrapper = root.querySelector('#gimme-swish-phone-wrapper');
+  const swishPhoneInput = root.querySelector('#gimme-swish-phone');
   const p1Input = root.querySelector('#gimme-p1-name');
   const p2Input = root.querySelector('#gimme-p2-name');
   const btnStartBet = root.querySelector('#btn-start-gimme-bet');
@@ -10365,11 +10447,47 @@ export async function openGimmeModal() {
   const betWinnerText = root.querySelector('#gimme-bet-winner-text');
   const betLoserText = root.querySelector('#gimme-bet-loser-text');
   const betSwishLink = root.querySelector('#gimme-bet-swish-link');
+  const betSwishFallback = root.querySelector('#gimme-bet-swish-fallback');
 
   // Pre-fill user nickname if available
   const currentUser = getStoredUser();
   if (currentUser?.nickname && p1Input) {
     p1Input.value = currentUser.nickname;
+  }
+
+  // Load friends for Swish mode
+  getFriends().then(friends => {
+    userFriends = friends || [];
+    renderFriendChips();
+  }).catch(() => {
+    userFriends = [];
+  });
+
+  function renderFriendChips() {
+    const container = root.querySelector('#gimme-friends-quickselect');
+    if (!container || userFriends.length === 0) return;
+    container.innerHTML = `
+      <div style="width: 100%; font-size: 0.7rem; color: rgba(255,255,255,0.6); margin-bottom: 2px;">
+        ${isEn ? 'Quick-pick friend:' : 'Välj vän snabbt:'}
+      </div>
+      ${userFriends.slice(0, 6).map(f => `
+        <button type="button" class="btn btn-secondary btn-sm gimme-friend-chip" data-id="${f.id}" style="font-size: 0.72rem; padding: 2px 6px; border-radius: 10px;">
+          ${escapeHtml(f.nickname)}
+        </button>
+      `).join('')}
+    `;
+    container.querySelectorAll('.gimme-friend-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const id = chip.dataset.id;
+        selectedFriend = userFriends.find(f => String(f.id) === String(id));
+        if (selectedFriend) {
+          if (p2Input) p2Input.value = selectedFriend.nickname;
+          if (swishPhoneInput && selectedFriend.swishNumber) {
+            swishPhoneInput.value = selectedFriend.swishNumber;
+          }
+        }
+      });
+    });
   }
 
   // Toggle Betting Drawer
@@ -10391,6 +10509,7 @@ export async function openGimmeModal() {
     btnModeSwish.style.borderColor = 'var(--border-glass)';
     btnModeSwish.style.color = '#fff';
     if (stakeWrapper) stakeWrapper.style.display = 'none';
+    if (swishPhoneWrapper) swishPhoneWrapper.style.display = 'none';
   });
 
   btnModeSwish?.addEventListener('click', () => {
@@ -10402,6 +10521,7 @@ export async function openGimmeModal() {
     btnModeFree.style.borderColor = 'var(--border-glass)';
     btnModeFree.style.color = '#fff';
     if (stakeWrapper) stakeWrapper.style.display = 'block';
+    if (swishPhoneWrapper) swishPhoneWrapper.style.display = 'block';
   });
 
   // Stake Buttons
@@ -10423,12 +10543,17 @@ export async function openGimmeModal() {
   btnStartBet?.addEventListener('click', () => {
     const p1 = (p1Input?.value || '').trim() || (isEn ? 'Player 1' : 'Spelare 1');
     const p2 = (p2Input?.value || '').trim() || (isEn ? 'Player 2' : 'Spelare 2');
+    const customPhone = (swishPhoneInput?.value || '').trim();
+    const p1Phone = currentUser?.swishNumber || '';
+    const p2Phone = customPhone || selectedFriend?.swishNumber || '';
 
     activeBet = {
       mode: selectedBetMode,
       stake: selectedBetMode === 'swish' ? selectedStake : 0,
       p1, // believes GIMME
-      p2  // demands PUTT
+      p2, // demands PUTT
+      p1Phone,
+      p2Phone
     };
 
     if (betDrawer) betDrawer.style.display = 'none';
@@ -10436,8 +10561,8 @@ export async function openGimmeModal() {
       activeBetBanner.style.display = 'block';
       if (betInfoHeader) {
         betInfoHeader.textContent = activeBet.mode === 'swish'
-          ? `🎯 AKTIVT BET: ${activeBet.stake} kr (Pott: ${activeBet.stake * 2} kr)`
-          : `🎯 AKTIVT BET: ÄRAN & SKRYT! 🪙`;
+          ? (isEn ? `🎯 ACTIVE BET: ${activeBet.stake} kr (Pot: ${activeBet.stake * 2} kr)` : `🎯 AKTIVT BET: ${activeBet.stake} kr (Pott: ${activeBet.stake * 2} kr)`)
+          : (isEn ? `🎯 ACTIVE BET: BRAGGING RIGHTS! 🪙` : `🎯 AKTIVT BET: ÄRAN & SKRYT! 🪙`);
       }
       if (betInfoPlayers) {
         betInfoPlayers.textContent = `🟢 ${p1} (Gimme) vs 🔴 ${p2} (Putt)`;
@@ -10478,18 +10603,20 @@ export async function openGimmeModal() {
     } catch (_) {}
   }
 
-  // Vision Scan Function (Runs every ~120ms to save battery and keep 60fps)
-  function processVisionFrame(video, width, height) {
-    if (!video || video.readyState < 2) return;
+  // Vision Scan Function (Runs every ~100ms to save battery and keep 60fps)
+  // Supports both HTMLVideoElement and HTMLImageElement
+  function processVisionFrame(sourceEl, width, height) {
+    if (!sourceEl) return;
+    if (sourceEl instanceof HTMLVideoElement && sourceEl.readyState < 2) return;
     const vW = visionCanvas.width;
     const vH = visionCanvas.height;
 
     try {
-      visionCtx.drawImage(video, 0, 0, vW, vH);
+      visionCtx.drawImage(sourceEl, 0, 0, vW, vH);
       const imgData = visionCtx.getImageData(0, 0, vW, vH);
       const data = imgData.data;
 
-      // 1. Detect Hole (find darkest circular cluster with highest contrast against surroundings)
+      // 1. Detect Hole (find darkest circular cluster with true perimeter contrast)
       let minBrightness = 255;
       let darkX = -1;
       let darkY = -1;
@@ -10509,16 +10636,22 @@ export async function openGimmeModal() {
           const brightness = (r * 0.299 + g * 0.587 + b * 0.114);
 
           // Check for dark hole candidate
-          // Hole is dark, non-green, with darker center than 10px radius perimeter
-          if (brightness < minBrightness && brightness < 75) {
-            // Sample perimeter 8px away to ensure it is a circular shadow/hole
-            const p1Idx = ((y - 8) * vW + x) * 4;
-            const p2Idx = ((y + 8) * vW + x) * 4;
-            const p3Idx = (y * vW + (x - 8)) * 4;
-            const p4Idx = (y * vW + (x + 8)) * 4;
-            const avgPerim = ((data[p1Idx] + data[p2Idx] + data[p3Idx] + data[p4Idx]) / 4);
-
-            if (avgPerim - brightness > 30) {
+          // Hole is dark, non-green, with darker center than 8px perimeter
+          if (brightness < minBrightness && brightness < 70) {
+            let perimSum = 0;
+            let sampleCount = 0;
+            const offsets = [[-8, 0], [8, 0], [0, -8], [0, 8], [-6, -6], [6, 6], [-6, 6], [6, -6]];
+            for (const [dx, dy] of offsets) {
+              const px = x + dx;
+              const py = y + dy;
+              if (px >= 0 && px < vW && py >= 0 && py < vH) {
+                const pIdx = (py * vW + px) * 4;
+                perimSum += data[pIdx] * 0.299 + data[pIdx + 1] * 0.587 + data[pIdx + 2] * 0.114;
+                sampleCount++;
+              }
+            }
+            const avgPerim = sampleCount > 0 ? perimSum / sampleCount : 0;
+            if (avgPerim - brightness > 25) {
               minBrightness = brightness;
               darkX = x;
               darkY = y;
@@ -10549,12 +10682,36 @@ export async function openGimmeModal() {
         const targetScreenX = darkX * scaleX;
         const targetScreenY = darkY * scaleY;
 
+        // Measure actual cup radius in canvas coordinates
+        let sumRadius = 0;
+        let validAxes = 0;
+        const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (const [stepX, stepY] of directions) {
+          let step = 1;
+          while (step < 35) {
+            const sx = darkX + step * stepX;
+            const sy = darkY + step * stepY;
+            if (sx < 0 || sx >= vW || sy < 0 || sy >= vH) break;
+            const sIdx = (sy * vW + sx) * 4;
+            const sBright = data[sIdx] * 0.299 + data[sIdx + 1] * 0.587 + data[sIdx + 2] * 0.114;
+            if (sBright > minBrightness + 25 || sBright > 85) {
+              sumRadius += step;
+              validAxes++;
+              break;
+            }
+            step++;
+          }
+        }
+        const detectedHoleRadiusCanvas = validAxes >= 2 ? (sumRadius / validAxes) : 10;
+        const screenRadius = Math.max(12, detectedHoleRadiusCanvas * ((scaleX + scaleY) / 2));
+
         if (!detectedHole) {
-          detectedHole = { x: targetScreenX, y: targetScreenY, confidence: 1 };
+          detectedHole = { x: targetScreenX, y: targetScreenY, radiusPx: screenRadius, confidence: 1 };
         } else {
           // Smooth lerp movement towards locked target
           detectedHole.x += (targetScreenX - detectedHole.x) * 0.25;
           detectedHole.y += (targetScreenY - detectedHole.y) * 0.25;
+          detectedHole.radiusPx += (screenRadius - detectedHole.radiusPx) * 0.2;
           detectedHole.confidence = Math.min(10, (detectedHole.confidence || 0) + 1);
         }
         isHoleLocked = detectedHole.confidence >= 3;
@@ -10570,6 +10727,7 @@ export async function openGimmeModal() {
       }
 
       // Ball candidate mapping (only if reasonably separated from hole)
+      const holeCenterDistanceThreshold = detectedHole?.radiusPx ? (detectedHole.radiusPx + 10) : 35;
       if (ballCandX > 0 && ballCandY > 0) {
         const screenBallX = ballCandX * scaleX;
         const screenBallY = ballCandY * scaleY;
@@ -10577,12 +10735,21 @@ export async function openGimmeModal() {
         const holeY = detectedHole ? detectedHole.y : height / 2;
         const distFromHole = Math.hypot(screenBallX - holeX, screenBallY - holeY);
 
-        if (distFromHole > 35) { // Must not be inside hole itself
+        if (distFromHole > holeCenterDistanceThreshold) { // Must not be inside hole itself
           if (!detectedBall) {
-            detectedBall = { x: screenBallX, y: screenBallY };
+            detectedBall = { x: screenBallX, y: screenBallY, confidence: 1 };
           } else {
             detectedBall.x += (screenBallX - detectedBall.x) * 0.3;
             detectedBall.y += (screenBallY - detectedBall.y) * 0.3;
+            detectedBall.confidence = Math.min(10, (detectedBall.confidence || 0) + 1);
+          }
+        }
+      } else {
+        // Fix 7: Decay detected ball when no candidate is seen
+        if (detectedBall) {
+          detectedBall.confidence = (detectedBall.confidence || 1) - 0.5;
+          if (detectedBall.confidence <= 0) {
+            detectedBall = null;
           }
         }
       }
@@ -10604,11 +10771,15 @@ export async function openGimmeModal() {
 
       ctx.clearRect(0, 0, w, h);
 
-      // Run computer vision scan every 100ms
+      // Run computer vision scan every ~100ms
       const now = performance.now();
-      if (now - lastVisionScanTime > 100 && videoEl && videoEl.videoWidth > 0) {
+      if (now - lastVisionScanTime > 100) {
         lastVisionScanTime = now;
-        processVisionFrame(videoEl, w, h);
+        if (videoEl && videoEl.videoWidth > 0 && videoEl.style.display !== 'none') {
+          processVisionFrame(videoEl, w, h);
+        } else if (activeFallbackImg) {
+          processVisionFrame(activeFallbackImg, w, h);
+        }
       }
 
       // Determine Hole Center: Either auto-locked hole position or screen center fallback
@@ -10617,9 +10788,12 @@ export async function openGimmeModal() {
       const holeX = (detectedHole && isHoleLocked) ? detectedHole.x : defaultCenterX;
       const holeY = (detectedHole && isHoleLocked) ? detectedHole.y : defaultCenterY;
 
-      // Visual scale: calibrate hole radius to ~28px on mobile screen (compact to fit full 60cm gimme ring!)
-      const holeRadiusPx = Math.min(w, h) * 0.085; // ~30px
-      // 1 cm = holeRadiusPx / (10.8 / 2) px
+      // Fix 3: Physical scale calibration based on standard 10.8 cm hole (5.4 cm radius)
+      // When locked, derive pxPerCm dynamically from the measured hole radius.
+      const fallbackRadiusPx = Math.min(w, h) * 0.085;
+      const holeRadiusPx = (detectedHole && isHoleLocked && detectedHole.radiusPx >= 12)
+        ? detectedHole.radiusPx
+        : fallbackRadiusPx;
       const pxPerCm = holeRadiusPx / 5.4;
       const gimmeRadiusPx = customGimmeCm * pxPerCm;
 
@@ -10633,7 +10807,7 @@ export async function openGimmeModal() {
         if (isHoleLocked) {
           hudDot.style.background = '#10b981';
           hudDot.style.boxShadow = '0 0 10px #10b981';
-          hudText.textContent = isEn ? '🔒 HOLE LOCKED-ON (10.8 cm)' : '🔒 HÅL LÅST (10,8 cm)';
+          hudText.textContent = isEn ? '🔒 CUP CALIBRATED (10.8 cm)' : '🔒 HÅL KALIBRERAT (10,8 cm)';
           if (!lockSoundPlayed) {
             playTone(880, 'sine', 0.08, 0.08);
             lockSoundPlayed = true;
@@ -10641,7 +10815,7 @@ export async function openGimmeModal() {
         } else {
           hudDot.style.background = '#fbbf24';
           hudDot.style.boxShadow = '0 0 8px #fbbf24';
-          hudText.textContent = isEn ? '🔍 Aim circle over hole...' : '🔍 Passa in hålet i siktet...';
+          hudText.textContent = isEn ? '🔍 Aim circle over cup (10.8 cm)...' : '🔍 Passa in hålet i siktet (10,8 cm)...';
         }
       }
 
@@ -10715,19 +10889,22 @@ export async function openGimmeModal() {
       ctx.font = 'bold 10px system-ui, sans-serif';
       ctx.fillStyle = isHoleLocked ? '#10b981' : '#fbbf24';
       ctx.textAlign = 'center';
-      ctx.fillText(isHoleLocked ? '🔒 HÅL (10.8 cm)' : 'HÅL (10.8 cm)', holeX, holeY - holeRadiusPx - 10);
+      ctx.fillText(isHoleLocked 
+        ? (isEn ? '🔒 CUP (10.8 cm)' : '🔒 HÅL (10,8 cm)') 
+        : (isEn ? 'CUP (10.8 cm)' : 'HÅL (10,8 cm)'), 
+        holeX, holeY - holeRadiusPx - 10);
 
       // Label on gimme ring
       ctx.font = 'bold 11px system-ui, sans-serif';
       ctx.fillStyle = '#10b981';
-      ctx.fillText(`🟢 GIMME ZON (${customGimmeCm} cm)`, holeX, holeY + gimmeRadiusPx + 15);
+      ctx.fillText(isEn ? `🟢 GIMME ZONE (${customGimmeCm} cm)` : `🟢 GIMME ZON (${customGimmeCm} cm)`, holeX, holeY + gimmeRadiusPx + 15);
       ctx.restore();
 
       // 3. Draw Ball Target & Realtime Connecting Laser (Auto-detected or Manual Tap)
       const activeBall = manualBallTarget || detectedBall;
       if (activeBall) {
         const ballDistPx = Math.hypot(activeBall.x - holeX, activeBall.y - holeY);
-        // Distance in cm (minus hole radius to measure to cup rim)
+        // Distance in cm (minus hole radius to measure from cup rim to ball center)
         const distCm = Math.max(0, Math.round((ballDistPx - holeRadiusPx) / pxPerCm));
         measuredDistanceCm = distCm;
         const isWithinGimme = distCm <= customGimmeCm;
@@ -10772,7 +10949,7 @@ export async function openGimmeModal() {
         ctx.font = 'bold 9px system-ui, sans-serif';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
-        ctx.fillText('⚪️ BOLL', activeBall.x, activeBall.y - 18);
+        ctx.fillText(isEn ? '⚪️ BALL' : '⚪️ BOLL', activeBall.x, activeBall.y - 18);
         ctx.restore();
       }
     }
@@ -10814,33 +10991,78 @@ export async function openGimmeModal() {
         betPayoutBox.style.display = 'block';
         const winner = approved ? activeBet.p1 : activeBet.p2;
         const loser = approved ? activeBet.p2 : activeBet.p1;
+        const winnerPhone = approved ? activeBet.p1Phone : activeBet.p2Phone;
 
         if (activeBet.mode === 'swish' && activeBet.stake > 0) {
           const totalPot = activeBet.stake * 2;
-          betWinnerText.innerHTML = `👑 <strong>${escapeHtml(winner)}</strong> vann ${totalPot} kr! 🎉`;
-          betLoserText.innerHTML = `${escapeHtml(loser)} swishar ${activeBet.stake} kr till ${escapeHtml(winner)}`;
+          betWinnerText.innerHTML = isEn 
+            ? `👑 <strong>${escapeHtml(winner)}</strong> won ${totalPot} kr! 🎉` 
+            : `👑 <strong>${escapeHtml(winner)}</strong> vann ${totalPot} kr! 🎉`;
+          betLoserText.innerHTML = isEn
+            ? `${escapeHtml(loser)} pays ${activeBet.stake} kr to ${escapeHtml(winner)}`
+            : `${escapeHtml(loser)} swishar ${activeBet.stake} kr till ${escapeHtml(winner)}`;
 
-          if (betSwishLink) {
-            // Find winner's phone if it's the current user or in friends
-            betSwishLink.style.display = 'block';
-            betSwishLink.textContent = `📱 Swisha ${escapeHtml(winner)} (${activeBet.stake} kr)`;
-            const swishUrl = createSwishUrl({
-              phone: '',
-              amount: activeBet.stake,
-              message: `BetPals Gimme Bet (${winner} vann!)`
-            });
-            betSwishLink.href = swishUrl;
+          if (winnerPhone) {
+            if (betSwishLink) {
+              betSwishLink.style.display = 'block';
+              betSwishLink.textContent = isEn 
+                ? `📱 Swish ${escapeHtml(winner)} (${activeBet.stake} kr)` 
+                : `📱 Swisha ${escapeHtml(winner)} (${activeBet.stake} kr)`;
+              const swishUrl = createSwishUrl({
+                phone: winnerPhone,
+                amount: activeBet.stake,
+                message: `BetPals Gimme (${winner} ${isEn ? 'won' : 'vann'})`
+              });
+              betSwishLink.href = swishUrl;
+            }
+            if (betSwishFallback) betSwishFallback.style.display = 'none';
+          } else {
+            // Fix 4: No dead '#' link!
+            if (betSwishLink) betSwishLink.style.display = 'none';
+            if (betSwishFallback) {
+              betSwishFallback.style.display = 'block';
+              betSwishFallback.innerHTML = isEn
+                ? `📱 <strong>Swish winner manually:</strong> Send <strong>${activeBet.stake} kr</strong> to <strong>${escapeHtml(winner)}</strong> (no saved phone number).`
+                : `📱 <strong>Swisha manuellt:</strong> Skicka <strong>${activeBet.stake} kr</strong> till <strong>${escapeHtml(winner)}</strong> (inget sparat telefonnummer).`;
+            }
           }
         } else {
-          betWinnerText.innerHTML = `👑 <strong>${escapeHtml(winner)}</strong> vann bettet! 🏆`;
-          betLoserText.innerHTML = `${escapeHtml(loser)} får bjuda på skryträtten! 😉`;
+          betWinnerText.innerHTML = isEn
+            ? `👑 <strong>${escapeHtml(winner)}</strong> won the bet! 🏆`
+            : `👑 <strong>${escapeHtml(winner)}</strong> vann bettet! 🏆`;
+          betLoserText.innerHTML = isEn
+            ? `${escapeHtml(loser)} yields bragging rights! 😉`
+            : `${escapeHtml(loser)} får bjuda på skryträtten! 😉`;
           if (betSwishLink) betSwishLink.style.display = 'none';
+          if (betSwishFallback) betSwishFallback.style.display = 'none';
         }
       } else if (betPayoutBox) {
         betPayoutBox.style.display = 'none';
       }
     }
   }
+
+  // Fix 5: Automatic AR Judge action
+  btnJudgeAuto?.addEventListener('click', () => {
+    const activeBall = manualBallTarget || detectedBall;
+    if (!activeBall) {
+      showToast(isEn ? '⚪️ Tap screen to place the ball first!' : '⚪️ Tryck på skärmen för att markera bollen först!', 'warning');
+      return;
+    }
+    if (measuredDistanceCm === null) {
+      showToast(isEn ? 'Calculating distance...' : 'Beräknar avstånd...', 'info');
+      return;
+    }
+    const isApproved = measuredDistanceCm <= customGimmeCm;
+    applyVerdict(isApproved);
+  });
+
+  // Manual override toggle & buttons
+  btnOverrideToggle?.addEventListener('click', () => {
+    if (overrideBox) {
+      overrideBox.style.display = overrideBox.style.display === 'none' ? 'flex' : 'none';
+    }
+  });
 
   btnJudgeYes?.addEventListener('click', () => applyVerdict(true));
   btnJudgeNo?.addEventListener('click', () => applyVerdict(false));
@@ -10867,18 +11089,27 @@ export async function openGimmeModal() {
     showToast(isEn ? '⚪️ Ball target placed!' : '⚪️ Bollpunkt markerad!', 'info');
   });
 
+  // Fix 8: Localized clipboard share text
   btnShare?.addEventListener('click', () => {
     const isApproved = verdictState === 'approved';
     let text = isApproved 
-      ? `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (< ${customGimmeCm}cm)! 🏆\nPlocka upp bollen!`
-      : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${customGimmeCm}cm)! 😈\nPutta din fegis!`;
+      ? (isEn 
+          ? `⛳️ BetPals Gimme Referee: Ball is APPROVED as Gimme (< ${customGimmeCm} cm)! 🏆\nPick up the ball!`
+          : `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (< ${customGimmeCm} cm)! 🏆\nPlocka upp bollen!`)
+      : (isEn
+          ? `⛳️ BetPals Gimme Referee: NOT A GIMME (> ${customGimmeCm} cm)! 😈\nPutt it, coward!`
+          : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${customGimmeCm} cm)! 😈\nPutta din fegis!`);
     
     if (activeBet) {
       const winner = isApproved ? activeBet.p1 : activeBet.p2;
       const loser = isApproved ? activeBet.p2 : activeBet.p1;
       text += activeBet.mode === 'swish'
-        ? `\n💰 BET RESULTAT: ${winner} vann ${activeBet.stake * 2} kr! (${loser} ska swisha ${activeBet.stake} kr)`
-        : `\n🏆 BET RESULTAT: ${winner} krossade ${loser} i prestige-bettet!`;
+        ? (isEn 
+            ? `\n💰 BET RESULT: ${winner} won ${activeBet.stake * 2} kr! (${loser} sends ${activeBet.stake} kr via Swish)`
+            : `\n💰 BET RESULTAT: ${winner} vann ${activeBet.stake * 2} kr! (${loser} ska swisha ${activeBet.stake} kr)`)
+        : (isEn
+            ? `\n🏆 BET RESULT: ${winner} beat ${loser} for bragging rights!`
+            : `\n🏆 BET RESULTAT: ${winner} krossade ${loser} i prestige-bettet!`);
     }
 
     navigator.clipboard?.writeText(text).then(() => {
@@ -10914,42 +11145,36 @@ export async function openGimmeModal() {
     }
   }
 
-  // Fallback image capture
+  // Fix 6: Fallback image capture with actual vision processing
   fileInput?.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (file) {
       const imgUrl = URL.createObjectURL(file);
-      if (videoEl) {
-        videoEl.style.display = 'none';
-        const img = new Image();
-        img.src = imgUrl;
-        img.onload = () => {
-          const wrapper = root.querySelector('#gimme-viewport-wrapper');
-          if (wrapper) {
-            wrapper.style.backgroundImage = `url(${imgUrl})`;
-            wrapper.style.backgroundSize = 'cover';
-            wrapper.style.backgroundPosition = 'center';
-          }
-          if (camFallback) camFallback.style.display = 'none';
-          renderARFrame();
-        };
-      }
+      const img = new Image();
+      img.src = imgUrl;
+      img.onload = () => {
+        activeFallbackImg = img;
+        if (videoEl) videoEl.style.display = 'none';
+        const wrapper = root.querySelector('#gimme-viewport-wrapper');
+        if (wrapper) {
+          wrapper.style.backgroundImage = `url(${imgUrl})`;
+          wrapper.style.backgroundSize = 'cover';
+          wrapper.style.backgroundPosition = 'center';
+        }
+        if (camFallback) camFallback.style.display = 'none';
+        const curW = canvasEl?.clientWidth || 360;
+        const curH = canvasEl?.clientHeight || 380;
+        processVisionFrame(img, curW, curH);
+        renderARFrame();
+      };
     }
   });
 
   // Initialize camera
   initCamera();
 
-  // Clean up video stream when modal closes
-  const origClose = close;
-  const cleanup = () => {
-    if (animFrameId) cancelAnimationFrame(animFrameId);
-    if (videoStream) {
-      videoStream.getTracks().forEach(t => t.stop());
-      videoStream = null;
-    }
-  };
-
-  root.querySelector('.modal-close-btn')?.addEventListener('click', cleanup);
+  // Root listeners as additional defense-in-depth
+  root.querySelector('.modal-close')?.addEventListener('click', cleanup);
+  root.querySelector('#modal-close-btn')?.addEventListener('click', cleanup);
   root.addEventListener('modal-closed', cleanup);
 }

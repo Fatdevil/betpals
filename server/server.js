@@ -35,6 +35,26 @@ const partyCodeToId = new Map();// 4-char code → partyId
 const liveClients = new Map();  // liveId → Set<ws>
 const activeFlashLiveStreams = new Map(); // liveId → stream object { id, hostId, hostName, question, expiresAt, targetUserIds, flashBetId }
 
+// Hydrate active streams from database on startup
+try {
+  const dbActiveStreams = db.getActiveFlashLiveStreams ? db.getActiveFlashLiveStreams() : [];
+  for (const s of dbActiveStreams) {
+    activeFlashLiveStreams.set(s.id, s);
+  }
+} catch (e) {
+  console.warn('Could not restore active flash live streams from DB:', e);
+}
+
+function updateLiveViewerCount(liveId) {
+  if (!liveId) return;
+  const count = liveClients.get(liveId)?.size || 0;
+  broadcastToLive(liveId, {
+    type: 'live_viewer_count',
+    liveId,
+    viewerCount: Math.max(1, count)
+  });
+}
+
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const eventCode = url.searchParams.get('event');
@@ -57,6 +77,7 @@ wss.on('connection', (ws, req) => {
       subscribedLives.add(lId);
       if (!liveClients.has(lId)) liveClients.set(lId, new Set());
       liveClients.get(lId).add(ws);
+      updateLiveViewerCount(lId);
       return true;
     }
     return false;
@@ -136,6 +157,7 @@ wss.on('connection', (ws, req) => {
         subscribedLives.delete(msg.liveId);
         liveClients.get(msg.liveId)?.delete(ws);
         if (liveClients.get(msg.liveId)?.size === 0) liveClients.delete(msg.liveId);
+        updateLiveViewerCount(msg.liveId);
       } else if ((msg.type === 'join_duel' || msg.action === 'join_duel') && (msg.duelId || msg.id)) {
         const dId = msg.duelId || msg.id;
         tryJoinDuel(dId);
@@ -196,6 +218,11 @@ wss.on('connection', (ws, req) => {
       } else if (msg.type === 'live_comment' && (msg.tournamentCode || msg.liveId) && msg.text) {
         const cleanText = String(msg.text).slice(0, 140).trim();
         if (cleanText && boundUserId) {
+          if (msg.liveId) {
+            const session = activeFlashLiveStreams.get(msg.liveId);
+            const isAllowed = session && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)));
+            if (!isAllowed) return;
+          }
           const authUser = db.getUserById(boundUserId);
           const payload = {
             type: 'live_comment_received',
@@ -210,7 +237,12 @@ wss.on('connection', (ws, req) => {
           if (msg.liveId) broadcastToLive(msg.liveId, payload);
           if (msg.tournamentCode) broadcastToEvent(msg.tournamentCode, payload);
         }
-      } else if (msg.type === 'live_reaction' && (msg.tournamentCode || msg.liveId) && msg.emoji) {
+      } else if (msg.type === 'live_reaction' && (msg.tournamentCode || msg.liveId) && msg.emoji && boundUserId) {
+        if (msg.liveId) {
+          const session = activeFlashLiveStreams.get(msg.liveId);
+          const isAllowed = session && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)));
+          if (!isAllowed) return;
+        }
         const payload = {
           type: 'live_reaction_received',
           tournamentCode: msg.tournamentCode || null,
@@ -219,6 +251,22 @@ wss.on('connection', (ws, req) => {
         };
         if (msg.liveId) broadcastToLive(msg.liveId, payload);
         if (msg.tournamentCode) broadcastToEvent(msg.tournamentCode, payload);
+      } else if (msg.type === 'webrtc_viewer_join' && msg.liveId && boundUserId) {
+        const session = activeFlashLiveStreams.get(msg.liveId);
+        if (session && session.hostId) {
+          broadcastToUser(session.hostId, {
+            type: 'webrtc_viewer_join',
+            liveId: msg.liveId,
+            viewerId: boundUserId
+          });
+        }
+      } else if (msg.type === 'webrtc_signal' && msg.liveId && msg.targetUserId && boundUserId) {
+        broadcastToUser(msg.targetUserId, {
+          type: 'webrtc_signal',
+          liveId: msg.liveId,
+          fromUserId: boundUserId,
+          signal: msg.signal
+        });
       }
     } catch (e) {}
   });
@@ -227,6 +275,7 @@ wss.on('connection', (ws, req) => {
     for (const lId of subscribedLives) {
       liveClients.get(lId)?.delete(ws);
       if (liveClients.get(lId)?.size === 0) liveClients.delete(lId);
+      updateLiveViewerCount(lId);
     }
     subscribedLives.clear();
 
@@ -513,7 +562,7 @@ app.post('/api/admin/users/:id/reset-pin', (req, res) => {
   clearAdminAttempts(ip);
   const targetUser = db.getUserById(req.params.id);
   if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
-  
+
   const resetCode = String(crypto.randomInt(100000, 1000000));
   db.resetUserPin(targetUser.id, resetCode);
   res.json({
@@ -933,7 +982,7 @@ app.put('/api/users/me/avatar', async (req, res) => {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    
+
     let url = '';
 
     if (cloudName && apiKey && apiSecret) {
@@ -980,7 +1029,7 @@ app.get('/api/tournaments/:id/photos', (req, res) => {
   const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
   const user = getUserFromToken(req); // Optional for fetching likes
-  
+
   const photos = db.getPhotosByTournament(tournament.id, user ? user.id : null);
   res.json(photos.map(p => ({
     id: p.id,
@@ -1013,7 +1062,7 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    
+
     let url = '';
     let thumbUrl = '';
 
@@ -1063,14 +1112,14 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
 app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   const user = getUserFromToken(req);
   const tournament = db.getFullTournament(req.params.id);
-  
+
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
-  
+
   // Verify ownership or super admin
   const hasPin = req.body?.pin && verifyPin(req.body.pin);
   const isCreator = tournament.creatorId === user.id;
-  
+
   // Actually, we must check if the user is the one who uploaded the photo, or if they are admin.
   // We'll let `deleteTournamentPhoto` just delete it by db logic for the user if not admin.
   // But wait, the DB delete photo statement just takes photoId.
@@ -1078,11 +1127,11 @@ app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   const photos = db.getPhotosByTournament(tournament.id);
   const photo = photos.find(p => p.id === req.params.photoId);
   if (!photo) return res.status(404).json({ error: 'Bilden hittades inte' });
-  
+
   if (photo.user_id !== user.id && !isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet att ta bort denna bild' });
   }
-  
+
   db.deleteTournamentPhoto(req.params.photoId);
   res.json({ ok: true });
 });
@@ -1097,7 +1146,7 @@ app.post('/api/tournaments/:id/photos/:photoId/like', (req, res) => {
   const photos = db.getPhotosByTournament(tournament.id);
   const photo = photos.find(p => p.id === req.params.photoId);
   if (!photo) return res.status(404).json({ error: 'Bilden hittades inte i denna turnering' });
-  
+
   const liked = db.togglePhotoLike(req.params.photoId, user.id);
   res.json({ liked });
 });
@@ -1179,7 +1228,7 @@ app.get('/api/events', (req, res) => {
 
 app.post('/api/events', (req, res) => {
   const { pin, name, date, payoutPercent, minBet, maxBet, players, swishNumber, tournamentId, imageUrl } = req.body || {};
-  
+
   // Allow creation with user token OR admin PIN
   const user = getUserFromToken(req);
   const hasPin = pin && verifyPin(pin);
@@ -1308,7 +1357,7 @@ app.post('/api/events/:id/players', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
-  
+
   const cleanName = (name || '').trim();
   if (!cleanName) return res.status(400).json({ error: 'Spelarnamn krävs' });
 
@@ -1360,7 +1409,7 @@ app.delete('/api/events/:id/players/:playerId', (req, res) => {
 
   db.removePlayer(req.params.id, req.params.playerId);
   broadcastToEvent(event.share_code, { type: 'player_removed', eventCode: event.share_code });
-  
+
   const updated = db.getFullEvent(event.share_code);
   broadcastToEvent(event.share_code, {
     type: 'odds_update',
@@ -2528,7 +2577,7 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
       totalCount: room.players.length
     });
 
-    const activePlayers = room.tiedPlayerIds.length > 0 
+    const activePlayers = room.tiedPlayerIds.length > 0
       ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
       : room.players;
 
@@ -2624,7 +2673,7 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     totalCount: room.players.length
   });
 
-  const activePlayers = room.tiedPlayerIds.length > 0 
+  const activePlayers = room.tiedPlayerIds.length > 0
     ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
     : room.players;
 
@@ -2724,7 +2773,7 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
     room.status = 'completed';
     const tiedWinners = room.players.filter(p => room.tiedPlayerIds.includes(p.id));
     const losers = room.players.filter(p => !room.tiedPlayerIds.includes(p.id));
-    
+
     if (room.stakeAmount > 0 && tiedWinners.length > 0) {
       const splitStake = Math.round((room.stakeAmount / tiedWinners.length) * 100) / 100;
       for (const loser of losers) {
@@ -2762,7 +2811,7 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
 // ── MAFFIA / WEREWOLF PARTY ENGINE ────────────────────────────────
 function assignMafiaRoles(players, narratorMode = 'ai', hostId = null) {
   // If host chosen as narrator, host does not play actively
-  const activePlayers = narratorMode === 'human' 
+  const activePlayers = narratorMode === 'human'
     ? players.filter(p => p.id !== hostId)
     : [...players];
 
@@ -3427,7 +3476,7 @@ app.get('/api/anybets', (req, res) => {
 
   try {
     const bets = db.getAnyBetsForUser(user.id);
-    res.json({ bets });
+    res.json({ bets: bets.map(b => sanitizeAnyBet(b, user.id)) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3492,6 +3541,21 @@ app.post('/api/anybets/:id/settle', (req, res) => {
     return res.status(400).json({ error: 'Ogiltig bild-URL för bevis' });
   }
 
+  const existingBet = db.getAnyBetById(req.params.id);
+  if (!existingBet) return res.status(404).json({ error: 'Bettet hittades inte' });
+
+  if (existingBet.bet_type === 'winner_takes_all') {
+    if (!winnerId) return res.status(400).json({ error: 'Vinnare måste anges' });
+    const isWinnerAccepted = (existingBet.participants || []).some(p => p.user_id === winnerId && p.status === 'accepted');
+    if (!isWinnerAccepted) {
+      return res.status(400).json({ error: 'Vald vinnare måste vara en godkänd deltagare i vadet' });
+    }
+  } else if (existingBet.bet_type === 'yes_no') {
+    if (winningSide !== 'yes' && winningSide !== 'no') {
+      return res.status(400).json({ error: 'Vinnande sida måste vara ja eller nej' });
+    }
+  }
+
   try {
     const settledBet = db.settleAnyBet({
       betId: req.params.id,
@@ -3505,12 +3569,12 @@ app.post('/api/anybets/:id/settle', (req, res) => {
       for (const p of settledBet.participants) {
         broadcastToUser(p.user_id, {
           type: 'anybet_settled',
-          bet: settledBet
+          bet: sanitizeAnyBet(settledBet, p.user_id)
         });
       }
     }
 
-    res.json({ ok: true, bet: settledBet });
+    res.json({ ok: true, bet: sanitizeAnyBet(settledBet, user.id) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -3578,8 +3642,12 @@ app.post('/api/flashbets', async (req, res) => {
   db.createFlashBet(id, user.id, tournamentId, finalQuestion, duration, expiresAt, stake);
 
   if (choice === 'yes' || choice === 'no') {
-    const entryId = generateId();
-    db.placeFlashBetEntry(entryId, id, user.id, choice, stake);
+    try {
+      const entryId = generateId();
+      db.placeFlashBetEntry(entryId, id, user.id, choice, stake);
+    } catch (e) {
+      // Skaparen kan inte rösta i eget vad - ignorera tyst istället för att krascha
+    }
   }
 
   const created = db.getFlashBet(id, user.id);
@@ -3614,7 +3682,8 @@ app.post('/api/flashbets', async (req, res) => {
 
 app.get('/api/flashbets/active', (req, res) => {
   const user = getUserFromToken(req);
-  res.json(db.getActiveFlashBets(user ? user.id : null));
+  const tournamentId = req.query.tournamentId || null;
+  res.json(db.getActiveFlashBets(user ? user.id : null, tournamentId));
 });
 
 app.get('/api/flashbets/:id', (req, res) => {
@@ -3690,15 +3759,15 @@ app.post('/api/flashlive/start', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Du måste vara inloggad för att sända live' });
 
-  const { 
-    question, 
-    stakeAmount, 
-    durationSeconds, 
-    targetFriendIds, 
-    notifyAllFriends, 
-    myChoice, 
+  const {
+    question,
+    stakeAmount,
+    durationSeconds,
+    targetFriendIds,
+    notifyAllFriends,
+    myChoice,
     streamWithoutBet,
-    streamTitle 
+    streamTitle
   } = req.body || {};
 
   const isBetting = !streamWithoutBet;
@@ -3717,12 +3786,8 @@ app.post('/api/flashlive/start', async (req, res) => {
 
   if (isBetting) {
     flashBetId = generateId();
-    // Create underlying BlixtBet
+    // Create underlying BlixtBet (host cannot vote in own bet)
     db.createFlashBet(flashBetId, user.id, null, finalQuestion, duration, expiresAt, stake);
-    if (myChoice === 'yes' || myChoice === 'no') {
-      const entryId = generateId();
-      db.placeFlashBetEntry(entryId, flashBetId, user.id, myChoice, stake);
-    }
     createdFlashBet = db.getFlashBet(flashBetId, user.id);
   }
 
@@ -3753,6 +3818,11 @@ app.post('/api/flashlive/start', async (req, res) => {
   };
 
   activeFlashLiveStreams.set(liveId, liveSession);
+  try {
+    db.createFlashLiveStream(liveSession);
+  } catch (e) {
+    console.warn('Could not save flash live stream to SQLite:', e);
+  }
 
   // Broadcast to target friends via WebSocket
   const liveNotificationPayload = {
@@ -3769,7 +3839,7 @@ app.post('/api/flashlive/start', async (req, res) => {
 
   // Web Push to target friends
   const pushTitle = isBetting ? `🔴 ${liveSession.hostName} SÄNDER LIVE (BET)` : `🔴 ${liveSession.hostName} SÄNDER LIVE!`;
-  const pushBody = isBetting 
+  const pushBody = isBetting
     ? `⚡ BlixtBet (${duration}s): "${finalQuestion}" – Titta & Betta nu!`
     : `🏌️ "${finalQuestion}" – Titta in och heja nu!`;
 
@@ -3796,6 +3866,7 @@ app.get('/api/flashlive/active', (req, res) => {
     const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
     if (baseTime + 2700000 < now) {
       activeFlashLiveStreams.delete(id);
+      try { db.updateFlashLiveStreamStatus(id, 'ended'); } catch (e) {}
       continue;
     }
     // Check if user is host or in target audience
@@ -3820,7 +3891,7 @@ app.get('/api/flashlive/:id', (req, res) => {
     return res.status(403).json({ error: 'Åtkomst nekad. Du har inte behörighet att se denna livesändning.' });
   }
 
-  const flashBet = session.flashBetId ? db.getFlashBet(session.flashBetId) : null;
+  const flashBet = session.flashBetId ? db.getFlashBet(session.flashBetId, user.id) : null;
   res.json({ live: session, flashBet });
 });
 
@@ -3866,6 +3937,58 @@ app.post('/api/flashlive/:id/settle', (req, res) => {
   }
 });
 
+// Attach a new real BlixtBet to an active live stream
+app.post('/api/flashlive/:id/bet', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+
+  const session = activeFlashLiveStreams.get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Livesändningen hittades inte' });
+  if (session.hostId !== user.id) return res.status(403).json({ error: 'Endast sändaren kan starta ett vad' });
+
+  if (session.flashBetId) {
+    const existing = db.getFlashBet(session.flashBetId);
+    if (existing && (existing.status === 'open' || existing.status === 'locked')) {
+      return res.status(400).json({ error: 'Det finns redan ett pågående vad i denna sändning' });
+    }
+  }
+
+  const { question, stakeAmount, durationSeconds } = req.body || {};
+  const finalQuestion = (question || 'Sätter han putten?').trim();
+  const duration = Math.max(10, Math.min(600, Number(durationSeconds) || 60));
+  const stake = Math.max(5, Math.min(5000, Number(stakeAmount) || 20));
+  const expiresAt = new Date(Date.now() + duration * 1000).toISOString();
+
+  const flashBetId = generateId();
+  db.createFlashBet(flashBetId, user.id, null, finalQuestion, duration, expiresAt, stake);
+  const createdFlashBet = db.getFlashBet(flashBetId, user.id);
+
+  session.flashBetId = flashBetId;
+  session.hasBet = true;
+  session.question = finalQuestion;
+  session.stakeAmount = stake;
+  session.durationSeconds = duration;
+  session.expiresAt = expiresAt;
+
+  try {
+    db.updateFlashLiveStreamBet(session.id, flashBetId, stake, duration, expiresAt);
+  } catch (e) {}
+
+  const betPayload = {
+    type: 'flashlive_bet_started',
+    liveId: session.id,
+    flashBet: createdFlashBet
+  };
+
+  broadcastToLive(session.id, betPayload);
+  for (const fId of session.targetUserIds) {
+    broadcastToUser(fId, betPayload);
+  }
+  broadcastToUser(user.id, betPayload);
+
+  res.json({ live: session, flashBet: createdFlashBet });
+});
+
 app.post('/api/flashlive/:id/stop', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Ej inloggad' });
@@ -3876,10 +3999,28 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
 
   session.status = 'ended';
   activeFlashLiveStreams.delete(session.id);
+  try {
+    db.updateFlashLiveStreamStatus(session.id, 'ended');
+  } catch (e) {}
+
+  // Cancel unsettled underlying bet if stream is terminated
+  let cancelledBet = false;
+  if (session.flashBetId) {
+    try {
+      const fb = db.getFlashBet(session.flashBetId);
+      if (fb && (fb.status === 'open' || fb.status === 'locked')) {
+        db.cancelFlashBet(session.flashBetId, user.id);
+        cancelledBet = true;
+      }
+    } catch (e) {
+      console.warn('Could not cancel flash bet on stop:', e);
+    }
+  }
 
   const stopPayload = {
     type: 'flashlive_stopped',
-    liveId: session.id
+    liveId: session.id,
+    cancelledBet
   };
 
   broadcastToLive(session.id, stopPayload);
@@ -3888,7 +4029,7 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
   }
   broadcastToUser(user.id, stopPayload);
 
-  res.json({ ok: true });
+  res.json({ ok: true, cancelledBet });
 });
 
 // ── Tab Expenses & Not-Roulette Routes ────────────────
@@ -3920,7 +4061,7 @@ app.post('/api/tab/expenses', async (req, res) => {
     }
 
     // For roulette: server-authoritative fair random selection of loser
-    const actualLoserId = mode === 'roulette' 
+    const actualLoserId = mode === 'roulette'
       ? allParticipants[crypto.randomInt(0, allParticipants.length)]
       : null;
 
@@ -4013,8 +4154,8 @@ app.get('/api/tab/expenses/:id', (req, res) => {
   const expense = db.getTabExpenseById(req.params.id);
   if (!expense) return res.status(404).json({ error: 'Kvitto / nota hittades inte' });
 
-  const isParticipant = expense.payer_id === user.id || 
-                        expense.loser_id === user.id || 
+  const isParticipant = expense.payer_id === user.id ||
+                        expense.loser_id === user.id ||
                         (expense.participants && expense.participants.some(p => p.user_id === user.id));
 
   if (!isParticipant) {
@@ -4298,7 +4439,7 @@ function validateShlLineup(lineup) {
 function simulateShlRound(roundId, existingSimulation = null) {
   const round = SHL_ROUNDS.find(r => r.id === roundId) || SHL_ROUNDS[0];
   const currentDayIndex = existingSimulation ? (existingSimulation.currentDay || 0) : 0;
-  
+
   if (currentDayIndex >= round.days.length) {
     return { ...existingSimulation, isFinished: true };
   }

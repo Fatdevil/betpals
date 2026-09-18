@@ -237,6 +237,7 @@ export const createAnyBet = (data) => request('/anybets/create', { method: 'POST
 export const getAnyBets = () => request('/anybets');
 export const getAnyBet = (id) => request('/anybets/' + id);
 export const joinAnyBet = (id, choice) => request('/anybets/' + id + '/join', { method: 'POST', body: { choice } });
+export const acceptAnyBet = (id) => request('/anybets/' + id + '/join', { method: 'POST', body: { choice: 'participant' } });
 export const settleAnyBet = (id, data) => request('/anybets/' + id + '/settle', { method: 'POST', body: data });
 
 // ── Web Push API ──────────────────────────────────────
@@ -246,7 +247,7 @@ export const unsubscribePush = (data) => request('/push/unsubscribe', { method: 
 
 // ── BlixtBet (FlashBet) ──────────────────────────────
 export const createFlashBet = (data) => request('/flashbets', { method: 'POST', body: data });
-export const getActiveFlashBets = () => request('/flashbets/active');
+export const getActiveFlashBets = (tournamentId) => request('/flashbets/active' + (tournamentId ? '?tournamentId=' + encodeURIComponent(tournamentId) : ''));
 export const getFlashBet = (id) => request('/flashbets/' + id);
 export const placeFlashBet = (id, choice) => request('/flashbets/' + id + '/bet', { method: 'POST', body: { choice } });
 export const settleFlashBet = (id, winningChoice) => request('/flashbets/' + id + '/settle', { method: 'POST', body: { winningChoice } });
@@ -256,6 +257,7 @@ export const startFlashLive = (data) => request('/flashlive/start', { method: 'P
 export const getActiveFlashLives = () => request('/flashlive/active');
 export const getFlashLive = (id) => request('/flashlive/' + id);
 export const settleFlashLive = (id, winningChoice) => request('/flashlive/' + id + '/settle', { method: 'POST', body: { winningChoice } });
+export const attachFlashLiveBet = (id, data) => request('/flashlive/' + id + '/bet', { method: 'POST', body: data });
 export const stopFlashLive = (id) => request('/flashlive/' + id + '/stop', { method: 'POST', body: {} });
 
 // ── Notification Preferences ─────────────────────────
