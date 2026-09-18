@@ -229,7 +229,7 @@ export const getPartyRoomQR = (query, baseUrl) => request('/minigames/party/' + 
 export const startMafiaGame = (id, data) => request('/minigames/mafia/' + id + '/start', { method: 'POST', body: data || {} });
 export const getMyMafiaRole = (id) => request('/minigames/mafia/' + id + '/my-role');
 export const submitMafiaNightAction = (id, data) => request('/minigames/mafia/' + id + '/night-action', { method: 'POST', body: data });
-export const advanceMafiaPhase = (id) => request('/minigames/mafia/' + id + '/advance-phase', { method: 'POST', body: {} });
+export const advanceMafiaPhase = (id, data) => request('/minigames/mafia/' + id + '/advance-phase', { method: 'POST', body: data || {} });
 export const voteMafiaLynch = (id, targetId) => request('/minigames/mafia/' + id + '/vote', { method: 'POST', body: { targetId } });
 
 // ── AnyBet (Kompisbettet) ─────────────────────────────

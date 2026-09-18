@@ -4002,20 +4002,36 @@ export async function openMafiaModal(initialRoom = null) {
       }
     } else if (data.type === 'mafia_morning' && data.room) {
       currentRoom = data.room;
+      if (user && currentRoom.mafiaState?.roles?.[user.id]) {
+        if (!mySecretData) mySecretData = {};
+        mySecretData.isAlive = currentRoom.mafiaState.roles[user.id].isAlive !== false;
+      }
       playTone(523.25, 'triangle', 0.25, 0.12);
-      renderMorningView(data.killedPlayer, data.saved);
+      renderMorningView(data.killedPlayer, data.saved, data.winner);
     } else if (data.type === 'mafia_day_started' && data.room) {
       currentRoom = data.room;
+      if (user && currentRoom.mafiaState?.roles?.[user.id]) {
+        if (!mySecretData) mySecretData = {};
+        mySecretData.isAlive = currentRoom.mafiaState.roles[user.id].isAlive !== false;
+      }
       myDayVoteTargetId = null;
       renderDayView();
     } else if (data.type === 'mafia_vote_cast') {
-      updateDayVoteChip(data.targetId, data.totalVotes, data.aliveCount);
+      updateDayVoteChip(data.targetId, data.totalVotes, data.aliveCount, data.voteCounts);
     } else if (data.type === 'mafia_lynch_result' && data.room) {
       currentRoom = data.room;
+      if (user && currentRoom.mafiaState?.roles?.[user.id]) {
+        if (!mySecretData) mySecretData = {};
+        mySecretData.isAlive = currentRoom.mafiaState.roles[user.id].isAlive !== false;
+      }
       playTone(130, 'square', 0.5, 0.2);
-      renderLynchResultView(data.lynchedPlayer, data.isTie);
+      renderLynchResultView(data.lynchedPlayer, data.isTie, data.winner);
     } else if (data.type === 'mafia_night_started' && data.room) {
       currentRoom = data.room;
+      if (user && currentRoom.mafiaState?.roles?.[user.id]) {
+        if (!mySecretData) mySecretData = {};
+        mySecretData.isAlive = currentRoom.mafiaState.roles[user.id].isAlive !== false;
+      }
       myNightActionDone = false;
       myInvestigateResult = null;
       playTone(180, 'sawtooth', 0.4, 0.15);
@@ -4085,11 +4101,22 @@ export async function openMafiaModal(initialRoom = null) {
 
       <!-- Roles distribution guide -->
       <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 10px 12px; margin-bottom: 16px; border: 1px solid var(--border-glass); font-size: 0.78rem; color: var(--text-secondary);">
-        <div style="font-weight: 700; color: var(--gold); margin-bottom: 4px;">🃏 ${isEn ? 'Role Balance' : 'Rollfördelning'}:</div>
-        <div>🗡️ <strong>${t('arcade.mafiaRoleMafia')}</strong>: ${count <= 6 ? 1 : (count <= 9 ? 2 : 3)} spelare</div>
-        <div>🔍 <strong>${t('arcade.mafiaRoleDetective')}</strong>: 1 spelare</div>
-        <div>💉 <strong>${t('arcade.mafiaRoleDoctor')}</strong>: 1 spelare</div>
-        <div>🌾 <strong>${t('arcade.mafiaRoleVillager')}</strong>: ${Math.max(1, count - (count <= 6 ? 3 : (count <= 9 ? 4 : 5)))} spelare</div>
+        <div style="font-weight: 700; color: var(--gold); margin-bottom: 4px;">🃏 ${isEn ? 'Role Balance' : 'Rollfördelning'}${narratorMode === 'human' ? ` (${isEn ? 'Host is Narrator' : 'Värden är spelledare'} + ${Math.max(0, count - 1)} ${isEn ? 'active' : 'aktiva'})` : ''}:</div>
+        <div>🗡️ <strong>${t('arcade.mafiaRoleMafia')}</strong>: ${(() => {
+          const act = narratorMode === 'human' ? Math.max(0, count - 1) : count;
+          if (act >= 15) return 4;
+          if (act >= 10) return 3;
+          if (act >= 7) return 2;
+          return 1;
+        })()} ${isEn ? 'players' : 'spelare'}</div>
+        <div>🔍 <strong>${t('arcade.mafiaRoleDetective')}</strong>: 1 ${isEn ? 'player' : 'spelare'}</div>
+        <div>💉 <strong>${t('arcade.mafiaRoleDoctor')}</strong>: ${(narratorMode === 'human' ? Math.max(0, count - 1) : count) >= 5 ? 1 : 0} ${isEn ? 'player' : 'spelare'}</div>
+        <div>🌾 <strong>${t('arcade.mafiaRoleVillager')}</strong>: ${(() => {
+          const act = narratorMode === 'human' ? Math.max(0, count - 1) : count;
+          const maf = act >= 15 ? 4 : (act >= 10 ? 3 : (act >= 7 ? 2 : 1));
+          const doc = act >= 5 ? 1 : 0;
+          return Math.max(0, act - maf - 1 - doc);
+        })()} ${isEn ? 'players' : 'spelare'}</div>
       </div>
 
       <!-- Action Button -->
@@ -4260,11 +4287,16 @@ export async function openMafiaModal(initialRoom = null) {
       mySecretData = await getMyMafiaRole(currentRoom.id);
     } catch (e) {}
 
+    if (user && currentRoom.mafiaState?.roles?.[user.id]) {
+      if (!mySecretData) mySecretData = {};
+      mySecretData.isAlive = currentRoom.mafiaState.roles[user.id].isAlive !== false;
+    }
+
     const phase = currentRoom.mafiaState?.phase || 'night';
     if (phase === 'night') renderNightView();
-    else if (phase === 'morning') renderMorningView(currentRoom.mafiaState?.lastKilled, false);
+    else if (phase === 'morning') renderMorningView(currentRoom.mafiaState?.lastKilled, false, currentRoom.mafiaState?.winner);
     else if (phase === 'day') renderDayView();
-    else if (phase === 'lynch_result') renderLynchResultView(null, false);
+    else if (phase === 'lynch_result') renderLynchResultView(currentRoom.mafiaState?.lastLynched, !!currentRoom.mafiaState?.lastLynchTie, currentRoom.mafiaState?.winner);
     else if (phase === 'ended') renderVictoryView(currentRoom.mafiaState?.winner);
   }
 
@@ -4316,8 +4348,10 @@ export async function openMafiaModal(initialRoom = null) {
         </div>
       `;
     } else if (myRole === 'mafia') {
-      // Mafia Kill Target
-      const aliveTargets = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator' && id !== user.id);
+      // Mafia Kill Target (excluding self and fellow mafia members)
+      const fellowMafiaIds = new Set((mySecretData?.fellowMafia || []).map(m => m.id));
+      if (user?.id) fellowMafiaIds.add(user.id);
+      const aliveTargets = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator' && !fellowMafiaIds.has(id));
       if (myNightActionDone) {
         actionCardHtml = `
           <div class="text-center" style="padding: 16px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: var(--radius-md);">
@@ -4497,7 +4531,7 @@ export async function openMafiaModal(initialRoom = null) {
       const advBtn = document.getElementById('btn-advance-to-morning');
       if (advBtn) advBtn.disabled = true;
       try {
-        await advanceMafiaPhase(currentRoom.id);
+        await advanceMafiaPhase(currentRoom.id, { expectedPhase: 'night' });
       } catch (e) {
         showToast(e.message || 'Error', 'error');
         if (advBtn) advBtn.disabled = false;
@@ -4506,8 +4540,10 @@ export async function openMafiaModal(initialRoom = null) {
   }
 
   // ── VIEW 5: MORNING REPORT ───────────────────────────────
-  function renderMorningView(killedPlayer, saved) {
+  function renderMorningView(killedPlayer, saved, winner) {
     const isHost = user && currentRoom.hostId === user.id;
+    const isEnded = !!(winner || currentRoom.mafiaState?.winner || currentRoom.mafiaState?.phase === 'ended');
+    const winningSide = winner || currentRoom.mafiaState?.winner;
 
     let headlineHtml = '';
     if (killedPlayer) {
@@ -4548,7 +4584,11 @@ export async function openMafiaModal(initialRoom = null) {
         ${headlineHtml}
       </div>
 
-      ${isHost ? `
+      ${isEnded ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-show-mafia-victory" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          🏆 ${isEn ? 'Game Over - View Winner!' : 'Spelet slut - Visa vinnare!'}
+        </button>
+      ` : (isHost ? `
         <button type="button" class="btn btn-primary btn-block mb-md" id="btn-advance-to-day" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
           ${t('arcade.mafiaAdvanceDayBtn')}
         </button>
@@ -4556,14 +4596,18 @@ export async function openMafiaModal(initialRoom = null) {
         <div class="text-center text-muted" style="font-size: 0.82rem; padding: 12px;">
           <span class="spinner">⏳</span> ${isEn ? 'Waiting for host to begin town meeting...' : 'Väntar på att värden ska samla bymötet...'}
         </div>
-      `}
+      `)}
     `;
+
+    document.getElementById('btn-show-mafia-victory')?.addEventListener('click', () => {
+      renderVictoryView(winningSide);
+    });
 
     document.getElementById('btn-advance-to-day')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-advance-to-day');
       if (btn) btn.disabled = true;
       try {
-        await advanceMafiaPhase(currentRoom.id);
+        await advanceMafiaPhase(currentRoom.id, { expectedPhase: 'morning' });
       } catch (e) {
         showToast(e.message || 'Error', 'error');
         if (btn) btn.disabled = false;
@@ -4576,9 +4620,14 @@ export async function openMafiaModal(initialRoom = null) {
     const isHost = user && currentRoom.hostId === user.id;
     const state = currentRoom.mafiaState || {};
     const roles = state.roles || {};
+    if (user && roles[user.id]) {
+      if (!mySecretData) mySecretData = {};
+      mySecretData.isAlive = roles[user.id].isAlive !== false;
+    }
     const isAlive = mySecretData?.isAlive !== false;
     const isNarrator = mySecretData?.role === 'narrator';
     const alivePlayers = Object.entries(roles).filter(([id, p]) => p.isAlive && p.role !== 'narrator');
+    const voteCounts = state.voteCounts || {};
 
     container.innerHTML = `
       <div class="text-center" style="margin-bottom: 14px;">
@@ -4602,11 +4651,11 @@ export async function openMafiaModal(initialRoom = null) {
               <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
               <div class="flex align-center gap-xs">
                 <span class="badge badge-accent" id="vote-count-${id}" style="font-size: 0.72rem; padding: 2px 8px;">
-                  0 ${isEn ? 'votes' : 'röster'}
+                  ${voteCounts[id] || 0} ${isEn ? 'votes' : 'röster'}
                 </span>
                 ${(isAlive && !isNarrator) ? `
                   <button type="button" class="btn btn-sm ${myDayVoteTargetId === id ? 'btn-primary' : 'btn-secondary'} btn-mafia-vote" data-target="${id}" style="padding: 4px 10px; font-size: 0.78rem;">
-                    ${myDayVoteTargetId === id ? '✅ Röst lagd' : '🗳️ Rösta'}
+                    ${myDayVoteTargetId === id ? (isEn ? '✅ Voted' : '✅ Röst lagd') : (isEn ? '🗳️ Vote' : '🗳️ Rösta')}
                   </button>
                 ` : ''}
               </div>
@@ -4632,10 +4681,27 @@ export async function openMafiaModal(initialRoom = null) {
         const targetId = btn.dataset.target;
         btn.disabled = true;
         try {
-          await voteMafiaLynch(currentRoom.id, targetId);
+          const res = await voteMafiaLynch(currentRoom.id, targetId);
           myDayVoteTargetId = targetId;
           showToast(isEn ? 'Vote registered!' : 'Röst registrerad!', 'success');
-          renderDayView();
+          if (res?.voteCounts) {
+            updateDayVoteChip(targetId, 0, 0, res.voteCounts);
+          }
+          container.querySelectorAll('.mafia-player-btn').forEach(row => row.classList.remove('selected'));
+          document.getElementById(`mafia-vote-row-${targetId}`)?.classList.add('selected');
+          container.querySelectorAll('.btn-mafia-vote').forEach(b => {
+            const bTarget = b.dataset.target;
+            if (bTarget === targetId) {
+              b.classList.remove('btn-secondary');
+              b.classList.add('btn-primary');
+              b.textContent = isEn ? '✅ Voted' : '✅ Röst lagd';
+            } else {
+              b.classList.remove('btn-primary');
+              b.classList.add('btn-secondary');
+              b.textContent = isEn ? '🗳️ Vote' : '🗳️ Rösta';
+              b.disabled = false;
+            }
+          });
         } catch (e) {
           showToast(e.message || 'Error', 'error');
           btn.disabled = false;
@@ -4647,7 +4713,7 @@ export async function openMafiaModal(initialRoom = null) {
       const btn = document.getElementById('btn-resolve-day-votes');
       if (btn) btn.disabled = true;
       try {
-        await advanceMafiaPhase(currentRoom.id);
+        await advanceMafiaPhase(currentRoom.id, { expectedPhase: 'day' });
       } catch (e) {
         showToast(e.message || 'Error', 'error');
         if (btn) btn.disabled = false;
@@ -4655,17 +4721,29 @@ export async function openMafiaModal(initialRoom = null) {
     });
   }
 
-  function updateDayVoteChip(targetId, totalVotes, aliveCount) {
-    const chip = document.getElementById(`vote-count-${targetId}`);
-    if (chip) {
-      const current = parseInt(chip.textContent, 10) || 0;
-      chip.textContent = `${current + 1} ${isEn ? 'votes' : 'röster'}`;
+  function updateDayVoteChip(targetId, totalVotes, aliveCount, voteCounts) {
+    if (voteCounts && typeof voteCounts === 'object') {
+      const state = currentRoom?.mafiaState || {};
+      const roles = state.roles || {};
+      for (const tId of Object.keys(roles)) {
+        const count = voteCounts[tId] || 0;
+        const chip = document.getElementById(`vote-count-${tId}`);
+        if (chip) chip.textContent = `${count} ${isEn ? 'votes' : 'röster'}`;
+      }
+    } else {
+      const chip = document.getElementById(`vote-count-${targetId}`);
+      if (chip) {
+        const current = parseInt(chip.textContent, 10) || 0;
+        chip.textContent = `${current + 1} ${isEn ? 'votes' : 'röster'}`;
+      }
     }
   }
 
   // ── VIEW 7: LYNCH RESULT / VERDICT ────────────────────────
-  function renderLynchResultView(lynchedPlayer, isTie) {
+  function renderLynchResultView(lynchedPlayer, isTie, winner) {
     const isHost = user && currentRoom.hostId === user.id;
+    const isEnded = !!(winner || currentRoom.mafiaState?.winner || currentRoom.mafiaState?.phase === 'ended');
+    const winningSide = winner || currentRoom.mafiaState?.winner;
 
     let verdictHtml = '';
     if (lynchedPlayer) {
@@ -4702,7 +4780,11 @@ export async function openMafiaModal(initialRoom = null) {
         ${verdictHtml}
       </div>
 
-      ${isHost ? `
+      ${isEnded ? `
+        <button type="button" class="btn btn-primary btn-block mb-md" id="btn-show-mafia-victory" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          🏆 ${isEn ? 'Game Over - View Winner!' : 'Spelet slut - Visa vinnare!'}
+        </button>
+      ` : (isHost ? `
         <button type="button" class="btn btn-primary btn-block mb-md" id="btn-next-night" style="padding: 14px; font-weight: 800; background: linear-gradient(135deg, #4f46e5, #3730a3); border: none; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);">
           ${t('arcade.mafiaNextNightBtn')}
         </button>
@@ -4710,14 +4792,18 @@ export async function openMafiaModal(initialRoom = null) {
         <div class="text-center text-muted" style="font-size: 0.82rem; padding: 10px;">
           <span class="spinner">⏳</span> ${isEn ? 'Waiting for the next night to fall...' : 'Väntar på att natten ska falla...'}
         </div>
-      `}
+      `)}
     `;
+
+    document.getElementById('btn-show-mafia-victory')?.addEventListener('click', () => {
+      renderVictoryView(winningSide);
+    });
 
     document.getElementById('btn-next-night')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-next-night');
       if (btn) btn.disabled = true;
       try {
-        await advanceMafiaPhase(currentRoom.id);
+        await advanceMafiaPhase(currentRoom.id, { expectedPhase: 'lynch_result' });
       } catch (e) {
         showToast(e.message || 'Error', 'error');
         if (btn) btn.disabled = false;
