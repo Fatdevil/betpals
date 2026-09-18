@@ -14,9 +14,15 @@ import { openNotanRouletteModal, openReceiptModal } from '../components/minigame
 let activeTab = 'tournaments'; // 'tournaments' | 'swishlist' | 'history'
 let currentTournamentCode = null;
 
-export async function renderLeaderboard() {
+export async function renderLeaderboard(params = {}) {
   const content = document.getElementById('page-content');
   if (!content) return;
+
+  const url = new URL(window.location);
+  const tabParam = params.tab || url.searchParams.get('tab');
+  if (tabParam && ['tournaments', 'swishlist', 'history'].includes(tabParam)) {
+    activeTab = tabParam;
+  }
 
   content.innerHTML = `
     <div class="animate-in the-tab-container">
@@ -116,10 +122,17 @@ async function renderTournamentTab(container, activeTournaments, user) {
           ${t('tab.createOrJoin')}
         </p>
         <div class="flex gap-sm justify-center">
-          <a href="#admin" class="btn btn-primary btn-sm">${t('tab.goToCreate')}</a>
-          <a href="#home" class="btn btn-secondary btn-sm">${t('nav.home')}</a>
+          <button type="button" class="btn btn-primary btn-sm btn-tab-goto-admin">${t('tab.goToCreate')}</button>
+          <button type="button" class="btn btn-secondary btn-sm btn-tab-goto-home">${t('nav.home')}</button>
         </div>
       </div>`;
+
+    container.querySelector('.btn-tab-goto-admin')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'admin' } }));
+    });
+    container.querySelector('.btn-tab-goto-home')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'home' } }));
+    });
     return;
   }
 
@@ -151,10 +164,52 @@ async function renderTournamentTab(container, activeTournaments, user) {
   if (myBalance) {
     if (myBalance.net < 0) {
       const debtAmount = -myBalance.net;
-      // Find transfer where user is the debtor
-      const myTransfer = transfers.find(tr => tr.from === myBalance.name);
-      const toRecipient = myTransfer ? myTransfer.to : null;
-      const toSwish = myTransfer ? myTransfer.toSwish : null;
+      // Find all transfers where user is the debtor
+      const myTransfers = transfers.filter(tr => 
+        tr.from === myBalance.name || (myBalance.userId && tr.fromUserId === myBalance.userId)
+      );
+
+      let transfersListHtml = '';
+      if (myTransfers.length <= 1) {
+        const tr = myTransfers[0];
+        const toRecipient = tr ? tr.to : null;
+        const toSwish = tr ? tr.toSwish : null;
+        const trAmount = tr ? tr.amount : debtAmount;
+
+        transfersListHtml = `
+          <button class="btn btn-danger btn-block btn-clear-debt" 
+            data-amount="${trAmount}" 
+            data-from="${escapeHtml(myBalance.name)}" 
+            data-to="${escapeHtml(toRecipient || '')}" 
+            data-from-user-id="${escapeHtml(myBalance.userId || '')}"
+            data-to-user-id="${escapeHtml((tr && tr.toUserId) || '')}"
+            data-swish="${escapeHtml(toSwish || '')}"
+            style="background: #ef4444; border: none; font-weight: 800;">
+            📱 ${toRecipient ? (isEn ? `Swish ${formatCurrency(trAmount)} to ${escapeHtml(toRecipient)}` : `Swisha ${formatCurrency(trAmount)} till ${escapeHtml(toRecipient)}`) : `${t('tab.clearDebtBtn')} (${formatCurrency(debtAmount)})`}
+          </button>`;
+      } else {
+        transfersListHtml = `
+          <div class="flex flex-col gap-xs" style="margin-top: 6px;">
+            ${myTransfers.map(tr => `
+              <div class="flex-between align-center" style="padding: 8px 12px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                <div>
+                  <div style="font-weight: 700; font-size: 0.85rem;">${escapeHtml(tr.to)}</div>
+                  <div style="font-size: 0.75rem; color: #ef4444; font-weight: 800;">-${formatCurrency(tr.amount)}</div>
+                </div>
+                <button class="btn btn-danger btn-sm btn-clear-debt" 
+                  data-amount="${tr.amount}" 
+                  data-from="${escapeHtml(tr.from)}" 
+                  data-to="${escapeHtml(tr.to)}" 
+                  data-from-user-id="${escapeHtml(tr.fromUserId || myBalance.userId || '')}"
+                  data-to-user-id="${escapeHtml(tr.toUserId || '')}"
+                  data-swish="${escapeHtml(tr.toSwish || '')}"
+                  style="background: #ef4444; border: none; font-weight: 800; padding: 6px 12px; font-size: 0.8rem;">
+                  📱 Swisha ${formatCurrency(tr.amount)}
+                </button>
+              </div>
+            `).join('')}
+          </div>`;
+      }
 
       heroCardHtml = `
         <div class="tab-hero-card hero-debt animate-in">
@@ -167,16 +222,11 @@ async function renderTournamentTab(container, activeTournaments, user) {
             </div>
           </div>
           <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 12px;">
-            ${t('tab.clearDebtHeroDesc')}
+            ${myTransfers.length > 1 
+              ? (isEn ? `You have unsettled debts to ${myTransfers.length} players. Swish each one:` : `Du har skulder till ${myTransfers.length} spelare. Swisha respektive mottagare:`)
+              : t('tab.clearDebtHeroDesc')}
           </p>
-          <button class="btn btn-danger btn-block btn-clear-debt" 
-            data-amount="${debtAmount}" 
-            data-from="${escapeHtml(myBalance.name)}" 
-            data-to="${escapeHtml(toRecipient || '')}" 
-            data-swish="${escapeHtml(toSwish || '')}"
-            style="background: #ef4444; border: none; font-weight: 800;">
-            📱 ${t('tab.clearDebtBtn')} (${formatCurrency(debtAmount)})
-          </button>
+          ${transfersListHtml}
         </div>`;
     } else if (myBalance.isDebtFree || myBalance.net === 0) {
       heroCardHtml = `
@@ -340,10 +390,12 @@ async function renderTournamentTab(container, activeTournaments, user) {
                 ${t('tab.remindBtn')}
               </button>
             ` : ''}
-            ${(isMeFrom || isMeTo || isHost) ? `
+            ${(isMeTo || isHost) ? `
               <button type="button" class="btn btn-secondary btn-xs btn-settle-transfer" 
                 data-from="${escapeHtml(tr.from)}" 
                 data-to="${escapeHtml(tr.to)}" 
+                data-from-user-id="${escapeHtml(tr.fromUserId || '')}"
+                data-to-user-id="${escapeHtml(tr.toUserId || '')}"
                 data-amount="${tr.amount}" 
                 title="${t('tab.settleBtn')}" 
                 style="padding: 6px 8px; font-weight: 700;">
@@ -367,9 +419,9 @@ async function renderTournamentTab(container, activeTournaments, user) {
             Kod: <strong>${escapeHtml(tour.shareCode)}</strong> · ${settlement.finishedRounds} av ${settlement.totalRounds} ${t('tab.roundsPlayed')}
           </div>
         </div>
-        <a href="#tournament/${escapeHtml(tour.shareCode)}" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 6px 12px;">
+        <button type="button" class="btn btn-secondary btn-sm btn-tab-open-tour" data-code="${escapeHtml(tour.shareCode)}" style="font-size: 0.75rem; padding: 6px 12px;">
           Öppna ➜
-        </a>
+        </button>
       </div>
 
       ${selectorHtml}
@@ -396,9 +448,9 @@ async function renderTournamentTab(container, activeTournaments, user) {
 
       <!-- Footer Quick Link -->
       <div class="text-center mt-lg">
-        <a href="#tournament/${escapeHtml(tour.shareCode)}" class="btn btn-secondary btn-block" style="padding: 12px; font-weight: 700;">
+        <button type="button" class="btn btn-secondary btn-block btn-tab-open-tour" data-code="${escapeHtml(tour.shareCode)}" style="padding: 12px; font-weight: 700;">
           ${t('tab.goToTournamentRounds')}
-        </a>
+        </button>
       </div>
     </div>`;
 
@@ -406,6 +458,16 @@ async function renderTournamentTab(container, activeTournaments, user) {
   document.getElementById('tab-tour-select')?.addEventListener('change', (e) => {
     currentTournamentCode = e.target.value;
     renderLeaderboard();
+  });
+
+  // Attach open tournament listeners
+  container.querySelectorAll('.btn-tab-open-tour').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.getAttribute('data-code');
+      if (code) {
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code } }));
+      }
+    });
   });
 
   // Attach accordion drawer click listeners
@@ -428,6 +490,8 @@ async function renderTournamentTab(container, activeTournaments, user) {
       const amount = Number(btn.getAttribute('data-amount')) || 0;
       const fromName = btn.getAttribute('data-from');
       const toName = btn.getAttribute('data-to');
+      const fromUserId = btn.getAttribute('data-from-user-id') || undefined;
+      const toUserId = btn.getAttribute('data-to-user-id') || undefined;
       const toSwish = btn.getAttribute('data-swish');
 
       let swishDeepLink = '#';
@@ -439,27 +503,38 @@ async function renderTournamentTab(container, activeTournaments, user) {
         });
       }
 
-      const confirmText = isEn
-        ? `Have you swished ${amount} kr to ${toName}? Click OK to clear your debt and start fresh!`
-        : `Har du swishat ${amount} kr till ${toName}? Klicka OK för att kvittera och göra dig helt skuldfri!`;
-
       // Open Swish if available
       if (toSwish) {
         window.open(swishDeepLink, '_blank');
       }
 
-      if (confirm(confirmText)) {
-        try {
-          await toggleSettlementReceipt(tour.id, {
-            fromName,
-            toName,
-            amount
-          });
-          showToast(isEn ? '🎉 Debt cleared! You are now debt-free! 🟢' : '🎉 Skulden reglerad! Du är nu skuldfri! 🟢', 'success');
-          renderLeaderboard();
-        } catch (err) {
-          showToast(err.message, 'error');
+      const isHost = user && tour.creatorId === user.id;
+      const isCreditor = user && ((toUserId && user.id === toUserId) || (user.nickname === toName || user.realName === toName));
+
+      if (isHost || isCreditor) {
+        const confirmText = isEn
+          ? `Mark transfer of ${amount} kr from ${fromName} to ${toName} as settled?`
+          : `Kvittera att överföringen på ${amount} kr från ${fromName} till ${toName} är genomförd?`;
+
+        if (confirm(confirmText)) {
+          try {
+            await toggleSettlementReceipt(tour.id, {
+              fromName,
+              toName,
+              fromUserId,
+              toUserId,
+              amount
+            });
+            showToast(isEn ? '🎉 Transfer settled! 🟢' : '🎉 Betalning kvitterad! 🟢', 'success');
+            renderLeaderboard();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
         }
+      } else {
+        showToast(isEn 
+          ? `📱 Swish opened for ${toName}! Once received, they will confirm the receipt.` 
+          : `📱 Swish öppnat för ${toName}! När betalningen tagits emot kvitteras den.`, 'info');
       }
     });
   });
@@ -469,6 +544,8 @@ async function renderTournamentTab(container, activeTournaments, user) {
     btn.addEventListener('click', async () => {
       const fromName = btn.getAttribute('data-from');
       const toName = btn.getAttribute('data-to');
+      const fromUserId = btn.getAttribute('data-from-user-id') || undefined;
+      const toUserId = btn.getAttribute('data-to-user-id') || undefined;
       const amount = Number(btn.getAttribute('data-amount')) || 0;
 
       const confirmMsg = isEn
@@ -477,7 +554,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
 
       if (confirm(confirmMsg)) {
         try {
-          await toggleSettlementReceipt(tour.id, { fromName, toName, amount });
+          await toggleSettlementReceipt(tour.id, { fromName, toName, fromUserId, toUserId, amount });
           showToast(isEn ? 'Transfer settled! ✅' : 'Överföring kvitterad! ✅', 'success');
           renderLeaderboard();
         } catch (err) {
@@ -518,8 +595,12 @@ function renderSwishlistTab(container, duelSettlement, user) {
         <p class="text-muted" style="font-size: 0.85rem; max-width: 360px; margin: 0 auto var(--space-md);">
           ${isEn ? 'Track your 1v1 minigame duels and debts with friends.' : 'Håll koll på dina 1v1-dueller och mikroskulder med polarna.'}
         </p>
-        <a href="#profile" class="btn btn-primary btn-sm">${t('nav.account')}</a>
+        <button type="button" class="btn btn-primary btn-sm btn-tab-goto-profile">${t('nav.account')}</button>
       </div>`;
+
+    container.querySelector('.btn-tab-goto-profile')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'profile' } }));
+    });
     return;
   }
 
@@ -619,19 +700,23 @@ function renderSwishlistTab(container, duelSettlement, user) {
                 <button type="button" class="btn btn-secondary btn-xs btn-remind-friend" data-name="${escapeHtml(f.friendName)}" data-amount="${absAmount}" style="padding: 5px 8px; font-size: 0.75rem;">
                   💬 ${isEn ? 'Remind' : 'Påminn'}
                 </button>
-              ` : ''}
-              <button type="button" class="btn btn-secondary btn-xs btn-settle-duel-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" style="padding: 5px 8px; font-size: 0.75rem; font-weight: 700;">
-                ✅ ${isEn ? 'Settle' : 'Kvittera'}
-              </button>
+                <button type="button" class="btn btn-secondary btn-xs btn-settle-duel-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" style="padding: 5px 8px; font-size: 0.75rem; font-weight: 700;">
+                  ✅ ${isEn ? 'Settle' : 'Kvittera'}
+                </button>
+              ` : `
+                <span class="badge" style="font-size: 0.72rem; background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 4px 8px; border-radius: 6px;">
+                  ⏳ ${isEn ? 'Waiting for confirmation' : 'Väntar på kvittens'}
+                </span>
+              `}
             </div>
           </div>`;
       }).join('')}
 
       <!-- Quick Link to Arcade -->
       <div class="text-center mt-lg">
-        <a href="#home" class="btn btn-primary btn-block" style="padding: 12px; font-weight: 800;">
+        <button type="button" class="btn btn-primary btn-block btn-goto-arcade" style="padding: 12px; font-weight: 800;">
           🎲 ${isEn ? 'Open Arcade Minigames' : 'Gå till Spelarkaden'}
-        </a>
+        </button>
       </div>
     </div>`;
 
@@ -642,6 +727,10 @@ function renderSwishlistTab(container, duelSettlement, user) {
 
   container.querySelector('#btn-swish-roulette')?.addEventListener('click', () => {
     openNotanRouletteModal('roulette');
+  });
+
+  container.querySelector('.btn-goto-arcade')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'home' } }));
   });
 
   // Attach receipt modal viewer listener
@@ -717,7 +806,7 @@ function renderHistoryTab(container, pastTournaments) {
       </div>
       <div class="past-tournaments-list">
         ${pastTournaments.map(t => `
-          <div class="card flex-between align-center mb-sm card-clickable" onclick="location.hash='#tournament/${escapeHtml(t.shareCode)}'" style="padding: 12px 14px;">
+          <div class="card flex-between align-center mb-sm card-clickable btn-tab-open-tour" data-code="${escapeHtml(t.shareCode)}" style="padding: 12px 14px; cursor: pointer;">
             <div>
               <div style="font-weight: 700; font-size: 0.9rem;">
                 🏆 ${escapeHtml(t.name)}
@@ -734,12 +823,21 @@ function renderHistoryTab(container, pastTournaments) {
         `).join('')}
       </div>
     </div>`;
+
+  container.querySelectorAll('.btn-tab-open-tour').forEach(el => {
+    el.addEventListener('click', () => {
+      const code = el.getAttribute('data-code');
+      if (code) {
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code } }));
+      }
+    });
+  });
 }
 
 // Re-render Swishlistan automatically if an expense is converted in real time
 window.addEventListener('tab-expenses-updated', () => {
   const content = document.getElementById('page-content');
-  if (content && window.location.hash.startsWith('#leaderboard')) {
+  if (content && activeTab === 'swishlist') {
     renderLeaderboard();
   }
 });

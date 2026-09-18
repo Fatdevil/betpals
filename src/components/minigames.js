@@ -6693,7 +6693,7 @@ export function openLiveRouletteSpectatorModal(spinData) {
             await convertTabExpenseToEvenSteven(spinData.expenseId);
             showToast(isEn ? 'Converted to Even Steven! ⚖️' : 'Notan gjordes om till Even Steven! ⚖️', 'success');
             closeModal();
-            window.location.hash = '#leaderboard';
+            window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
           } catch (e) {
             showToast(e.message, 'error');
           }
@@ -6702,7 +6702,7 @@ export function openLiveRouletteSpectatorModal(spinData) {
 
       actions.querySelector('#btn-spectator-goto-swish')?.addEventListener('click', () => {
         closeModal();
-        window.location.hash = '#leaderboard';
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
       });
 
       actions.querySelector('#btn-spectator-close')?.addEventListener('click', () => {
@@ -7551,7 +7551,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
           await convertTabExpenseToEvenSteven(createdExpense.id);
           showToast(isEn ? 'Converted to Even Steven! ⚖️' : 'Notan gjordes om till Even Steven! ⚖️', 'success');
           closeModal();
-          window.location.hash = '#leaderboard';
+          window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
         } catch (e) {
           showToast(e.message, 'error');
         }
@@ -7560,7 +7560,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
     document.getElementById('btn-done-goto-swish')?.addEventListener('click', () => {
       closeModal();
-      window.location.hash = '#leaderboard';
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
     });
 
     document.getElementById('btn-done-close')?.addEventListener('click', () => {
@@ -7653,7 +7653,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
       document.getElementById('btn-even-goto-swish')?.addEventListener('click', () => {
         closeModal();
-        window.location.hash = '#leaderboard';
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
       });
 
       document.getElementById('btn-even-close')?.addEventListener('click', () => {

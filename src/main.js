@@ -27,8 +27,10 @@ export function navigate(page, params = {}) {
   // Update URL
   const url = new URL(window.location);
   url.searchParams.delete('code');
+  url.searchParams.delete('tab');
   url.searchParams.set('page', page);
   if (params.code) url.searchParams.set('code', params.code);
+  if (params.tab) url.searchParams.set('tab', params.tab);
   window.history.pushState({}, '', url);
 
   renderApp();
@@ -73,7 +75,7 @@ async function renderApp() {
     }
     case 'leaderboard': {
       const { renderLeaderboard } = await import('./pages/leaderboard.js');
-      renderLeaderboard();
+      renderLeaderboard(currentParams);
       break;
     }
     case 'tournament': {
@@ -92,9 +94,10 @@ function init() {
   const url = new URL(window.location);
   const page = url.searchParams.get('page') || 'home';
   const code = url.searchParams.get('code');
+  const tab = url.searchParams.get('tab');
 
   currentPage = page;
-  currentParams = code ? { code } : {};
+  currentParams = { ...(code ? { code } : {}), ...(tab ? { tab } : {}) };
 
   // Handle browser back/forward
   window.addEventListener('popstate', () => {
@@ -102,8 +105,49 @@ function init() {
     const url = new URL(window.location);
     currentPage = url.searchParams.get('page') || 'home';
     const code = url.searchParams.get('code');
-    currentParams = code ? { code } : {};
+    const tab = url.searchParams.get('tab');
+    currentParams = { ...(code ? { code } : {}), ...(tab ? { tab } : {}) };
     renderApp();
+  });
+
+  // Handle legacy hash navigation fallback (e.g. #admin, #home, #profile, #tournament/CODE, #leaderboard)
+  function handleHashRoute() {
+    const hash = (window.location.hash || '').replace(/^#\/?/, '');
+    if (!hash) return;
+    if (hash === 'admin' || hash === 'home' || hash === 'profile' || hash === 'join') {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      navigate(hash);
+    } else if (hash === 'leaderboard' || hash === 'swishlist') {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      navigate('leaderboard', { tab: hash === 'swishlist' ? 'swishlist' : 'tournaments' });
+    } else if (hash.startsWith('tournament/')) {
+      const tCode = hash.split('/')[1];
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      navigate('tournament', { code: tCode });
+    }
+  }
+
+  window.addEventListener('hashchange', handleHashRoute);
+  if (window.location.hash) handleHashRoute();
+
+  // Intercept clicks on hash links in SPA
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('a[href^="#"]');
+    if (!link) return;
+    const href = link.getAttribute('href');
+    if (!href || href === '#' || href.startsWith('#!')) return;
+    const route = href.replace(/^#\/?/, '');
+    if (route === 'admin' || route === 'home' || route === 'profile' || route === 'join') {
+      e.preventDefault();
+      navigate(route);
+    } else if (route === 'leaderboard' || route === 'swishlist') {
+      e.preventDefault();
+      navigate('leaderboard', { tab: route === 'swishlist' ? 'swishlist' : 'tournaments' });
+    } else if (route.startsWith('tournament/')) {
+      e.preventDefault();
+      const tCode = route.split('/')[1];
+      navigate('tournament', { code: tCode });
+    }
   });
 
   // Handle custom navigation events (from profile page etc.)

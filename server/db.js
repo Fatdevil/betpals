@@ -148,9 +148,6 @@ try { db.exec('ALTER TABLE users ADD COLUMN reset_code_expires TEXT'); } catch {
 try { db.exec('ALTER TABLE users ADD COLUMN notify_flashbets INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_duels INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_tournaments INTEGER DEFAULT 1'); } catch {}
-try { db.exec('ALTER TABLE minigame_duels ADD COLUMN expense_id TEXT'); } catch {}
-try { db.exec('ALTER TABLE minigame_duels ADD COLUMN custom_title TEXT'); } catch {}
-try { db.exec('ALTER TABLE minigame_duels ADD COLUMN receipt_image TEXT'); } catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_credentials (
@@ -173,12 +170,16 @@ try {
       from_name TEXT NOT NULL,
       to_name TEXT NOT NULL,
       amount INTEGER NOT NULL,
+      from_user_id TEXT,
+      to_user_id TEXT,
       paid_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_receipts_tournament ON tournament_settlement_receipts(tournament_id);
   `);
 } catch {}
+try { db.exec('ALTER TABLE tournament_settlement_receipts ADD COLUMN from_user_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE tournament_settlement_receipts ADD COLUMN to_user_id TEXT'); } catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS friends (
@@ -211,6 +212,9 @@ try {
       is_settled INTEGER DEFAULT 0,
       settled_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expense_id TEXT,
+      custom_title TEXT,
+      receipt_image TEXT,
       FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (opponent_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -219,6 +223,9 @@ try {
     CREATE INDEX IF NOT EXISTS idx_duels_status ON minigame_duels(status);
   `);
 } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN expense_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN custom_title TEXT'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN receipt_image TEXT'); } catch {}
 
 try {
   db.exec(`
@@ -602,7 +609,7 @@ const stmts = {
   getSettlementReceipts: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? ORDER BY paid_at ASC'),
   getSettlementReceipt: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
   getSettlementReceiptById: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE id = ?'),
-  insertSettlementReceipt: db.prepare('INSERT INTO tournament_settlement_receipts (id, tournament_id, from_name, to_name, amount) VALUES (?, ?, ?, ?, ?)'),
+  insertSettlementReceipt: db.prepare('INSERT INTO tournament_settlement_receipts (id, tournament_id, from_name, to_name, amount, from_user_id, to_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   deleteSettlementReceipt: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
   deleteSettlementReceiptById: db.prepare('DELETE FROM tournament_settlement_receipts WHERE id = ?'),
   deleteTournamentReceipts: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ?'),
@@ -989,7 +996,33 @@ export function getFullEvent(idOrCode) {
 
 export const createEvent = db.transaction((eventData, playerNames) => {
   stmts.insertEvent.run({
+    date: new Date().toISOString().split('T')[0],
+    status: 'open',
+    minBet: 10,
+    maxBet: 10000,
+    payoutPercent: 100,
+    shareCode: crypto.randomBytes(3).toString('hex').toUpperCase(),
+    creatorId: null,
+    swishNumber: null,
+    tournamentId: null,
+    isSideBet: 0,
+    linkedRoundId: null,
+    betMode: 'open',
+    imageUrl: null,
+    winnerImageUrl: null,
     ...eventData,
+    date: eventData.date || new Date().toISOString().split('T')[0],
+    status: eventData.status || 'open',
+    tournamentId: eventData.tournamentId ?? eventData.tournament_id ?? null,
+    payoutPercent: eventData.payoutPercent ?? eventData.payout_percent ?? 100,
+    shareCode: eventData.shareCode ?? eventData.share_code ?? crypto.randomBytes(3).toString('hex').toUpperCase(),
+    creatorId: eventData.creatorId ?? eventData.creator_id ?? null,
+    minBet: eventData.minBet ?? eventData.min_bet ?? 10,
+    maxBet: eventData.maxBet ?? eventData.max_bet ?? 10000,
+    swishNumber: eventData.swishNumber ?? eventData.swish_number ?? null,
+    isSideBet: eventData.isSideBet ?? eventData.is_side_bet ?? 0,
+    linkedRoundId: eventData.linkedRoundId ?? eventData.linked_round_id ?? null,
+    betMode: eventData.betMode ?? eventData.bet_mode ?? 'open',
     imageUrl: eventData.imageUrl || null,
     winnerImageUrl: eventData.winnerImageUrl || null
   });
@@ -1388,17 +1421,38 @@ export function getTournamentNetSettlement(tournamentId) {
   const events = stmts.getEventsByTournament.all(tournamentId);
   const finishedEvents = events.filter(r => r.status === 'finished' && r.winner_id);
 
-  // Balances and audit trail per person
-  const balances = {}; // { [name]: { amount: 0, rawTotal: 0, totalPaid: 0, totalReceived: 0, userId: null } }
-  const auditTrail = {}; // { [name]: Array<any> }
+  // Balances and audit trail per person, keyed by unique identity (user:ID or guest:name)
+  const players = {};
+  const auditTrail = {};
+
+  const getPlayerKey = (name, userId) => {
+    if (userId) return `user:${userId}`;
+    return `guest:${(name || 'okand').trim().toLowerCase()}`;
+  };
 
   const ensurePlayer = (name, userId) => {
-    if (!balances[name]) {
-      balances[name] = { amount: 0, rawTotal: 0, totalPaid: 0, totalReceived: 0, userId: userId || null };
-    } else if (userId && !balances[name].userId) {
-      balances[name].userId = userId;
+    const key = getPlayerKey(name, userId);
+    if (!players[key]) {
+      players[key] = { key, name: name || 'Spelare', amount: 0, rawTotal: 0, totalPaid: 0, totalReceived: 0, userId: userId || null };
+    } else {
+      if (userId && !players[key].userId) players[key].userId = userId;
+      if (name && (!players[key].name || players[key].name === 'Spelare')) players[key].name = name;
     }
-    if (!auditTrail[name]) auditTrail[name] = [];
+    if (!auditTrail[key]) auditTrail[key] = [];
+    if (name && !auditTrail[name]) auditTrail[name] = auditTrail[key];
+    return key;
+  };
+
+  const findPlayerKey = (name, userId) => {
+    if (userId) {
+      const uKey = `user:${userId}`;
+      if (players[uKey]) return uKey;
+    }
+    if (name) {
+      const match = Object.values(players).find(p => p.name === name || (p.userId && userId === p.userId));
+      if (match) return match.key;
+    }
+    return ensurePlayer(name, userId);
   };
 
   const tournament = stmts.getTournamentById.get(tournamentId);
@@ -1418,29 +1472,33 @@ export function getTournamentNetSettlement(tournamentId) {
     const odds = winnerPool > 0 ? effectivePool / winnerPool : 0;
 
     if (houseEdge > 0) {
-      ensurePlayer(creatorName, creatorUserId);
-      balances[creatorName].amount += houseEdge;
-      balances[creatorName].rawTotal += houseEdge;
-      auditTrail[creatorName].push({
+      const key = ensurePlayer(creatorName, creatorUserId);
+      players[key].amount += houseEdge;
+      players[key].rawTotal += houseEdge;
+      const item = {
         type: 'house_edge',
         title: ev.name + ' (Husmarginal)',
         isSideBet: Boolean(ev.is_side_bet),
         amount: Math.round(houseEdge),
         timestamp: ev.created_at
-      });
+      };
+      auditTrail[key].push(item);
+      if (auditTrail[creatorName] && auditTrail[creatorName] !== auditTrail[key]) {
+        auditTrail[creatorName].push(item);
+      }
     }
 
     for (const bet of bets) {
       const name = bet.bettor_name;
-      ensurePlayer(name, bet.user_id);
+      const key = ensurePlayer(name, bet.user_id);
 
       const won = bet.player_id === ev.winner_id;
       if (won) {
         const winnings = bet.amount * odds;
         const netWinnings = winnings - bet.amount;
-        balances[name].amount += netWinnings;
-        balances[name].rawTotal += netWinnings;
-        auditTrail[name].push({
+        players[key].amount += netWinnings;
+        players[key].rawTotal += netWinnings;
+        const item = {
           type: ev.is_side_bet ? 'sidebet' : 'round',
           title: ev.name,
           eventId: ev.id,
@@ -1449,11 +1507,15 @@ export function getTournamentNetSettlement(tournamentId) {
           betAmount: bet.amount,
           payout: Math.round(winnings),
           timestamp: bet.created_at || ev.created_at
-        });
+        };
+        auditTrail[key].push(item);
+        if (auditTrail[name] && auditTrail[name] !== auditTrail[key]) {
+          auditTrail[name].push(item);
+        }
       } else {
-        balances[name].amount -= bet.amount;
-        balances[name].rawTotal -= bet.amount;
-        auditTrail[name].push({
+        players[key].amount -= bet.amount;
+        players[key].rawTotal -= bet.amount;
+        const item = {
           type: ev.is_side_bet ? 'sidebet' : 'round',
           title: ev.name,
           eventId: ev.id,
@@ -1461,7 +1523,11 @@ export function getTournamentNetSettlement(tournamentId) {
           amount: -Math.round(bet.amount),
           betAmount: bet.amount,
           timestamp: bet.created_at || ev.created_at
-        });
+        };
+        auditTrail[key].push(item);
+        if (auditTrail[name] && auditTrail[name] !== auditTrail[key]) {
+          auditTrail[name].push(item);
+        }
       }
     }
   }
@@ -1470,43 +1536,52 @@ export function getTournamentNetSettlement(tournamentId) {
   const receipts = stmts.getSettlementReceipts.all(tournamentId);
   for (const r of receipts) {
     if (r.amount > 0) {
-      ensurePlayer(r.from_name, null);
-      ensurePlayer(r.to_name, null);
+      const fromKey = findPlayerKey(r.from_name, r.from_user_id || null);
+      const toKey = findPlayerKey(r.to_name, r.to_user_id || null);
 
       // Debtor paid: debt reduced (balance increases)
-      balances[r.from_name].amount += r.amount;
-      balances[r.from_name].totalPaid += r.amount;
+      players[fromKey].amount += r.amount;
+      players[fromKey].totalPaid += r.amount;
 
       // Creditor received: credit reduced (balance decreases)
-      balances[r.to_name].amount -= r.amount;
-      balances[r.to_name].totalReceived += r.amount;
+      players[toKey].amount -= r.amount;
+      players[toKey].totalReceived += r.amount;
 
-      auditTrail[r.from_name].push({
+      const sentItem = {
         type: 'payment_sent',
         receiptId: r.id,
         title: `📱 Inbetald delbetalning till ${r.to_name}`,
         to: r.to_name,
         amount: Math.round(r.amount),
         timestamp: r.paid_at
-      });
+      };
+      auditTrail[fromKey].push(sentItem);
+      if (r.from_name && auditTrail[r.from_name] && auditTrail[r.from_name] !== auditTrail[fromKey]) {
+        auditTrail[r.from_name].push(sentItem);
+      }
 
-      auditTrail[r.to_name].push({
+      const receivedItem = {
         type: 'payment_received',
         receiptId: r.id,
         title: `📱 Mottagen delbetalning från ${r.from_name}`,
         from: r.from_name,
         amount: -Math.round(r.amount),
         timestamp: r.paid_at
-      });
+      };
+      auditTrail[toKey].push(receivedItem);
+      if (r.to_name && auditTrail[r.to_name] && auditTrail[r.to_name] !== auditTrail[toKey]) {
+        auditTrail[r.to_name].push(receivedItem);
+      }
     }
   }
 
   // Calculate minimal transfers (remaining debt to be settled)
-  const people = Object.entries(balances)
-    .map(([name, data]) => ({
-      name,
-      amount: Math.round(data.amount),
-      userId: data.userId
+  const people = Object.values(players)
+    .map(p => ({
+      key: p.key,
+      name: p.name,
+      amount: Math.round(p.amount),
+      userId: p.userId
     }))
     .filter(p => Math.abs(p.amount) >= 1);
 
@@ -1538,8 +1613,10 @@ export function getTournamentNetSettlement(tournamentId) {
       transfers.push({
         from: debtor.name,
         fromUserId: debtor.userId,
+        fromKey: debtor.key,
         to: creditor.name,
         toUserId: creditor.userId,
+        toKey: creditor.key,
         amount: transfer,
         toSwish: swishNumber,
         isPaid: false
@@ -1554,20 +1631,23 @@ export function getTournamentNetSettlement(tournamentId) {
   }
 
   return {
-    balances: Object.entries(balances).map(([name, data]) => ({
-      name,
-      net: Math.round(data.amount),
-      rawTotal: Math.round(data.rawTotal || 0),
-      totalPaid: Math.round(data.totalPaid || 0),
-      totalReceived: Math.round(data.totalReceived || 0),
-      isDebtFree: Math.abs(Math.round(data.amount)) < 1,
-      userId: data.userId
+    balances: Object.values(players).map(p => ({
+      key: p.key,
+      name: p.name,
+      net: Math.round(p.amount),
+      rawTotal: Math.round(p.rawTotal || 0),
+      totalPaid: Math.round(p.totalPaid || 0),
+      totalReceived: Math.round(p.totalReceived || 0),
+      isDebtFree: Math.abs(Math.round(p.amount)) < 1,
+      userId: p.userId
     })),
     transfers,
     receipts: receipts.map(r => ({
       id: r.id,
       fromName: r.from_name,
       toName: r.to_name,
+      fromUserId: r.from_user_id || null,
+      toUserId: r.to_user_id || null,
       amount: r.amount,
       paidAt: r.paid_at
     })),
@@ -1577,13 +1657,13 @@ export function getTournamentNetSettlement(tournamentId) {
   };
 }
 
-export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amount) {
+export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amount, fromUserId = null, toUserId = null) {
   const existing = stmts.getSettlementReceipt.get(tournamentId, fromName, toName);
   if (existing) {
     stmts.deleteSettlementReceipt.run(tournamentId, fromName, toName);
     return { isPaid: false, deletedId: existing.id };
   } else {
-    stmts.insertSettlementReceipt.run(id, tournamentId, fromName, toName, amount);
+    stmts.insertSettlementReceipt.run(id, tournamentId, fromName, toName, amount, fromUserId, toUserId);
     return { isPaid: true, id };
   }
 }
@@ -2548,24 +2628,29 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
       const hasCustomShares = customShares && typeof customShares === 'object' && Object.keys(customShares).length > 0;
 
       if (hasCustomShares) {
-        let allocatedSum = 0;
+        let allocatedCents = 0;
         for (const uid of allParticipants) {
           const val = parseFloat(customShares[uid]);
           const share = (!isNaN(val) && val >= 0) ? Math.round(val * 100) / 100 : 0;
           userShares[uid] = share;
-          allocatedSum += share;
+          allocatedCents += Math.round(share * 100);
         }
 
-        // Validate sum against total amount (tolerance: 1 kr)
-        allocatedSum = Math.round(allocatedSum * 100) / 100;
-        const diff = Math.abs(allocatedSum - amount);
-        if (diff > 1.0) {
-          throw new Error(`Summan av deltagarnas belopp (${allocatedSum} kr) matchar inte totalbeloppet (${amount} kr)`);
+        // Validate sum against total amount (tolerance: exact to the cent)
+        const totalCents = Math.round(amount * 100);
+        if (allocatedCents !== totalCents) {
+          throw new Error(`Summan av deltagarnas belopp (${(allocatedCents / 100).toFixed(2)} kr) matchar inte totalbeloppet (${(totalCents / 100).toFixed(2)} kr)`);
         }
       } else {
-        const splitAmount = Math.round((amount / allParticipants.length) * 100) / 100;
-        for (const uid of allParticipants) {
-          userShares[uid] = splitAmount;
+        const totalCents = Math.round(amount * 100);
+        const n = allParticipants.length;
+        const baseCents = Math.floor(totalCents / n);
+        const remainderCents = totalCents % n;
+
+        for (let i = 0; i < n; i++) {
+          const uid = allParticipants[i];
+          const cents = baseCents + (i < remainderCents ? 1 : 0);
+          userShares[uid] = cents / 100;
         }
       }
 
@@ -2648,7 +2733,10 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     throw new Error('För få deltagare för att dela');
   }
 
-  const splitAmount = Math.round((expense.total_amount / participants.length) * 100) / 100;
+  const totalCents = Math.round(expense.total_amount * 100);
+  const n = participants.length;
+  const baseCents = Math.floor(totalCents / n);
+  const remainderCents = totalCents % n;
 
   const tx = db.transaction(() => {
     // 1. Delete old roulette duel(s)
@@ -2658,7 +2746,9 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
     stmts.updateTabExpenseMode.run(expenseId);
 
     // 3. Update participant amounts and insert new even_steven duels
-    for (const p of participants) {
+    for (let i = 0; i < n; i++) {
+      const p = participants[i];
+      const splitAmount = (baseCents + (i < remainderCents ? 1 : 0)) / 100;
       stmts.updateTabExpenseParticipantAmount.run(splitAmount, expenseId, p.user_id);
 
       if (String(p.user_id) !== String(expense.payer_id)) {

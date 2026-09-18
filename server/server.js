@@ -2079,10 +2079,9 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
       return res.status(404).json({ error: 'Kvittot hittades inte i denna turnering' });
     }
 
-    const isReceiptCreditor = user && (user.nickname === existing.to_name || user.real_name === existing.to_name);
-    const isReceiptDebtor = user && (user.nickname === existing.from_name || user.real_name === existing.from_name);
-    if (!isCreator && !isReceiptCreditor && !isReceiptDebtor && !hasPin) {
-      return res.status(403).json({ error: 'Ingen behörighet att ta bort detta kvitto' });
+    const isReceiptCreditor = user && ((existing.to_user_id && user.id === existing.to_user_id) || user.nickname === existing.to_name || user.real_name === existing.to_name);
+    if (!isCreator && !isReceiptCreditor && !hasPin) {
+      return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan ta bort detta kvitto' });
     }
 
     db.deleteSettlementReceiptById(receiptId);
@@ -2090,18 +2089,43 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     return res.json({ ok: true, isPaid: false });
   }
 
-  const isCreditor = user && ((toUserId && user.id === toUserId) || (toName && (user.nickname === toName || user.real_name === toName)));
-  const isDebtor = user && ((fromUserId && user.id === fromUserId) || (fromName && (user.nickname === fromName || user.real_name === fromName)));
-
-  if (!isCreator && !isCreditor && !isDebtor && !hasPin) {
-    return res.status(403).json({ error: 'Ingen behörighet att kvittera denna överföring' });
-  }
-
   if (!fromName || !toName) {
     return res.status(400).json({ error: 'Avsändare och mottagare krävs' });
   }
 
-  const result = db.toggleSettlementReceipt(generateId(), tournament.id, fromName, toName, Number(amount) || 0);
+  const isCreditor = user && ((toUserId && user.id === toUserId) || (toName && (user.nickname === toName || user.real_name === toName)));
+  if (!isCreator && !isCreditor && !hasPin) {
+    return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan kvittera denna överföring' });
+  }
+
+  const parsedAmount = Math.round(Number(amount));
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({ error: 'Belopp måste vara ett positivt heltal' });
+  }
+
+  const currentSettlement = db.getTournamentNetSettlement(tournament.id);
+  const matchingTransfer = (currentSettlement.transfers || []).find(t =>
+    (t.from === fromName || (fromUserId && t.fromUserId === fromUserId)) &&
+    (t.to === toName || (toUserId && t.toUserId === toUserId))
+  );
+
+  if (!matchingTransfer) {
+    return res.status(400).json({ error: 'Ingen giltig oreglerad överföring hittades mellan angivna parter' });
+  }
+
+  if (parsedAmount > matchingTransfer.amount) {
+    return res.status(400).json({ error: `Beloppet (${parsedAmount} kr) överstiger återstående skuld (${matchingTransfer.amount} kr)` });
+  }
+
+  const result = db.toggleSettlementReceipt(
+    generateId(),
+    tournament.id,
+    fromName,
+    toName,
+    parsedAmount,
+    fromUserId || matchingTransfer.fromUserId || null,
+    toUserId || matchingTransfer.toUserId || null
+  );
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
   res.json({ ok: true, isPaid: result.isPaid, receiptId: result.id });
@@ -2212,7 +2236,7 @@ app.post('/api/duels/:id/respond', (req, res) => {
   res.json({ duel });
 });
 
-app.post('/api/duels/:id/roll', (req, res) => {
+app.post(['/api/duels/:id/roll', '/api/duels/:id/result'], (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
@@ -2229,20 +2253,29 @@ app.post('/api/duels/:id/roll', (req, res) => {
 
   const { creatorScore, opponentScore, winnerId } = req.body;
 
-  // Validate winnerId is a legitimate participant or null
-  const validWinner = winnerId === duel.creator_id || winnerId === duel.opponent_id || winnerId === null;
-  if (!validWinner) {
-    return res.status(400).json({ error: 'Ogiltig vinnare angiven' });
-  }
-
   const parsedCreatorScore = typeof creatorScore === 'number' ? creatorScore : Number(creatorScore) || 0;
   const parsedOpponentScore = typeof opponentScore === 'number' ? opponentScore : Number(opponentScore) || 0;
+
+  // Determine legitimate winner based on scores
+  let derivedWinnerId = null;
+  if (parsedCreatorScore > parsedOpponentScore) {
+    derivedWinnerId = duel.creator_id;
+  } else if (parsedOpponentScore > parsedCreatorScore) {
+    derivedWinnerId = duel.opponent_id;
+  }
+
+  // If winnerId was explicitly passed, it must match the score-derived winner
+  if (winnerId !== undefined && winnerId !== null && winnerId !== derivedWinnerId) {
+    return res.status(400).json({ error: 'Angiven vinnare matchar inte poängställningen' });
+  }
+
+  const effectiveWinnerId = derivedWinnerId;
 
   const updated = db.submitDuelResult({
     duelId: req.params.id,
     creatorScore: parsedCreatorScore,
     opponentScore: parsedOpponentScore,
-    winnerId: winnerId || null
+    winnerId: effectiveWinnerId
   });
 
   broadcastToDuel(req.params.id, {
@@ -2300,6 +2333,11 @@ app.post('/api/duels/:id/settle', (req, res) => {
     return res.status(400).json({ error: 'Endast avslutade dueller kan kvitteras' });
   }
 
+  // Only the creditor/winner can settle the debt (or either if tie)
+  if (duel.winner_id && duel.winner_id !== user.id) {
+    return res.status(403).json({ error: 'Endast vinnaren/borgenären kan kvittera denna duell' });
+  }
+
   db.settleDuelById(req.params.id);
   broadcastToDuel(req.params.id, {
     type: 'duel_settled',
@@ -2321,6 +2359,14 @@ app.post('/api/duels/settle-with/:friendId', (req, res) => {
   const friend = db.getUserById(friendId);
   if (!friend) {
     return res.status(404).json({ error: 'Användaren hittades inte' });
+  }
+
+  const summary = db.getDuelSettlementSummary(user.id);
+  const friendSummary = (summary.friends || []).find(f => f.friendId === friendId);
+
+  // If user is debtor (netAmount < 0), reject! Only creditor or even balance can settle.
+  if (friendSummary && friendSummary.netAmount < 0) {
+    return res.status(403).json({ error: 'Endast mottagaren/borgenären kan kvittera denna skuld' });
   }
 
   db.settleDuelsBetweenUsers(user.id, friendId);
