@@ -9,6 +9,7 @@ import QRCode from 'qrcode';
 import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
+import { SHL_PLAYERS, SHL_ROUNDS } from '../src/data/shlPlayers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -4209,6 +4210,223 @@ app.get('/api/shl-fantasy/:code', (req, res) => {
   res.json(league);
 });
 
+// ── SHL Fantasy Helpers & Validation ──────────────────
+function isShlLeagueAdmin(req, user, league) {
+  if (!user || !league) return false;
+  if (league.creator_id === user.id) return true;
+  if (user.is_admin) return true;
+  const pin = req.body?.pin || req.headers['x-admin-pin'];
+  if (pin && verifyPin(pin)) return true;
+  return false;
+}
+
+function validateShlLineup(lineup) {
+  if (!lineup || typeof lineup !== 'object') {
+    return { valid: false, error: 'Laguppställning saknas eller är ogiltig' };
+  }
+
+  const goalie = lineup.goalie;
+  const defenders = Array.isArray(lineup.defenders) ? lineup.defenders : [];
+  const forwards = Array.isArray(lineup.forwards) ? lineup.forwards : [];
+
+  if (!goalie || !goalie.id) {
+    return { valid: false, error: 'Målvakt (G) måste väljas' };
+  }
+  if (goalie.pos !== 'G') {
+    return { valid: false, error: 'Målvaktsplatsen måste innehålla en målvakt (G)' };
+  }
+
+  if (defenders.length !== 2) {
+    return { valid: false, error: 'Exakt 2 backar (D) krävs' };
+  }
+  for (const d of defenders) {
+    if (!d || !d.id || d.pos !== 'D') {
+      return { valid: false, error: 'Backplatserna måste innehålla backar (D)' };
+    }
+  }
+
+  if (forwards.length !== 3) {
+    return { valid: false, error: 'Exakt 3 forwards (F) krävs' };
+  }
+  for (const f of forwards) {
+    if (!f || !f.id || f.pos !== 'F') {
+      return { valid: false, error: 'Forwardplatserna måste innehålla forwards (F)' };
+    }
+  }
+
+  // Duplicate checks
+  const allIds = [goalie.id, ...defenders.map(d => d.id), ...forwards.map(f => f.id)];
+  const uniqueIds = new Set(allIds);
+  if (uniqueIds.size !== 6) {
+    return { valid: false, error: 'Samma spelare kan inte väljas på flera platser' };
+  }
+
+  // Canonical player lookup & XSS sanitization
+  const canonicalMap = new Map(SHL_PLAYERS.map(p => [p.id, p]));
+  const cleanPlayer = (p) => {
+    const c = canonicalMap.get(p.id);
+    if (c) {
+      return {
+        id: c.id,
+        name: c.name,
+        team: c.team,
+        pos: c.pos,
+        num: c.num,
+        price: c.price
+      };
+    }
+    return {
+      id: String(p.id).slice(0, 36),
+      name: String(p.name || 'Spelare').slice(0, 40).replace(/<[^>]*>?/gm, ''),
+      team: String(p.team || 'SHL').slice(0, 8),
+      pos: p.pos,
+      num: Number(p.num) || 0,
+      price: Number(p.price) || 8
+    };
+  };
+
+  return {
+    valid: true,
+    cleanLineup: {
+      goalie: cleanPlayer(goalie),
+      defenders: defenders.map(cleanPlayer),
+      forwards: forwards.map(cleanPlayer)
+    }
+  };
+}
+
+function simulateShlRound(roundId, existingSimulation = null) {
+  const round = SHL_ROUNDS.find(r => r.id === roundId) || SHL_ROUNDS[0];
+  const currentDayIndex = existingSimulation ? (existingSimulation.currentDay || 0) : 0;
+  
+  if (currentDayIndex >= round.days.length) {
+    return { ...existingSimulation, isFinished: true };
+  }
+
+  const day = round.days[currentDayIndex];
+  const dayGameIds = new Set(day.games.map(g => g.id));
+  const dayActiveTeams = new Set();
+  day.games.forEach(g => {
+    dayActiveTeams.add(g.home);
+    dayActiveTeams.add(g.away);
+  });
+
+  // Previous matches or initialize
+  let matches = existingSimulation?.matches ? [...existingSimulation.matches] : [];
+  if (matches.length === 0) {
+    round.days.forEach(d => {
+      d.games.forEach(g => {
+        matches.push({
+          id: g.id,
+          home: g.home,
+          away: g.away,
+          time: g.time,
+          dayLabel: d.dayLabel,
+          homeScore: null,
+          awayScore: null,
+          status: 'upcoming'
+        });
+      });
+    });
+  }
+
+  // Simulate today's matches - strictly NO ties (SHL overtime rules)
+  matches = matches.map(m => {
+    if (dayGameIds.has(m.id)) {
+      let hScore = crypto.randomInt(1, 5);
+      let aScore = crypto.randomInt(0, 4);
+      let isOT = false;
+      if (hScore === aScore) {
+        isOT = true;
+        if (crypto.randomInt(0, 2) === 1) hScore += 1;
+        else aScore += 1;
+      }
+      return {
+        ...m,
+        homeScore: hScore,
+        awayScore: aScore,
+        isOT,
+        status: 'finished'
+      };
+    }
+    return m;
+  });
+
+  // Calculate points for active players today
+  const playerPointsMap = existingSimulation?.playerPointsMap ? { ...existingSimulation.playerPointsMap } : {};
+
+  for (const player of SHL_PLAYERS) {
+    if (!dayActiveTeams.has(player.team)) continue;
+
+    const match = matches.find(m => dayGameIds.has(m.id) && (m.home === player.team || m.away === player.team));
+    if (!match) continue;
+
+    const isHome = match.home === player.team;
+    const teamGoals = isHome ? match.homeScore : match.awayScore;
+    const opponentGoals = isHome ? match.awayScore : match.homeScore;
+    const teamWon = teamGoals > opponentGoals;
+
+    let dayPts = 0;
+    if (player.pos === 'G') {
+      const winPts = teamWon ? 4 : 0;
+      const shutoutPts = (teamWon && opponentGoals === 0) ? 5 : 0;
+      const goalsAgainstPts = -opponentGoals;
+      dayPts = Math.max(0, winPts + shutoutPts + goalsAgainstPts);
+    } else if (player.pos === 'D') {
+      const goals = teamGoals > 0 && crypto.randomInt(0, 100) < 18 ? 4 : 0;
+      const assists = teamGoals > 0 && crypto.randomInt(0, 100) < 30 ? 2 : 0;
+      const pm = teamWon ? (crypto.randomInt(0, 100) < 60 ? 1 : 0) : (crypto.randomInt(0, 100) < 50 ? -1 : 0);
+      dayPts = goals + assists + pm;
+    } else { // F
+      const goals = teamGoals > 0 && crypto.randomInt(0, 100) < 35 ? (crypto.randomInt(0, 100) < 15 ? 6 : 3) : 0;
+      const assists = teamGoals > 0 && crypto.randomInt(0, 100) < 35 ? 2 : 0;
+      dayPts = goals + assists;
+    }
+
+    playerPointsMap[player.id] = (playerPointsMap[player.id] || 0) + dayPts;
+  }
+
+  const nextDay = currentDayIndex + 1;
+  const isFinished = nextDay >= round.days.length;
+
+  return {
+    roundId,
+    currentDay: nextDay,
+    totalDays: round.days.length,
+    isFinished,
+    matches,
+    playerPointsMap
+  };
+}
+
+function calculateShlEntryScore(lineup, playerPointsMap = {}) {
+  if (!lineup || typeof lineup !== 'object') return { total: 0, forwardPts: 0 };
+  let total = 0;
+  let forwardPts = 0;
+
+  if (lineup.goalie && lineup.goalie.id) {
+    const pts = playerPointsMap[lineup.goalie.id] || 0;
+    lineup.goalie.pts = pts;
+    total += pts;
+  }
+  for (const d of (lineup.defenders || [])) {
+    if (d && d.id) {
+      const pts = playerPointsMap[d.id] || 0;
+      d.pts = pts;
+      total += pts;
+    }
+  }
+  for (const f of (lineup.forwards || [])) {
+    if (f && f.id) {
+      const pts = playerPointsMap[f.id] || 0;
+      f.pts = pts;
+      total += pts;
+      forwardPts += pts;
+    }
+  }
+  return { total, forwardPts };
+}
+
 app.post('/api/shl-fantasy/:code/join', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
@@ -4216,8 +4434,24 @@ app.post('/api/shl-fantasy/:code/join', (req, res) => {
   const league = db.getShlLeagueByCode(req.params.code);
   if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
 
-  const { lineup, swishNumber, points } = req.body;
-  if (!lineup) return res.status(400).json({ error: 'Laguppställning krävs' });
+  if (league.status === 'finished') {
+    return res.status(400).json({ error: 'Ligan är redan avslutad' });
+  }
+
+  if (league.simulation_data && (league.simulation_data.currentDay > 0 || league.simulation_data.roundSimulated)) {
+    return res.status(400).json({ error: 'Omgången har redan påbörjats. Laguppställningen kan inte längre ändras.' });
+  }
+
+  const existingEntry = (league.entries || []).find(e => e.user_id === user.id);
+  if (existingEntry && existingEntry.is_locked && !req.body.unlock && req.body.isLocked !== false) {
+    return res.status(400).json({ error: 'Ditt lag är låst. Lås upp laget först för att ändra.' });
+  }
+
+  const { lineup, swishNumber, isLocked, unlock } = req.body;
+  const validation = validateShlLineup(lineup);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
+  }
 
   try {
     const swish = swishNumber || user.swish_number || '';
@@ -4225,14 +4459,17 @@ app.post('/api/shl-fantasy/:code/join', (req, res) => {
       db.updateUserProfile(user.id, { swishNumber: swish });
     }
 
+    const lockState = (unlock || isLocked === false) ? 0 : (isLocked ? 1 : (existingEntry ? existingEntry.is_locked : 0));
+
     db.joinOrUpdateShlEntry({
       leagueId: league.id,
       userId: user.id,
       userName: user.nickname || user.real_name || 'Kompis',
       avatarEmoji: user.avatar_emoji || '🏒',
       swishNumber: swish,
-      lineup,
-      points: typeof points === 'number' ? points : 0
+      lineup: validation.cleanLineup,
+      points: existingEntry ? existingEntry.points : 0,
+      isLocked: lockState
     });
 
     const updated = db.getShlLeagueById(league.id);
@@ -4244,6 +4481,75 @@ app.post('/api/shl-fantasy/:code/join', (req, res) => {
     });
 
     res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/shl-fantasy/:code/simulate', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const league = db.getShlLeagueByCode(req.params.code);
+  if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
+
+  if (!isShlLeagueAdmin(req, user, league)) {
+    return res.status(403).json({ error: 'Endast ligans skapare kan simulera omgången' });
+  }
+
+  if (league.status === 'finished') {
+    return res.status(400).json({ error: 'Ligan är redan färdigspelad och avräknad' });
+  }
+
+  try {
+    const simResult = simulateShlRound(league.round_id, league.simulation_data);
+    const entryPoints = {};
+
+    // Calculate score for each entry
+    const scoredEntries = league.entries.map(e => {
+      const { total, forwardPts } = calculateShlEntryScore(e.lineup, simResult.playerPointsMap);
+      entryPoints[e.user_id] = total;
+      return {
+        ...e,
+        points: total,
+        forwardPts
+      };
+    });
+
+    let updatedLeague;
+    if (simResult.isFinished) {
+      // Sort entries: total points desc, then forwardPts desc as tie-breaker
+      scoredEntries.sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        return b.forwardPts - a.forwardPts;
+      });
+
+      const winner = scoredEntries[0];
+      if (!winner) {
+        return res.status(400).json({ error: 'Inga deltagare i ligan att kora till vinnare' });
+      }
+
+      // Update points first
+      for (const [uId, pts] of Object.entries(entryPoints)) {
+        db.updateShlEntryPoints(league.id, uId, pts);
+      }
+
+      updatedLeague = db.settleShlLeague(league.id, winner.user_id, simResult);
+
+      broadcastToEvent(`shl_${league.code}`, {
+        type: 'shl_league_settled',
+        league: updatedLeague
+      });
+    } else {
+      updatedLeague = db.saveShlSimulation(league.id, simResult, entryPoints);
+
+      broadcastToEvent(`shl_${league.code}`, {
+        type: 'shl_league_updated',
+        league: updatedLeague
+      });
+    }
+
+    res.json(updatedLeague);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4291,23 +4597,31 @@ app.post('/api/shl-fantasy/:code/settle', (req, res) => {
   const league = db.getShlLeagueByCode(req.params.code);
   if (!league) return res.status(404).json({ error: 'Ligan hittades inte' });
 
+  if (!isShlLeagueAdmin(req, user, league)) {
+    return res.status(403).json({ error: 'Endast ligans skapare eller admin kan avräkna ligan' });
+  }
+
+  if (league.status === 'finished') {
+    return res.status(400).json({ error: 'Ligan är redan avslutad och avräknad' });
+  }
+
   const { winnerId, entryPoints } = req.body;
   if (!winnerId) return res.status(400).json({ error: 'Vinnar-ID krävs' });
 
+  // Verify that winnerId belongs to an entrant in this league
+  const isParticipant = league.entries.some(e => e.user_id === winnerId);
+  if (!isParticipant) {
+    return res.status(400).json({ error: 'Angiven vinnare deltar inte i denna liga' });
+  }
+
   try {
-    // Optionally update points for all entries
     if (entryPoints && typeof entryPoints === 'object') {
       for (const [uId, pts] of Object.entries(entryPoints)) {
         db.updateShlEntryPoints(league.id, uId, Number(pts) || 0);
       }
     }
 
-    const settled = db.settleShlLeague(league.id, winnerId);
-
-    // Auto mark winner as paid
-    db.toggleShlEntryPaid(league.id, winnerId, true);
-
-    const finalLeague = db.getShlLeagueById(league.id);
+    const finalLeague = db.settleShlLeague(league.id, winnerId);
 
     broadcastToEvent(`shl_${league.code}`, {
       type: 'shl_league_settled',
@@ -4329,6 +4643,24 @@ app.post('/api/shl-fantasy/:code/toggle-paid', (req, res) => {
 
   const { userId, isPaid } = req.body;
   const targetUserId = userId || user.id;
+
+  // Verify target is an entry in this league
+  const targetEntry = league.entries.find(e => e.user_id === targetUserId);
+  if (!targetEntry) {
+    return res.status(404).json({ error: 'Deltagaren hittades inte i ligan' });
+  }
+
+  // Authorization:
+  // 1. Target user can mark their own debt as paid (sent)
+  // 2. League winner can mark any participant as paid (received) or unpaid
+  // 3. Creator or admin can override
+  const isDebtor = user.id === targetUserId;
+  const isWinner = league.winner_id && user.id === league.winner_id;
+  const isAdmin = isShlLeagueAdmin(req, user, league);
+
+  if (!isDebtor && !isWinner && !isAdmin) {
+    return res.status(403).json({ error: 'Behörighet saknas för att ändra betalstatus' });
+  }
 
   try {
     const updated = db.toggleShlEntryPaid(league.id, targetUserId, isPaid);

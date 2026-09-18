@@ -2,7 +2,7 @@
 import { showModal, closeModal } from "./modal.js";
 import { t, getLang } from "../i18n.js";
 import { getStoredUser, isLoggedIn } from "../auth.js";
-import { getFriends, createShlLeague, getShlLeague, joinShlLeague, inviteFriendsToShlLeague, settleShlLeague, toggleShlPaid, connectWebSocket, onWebSocketMessage, disconnectWebSocket } from "../api.js";
+import { getFriends, createShlLeague, getShlLeague, joinShlLeague, inviteFriendsToShlLeague, settleShlLeague, simulateShlLeague, toggleShlPaid, connectWebSocket, onWebSocketMessage, disconnectWebSocket } from "../api.js";
 import { showToast, createSwishUrl } from "../utils.js";
 import { SHL_SEASON, SHL_TEAMS, SHL_PLAYERS, SHL_ROUNDS, getGamesForRound, FANTASY_SCORING } from "../data/shlPlayers.js";
 
@@ -29,30 +29,8 @@ export async function openShlFantasyModal(options = {}) {
   let roundSimulated = false;
   let isAddingPlayer = false;
 
-  // If initialJoinCode passed, load league immediately
-  if (initialJoinCode) {
-    try {
-      const l = await getShlLeague(initialJoinCode);
-      if (l) {
-        currentLeague = l;
-        isMultiplayer = true;
-        selectedRoundId = l.round_id;
-        selectedStake = l.stake_amount;
-        selectedMode = l.mode;
-        // If current user already submitted a lineup in this league, restore it
-        const myEntry = l.entries.find(e => e.user_id === currentUser.id);
-        if (myEntry && myEntry.lineup) {
-          myLineup = myEntry.lineup;
-          isLockedIn = true;
-        }
-      }
-    } catch (e) {
-      showToast('Kunde inte ladda ligan: ' + e.message, 'error');
-    }
-  }
-
   // Round selection state (Defaults to Omgång 3 which runs over 2 days!)
-  let selectedRoundId = currentLeague?.round_id || "omg_3";
+  let selectedRoundId = "omg_3";
   function getCurrentRound() {
     return SHL_ROUNDS.find(r => r.id === selectedRoundId) || SHL_ROUNDS[0];
   }
@@ -162,6 +140,65 @@ export async function openShlFantasyModal(options = {}) {
   }
   let liveMatchResults = initLiveMatchResults();
 
+  // Real-time WebSocket synchronization
+  let wsUnsub = null;
+  function setupLeagueWebSocket(code) {
+    if (!code) return;
+    if (wsUnsub) { wsUnsub(); wsUnsub = null; }
+    connectWebSocket(`shl_${code}`);
+    wsUnsub = onWebSocketMessage((msg) => {
+      if (msg.type === "shl_league_updated" || msg.type === "shl_league_settled") {
+        if (msg.league && msg.league.code === currentLeague?.code) {
+          currentLeague = msg.league;
+          const me = currentLeague.entries.find(e => e.user_id === currentUser.id);
+          if (me) {
+            if (me.lineup && (!myLineup.goalie && myLineup.defenders.length === 0)) {
+              myLineup = me.lineup;
+            }
+            if (me.is_locked) {
+              isLockedIn = true;
+            }
+          }
+          if (currentLeague.simulation_data) {
+            liveMatchResults = currentLeague.simulation_data.matches || [];
+            currentSimulatedDay = currentLeague.simulation_data.currentDay || 0;
+          }
+          roundSimulated = currentLeague.status === "finished";
+          refreshAll();
+        }
+      }
+    });
+  }
+
+  // If initialJoinCode passed, load league immediately
+  if (initialJoinCode) {
+    try {
+      const l = await getShlLeague(initialJoinCode);
+      if (l) {
+        currentLeague = l;
+        isMultiplayer = true;
+        selectedRoundId = l.round_id;
+        currentRound = getCurrentRound();
+        roundGames = getGamesForRound(currentRound);
+        selectedStake = l.stake_amount;
+        selectedMode = l.mode;
+        if (l.simulation_data) {
+          liveMatchResults = l.simulation_data.matches || [];
+          currentSimulatedDay = l.simulation_data.currentDay || 0;
+        }
+        roundSimulated = l.status === "finished";
+        const myEntry = l.entries.find(e => e.user_id === currentUser.id);
+        if (myEntry && myEntry.lineup && myEntry.lineup.goalie) {
+          myLineup = myEntry.lineup;
+          isLockedIn = !!myEntry.is_locked;
+        }
+        setupLeagueWebSocket(l.code);
+      }
+    } catch (e) {
+      showToast("Kunde inte ladda ligan: " + e.message, "error");
+    }
+  }
+
   const modalTitle = `<img src="/hockey-gold.png" alt="" style="width: 28px; height: 28px; object-fit: contain; vertical-align: -5px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? "SHL 2026/2027 Mini Fantasy 🏒" : "SHL 2026/2027 Mini Fantasy 🏒"}`;
 
   function getTotalSelectedCount() {
@@ -176,11 +213,11 @@ export async function openShlFantasyModal(options = {}) {
         <div class="card mb-xs" style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(251,191,36,0.3); border-radius: var(--radius-md); padding: 8px 10px;">
           <div class="flex-between align-center">
             <div class="flex align-center gap-xs" style="flex: 1;">
-              <span style="font-size: 1rem;">🏒</span>
-              <select id="shl-round-select" style="background: transparent; color: var(--gold); font-weight: 800; font-size: 0.84rem; border: none; outline: none; cursor: pointer; max-width: 260px;">
+              <span style="font-size: 1rem;">${isMultiplayer ? "🔒" : "🏒"}</span>
+              <select id="shl-round-select" ${isMultiplayer ? 'disabled title="Omgången är låst till kompisligan"' : ""} style="background: transparent; color: var(--gold); font-weight: 800; font-size: 0.84rem; border: none; outline: none; cursor: ${isMultiplayer ? "default" : "pointer"}; max-width: 260px; opacity: ${isMultiplayer ? "0.9" : "1"};">
                 ${SHL_ROUNDS.map(r => `
                   <option value="${r.id}" ${selectedRoundId === r.id ? "selected" : ""} style="background: #0f172a; color: #fff;">
-                    ${r.name} (${r.dateRange})
+                    ${r.name} (${r.dateRange}) ${isMultiplayer && selectedRoundId === r.id ? "🔒" : ""}
                   </option>
                 `).join("")}
               </select>
@@ -377,8 +414,8 @@ export async function openShlFantasyModal(options = {}) {
         </div>
 
         ${isComplete ? `
-          <button type="button" class="btn btn-success btn-sm mt-sm w-100" id="btn-lock-squad" style="font-weight: 800; padding: 10px; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.4);">
-            🔒 ${isEn ? "LOCK IN SQUAD & JOIN POT" : "LÅS LAGET & GÅ TILL POTTEN"}
+          <button type="button" class="btn ${isLockedIn ? "btn-secondary" : "btn-success"} btn-sm mt-sm w-100" id="btn-lock-squad" style="font-weight: 800; padding: 10px; font-size: 0.88rem; ${isLockedIn ? "border-color: rgba(255,255,255,0.25); color: var(--gold);" : "background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.4);"}">
+            ${isLockedIn ? `🔒 ${isEn ? "SQUAD LOCKED (TAP TO UNLOCK)" : "LAGET ÄR LÅST (KLICKA FÖR ATT LÅSA UPP)"}` : `🔒 ${isEn ? "LOCK IN SQUAD & JOIN POT" : "LÅS LAGET & GÅ TILL POTTEN"}`}
           </button>
         ` : ""}
       </div>
@@ -534,9 +571,14 @@ export async function openShlFantasyModal(options = {}) {
       }))
     ];
 
+    const completedParticipants = participants.filter(p => {
+      const pCount = (p.lineup?.goalie ? 1 : 0) + (p.lineup?.defenders?.length || 0) + (p.lineup?.forwards?.length || 0);
+      return pCount === 6;
+    });
+
     const activeStake = isMultiplayer ? currentLeague.stake_amount : selectedStake;
     const activeMode = isMultiplayer ? currentLeague.mode : selectedMode;
-    const totalPot = activeMode === "swish" ? participants.length * activeStake : 0;
+    const totalPot = activeMode === "swish" ? completedParticipants.length * activeStake : 0;
 
     return `
       <div style="padding: 4px 0;">
@@ -548,7 +590,7 @@ export async function openShlFantasyModal(options = {}) {
             ${activeMode === "swish" ? `${totalPot} KR` : "ÄRAN & SKRYT 🪙"}
           </div>
           <div style="font-size: 0.75rem; color: rgba(255,255,255,0.7);">
-            ${participants.length} ${isEn ? "players entered" : "deltagare i potten"} (${activeStake} kr / pers)
+            ${completedParticipants.length} ${isEn ? "complete squads" : "klara lag i potten"} (${activeStake} kr / pers)
           </div>
         </div>
 
@@ -708,9 +750,15 @@ export async function openShlFantasyModal(options = {}) {
             </div>
           </div>
 
-          <button type="button" class="btn btn-sm btn-secondary" id="btn-simulate-round" style="font-size: 0.75rem; padding: 6px 10px; font-weight: 700; border-color: var(--gold); color: var(--gold);">
-            ${simBtnLabel}
-          </button>
+          ${(!isMultiplayer || currentLeague.creator_id === currentUser.id) ? `
+            <button type="button" class="btn btn-sm btn-secondary" id="btn-simulate-round" style="font-size: 0.75rem; padding: 6px 10px; font-weight: 700; border-color: var(--gold); color: var(--gold);">
+              ${simBtnLabel}
+            </button>
+          ` : `
+            <div style="font-size: 0.72rem; color: var(--gold); font-weight: 700;">
+              ${isRoundComplete ? "Avgjord 🏆" : "Väntar på skaparen ⏳"}
+            </div>
+          `}
         </div>
 
         <!-- Leaderboard -->
@@ -734,7 +782,7 @@ export async function openShlFantasyModal(options = {}) {
                         <div style="font-weight: 700; font-size: 0.88rem; color: ${sq.isMe ? "#10b981" : "#fff"};">
                           ${escapeHtml(sq.name)} ${sq.isMe ? "(Du)" : ""}
                         </div>
-                        ${sq.swish ? `<div style="font-size: 0.65rem; color: var(--text-secondary);">📱 ${sq.swish}</div>` : ""}
+                        ${sq.swish ? `<div style="font-size: 0.65rem; color: var(--text-secondary);">📱 ${escapeHtml(sq.swish)}</div>` : ""}
                       </div>
                     </div>
                     <div style="text-align: right;">
@@ -746,9 +794,9 @@ export async function openShlFantasyModal(options = {}) {
 
                   <!-- Mini squad points detail -->
                   <div class="mt-xs" style="font-size: 0.68rem; color: rgba(255,255,255,0.6); display: flex; gap: 6px; flex-wrap: wrap;">
-                    ${sq.lineup?.goalie ? `<span>🧤 ${sq.lineup.goalie.name?.split(" ")[1] || sq.lineup.goalie.name} (${sq.lineup.goalie.pts || 0}p)</span> · ` : ""}
-                    ${(sq.lineup?.defenders || []).map(d => `<span>🛡️ ${d.name?.split(" ")[1] || d.name} (${d.pts || 0}p)</span>`).join(" · ")} ·
-                    ${(sq.lineup?.forwards || []).map(f => `<span>🏒 ${f.name?.split(" ")[1] || f.name} (${f.pts || 0}p)</span>`).join(" · ")}
+                    ${sq.lineup?.goalie ? `<span>🧤 ${escapeHtml(sq.lineup.goalie.name?.split(" ")[1] || sq.lineup.goalie.name)} (${sq.lineup.goalie.pts || 0}p)</span> · ` : ""}
+                    ${(sq.lineup?.defenders || []).map(d => `<span>🛡️ ${escapeHtml(d.name?.split(" ")[1] || d.name)} (${d.pts || 0}p)</span>`).join(" · ")} ·
+                    ${(sq.lineup?.forwards || []).map(f => `<span>🏒 ${escapeHtml(f.name?.split(" ")[1] || f.name)} (${f.pts || 0}p)</span>`).join(" · ")}
                   </div>
                 </div>
               `;
@@ -762,7 +810,7 @@ export async function openShlFantasyModal(options = {}) {
             <div style="text-align: center; margin-bottom: 12px;">
               <div style="font-size: 1.8rem; margin-bottom: 2px;">🏆</div>
               <div style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #10b981; margin-bottom: 2px;">
-                ${leader.name} VANN OMGÅNGEN!
+                ${escapeHtml(leader.name)} VANN OMGÅNGEN!
               </div>
               <div style="font-size: 0.85rem; color: #fff;">
                 Tar hem hela potten på <strong class="text-gold">${totalPot} kr</strong>!
@@ -788,9 +836,9 @@ export async function openShlFantasyModal(options = {}) {
                   return `
                     <div class="flex-between align-center" style="padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.78rem;">
                       <div>
-                        <span style="font-weight: 700; color: #fff;">${loser.name}</span>
+                        <span style="font-weight: 700; color: #fff;">${escapeHtml(loser.name)}</span>
                         <div style="font-size: 0.68rem; color: var(--text-secondary);">
-                          Ska swisha ${activeStake} kr → ${leader.name}
+                          Ska swisha ${activeStake} kr → ${escapeHtml(leader.name)}
                         </div>
                       </div>
 
@@ -868,9 +916,9 @@ export async function openShlFantasyModal(options = {}) {
 
   function calculateLineupPoints(lineup) {
     let pts = 0;
-    if (lineup.goalie?.pts) pts += lineup.goalie.pts;
-    lineup.defenders.forEach(d => { if (d.pts) pts += d.pts; });
-    lineup.forwards.forEach(f => { if (f.pts) pts += f.pts; });
+    if (lineup?.goalie?.pts) pts += lineup.goalie.pts;
+    (lineup?.defenders || []).forEach(d => { if (d?.pts) pts += d.pts; });
+    (lineup?.forwards || []).forEach(f => { if (f?.pts) pts += f.pts; });
     return pts;
   }
 
@@ -951,7 +999,12 @@ export async function openShlFantasyModal(options = {}) {
   }
 
   // ── MOUNT MODAL ───────────────────────────────────────────
-  const { close, root, setBusy } = showModal(modalTitle, renderContent());
+  const { close, root, setBusy } = showModal(modalTitle, renderContent(), () => {
+    if (wsUnsub) {
+      wsUnsub();
+      wsUnsub = null;
+    }
+  });
 
   // Prevent accidental close during active fantasy draft/round
   setBusy(
@@ -1039,6 +1092,10 @@ export async function openShlFantasyModal(options = {}) {
       // Remove player from slot
       root.querySelectorAll(".btn-remove-slot").forEach(btn => {
         btn.addEventListener("click", () => {
+          if (isLockedIn || (isMultiplayer && (currentLeague?.status === "finished" || (currentLeague?.simulation_data && currentLeague?.simulation_data?.currentDay > 0)))) {
+            showToast("Laget är låst! Lås upp truppen först för att göra ändringar.", "error");
+            return;
+          }
           const slot = btn.dataset.slot;
           if (slot === "goalie") myLineup.goalie = null;
           else if (slot === "def_0") myLineup.defenders.splice(0, 1);
@@ -1117,6 +1174,10 @@ export async function openShlFantasyModal(options = {}) {
       // Toggle / Add player
       root.querySelectorAll(".btn-toggle-player").forEach(btn => {
         btn.addEventListener("click", () => {
+          if (isLockedIn || (isMultiplayer && (currentLeague?.status === "finished" || (currentLeague?.simulation_data && currentLeague?.simulation_data?.currentDay > 0)))) {
+            showToast("Laget är låst! Lås upp truppen först för att göra ändringar.", "error");
+            return;
+          }
           const pId = btn.dataset.playerId;
           const player = allPlayers.find(p => p.id === pId);
           if (!player) return;
@@ -1150,18 +1211,53 @@ export async function openShlFantasyModal(options = {}) {
 
       // Lock in button
       root.querySelector("#btn-lock-squad")?.addEventListener("click", async () => {
+        if (isLockedIn) {
+          // If simulation already started, can't unlock
+          if (isMultiplayer && (currentLeague?.status === "finished" || (currentLeague?.simulation_data && currentLeague?.simulation_data?.currentDay > 0))) {
+            showToast("Omgången har redan påbörjats. Laget kan inte låsas upp.", "error");
+            return;
+          }
+          isLockedIn = false;
+          if (isMultiplayer && currentLeague) {
+            try {
+              const updated = await joinShlLeague(currentLeague.code, {
+                lineup: myLineup,
+                swishNumber: currentUser.swish_number || "",
+                unlock: true,
+                isLocked: false
+              });
+              currentLeague = updated;
+              showToast("Truppen har låsts upp! Du kan nu ändra spelare. 🔓", "success");
+            } catch (err) {
+              showToast(err.message || "Kunde inte låsa upp laget", "error");
+            }
+          } else {
+            showToast("Truppen har låsts upp! Du kan nu ändra spelare. 🔓", "success");
+          }
+          refreshAll();
+          return;
+        }
+
+        if (getTotalSelectedCount() < 6) {
+          showToast("Välj en komplett femma + målvakt (6 spelare) innan du låser truppen! 🏒", "error");
+          return;
+        }
+
         isLockedIn = true;
         if (isMultiplayer && currentLeague) {
           try {
             const updated = await joinShlLeague(currentLeague.code, {
               lineup: myLineup,
-              swishNumber: currentUser.swish_number || ""
+              swishNumber: currentUser.swish_number || "",
+              isLocked: true
             });
             currentLeague = updated;
             showToast("Ditt lag har låsts in i ligan! 🏒", "success");
           } catch (err) {
-            showToast(err.message, "error");
+            showToast(err.message || "Kunde inte låsa laget", "error");
           }
+        } else {
+          showToast("Ditt lag har låsts in! 🏒", "success");
         }
         activeTab = "pot";
         refreshAll();
@@ -1214,6 +1310,7 @@ export async function openShlFantasyModal(options = {}) {
         });
         currentLeague = created;
         isMultiplayer = true;
+        setupLeagueWebSocket(created.code);
         showToast(`Kompis-ligan #${created.code} skapades! 🎉`, 'success');
 
         // Automatically join with current lineup if complete
@@ -1243,6 +1340,7 @@ export async function openShlFantasyModal(options = {}) {
         }
         currentLeague = l;
         isMultiplayer = true;
+        setupLeagueWebSocket(l.code);
         selectedRoundId = l.round_id;
         selectedStake = l.stake_amount;
         selectedMode = l.mode;
@@ -1325,7 +1423,7 @@ export async function openShlFantasyModal(options = {}) {
     if (activeTab === "live") {
       root.querySelector("#btn-simulate-round")?.addEventListener("click", () => {
         const totalDays = currentRound.days.length;
-        if (currentSimulatedDay >= totalDays) {
+        if (!isMultiplayer && currentSimulatedDay >= totalDays) {
           // Reset round
           resetSimulation();
         } else {
@@ -1464,23 +1562,55 @@ export async function openShlFantasyModal(options = {}) {
 
   // ── SIMULATION ENGINE FOR LIVE ROUND & MULTI-DAY TRACKING ──
   function resetSimulation() {
+    if (isMultiplayer) return;
     currentSimulatedDay = 0;
     roundSimulated = false;
     liveMatchResults = initLiveMatchResults();
     const clearPts = (p) => { if (p) delete p.pts; };
     if (myLineup.goalie) clearPts(myLineup.goalie);
-    myLineup.defenders.forEach(clearPts);
-    myLineup.forwards.forEach(clearPts);
+    (myLineup.defenders || []).forEach(clearPts);
+    (myLineup.forwards || []).forEach(clearPts);
     competitors.forEach(c => {
-      if (c.lineup.goalie) clearPts(c.lineup.goalie);
-      c.lineup.defenders.forEach(clearPts);
-      c.lineup.forwards.forEach(clearPts);
+      if (c.lineup?.goalie) clearPts(c.lineup.goalie);
+      (c.lineup?.defenders || []).forEach(clearPts);
+      (c.lineup?.forwards || []).forEach(clearPts);
       c.points = 0;
     });
     refresh();
   }
 
-  function simulateNextDay() {
+  async function simulateNextDay() {
+    if (isMultiplayer && currentLeague) {
+      const isCreator = currentUser && (currentLeague.creator_id === currentUser.id || currentUser.is_admin);
+      if (!isCreator) {
+        showToast("Endast ligans skapare kan simulera matcher", "error");
+        return;
+      }
+      try {
+        const updated = await simulateShlLeague(currentLeague.code);
+        currentLeague = updated;
+        if (updated.simulation_data) {
+          currentSimulatedDay = updated.simulation_data.currentDay || 0;
+          roundSimulated = !!updated.simulation_data.roundSimulated;
+          if (updated.simulation_data.matchResults) {
+            liveMatchResults = updated.simulation_data.matchResults;
+          }
+        }
+        const myEntry = (updated.entries || []).find(e => e.user_id === currentUser.id);
+        if (myEntry?.lineup) {
+          myLineup = myEntry.lineup;
+        }
+        refreshAll();
+        if (updated.status === 'finished') {
+          showToast("Omgången är färdigspelad och ligan är avräknad! 🏆", "success");
+        }
+      } catch (err) {
+        showToast(err.message || "Kunde inte simulera omgången", "error");
+      }
+      return;
+    }
+
+    // Solo mode:
     const dayIndex = currentSimulatedDay; // 0 for day 1, 1 for day 2
     if (dayIndex >= currentRound.days.length) return;
 
@@ -1492,86 +1622,81 @@ export async function openShlFantasyModal(options = {}) {
       dayActiveTeams.add(g.away);
     });
 
-    // Finish matches for this specific day
+    // Finish matches for this specific day with overtime if tied (no ties in SHL)
     liveMatchResults = liveMatchResults.map(m => {
       if (dayGameIds.has(m.id)) {
-        const hScore = Math.floor(Math.random() * 4) + 1;
-        const aScore = Math.floor(Math.random() * 4);
+        let hScore = Math.floor(Math.random() * 4) + 1;
+        let aScore = Math.floor(Math.random() * 4);
+        let ot = false;
+        if (hScore === aScore) {
+          ot = true;
+          if (Math.random() > 0.5) hScore += 1;
+          else aScore += 1;
+        }
         return {
           ...m,
           homeScore: hScore,
           awayScore: aScore,
+          ot,
           status: "finished"
         };
       }
       return m;
     });
 
-    // Award points only to players whose teams played today!
-    const awardPlayerPts = (p) => {
-      if (!p || !dayActiveTeams.has(p.team)) return;
-      let dayPoints = 0;
+    // Issue 8 & 9: Shared evaluation map so players playing in multiple teams get evaluated once
+    const dayPlayerPtsMap = new Map();
+    function getPlayerDayPoints(p) {
+      if (!p || !dayActiveTeams.has(p.team)) return 0;
+      if (dayPlayerPtsMap.has(p.id)) return dayPlayerPtsMap.get(p.id);
+
+      let pts = 0;
       if (p.pos === "G") {
-        const win = Math.random() > 0.4 ? 4 : 0;
-        const shutout = win > 0 && Math.random() > 0.7 ? 5 : 0;
-        const goalsAgainst = -Math.floor(Math.random() * 3);
-        dayPoints = Math.max(1, win + shutout + goalsAgainst);
+        const game = liveMatchResults.find(m => (m.home === p.team || m.away === p.team) && dayGameIds.has(m.id));
+        const isHome = game && game.home === p.team;
+        const myScore = game ? (isHome ? game.homeScore : game.awayScore) : 0;
+        const oppScore = game ? (isHome ? game.awayScore : game.homeScore) : 0;
+        const won = myScore > oppScore;
+        const winPts = won ? 4 : 0;
+        const shutoutPts = won && oppScore === 0 ? 5 : 0;
+        const goalsAgainstPts = -oppScore;
+        pts = Math.max(-5, winPts + shutoutPts + goalsAgainstPts);
       } else if (p.pos === "D") {
-        const goals = Math.random() > 0.6 ? 4 : 0;
-        const assists = Math.random() > 0.5 ? 2 : 0;
+        const goals = Math.random() > 0.75 ? 4 : 0;
+        const assists = Math.random() > 0.6 ? 2 : 0;
         const pm = Math.random() > 0.5 ? 1 : -1;
-        dayPoints = goals + assists + pm;
+        pts = goals + assists + pm;
       } else { // F
-        const goals = (Math.random() > 0.4 ? 3 : 0) + (Math.random() > 0.8 ? 3 : 0);
-        const assists = (Math.random() > 0.4 ? 2 : 0) + (Math.random() > 0.7 ? 2 : 0);
-        dayPoints = goals + assists;
+        const goals = (Math.random() > 0.6 ? 3 : 0) + (Math.random() > 0.85 ? 3 : 0);
+        const assists = (Math.random() > 0.5 ? 2 : 0) + (Math.random() > 0.8 ? 2 : 0);
+        const gwg = Math.random() > 0.85 ? 2 : 0;
+        pts = goals + assists + gwg;
       }
-      p.pts = (p.pts || 0) + dayPoints;
+
+      dayPlayerPtsMap.set(p.id, pts);
+      return pts;
+    }
+
+    const applyPoints = (p) => {
+      if (!p || !dayActiveTeams.has(p.team)) return;
+      const pts = getPlayerDayPoints(p);
+      p.pts = (p.pts || 0) + pts;
     };
 
-    if (myLineup.goalie) awardPlayerPts(myLineup.goalie);
-    myLineup.defenders.forEach(awardPlayerPts);
-    myLineup.forwards.forEach(awardPlayerPts);
+    if (myLineup.goalie) applyPoints(myLineup.goalie);
+    (myLineup.defenders || []).forEach(applyPoints);
+    (myLineup.forwards || []).forEach(applyPoints);
 
-    if (isMultiplayer && currentLeague) {
-      currentLeague.entries.forEach(entry => {
-        if (entry.user_id === currentUser.id) {
-          entry.lineup = myLineup;
-        } else if (entry.lineup) {
-          if (entry.lineup.goalie) awardPlayerPts(entry.lineup.goalie);
-          (entry.lineup.defenders || []).forEach(awardPlayerPts);
-          (entry.lineup.forwards || []).forEach(awardPlayerPts);
-        }
-        entry.points = calculateLineupPoints(entry.lineup || {});
-      });
-    } else {
-      competitors.forEach(c => {
-        if (c.lineup.goalie) awardPlayerPts(c.lineup.goalie);
-        c.lineup.defenders.forEach(awardPlayerPts);
-        c.lineup.forwards.forEach(awardPlayerPts);
-        c.points = calculateLineupPoints(c.lineup);
-      });
-    }
+    competitors.forEach(c => {
+      if (c.lineup?.goalie) applyPoints(c.lineup.goalie);
+      (c.lineup?.defenders || []).forEach(applyPoints);
+      (c.lineup?.forwards || []).forEach(applyPoints);
+      c.points = calculateLineupPoints(c.lineup);
+    });
 
     currentSimulatedDay += 1;
     if (currentSimulatedDay >= currentRound.days.length) {
       roundSimulated = true;
-      if (isMultiplayer && currentLeague) {
-        // Find winner
-        const sorted = [...currentLeague.entries].sort((a, b) => (b.points || 0) - (a.points || 0));
-        const winner = sorted[0];
-        if (winner) {
-          const entryPoints = {};
-          currentLeague.entries.forEach(e => { entryPoints[e.user_id] = e.points || 0; });
-          settleShlLeague(currentLeague.code, {
-            winnerId: winner.user_id,
-            entryPoints
-          }).then(updated => {
-            currentLeague = updated;
-            refresh();
-          }).catch(e => console.error(e));
-        }
-      }
     }
 
     refresh();
