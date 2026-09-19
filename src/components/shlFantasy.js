@@ -29,8 +29,28 @@ export async function openShlFantasyModal(options = {}) {
   let roundSimulated = false;
   let isAddingPlayer = false;
 
-  // Round selection state (Defaults to Omgång 3 which runs over 2 days!)
-  let selectedRoundId = "omg_3";
+  // Round selection state: Automatically select today's active round, next upcoming round, or default to Omgång 1
+  function findDefaultRoundId() {
+    if (options.roundId && SHL_ROUNDS.some(r => r.id === options.roundId)) {
+      return options.roundId;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    // 1. Check if today matches any scheduled match day
+    const todayRound = SHL_ROUNDS.find(r => r.days && r.days.some(d => d.date === today));
+    if (todayRound) return todayRound.id;
+
+    // 2. Check for upcoming round that has not locked yet
+    const nowIso = new Date().toISOString();
+    const upcomingRound = SHL_ROUNDS.find(r => {
+      const lock = r.lockTime || (r.days?.[0]?.date ? `${r.days[0].date}T23:59:59` : null);
+      return lock && lock >= nowIso;
+    });
+    if (upcomingRound) return upcomingRound.id;
+
+    // 3. Fallback to first round in the schedule (Omgång 1)
+    return SHL_ROUNDS[0]?.id || "omg_1";
+  }
+  let selectedRoundId = findDefaultRoundId();
   function getCurrentRound() {
     return SHL_ROUNDS.find(r => r.id === selectedRoundId) || SHL_ROUNDS[0];
   }
