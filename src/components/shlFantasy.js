@@ -1024,6 +1024,18 @@ export async function openShlFantasyModal(options = {}) {
       wsUnsub();
       wsUnsub = null;
     }
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => getTotalSelectedCount() > 0 || roundSimulated,
+    confirmTexts: {
+      title: isEn ? 'Leave SHL Fantasy? 🏒' : 'Lämna SHL Fantasy? 🏒',
+      message: isEn
+        ? 'You have an active lineup or round in progress. If you close now, your selected players will not be saved!'
+        : 'Du har påbörjat en laguppställning eller matchomgång. Om du stänger nu sparas inte dina valda spelare!',
+      stay: isEn ? 'Keep Building 🏒' : 'Fortsätt bygga lag 🏒',
+      leave: isEn ? 'Yes, Close' : 'Ja, stäng och nollställ ❌'
+    }
   });
 
   // Prevent accidental close during active fantasy draft/round

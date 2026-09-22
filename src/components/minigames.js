@@ -448,7 +448,11 @@ export function openAllArcadeGamesModal() {
     </div>
   `;
 
-  const { close, root } = showModal(`<img src="/chip-malta-transparent.png" alt="" style="width: 22px; height: 22px; object-fit: contain; vertical-align: -4px; margin-right: 6px;" /> ${t('arcade.allTitle')}`, contentHtml);
+  const { close, root } = showModal(
+    `<img src="/chip-malta-transparent.png" alt="" style="width: 22px; height: 22px; object-fit: contain; vertical-align: -4px; margin-right: 6px;" /> ${t('arcade.allTitle')}`, 
+    contentHtml, 
+    { isGame: true, preventBackdropClose: true, confirmClose: false }
+  );
 
   root.querySelectorAll('[data-arcade-launch]').forEach(card => {
     card.addEventListener('click', () => {
@@ -785,6 +789,16 @@ function openCoinFlipModal(initialDuel = null) {
   const modal = showModal(coinTitleHtml, buildModalHtml(), () => {
     if (duelWs) {
       try { duelWs.close(); } catch (e) {}
+    }
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => isFlipping || duelWs !== null || currentStreak > 0,
+    confirmTexts: {
+      title: isEn ? 'Exit Coin Flip?' : 'Avsluta Singla Slant?',
+      message: isEn 
+        ? 'Are you sure you want to leave? Any ongoing coin flip duel or streak will be lost.' 
+        : 'Är du säker på att du vill avsluta? Pågående slantsinglings-duell eller vinstsvit avbryts.'
     }
   });
   modal.setBusy(() => isFlipping || duelWs !== null);
@@ -1294,7 +1308,17 @@ function openSlotsModal() {
         <span>${isEn ? 'Pair 3-5x' : '2 lika 3-5x'}</span>
       </div>
     </div>
-  `);
+  `, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: true,
+    confirmTexts: {
+      title: isEn ? 'Exit Slots?' : 'Lämna Slotmaskinen?',
+      message: isEn 
+        ? 'Are you sure you want to leave the slot machine?' 
+        : 'Vill du avsluta och lämna slotmaskinen?'
+    }
+  });
   setBusy(() => isSpinning);
 
   const chipsDisplay = document.getElementById('slot-chips-display');
@@ -1594,7 +1618,17 @@ function openWheelModal() {
         </div>
       </div>
     </div>
-  `);
+  `, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: true,
+    confirmTexts: {
+      title: isEn ? 'Leave Wheel of Fortune?' : 'Lämna Lyckohjulet?',
+      message: isEn 
+        ? 'Are you sure you want to leave the wheel?' 
+        : 'Vill du avsluta och lämna lyckohjulet?'
+    }
+  });
   setBusy(() => isSpinning);
 
   const canvas = document.getElementById('wheel-canvas');
@@ -2182,6 +2216,16 @@ function openDiceModal(initialDuel = null) {
     if (duelWs) {
       try { duelWs.close(); } catch (e) {}
     }
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => isRolling || duelWs !== null,
+    confirmTexts: {
+      title: isEn ? 'Exit Dice Duel?' : 'Avsluta Tärningsduellen?',
+      message: isEn 
+        ? 'Are you sure you want to exit? Ongoing dice duel will be disconnected.' 
+        : 'Är du säker på att du vill avsluta? Pågående tärningsduell kopplas ifrån.'
+    }
   });
   modal.setBusy(() => isRolling || duelWs !== null);
 
@@ -2683,9 +2727,19 @@ export async function openBlind10Modal(initialRoom = null) {
     </div>
   `, () => {
     cleanup();
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => currentRoom !== null || activeAnimationId !== null || activeTimeoutId !== null,
+    confirmTexts: {
+      title: isEn ? 'Exit Blind 10.00?' : 'Lämna Blind 10.00?',
+      message: isEn 
+        ? 'Are you sure you want to leave? Any active game or party room will be closed.' 
+        : 'Är du säker på att du vill avsluta? Pågående spel eller partyrum avbryts.'
+    }
   });
 
-  setBusy(() => currentRoom !== null || timerInterval !== null);
+  setBusy(() => currentRoom !== null || activeAnimationId !== null || activeTimeoutId !== null);
 
   const container = document.getElementById('blind10-container');
   if (!container) return;
@@ -3765,6 +3819,16 @@ export async function openMafiaModal(initialRoom = null) {
     </div>
   `, () => {
     cleanup();
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => currentRoom !== null,
+    confirmTexts: {
+      title: isEn ? 'Exit Mafia?' : 'Lämna Maffia?',
+      message: isEn 
+        ? 'Are you sure you want to leave Mafia? Any active game or party room will be closed.' 
+        : 'Är du säker på att du vill avsluta Maffia? Pågående spel eller partyrum avbryts.'
+    }
   });
 
   setBusy(() => currentRoom !== null);
@@ -4900,7 +4964,17 @@ export async function openAnyBetModal(initialBetId = null) {
         <span class="spinner">⏳</span>
       </div>
     </div>
-  `);
+  `, null, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => Boolean(document.getElementById('anybet-question')?.value?.trim()),
+    confirmTexts: {
+      title: isEn ? 'Exit AnyBet?' : 'Lämna AnyBet?',
+      message: isEn
+        ? 'Are you sure you want to leave? Your entered bet question will be discarded.'
+        : 'Är du säker på att du vill lämna? Ditt påbörjade AnyBet sparas inte.'
+    }
+  });
 
   const container = document.getElementById('anybet-container');
   if (!container) return;
@@ -5922,7 +5996,19 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
 
       <div id="flashbet-tab-content"></div>
     </div>
-  `);
+  `, () => {
+    cleanupTimer();
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => Boolean(document.getElementById('flashbet-question')?.value?.trim()),
+    confirmTexts: {
+      title: isEn ? 'Exit FlashBet?' : 'Lämna FlashBet?',
+      message: isEn
+        ? 'Are you sure you want to leave? Your entered FlashBet question will be lost.'
+        : 'Är du säker på att du vill lämna? Ditt påbörjade FlashBet sparas inte.'
+    }
+  });
 
   // Wire push enable button
   document.getElementById('btn-flashbet-enable-push')?.addEventListener('click', async () => {
@@ -7051,7 +7137,17 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
         </div>
 
       </div>
-    `);
+    `, {
+      isGame: true,
+      preventBackdropClose: true,
+      confirmClose: () => isSpinning || totalAmount > 0,
+      confirmTexts: {
+        title: isEn ? 'Exit Not-Roulette?' : 'Lämna Not-Roulette?',
+        message: isEn 
+          ? 'Are you sure you want to exit? Your entered bill and roulette setup will be lost.' 
+          : 'Är du säker på att du vill avsluta? Din ifyllda nota och inställningar sparas inte.'
+      }
+    });
     modal.setBusy(() => isSpinning);
 
     // Attach listeners
@@ -7337,7 +7433,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
     // Cancel button
     document.getElementById('btn-cancel-notan-roulette')?.addEventListener('click', () => {
-      if (!isSpinning) closeModal();
+      if (!isSpinning) modal.close();
     });
 
     // Spin Roulette Button
@@ -7928,6 +8024,16 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     if (activeSpaceEngineCleanup) {
       activeSpaceEngineCleanup();
       activeSpaceEngineCleanup = null;
+    }
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => activeSpaceEngineCleanup !== null,
+    confirmTexts: {
+      title: isEn ? 'Exit Space Invaders?' : 'Avsluta Space Invaders?',
+      message: isEn 
+        ? 'Are you sure you want to exit? Ongoing space mission and score will be lost.' 
+        : 'Är du säker på att du vill avsluta? Ditt pågående rymduppdrag och poäng går förlorade.'
     }
   });
 
@@ -9477,6 +9583,16 @@ export function openMegaLottoModal(initialOptions = {}) {
   const { close, root } = showModal(modalTitle, renderContent(), () => {
     if (tickerInterval) clearInterval(tickerInterval);
     if (sphereAnimId) cancelAnimationFrame(sphereAnimId);
+  }, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => isDrawing || (selectedMain && selectedMain.size > 0) || (selectedStars && selectedStars.size > 0),
+    confirmTexts: {
+      title: isEn ? 'Exit Malta Jackpot?' : 'Lämna Malta Jackpot?',
+      message: isEn 
+        ? 'Are you sure you want to leave? Your picked lottery numbers or ongoing draw will be canceled.' 
+        : 'Är du säker på att du vill avsluta? Dina valda lottonummer eller pågående dragning avbryts.'
+    }
   });
 
   // Load Active Lotto Info & Friends
@@ -10494,8 +10610,18 @@ export async function openGimmeModal() {
   `;
 
   // Fix 2: Pass cleanup as 3rd parameter to showModal so every close route frees camera/animation
-  const { close, root, setBusy } = showModal(modalTitle, contentHtml, cleanup);
-  setBusy(() => activeBet !== null);
+  const { close, root, setBusy } = showModal(modalTitle, contentHtml, cleanup, {
+    isGame: true,
+    preventBackdropClose: true,
+    confirmClose: () => videoStream !== null || activeBet !== null,
+    confirmTexts: {
+      title: isEn ? 'Exit Gimme AR?' : 'Lämna Gimme AR?',
+      message: isEn 
+        ? 'Are you sure you want to exit? Active AR camera measuring and pending bet will be stopped.' 
+        : 'Är du säker på att du vill avsluta? Pågående AR-kamera och vad avbryts.'
+    }
+  });
+  setBusy(() => videoStream !== null || activeBet !== null);
 
   const videoEl = root.querySelector('#gimme-video');
   const canvasEl = root.querySelector('#gimme-canvas');

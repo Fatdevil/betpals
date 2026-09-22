@@ -20,6 +20,10 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
   }
 
   const isFullScreen = Boolean(options.fullScreen);
+  const isGame = Boolean(options.isGame);
+  const preventBackdropClose = options.preventBackdropClose ?? (isGame || options.closeOnBackdrop === false);
+  const backdropTriggersConfirm = Boolean(options.backdropTriggersConfirm);
+  let confirmClose = options.confirmClose ?? isGame;
 
   if (isFullScreen) {
     root.innerHTML = `
@@ -74,6 +78,14 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
     return false;
   };
 
+  const shouldConfirm = () => {
+    if (typeof confirmClose === 'function') {
+      try { return !!confirmClose(); } catch (_) { return false; }
+    }
+    if (confirmClose === true) return true;
+    return isBusy();
+  };
+
   const showBusyConfirmDialog = () => {
     const isEn = getLang() === 'en';
     if (!root) {
@@ -84,10 +96,16 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
     // Don't duplicate if already open
     if (root.querySelector('#modal-busy-confirm-overlay')) return;
 
-    const titleText = customConfirmTexts?.title || (isEn ? 'Leave ongoing game?' : 'Avbryta pågående spel?');
-    const msgText = customConfirmTexts?.message || (isEn 
-      ? 'You are in the middle of an active game. If you exit now, your current session and progress will be lost!' 
-      : 'Du är mitt i en pågående spelomgång. Om du avslutar nu avbryts spelet och din runda går förlorad!');
+    const titleText = customConfirmTexts?.title || (isGame 
+      ? (isEn ? 'Leave game?' : 'Avsluta spelet?') 
+      : (isEn ? 'Leave ongoing game?' : 'Avbryta pågående spel?'));
+    const msgText = customConfirmTexts?.message || (isGame 
+      ? (isEn 
+        ? 'Are you sure you want to exit? If you leave now, any active round or unsaved progress will be lost.' 
+        : 'Är du säker på att du vill avsluta? Om du lämnar nu kan din pågående omgång eller osparade framsteg gå förlorade.')
+      : (isEn 
+        ? 'You are in the middle of an active game. If you exit now, your current session and progress will be lost!' 
+        : 'Du är mitt i en pågående spelomgång. Om du avslutar nu avbryts spelet och din runda går förlorad!'));
     const stayText = customConfirmTexts?.stay || (isEn ? 'Keep Playing 🎮' : 'Fortsätt spela 🎮');
     const leaveText = customConfirmTexts?.leave || (isEn ? 'Yes, Quit Game' : 'Ja, avsluta');
 
@@ -134,7 +152,7 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
   };
 
   const attemptClose = () => {
-    if (isBusy()) {
+    if (shouldConfirm()) {
       showBusyConfirmDialog();
     } else {
       forceClose();
@@ -156,8 +174,24 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
 
   root.querySelector('#modal-close-btn')?.addEventListener('click', attemptClose);
   root.querySelector('#modal-overlay')?.addEventListener('click', (e) => {
-    if (!isFullScreen && e.target.id === 'modal-overlay') {
-      attemptClose();
+    if (e.target.id === 'modal-overlay') {
+      if (preventBackdropClose) {
+        if (backdropTriggersConfirm) {
+          attemptClose();
+        } else {
+          // Subtle shake feedback that backdrop clicks are disabled for this game
+          const contentEl = root.querySelector('.modal-content, .modal-content-fullscreen');
+          if (contentEl) {
+            contentEl.classList.remove('modal-shake');
+            void contentEl.offsetWidth;
+            contentEl.classList.add('modal-shake');
+          }
+        }
+        return;
+      }
+      if (!isFullScreen) {
+        attemptClose();
+      }
     }
   });
 
@@ -166,11 +200,17 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
     if (customTexts) customConfirmTexts = customTexts;
   };
 
+  const setConfirmClose = (val, customTexts = null) => {
+    confirmClose = val;
+    if (customTexts) customConfirmTexts = customTexts;
+  };
+
   return { 
     close: attemptClose, 
     forceClose, 
     root, 
-    setBusy 
+    setBusy,
+    setConfirmClose
   };
 }
 
