@@ -5,7 +5,7 @@ import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
-import { TOURNAMENT_TEMPLATES } from '../templates.js';
+import { TOURNAMENT_TEMPLATES, GAME_TYPES } from '../templates.js';
 
 let wsUnsubscribe = null;
 
@@ -75,9 +75,9 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   }
 
   const renderSideBetBadge = (sb) => {
-    const modeBadge = sb.betMode === 'self' ? '👤' : '🎲';
+    const modeBadge = sb.betMode === 'self' ? '🦅' : '🎲';
     return sb.status === 'finished'
-      ? `<span class="badge badge-success" style="font-size: 0.6rem;">✅ ${escapeHtml(sb.winnerName || 'Klar')}</span>`
+      ? `<span class="badge badge-success" style="font-size: 0.6rem;">${sb.isTie ? '🤝 Delad seger: ' : '✅ '}${escapeHtml(sb.winnerName || 'Klar')}</span>`
       : sb.status === 'cancelled'
         ? `<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>`
         : sb.status === 'locked'
@@ -162,7 +162,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             <div style="text-align: right;">
               <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
               ${r.status === 'finished' 
-                ? '<span class="badge badge-success" style="font-size: 0.6rem;">✅ ' + escapeHtml(r.winnerName || 'Klar') + '</span>'
+                ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
                 : r.status === 'cancelled'
                   ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
                   : r.status === 'locked'
@@ -214,13 +214,10 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       <!-- Action Buttons -->
       ${isCreator && t.status === 'active' ? `
         <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
-          <button class="btn btn-primary" id="add-round-btn" style="flex:1; min-width: 100px;">
-            ➕ Ny rond
+          <button class="btn btn-primary" id="add-game-btn" style="flex: 2; min-width: 140px; font-weight: 700;">
+            ➕ Lägg till spel 🎯
           </button>
-          <button class="btn btn-secondary" id="add-sidebet-btn" style="flex:1; min-width: 100px;">
-            🎯 Sido-spel
-          </button>
-          <button class="btn btn-secondary" id="add-flashbet-btn" style="flex:1; min-width: 100px; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
+          <button class="btn btn-secondary" id="add-flashbet-btn" style="flex: 1; min-width: 100px; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
             ⚡ BlixtBet
           </button>
         </div>
@@ -624,30 +621,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     });
   });
 
-  // Add round
-  const addBtn = document.getElementById('add-round-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', async () => {
-      addBtn.disabled = true;
-      addBtn.textContent = 'Skapar...';
-      try {
-        const pin = sessionStorage.getItem('betpals_pin') || '';
-        const updated = await addTournamentRound(t.id, { pin });
-        showToast('Ny rond skapad! 🎯', 'success');
-        renderTournamentContent(content, updated);
-      } catch (err) {
-        showToast(err.message, 'error');
-        addBtn.disabled = false;
-        addBtn.textContent = '➕ Ny rond';
-      }
-    });
-  }
-
-  // Add side bet
-  const sideBetBtn = document.getElementById('add-sidebet-btn');
-  if (sideBetBtn) {
-    sideBetBtn.addEventListener('click', () => {
-      showSideBetModal(t, content);
+  // Add game
+  const addGameBtn = document.getElementById('add-game-btn');
+  if (addGameBtn) {
+    addGameBtn.addEventListener('click', () => {
+      showAddGameModal(t, content);
     });
   }
 
@@ -813,137 +791,115 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   });
 }
 
-function showSideBetModal(t, content) {
-  // Pre-fill players from latest round
-  const lastRound = t.rounds[t.rounds.length - 1];
-  let players = lastRound ? lastRound.players.map(p => p.name) : [];
+function showAddGameModal(t, content) {
+  // Pre-fill players from tournament rounds or settlement
+  const existingPlayerNames = [];
+  if (t.rounds && t.rounds.length > 0) {
+    t.rounds.forEach(r => {
+      if (r.players) r.players.forEach(p => {
+        if (!existingPlayerNames.includes(p.name)) existingPlayerNames.push(p.name);
+      });
+    });
+  }
+  if (existingPlayerNames.length === 0 && t.settlement && t.settlement.balances) {
+    t.settlement.balances.forEach(b => {
+      if (b.name && !existingPlayerNames.includes(b.name)) existingPlayerNames.push(b.name);
+    });
+  }
 
-  showModal('🎯 Nytt sido-spel', `
-    <form id="sidebet-form">
-      <div class="form-group">
-        <label class="form-label">📸 Omslagsbild (valfri)</label>
-        <div class="image-picker-box" id="sidebet-cover-drop">
-          <div id="sidebet-cover-preview-wrapper" class="image-preview-wrapper" style="display:none;">
-            <img id="sidebet-cover-preview" alt="Förhandsvisning" />
-            <button type="button" class="image-preview-remove" id="sidebet-cover-remove">✕</button>
-          </div>
-          <div id="sidebet-cover-placeholder">
-            <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
-            <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
-          </div>
-          <input type="file" accept="image/*" id="sidebet-cover-input" style="display:none;" />
+  let players = existingPlayerNames.length >= 2 ? [...existingPlayerNames] : ['Spelare 1', 'Spelare 2'];
+  let currentGt = 'winner';
+  let betMode = 'open';
+
+  showModal('🎯 Lägg till spel i Eventet', `
+    <form id="add-game-form">
+      <!-- 4 Game Types Selector -->
+      <div class="form-group mb-md">
+        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>🎮 Välj typ av spel</span>
+          <span style="font-size: 0.72rem; color: var(--gold); font-weight: 700;" id="selected-gt-badge">1. Vinnare 🏆</span>
+        </label>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+          ${GAME_TYPES.map((gt, idx) => `
+            <div class="gt-card ${idx === 0 ? 'selected' : ''}" data-gt="${gt.id}" style="cursor: pointer; border: 1.5px solid ${idx === 0 ? 'var(--gold)' : 'var(--border-light)'}; border-radius: var(--radius-md); padding: 8px; background: ${idx === 0 ? 'rgba(245,166,35,0.12)' : 'var(--bg-card)'}; transition: all 0.2s;">
+              <div class="flex gap-xs" style="align-items: center; margin-bottom: 2px;">
+                <span style="font-size: 1.15rem;">${gt.icon}</span>
+                <strong style="font-size: 0.82rem;">${gt.title}</strong>
+              </div>
+              <div style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.2;">${gt.subtitle}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div id="gt-desc-box" style="margin-top: 8px; padding: 6px 10px; background: rgba(245, 166, 35, 0.07); border-left: 3px solid var(--gold); font-size: 0.73rem; color: var(--text-secondary); border-radius: 4px;">
+          Alla bettar på vem som vinner. Dynamiska odds baserat på poolen.
         </div>
       </div>
 
       <div class="form-group mb-xs">
-        <label class="form-label mb-xs">⚡ Snabbval från mallar</label>
-        <div class="flex gap-xs" style="flex-wrap: wrap;">
-          <button type="button" class="btn btn-sm btn-secondary sb-quick-fill" data-name="🎯 Närmast hål (Hål 7)" data-amount="50" data-mode="self" style="font-size: 0.72rem; padding: 3px 8px;">
-            🎯 Närmast hål
+        <label class="form-label mb-xs">⚡ Snabbval</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;" id="quick-templates-bar">
+          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="winner" data-name="Vinnare av ronden" data-amount="50" style="font-size: 0.7rem; padding: 2px 8px;">
+            🏆 Vinnare
           </button>
-          <button type="button" class="btn btn-sm btn-secondary sb-quick-fill" data-name="🚀 Längsta drive (Hål 14)" data-amount="50" data-mode="self" style="font-size: 0.72rem; padding: 3px 8px;">
-            🚀 Längsta drive
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary sb-quick-fill" data-name="🦅 Flest birdies" data-amount="100" data-mode="self" style="font-size: 0.72rem; padding: 3px 8px;">
+          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="winner_takes_all" data-name="🦅 Flest birdies" data-amount="100" style="font-size: 0.7rem; padding: 2px 8px;">
             🦅 Flest birdies
           </button>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Namn</label>
-        <input type="text" class="form-input" id="sidebet-name" placeholder="t.ex. Närmast pinnen H7 eller Spik i vatten" required />
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Kopplad till rond</label>
-        <select class="form-input" id="sidebet-round">
-          <option value="">Ingen (fristående)</option>
-          ${t.rounds.map(r => `<option value="${r.id}">${r.name}</option>`).join('')}
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Bet-läge</label>
-        <div class="flex gap-sm">
-          <button type="button" class="btn btn-sm bet-mode-btn active" data-mode="self" id="mode-self" style="flex:1;">
-            👤 Alla bettar på sig
+          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="1x2" data-name="⚽ Match: Lag A vs Lag B" data-amount="50" style="font-size: 0.7rem; padding: 2px 8px;">
+            ⚽ Match 1X2
           </button>
-          <button type="button" class="btn btn-sm bet-mode-btn" data-mode="open" id="mode-open" style="flex:1;">
-            🎲 Öppet bet
+          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="yes_no" data-name="Görs det birdie på hål 18?" data-amount="50" style="font-size: 0.7rem; padding: 2px 8px;">
+            👍 Ja/Nej fråga
           </button>
         </div>
       </div>
 
-      <div class="form-group" id="bet-amount-group">
-        <label class="form-label">Insats per spelare (kr)</label>
-        <input type="number" class="form-input" id="sidebet-amount" value="100" min="10" step="10" />
+      <div class="form-group mb-sm">
+        <label class="form-label">Namn på spelet</label>
+        <input type="text" class="form-input" id="game-name" placeholder="t.ex. Vinnare av måndagsgolfen eller Flest birdies" required />
       </div>
 
-      <div class="form-group">
+      <div class="form-group mb-sm" id="game-amount-group">
+        <label class="form-label" id="game-amount-label">Minsta insats (kr)</label>
+        <input type="number" class="form-input" id="game-amount" value="50" min="5" step="5" />
+        <p class="text-muted mt-xs" id="game-amount-help" style="font-size: 0.72rem; margin: 2px 0 0 0;">Minsta insats för poolspel.</p>
+      </div>
+
+      <div class="form-group mb-sm">
         <div class="flex-between mb-xs">
-          <label class="form-label" style="margin: 0;">Spelare / Alternativ</label>
-          <button type="button" class="btn btn-sm btn-secondary" id="sidebet-preset-yesno" style="font-size: 0.7rem; padding: 2px 8px;">
-            👍 Ja / 👎 Nej
-          </button>
+          <label class="form-label" style="margin: 0;">Spelare / Svarsalternativ</label>
+          <span style="font-size: 0.7rem; color: var(--text-muted);" id="alternatives-hint">Minst 2 alternativ</span>
         </div>
         <div class="flex gap-sm">
-          <input type="text" class="form-input" id="sidebet-player-input" placeholder="Lägg till alternativ/spelare" style="flex: 1;" />
-          <button type="button" class="btn btn-sm btn-secondary" id="sidebet-add-player">+</button>
+          <input type="text" class="form-input" id="game-player-input" placeholder="Lägg till alternativ eller namn" style="flex: 1;" />
+          <button type="button" class="btn btn-sm btn-secondary" id="game-add-player">+</button>
         </div>
-        <div id="sidebet-player-list" class="mt-sm"></div>
+        <div id="game-player-list" class="mt-sm"></div>
       </div>
 
-      <button type="submit" class="btn btn-primary btn-block">Skapa sido-spel 🎯</button>
+      <button type="submit" class="btn btn-primary btn-block" style="padding: 12px; font-weight: 700;">
+        Skapa Spel 🎯
+      </button>
     </form>
   `);
 
-  let selectedSidebetCover = null;
-  const coverInput = document.getElementById('sidebet-cover-input');
-  const coverDrop = document.getElementById('sidebet-cover-drop');
-  const coverPreview = document.getElementById('sidebet-cover-preview');
-  const coverPreviewWrapper = document.getElementById('sidebet-cover-preview-wrapper');
-  const coverPlaceholder = document.getElementById('sidebet-cover-placeholder');
-  const coverRemove = document.getElementById('sidebet-cover-remove');
-
-  coverDrop?.addEventListener('click', (e) => {
-    if (e.target === coverRemove) return;
-    coverInput.click();
-  });
-
-  coverInput?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      selectedSidebetCover = await compressImage(file, 1000, 0.8);
-      coverPreview.src = selectedSidebetCover;
-      coverPreviewWrapper.style.display = 'inline-block';
-      coverPlaceholder.style.display = 'none';
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
-
-  coverRemove?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    selectedSidebetCover = null;
-    coverInput.value = '';
-    coverPreview.src = '';
-    coverPreviewWrapper.style.display = 'none';
-    coverPlaceholder.style.display = 'block';
-  });
-
-  let betMode = 'self';
+  const gtCards = document.querySelectorAll('.gt-card');
+  const gtBadge = document.getElementById('selected-gt-badge');
+  const gtDescBox = document.getElementById('gt-desc-box');
+  const nameInput = document.getElementById('game-name');
+  const amountLabel = document.getElementById('game-amount-label');
+  const amountHelp = document.getElementById('game-amount-help');
+  const amountInput = document.getElementById('game-amount');
 
   function renderPlayers() {
-    const list = document.getElementById('sidebet-player-list');
+    const list = document.getElementById('game-player-list');
     if (!list) return;
     list.innerHTML = players.map((p, i) => `
-      <div class="flex-between" style="padding: var(--space-xs) 0; font-size: 0.85rem;">
-        <span>${p}</span>
+      <div class="flex-between" style="padding: var(--space-xs) 0; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <span>${escapeHtml(p)}</span>
         <button type="button" class="btn btn-sm" style="padding: 2px 8px; font-size: 0.7rem;" data-remove="${i}">✕</button>
       </div>
-    `).join('') || '<p class="text-muted" style="font-size: 0.8rem;">Inga spelare tillagda</p>';
+    `).join('') || '<p class="text-muted" style="font-size: 0.8rem;">Inga alternativ tillagda</p>';
+
     list.querySelectorAll('[data-remove]').forEach(btn => {
       btn.addEventListener('click', () => {
         players.splice(Number(btn.dataset.remove), 1);
@@ -954,47 +910,66 @@ function showSideBetModal(t, content) {
 
   renderPlayers();
 
-  // Mode toggle
-  document.querySelectorAll('.bet-mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.bet-mode-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      betMode = btn.dataset.mode;
-      const amountGroup = document.getElementById('bet-amount-group');
-      if (amountGroup) amountGroup.style.display = betMode === 'self' ? 'block' : 'none';
+  function applyGameType(gtId) {
+    currentGt = gtId;
+    gtCards.forEach(c => {
+      const isSel = c.dataset.gt === gtId;
+      c.style.border = isSel ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)';
+      c.style.background = isSel ? 'rgba(245,166,35,0.12)' : 'var(--bg-card)';
     });
-  });
 
-  // Quick fill from templates
-  document.querySelectorAll('.sb-quick-fill').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const name = btn.dataset.name;
-      const amount = btn.dataset.amount;
-      const mode = btn.dataset.mode;
-      const nameInput = document.getElementById('sidebet-name');
-      const amountInput = document.getElementById('sidebet-amount');
-      if (nameInput) nameInput.value = name;
-      if (amountInput) amountInput.value = amount;
-      if (mode === 'self') {
-        document.getElementById('mode-self')?.click();
-      } else {
-        document.getElementById('mode-open')?.click();
-      }
-    });
-  });
+    const gt = GAME_TYPES.find(g => g.id === gtId) || GAME_TYPES[0];
+    if (gtBadge) gtBadge.textContent = `${gt.title} ${gt.icon}`;
+    if (gtDescBox) gtDescBox.textContent = gt.description;
 
-  // Yes/No preset
-  document.getElementById('sidebet-preset-yesno')?.addEventListener('click', () => {
-    players = ['Ja', 'Nej'];
-    const modeOpen = document.getElementById('mode-open');
-    if (modeOpen) modeOpen.click();
+    if (gtId === 'winner') {
+      betMode = 'open';
+      amountLabel.textContent = 'Minsta insats (kr)';
+      amountHelp.textContent = 'Alla bettar på sin favorit med dynamiska pool-odds.';
+      amountInput.value = 50;
+      if (players.length < 2 || players.includes('👍 Ja')) players = [...existingPlayerNames];
+      if (players.length < 2) players = ['Spelare 1', 'Spelare 2'];
+    } else if (gtId === 'winner_takes_all') {
+      betMode = 'self';
+      amountLabel.textContent = 'Fast insats per deltagare (kr)';
+      amountHelp.textContent = 'Alla deltagare lägger denna insats. Vinnaren eller vinnarna delar potten!';
+      amountInput.value = 100;
+      if (players.length < 2 || players.includes('👍 Ja')) players = [...existingPlayerNames];
+      if (players.length < 2) players = ['Spelare 1', 'Spelare 2'];
+    } else if (gtId === '1x2') {
+      betMode = 'open';
+      amountLabel.textContent = 'Insats (kr)';
+      amountHelp.textContent = 'Betta på 1 (Hemmalag), X (Oavgjort) eller 2 (Bortalag).';
+      amountInput.value = 50;
+      players = ['1 (Hemmalag / Lag A)', 'X (Oavgjort)', '2 (Bortalag / Lag B)'];
+    } else if (gtId === 'yes_no') {
+      betMode = 'open';
+      amountLabel.textContent = 'Insats (kr)';
+      amountHelp.textContent = 'Snabbt binärt bet på Ja eller Nej.';
+      amountInput.value = 50;
+      players = ['👍 Ja', '👎 Nej'];
+    }
     renderPlayers();
-    document.getElementById('sidebet-name')?.focus();
+  }
+
+  gtCards.forEach(card => {
+    card.addEventListener('click', () => {
+      applyGameType(card.dataset.gt);
+    });
+  });
+
+  document.querySelectorAll('.gt-quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gt = btn.dataset.gt;
+      applyGameType(gt);
+      if (btn.dataset.name) nameInput.value = btn.dataset.name;
+      if (btn.dataset.amount) amountInput.value = btn.dataset.amount;
+    });
   });
 
   // Add player
-  document.getElementById('sidebet-add-player')?.addEventListener('click', () => {
-    const input = document.getElementById('sidebet-player-input');
+  document.getElementById('game-add-player')?.addEventListener('click', () => {
+    const input = document.getElementById('game-player-input');
     const name = input.value.trim();
     if (name && !players.includes(name)) {
       players.push(name);
@@ -1004,17 +979,17 @@ function showSideBetModal(t, content) {
     input.focus();
   });
 
-  document.getElementById('sidebet-player-input')?.addEventListener('keydown', (e) => {
+  document.getElementById('game-player-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      document.getElementById('sidebet-add-player').click();
+      document.getElementById('game-add-player').click();
     }
   });
 
   // Submit
-  document.getElementById('sidebet-form')?.addEventListener('submit', async (e) => {
+  document.getElementById('add-game-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const pInput = document.getElementById('sidebet-player-input');
+    const pInput = document.getElementById('game-player-input');
     if (pInput && pInput.value.trim()) {
       const pName = pInput.value.trim();
       if (!players.includes(pName)) {
@@ -1023,12 +998,11 @@ function showSideBetModal(t, content) {
       pInput.value = '';
     }
 
-    const name = document.getElementById('sidebet-name').value.trim();
-    const linkedRoundId = document.getElementById('sidebet-round').value || null;
-    const betAmount = Number(document.getElementById('sidebet-amount').value) || 100;
+    const name = nameInput.value.trim();
+    const betAmount = Number(amountInput.value) || 50;
 
     if (players.length < 2) {
-      showToast('Minst 2 spelare krävs', 'error');
+      showToast('Minst 2 spelare eller alternativ krävs', 'error');
       return;
     }
 
@@ -1043,20 +1017,19 @@ function showSideBetModal(t, content) {
       const updated = await createSideBet(t.id, {
         name,
         players,
-        linkedRoundId,
         betMode,
         betAmount,
-        imageUrl: selectedSidebetCover,
         pin
       });
       closeModal();
-      showToast('Sido-spel skapat! 🎯', 'success');
+      launchConfetti();
+      showToast('Spel tillagt i eventet! 🎯', 'success');
       renderTournamentContent(content, updated);
     } catch (err) {
       showToast(err.message, 'error');
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Skapa sido-spel 🎯';
+        submitBtn.textContent = 'Skapa Spel 🎯';
       }
     }
   });

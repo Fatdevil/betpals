@@ -121,12 +121,9 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
         <p class="page-subtitle">${loggedIn ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
       </div>
 
-      <div class="flex gap-sm mb-lg">
-        <button class="btn btn-primary" id="create-event-btn" style="flex: 1;">
-          ${t('admin.newEvent')}
-        </button>
-        <button class="btn btn-accent" id="create-tournament-btn" style="flex: 1;">
-          ${t('admin.newTournament')}
+      <div class="mb-lg">
+        <button class="btn btn-primary btn-block" id="create-tournament-btn" style="padding: 13px; font-size: 1.05rem; font-weight: 700; box-shadow: 0 4px 15px rgba(245, 166, 35, 0.25);">
+          🏆 ${t('admin.createNewEvent') || 'Skapa Nytt Event'}
         </button>
       </div>
 
@@ -149,15 +146,7 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
     });
   }
 
-  document.getElementById('create-event-btn').addEventListener('click', () => {
-    if (!loggedIn && !hasPinSession) {
-      showToast(t('admin.toastAuthReq'), 'error');
-      return;
-    }
-    showCreateEventModal();
-  });
-
-  document.getElementById('create-tournament-btn').addEventListener('click', () => {
+  document.getElementById('create-tournament-btn')?.addEventListener('click', () => {
     if (!loggedIn && !hasPinSession) {
       showToast(t('admin.toastAuthReq'), 'error');
       return;
@@ -880,15 +869,25 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
         </div>
       </div>
 
+      <div class="mb-sm flex-between" style="align-items: center; padding: 0 4px;">
+        <span class="text-secondary" style="font-size: 0.78rem;">Klicka på en vinnare, eller kryssa i flera vid delad seger:</span>
+        <button type="button" class="btn btn-sm btn-accent" id="confirm-tied-winners-btn" style="display: none; font-size: 0.75rem; padding: 4px 10px; font-weight: 700;">
+          🤝 Dela pott (<span id="tied-count">0</span> vinnare)
+        </button>
+      </div>
+
       <div class="bet-list" id="winner-list">
         ${event.players.map(p => `
-          <button class="bet-item card-clickable winner-select-btn" data-id="${p.id}" style="width:100%; border:none; cursor:pointer; display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="bet-item winner-row" data-id="${p.id}" style="width:100%; display: flex; align-items: center; justify-content: space-between; padding: 10px;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 0; flex: 1;">
+              <input type="checkbox" class="winner-checkbox" data-id="${p.id}" data-name="${escapeHtml(p.name)}" style="cursor: pointer; width: 18px; height: 18px;" />
               ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}" class="player-avatar-mini" />` : ''}
-              <span class="bet-item-name">${p.name}</span>
-            </div>
-            <span class="text-gold">${t('admin.selectWinnerBtn')}</span>
-          </button>
+              <span class="bet-item-name" style="font-weight: 600;">${escapeHtml(p.name)}</span>
+            </label>
+            <button type="button" class="btn btn-sm winner-select-btn" data-id="${p.id}" style="font-size: 0.75rem; padding: 4px 10px; white-space: nowrap;">
+              ${t('admin.selectWinnerBtn')} 🏆
+            </button>
+          </div>
         `).join('')}
       </div>
     `);
@@ -928,13 +927,43 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
       proofPlaceholder.style.display = 'block';
     });
 
+    const tiedBtn = document.getElementById('confirm-tied-winners-btn');
+    const tiedCountSpan = document.getElementById('tied-count');
+    const checkboxes = document.querySelectorAll('.winner-checkbox');
+
+    const updateTiedState = () => {
+      const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.id);
+      if (selected.length >= 2) {
+        tiedBtn.style.display = 'inline-block';
+        tiedCountSpan.textContent = selected.length;
+      } else {
+        tiedBtn.style.display = 'none';
+      }
+    };
+
+    checkboxes.forEach(cb => {
+      cb.addEventListener('change', updateTiedState);
+    });
+
+    tiedBtn?.addEventListener('click', async () => {
+      const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.id);
+      if (selected.length < 2) return;
+      try {
+        const result = await api.finishEvent(eventId, selected, getPin(), selectedWinnerProof);
+        closeModal();
+        launchConfetti();
+        showToast(`🤝 Delad seger fastställd mellan ${result.winner}! Potten delas lika.`, 'success');
+        loadAdminEvents(loggedIn, hasPinSession, user);
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
     document.querySelectorAll('.winner-select-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         try {
           const result = await api.finishEvent(eventId, btn.dataset.id, getPin(), selectedWinnerProof);
           closeModal();
           launchConfetti();
-          showToast(`🏆 ${result.winner} ${t('admin.toastWinnerDeclared')} Odds: ${result.odds}x`, 'success');
+          showToast(`🏆 ${result.winner} ${t('admin.toastWinnerDeclared')}`, 'success');
           loadAdminEvents(loggedIn, hasPinSession, user);
         } catch (err) { showToast(err.message, 'error'); }
       });

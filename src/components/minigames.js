@@ -29,6 +29,7 @@ import {
   placeFlashBet,
   settleFlashBet,
   getTournaments,
+  getActiveEvent,
   createTabExpense,
   startLiveNotanRoulette,
   convertTabExpenseToEvenSteven,
@@ -40,6 +41,24 @@ import {
   advanceMafiaPhase,
   voteMafiaLynch
 } from '../api.js';
+
+let currentActiveEvent = null;
+let activeEventFetchedAt = 0;
+
+export async function getOrFetchActiveEvent() {
+  const now = Date.now();
+  if (now - activeEventFetchedAt < 20000 && currentActiveEvent !== null) {
+    return currentActiveEvent;
+  }
+  try {
+    const res = await getActiveEvent();
+    currentActiveEvent = res?.activeEvent || null;
+    activeEventFetchedAt = now;
+  } catch {
+    currentActiveEvent = null;
+  }
+  return currentActiveEvent;
+}
 import { compressImage } from '../imageUtils.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 import { getStoredUser, getToken } from '../auth.js';
@@ -1042,11 +1061,13 @@ function openCoinFlipModal(initialDuel = null) {
     });
   }
 
-  function handleDuelFinished(d) {
+  async function handleDuelFinished(d) {
     const p1Won = d.winner_id === currentUser?.id;
     const sideName = (d.creator_score === 1 && d.creator_id === currentUser?.id) || (d.opponent_score === 1 && d.opponent_id === currentUser?.id)
       ? (chosenSide === 'head' ? 'HEAD' : 'TAILS')
       : (chosenSide === 'head' ? 'TAILS' : 'HEAD');
+
+    const activeEvt = await getOrFetchActiveEvent();
 
     if (p1Won) {
       banner.innerHTML = isEn
@@ -1062,7 +1083,7 @@ function openCoinFlipModal(initialDuel = null) {
             ${escapeHtml(selectedFriend.nickname)} ${t('arcade.diceOwes')} dig ${currentStake} kr! 💰
           </div>
           <div style="font-size: 0.75rem; color: var(--text-secondary);">
-            ${isEn ? 'Logged in The Tab & Swish List!' : 'Loggat i Notan & Swishlistan!'}
+            ${activeEvt ? `📝 Skrivs upp på notan för <strong>${escapeHtml(activeEvt.name)}</strong>` : (isEn ? 'Logged in The Tab & Swish List!' : 'Loggat i Notan & Swishlistan!')}
           </div>
         </div>
       `;
@@ -1078,16 +1099,32 @@ function openCoinFlipModal(initialDuel = null) {
       });
 
       swishActionBox.style.display = 'block';
-      swishActionBox.innerHTML = `
-        <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
-          <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
-            Du ${t('arcade.diceOwes')} ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr!
+      if (activeEvt) {
+        swishActionBox.innerHTML = `
+          <div style="background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.4); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+            <div style="font-weight: 700; color: var(--gold); font-size: 0.9rem; margin-bottom: 4px;">
+              📝 Skrivs upp på notan: ${escapeHtml(activeEvt.name)}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">
+              Du är skyldig ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr. Kvittas i eventets slutavräkning för att minimera Swish!
+            </div>
+            <a href="${swishUrl}" class="btn btn-sm" style="font-size: 0.7rem; color: var(--text-muted); text-decoration: underline;" target="_blank" rel="noopener">
+              Swisha direkt ändå (${currentStake} kr)
+            </a>
           </div>
-          <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
-            📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
-          </a>
-        </div>
-      `;
+        `;
+      } else {
+        swishActionBox.innerHTML = `
+          <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+            <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
+              Du ${t('arcade.diceOwes')} ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr!
+            </div>
+            <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
+              📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
+            </a>
+          </div>
+        `;
+      }
     }
 
     flipBtn.disabled = false;
@@ -1144,11 +1181,13 @@ function openCoinFlipModal(initialDuel = null) {
 
       // Record duel result in database (The Tab / Swishlistan settlement)
       try {
+        const activeEvt = await getOrFetchActiveEvent();
         const duelRes = await createDuel({
           gameType: 'coin',
           opponentId: selectedFriend.id,
           stakeAmount: currentStake,
-          mode: 'table'
+          mode: 'table',
+          tournamentId: activeEvt?.id || null
         });
         if (duelRes?.duel?.id) {
           const finished = await submitDuelRoll(duelRes.duel.id, {
@@ -1184,11 +1223,13 @@ function openCoinFlipModal(initialDuel = null) {
         flipBtn.disabled = true;
         flipBtn.textContent = isEn ? 'Sending challenge...' : 'Skickar utmaning...';
         try {
+          const activeEvt = await getOrFetchActiveEvent();
           const res = await createDuel({
             gameType: 'coin',
             opponentId: selectedFriend.id,
             stakeAmount: currentStake,
-            mode: 'online'
+            mode: 'online',
+            tournamentId: activeEvt?.id || null
           });
           activeDuel = res.duel;
           banner.innerHTML = isEn
@@ -2471,13 +2512,16 @@ function openDiceModal(initialDuel = null) {
           if (p1Val > p2Val) winnerId = currentUser.id;
           else if (p2Val > p1Val) winnerId = selectedFriend.id;
 
+          const activeEvt = await getOrFetchActiveEvent();
+
           // Record in DB
           try {
             const duelRes = await createDuel({
               gameType: 'dice',
               opponentId: selectedFriend.id,
               stakeAmount: currentStake,
-              mode: 'table'
+              mode: 'table',
+              tournamentId: activeEvt?.id || null
             });
             if (duelRes?.duel?.id) {
               await submitDuelRoll(duelRes.duel.id, {
@@ -2501,10 +2545,10 @@ function openDiceModal(initialDuel = null) {
             swishActionBox.innerHTML = `
               <div style="background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
                 <div style="font-weight: 700; color: #4ade80; font-size: 0.9rem; margin-bottom: 4px;">
-                  ${selectedFriend.nickname} ${t('arcade.diceOwes')} dig ${currentStake} kr! 💰
+                  ${escapeHtml(selectedFriend.nickname)} ${t('arcade.diceOwes')} dig ${currentStake} kr! 💰
                 </div>
                 <div style="font-size: 0.75rem; color: var(--text-secondary);">
-                  ${isEn ? 'Added to your Swish List!' : 'Tillagd i er gemensamma Swishlista!'}
+                  ${activeEvt ? `📝 Skrivs upp på notan för <strong>${escapeHtml(activeEvt.name)}</strong>` : (isEn ? 'Added to your Swish List!' : 'Tillagd i er gemensamma Swishlista!')}
                 </div>
               </div>
             `;
@@ -2520,16 +2564,32 @@ function openDiceModal(initialDuel = null) {
             });
 
             swishActionBox.style.display = 'block';
-            swishActionBox.innerHTML = `
-              <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
-                <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
-                  Du ${t('arcade.diceOwes')} ${selectedFriend.nickname} ${currentStake} kr!
+            if (activeEvt) {
+              swishActionBox.innerHTML = `
+                <div style="background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.4); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                  <div style="font-weight: 700; color: var(--gold); font-size: 0.9rem; margin-bottom: 4px;">
+                    📝 Skrivs upp på notan: ${escapeHtml(activeEvt.name)}
+                  </div>
+                  <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">
+                    Du är skyldig ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr. Kvittas i eventets slutavräkning för att minimera Swish!
+                  </div>
+                  <a href="${swishUrl}" class="btn btn-sm" style="font-size: 0.7rem; color: var(--text-muted); text-decoration: underline;" target="_blank" rel="noopener">
+                    Swisha direkt ändå (${currentStake} kr)
+                  </a>
                 </div>
-                <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
-                  📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
-                </a>
-              </div>
-            `;
+              `;
+            } else {
+              swishActionBox.innerHTML = `
+                <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                  <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
+                    Du ${t('arcade.diceOwes')} ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr!
+                  </div>
+                  <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
+                    📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
+                  </a>
+                </div>
+              `;
+            }
           } else {
             banner.innerHTML = isEn
               ? `🤝 Draw (${p1Val} = ${p2Val})! Roll again!`
@@ -2553,11 +2613,13 @@ function openDiceModal(initialDuel = null) {
       rollBtn.disabled = true;
       rollBtn.textContent = isEn ? 'Sending challenge...' : 'Skickar utmaning...';
       try {
+        const activeEvt = await getOrFetchActiveEvent();
         const res = await createDuel({
           gameType: 'dice',
           opponentId: selectedFriend.id,
           stakeAmount: currentStake,
-          mode: 'online'
+          mode: 'online',
+          tournamentId: activeEvt?.id || null
         });
         activeDuel = res.duel;
         banner.innerHTML = isEn
@@ -2604,19 +2666,51 @@ function openDiceModal(initialDuel = null) {
                 banner.innerHTML = `🎉 ${isEn ? 'You won!' : 'Du vann!'} ${d.creator_score} mot ${d.opponent_score}!`;
                 playWinSound();
                 launchConfetti();
+                swishActionBox.style.display = 'block';
+                swishActionBox.innerHTML = `
+                  <div style="background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                    <div style="font-weight: 700; color: #4ade80; font-size: 0.9rem; margin-bottom: 4px;">
+                      ${escapeHtml(selectedFriend.nickname)} ${t('arcade.diceOwes')} dig ${currentStake} kr! 💰
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                      ${activeEvt ? `📝 Skrivs upp på notan för <strong>${escapeHtml(activeEvt.name)}</strong>` : (isEn ? 'Added to your Swish List!' : 'Tillagd i er gemensamma Swishlista!')}
+                    </div>
+                  </div>
+                `;
               } else if (d.winner_id === selectedFriend.id) {
-                banner.innerHTML = `💀 ${selectedFriend.nickname} ${isEn ? 'won!' : 'vann!'} ${d.opponent_score} mot ${d.creator_score}!`;
+                banner.innerHTML = `💀 ${escapeHtml(selectedFriend.nickname)} ${isEn ? 'won!' : 'vann!'} ${d.opponent_score} mot ${d.creator_score}!`;
                 const swishUrl = createSwishUrl({
                   phone: selectedFriend.swishNumber,
                   amount: currentStake,
                   message: 'Betpals Tärningsduell'
                 });
                 swishActionBox.style.display = 'block';
-                swishActionBox.innerHTML = `
-                  <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%;" target="_blank" rel="noopener">
-                    📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
-                  </a>
-                `;
+                if (activeEvt) {
+                  swishActionBox.innerHTML = `
+                    <div style="background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.4); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                      <div style="font-weight: 700; color: var(--gold); font-size: 0.9rem; margin-bottom: 4px;">
+                        📝 Skrivs upp på notan: ${escapeHtml(activeEvt.name)}
+                      </div>
+                      <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">
+                        Du är skyldig ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr. Kvittas i eventets slutavräkning för att minimera Swish!
+                      </div>
+                      <a href="${swishUrl}" class="btn btn-sm" style="font-size: 0.7rem; color: var(--text-muted); text-decoration: underline;" target="_blank" rel="noopener">
+                        Swisha direkt ändå (${currentStake} kr)
+                      </a>
+                    </div>
+                  `;
+                } else {
+                  swishActionBox.innerHTML = `
+                    <div style="background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); border-radius: var(--radius-sm); padding: 10px; text-align: center;">
+                      <div style="font-weight: 700; color: #f87171; font-size: 0.9rem; margin-bottom: 8px;">
+                        Du ${t('arcade.diceOwes')} ${escapeHtml(selectedFriend.nickname)} ${currentStake} kr!
+                      </div>
+                      <a href="${swishUrl}" class="swish-pay-btn" style="width: 100%; margin-bottom: 6px;" target="_blank" rel="noopener">
+                        📱 ${isEn ? 'Swish' : 'Swisha'} ${currentStake} kr till ${escapeHtml(selectedFriend.nickname)}
+                      </a>
+                    </div>
+                  `;
+                }
               } else {
                 banner.textContent = isEn ? 'Draw! Roll again!' : 'Oavgjort! Kasta igen!';
               }
@@ -5213,6 +5307,7 @@ export async function openAnyBetModal(initialBetId = null) {
       if (submitBtn) submitBtn.disabled = true;
 
       try {
+        const activeEvt = await getOrFetchActiveEvent();
         const res = await createAnyBet({
           title,
           description,
@@ -5220,7 +5315,8 @@ export async function openAnyBetModal(initialBetId = null) {
           stakeAmount: selectedStake,
           betType: selectedModel,
           deadline,
-          participantIds: Array.from(invitedFriendIds)
+          participantIds: Array.from(invitedFriendIds),
+          tournamentId: activeEvt?.id || null
         });
 
         if (res && res.ok) {
@@ -5960,6 +6056,10 @@ let flashBetTimerInterval = null;
 export async function openFlashBetModal(initialFlashBetId = null, defaultTournamentId = null) {
   const isEn = getLang() === 'en';
   const currentUser = getStoredUser();
+  if (!defaultTournamentId) {
+    const activeEvt = await getOrFetchActiveEvent();
+    if (activeEvt?.id) defaultTournamentId = activeEvt.id;
+  }
   let activeTab = initialFlashBetId ? 'active' : 'active';
   let countdowns = new Map(); // id -> secondsLeft
 
@@ -7496,13 +7596,15 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
     try {
       // 1. Call server: dispatches heads-up push and broadcasts live spin via WebSocket to all participants!
+      const activeEvt = await getOrFetchActiveEvent();
       const participantIds = participants.map(p => p.id);
       const liveRes = await startLiveNotanRoulette({
         title: cleanTitle,
         notes: customNotes || null,
         totalAmount,
         participantIds,
-        receiptImage: receiptBase64
+        receiptImage: receiptBase64,
+        tournamentId: activeEvt?.id || null
       });
 
       const actualLoserId = String(liveRes.loserId);
@@ -7550,7 +7652,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
           requestAnimationFrame(animateSpin);
         } else {
           isSpinning = false;
-          finishRoulette(loser, participants, liveRes.expense);
+          finishRoulette(loser, participants, liveRes.expense, activeEvt);
         }
       }
 
@@ -7566,7 +7668,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
     }
   }
 
-  async function finishRoulette(loser, participants, createdExpense) {
+  async function finishRoulette(loser, participants, createdExpense, activeEvt = null) {
     const banner = document.getElementById('notan-roulette-banner');
     playWinSound();
     launchConfetti();
@@ -7610,6 +7712,12 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
           </div>
         </div>
 
+        ${activeEvt ? `
+          <div style="background: rgba(245, 166, 35, 0.12); border: 1px solid rgba(245, 166, 35, 0.3); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 12px; font-size: 0.78rem; color: var(--gold); text-align: center;">
+            📝 Not-Rouletten är kopplad till eventet <strong>${escapeHtml(activeEvt.name)}</strong> och kvittas automatiskt i Notan (The Tab)!
+          </div>
+        ` : ''}
+
         ${receiptBase64 ? `
           <div class="mb-md flex align-center justify-center gap-xs" style="font-size: 0.8rem; color: #4ade80;">
             <span>🧾 ${isEn ? 'Receipt photo saved & attached' : 'Kvittofoto sparat och bifogat'}</span>
@@ -7618,49 +7726,45 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
         ${isMeLoser && createdExpense ? `
           <div class="mb-md">
-            <button type="button" class="btn btn-secondary btn-block" id="btn-payer-veto-even" style="border-color: #10b981; color: #4ade80; font-weight: 800; padding: 10px; font-size: 0.85rem; background: rgba(16, 185, 129, 0.08);">
-              ⚖️ ${isEn ? 'Convert to Even Steven (Split evenly)' : 'Gör om till Even Steven (Dela rakt)'}
+            <button type="button" class="btn btn-secondary btn-block btn-sm" id="btn-convert-after-spin" style="font-size: 0.8rem; padding: 8px;">
+              ⚖️ ${isEn ? 'Convert to Even Split instead?' : 'Fega ur: Dela lika mellan alla istället?'}
             </button>
-            <div class="text-center text-muted mt-xs" style="font-size: 0.72rem;">
-              ${isEn ? 'Safety valve: Split the bill fairly instead of taking the whole tab.' : 'Säkerhetsventil: Dela notan rättvist istället för att bjuda på allt.'}
-            </div>
           </div>
         ` : ''}
 
         <div class="flex gap-xs">
-          <button type="button" class="btn btn-primary btn-block" id="btn-done-goto-swish" style="font-weight: 800; padding: 12px;">
+          <button type="button" class="btn btn-primary btn-block" id="btn-roulette-goto-swish" style="font-weight: 800; padding: 12px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
             📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
           </button>
-          <button type="button" class="btn btn-secondary" id="btn-done-close" style="padding: 12px;">
+          <button type="button" class="btn btn-secondary" id="btn-roulette-close" style="padding: 12px;">
             ${isEn ? 'Done' : 'Klar'}
           </button>
         </div>
       </div>
-    `);
+    `, () => {}, { isGame: true });
 
-    document.getElementById('btn-payer-veto-even')?.addEventListener('click', async () => {
-      const confirmMsg = isEn 
-        ? 'Convert this roulette to an even split (Even Steven) among everyone?' 
-        : 'Vill du göra om denna Not-Roulette till en rättvis splitt (Even Steven) mellan alla runt bordet?';
-      if (confirm(confirmMsg)) {
-        try {
-          await convertTabExpenseToEvenSteven(createdExpense.id);
-          showToast(isEn ? 'Converted to Even Steven! ⚖️' : 'Notan gjordes om till Even Steven! ⚖️', 'success');
-          closeModal();
-          window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
-        } catch (e) {
-          showToast(e.message, 'error');
-        }
+    document.getElementById('btn-roulette-goto-swish')?.addEventListener('click', () => {
+      closeModal();
+      window.location.hash = '#leaderboard';
+    });
+
+    document.getElementById('btn-roulette-close')?.addEventListener('click', () => {
+      closeModal();
+    });
+
+    document.getElementById('btn-convert-after-spin')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-convert-after-spin');
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await convertTabExpenseToEvenSteven(createdExpense.id);
+        showToast(isEn ? 'Converted to Even Steven! Fair split for all.' : 'Omgjord till Even Steven! Notan är delad lika.', 'success');
+        closeModal();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = isEn ? 'Convert to Even Split' : 'Dela lika istället';
       }
-    });
-
-    document.getElementById('btn-done-goto-swish')?.addEventListener('click', () => {
-      closeModal();
-      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'swishlist' } }));
-    });
-
-    document.getElementById('btn-done-close')?.addEventListener('click', () => {
-      closeModal();
     });
   }
 
@@ -7692,6 +7796,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
     }
 
     try {
+      const activeEvt = await getOrFetchActiveEvent();
       const participantIds = participants.map(p => p.id);
       const payload = {
         title: cleanTitle,
@@ -7699,7 +7804,8 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
         totalAmount,
         mode: 'even_steven',
         participantIds,
-        receiptImage: receiptBase64
+        receiptImage: receiptBase64,
+        tournamentId: activeEvt?.id || null
       };
       if (evenSplitMode === 'custom') {
         payload.customShares = customShares;
@@ -7736,6 +7842,12 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
             </div>
           </div>
 
+          ${activeEvt ? `
+            <div style="background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 12px; font-size: 0.78rem; color: #4ade80; text-align: center;">
+              📝 Notan är kopplad till eventet <strong>${escapeHtml(activeEvt.name)}</strong> och kvittas automatiskt i Notan (The Tab)!
+            </div>
+          ` : ''}
+
           <div class="flex gap-xs">
             <button type="button" class="btn btn-primary btn-block" id="btn-even-goto-swish" style="font-weight: 800; padding: 12px; background: #10b981;">
               📱 ${isEn ? 'View in Swish List' : 'Öppna Swishlistan'}
@@ -7745,7 +7857,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
             </button>
           </div>
         </div>
-      `);
+      `, () => {}, { isGame: true });
 
       document.getElementById('btn-even-goto-swish')?.addEventListener('click', () => {
         closeModal();
@@ -8209,11 +8321,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       initSpaceEngine({
         onGameOver: async (result) => {
           try {
+            const activeEvt = await getOrFetchActiveEvent();
             const duel = await createDuel({
               gameType: 'space_invaders',
               opponentId: selectedOpponentId,
               stakeAmount: selectedStake,
-              mode: 'online'
+              mode: 'online',
+              tournamentId: activeEvt?.id || null
             });
 
             if (duel) {

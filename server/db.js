@@ -239,6 +239,9 @@ try {
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN expense_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN custom_title TEXT'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN receipt_image TEXT'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN tournament_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE anybets ADD COLUMN tournament_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE tab_expenses ADD COLUMN tournament_id TEXT'); } catch {}
 
 try {
   db.exec(`
@@ -672,8 +675,8 @@ const stmts = {
 
   // Minigame Duels
   insertDuel: db.prepare(`
-    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status)
-    VALUES (@id, @game_type, @creator_id, @opponent_id, @stake_amount, @mode, @status)
+    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status, tournament_id)
+    VALUES (@id, @game_type, @creator_id, @opponent_id, @stake_amount, @mode, @status, @tournament_id)
   `),
   getDuelById: db.prepare(`
     SELECT d.*,
@@ -724,6 +727,7 @@ const stmts = {
       AND d.stake_amount > 0
       AND d.is_settled = 0
       AND d.winner_id != 'tie'
+      AND (d.tournament_id IS NULL OR d.tournament_id = '')
     ORDER BY d.created_at DESC
   `),
   settleDuel: db.prepare(`UPDATE minigame_duels SET is_settled = 1, settled_at = datetime('now') WHERE id = ?`),
@@ -737,8 +741,8 @@ const stmts = {
 
   // AnyBets
   insertAnyBet: db.prepare(`
-    INSERT INTO anybets (id, title, description, creator_id, judge_id, stake_amount, bet_type, deadline, status)
-    VALUES (@id, @title, @description, @creator_id, @judge_id, @stake_amount, @bet_type, @deadline, @status)
+    INSERT INTO anybets (id, title, description, creator_id, judge_id, stake_amount, bet_type, deadline, status, tournament_id)
+    VALUES (@id, @title, @description, @creator_id, @judge_id, @stake_amount, @bet_type, @deadline, @status, @tournament_id)
   `),
   insertAnyBetParticipant: db.prepare(`
     INSERT OR REPLACE INTO anybet_participants (id, bet_id, user_id, choice, status)
@@ -859,16 +863,16 @@ const stmts = {
 
   // Tab Expenses & Even Steven
   insertTabExpense: db.prepare(`
-    INSERT INTO tab_expenses (id, payer_id, title, notes, total_amount, mode, loser_id, receipt_image)
-    VALUES (@id, @payer_id, @title, @notes, @total_amount, @mode, @loser_id, @receipt_image)
+    INSERT INTO tab_expenses (id, payer_id, title, notes, total_amount, mode, loser_id, receipt_image, tournament_id)
+    VALUES (@id, @payer_id, @title, @notes, @total_amount, @mode, @loser_id, @receipt_image, @tournament_id)
   `),
   insertTabExpenseParticipant: db.prepare(`
     INSERT INTO tab_expense_participants (id, expense_id, user_id, amount)
     VALUES (@id, @expense_id, @user_id, @amount)
   `),
   insertTabExpenseDuel: db.prepare(`
-    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status, winner_id, creator_score, opponent_score, is_settled, expense_id, custom_title, receipt_image)
-    VALUES (@id, @game_type, @creator_id, @opponent_id, @stake_amount, @mode, 'completed', @winner_id, 1, 0, 0, @expense_id, @custom_title, @receipt_image)
+    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status, winner_id, creator_score, opponent_score, is_settled, expense_id, custom_title, receipt_image, tournament_id)
+    VALUES (@id, @game_type, @creator_id, @opponent_id, @stake_amount, @mode, 'completed', @winner_id, 1, 0, 0, @expense_id, @custom_title, @receipt_image, @tournament_id)
   `),
   getTabExpenseById: db.prepare(`
     SELECT e.*,
@@ -986,6 +990,8 @@ export function getFullEvent(idOrCode) {
     minBet: event.min_bet,
     maxBet: event.max_bet,
     winnerId: event.winner_id,
+    winnerIds: (event.winner_id || '').split(',').map(s => s.trim()).filter(Boolean),
+    isTie: (event.winner_id || '').split(',').map(s => s.trim()).filter(Boolean).length > 1,
     creatorId: event.creator_id,
     swishNumber: event.swish_number,
     tournamentId: event.tournament_id,
@@ -1010,14 +1016,19 @@ export function getFullEvent(idOrCode) {
   };
 
   // If event is finished and has a winner, include winner's swish number
-  if (event.status === 'finished' && event.winner_id) {
+  const winnerIdsList = (event.winner_id || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (event.status === 'finished' && winnerIdsList.length > 0) {
     // Find any winning bet with a user_id to get winner's swish
-    const winnerBets = bets.filter(b => b.player_id === event.winner_id && b.user_id);
+    const winnerBets = bets.filter(b => winnerIdsList.includes(b.player_id) && b.user_id);
     if (winnerBets.length > 0) {
       const winnerUser = stmts.getUserById.get(winnerBets[0].user_id);
-      if (winnerUser && winnerUser.swish_number) {
-        result.winnerSwish = winnerUser.swish_number;
-        result.winnerNickname = winnerUser.nickname;
+      if (winnerUser) {
+        if (winnerUser.swish_number) {
+          result.winnerSwishNumber = winnerUser.swish_number;
+        }
+        if (winnerUser.nickname) {
+          result.winnerNickname = winnerUser.nickname;
+        }
       }
     }
   }
@@ -1050,15 +1061,17 @@ export const createEvent = db.transaction((eventData, playerNames) => {
     creatorId: eventData.creatorId ?? eventData.creator_id ?? null,
     minBet: eventData.minBet ?? eventData.min_bet ?? 10,
     maxBet: eventData.maxBet ?? eventData.max_bet ?? 10000,
-    swishNumber: eventData.swishNumber ?? eventData.swish_number ?? null,
-    isSideBet: eventData.isSideBet ?? eventData.is_side_bet ?? 0,
+    isSideBet: (eventData.isSideBet || eventData.is_side_bet) ? 1 : 0,
     linkedRoundId: eventData.linkedRoundId ?? eventData.linked_round_id ?? null,
     betMode: eventData.betMode ?? eventData.bet_mode ?? 'open',
     imageUrl: eventData.imageUrl || null,
     winnerImageUrl: eventData.winnerImageUrl || null
   });
   for (const p of playerNames) {
-    stmts.insertPlayer.run(p.id, eventData.id, p.name, p.imageUrl || null);
+    const pId = typeof p === 'string' ? crypto.randomUUID() : (p.id || crypto.randomUUID());
+    const pName = typeof p === 'string' ? p : p.name;
+    const pImage = typeof p === 'string' ? null : (p.imageUrl || null);
+    stmts.insertPlayer.run(pId, eventData.id, pName, pImage);
   }
 });
 
@@ -1477,6 +1490,48 @@ export function getAllTournaments(userId = null) {
   });
 }
 
+export function getActiveTournamentForUser(userId) {
+  if (!userId) return null;
+  const t = db.prepare(`
+    SELECT DISTINCT t.* FROM tournaments t
+    WHERE (t.status = 'active' OR t.status IS NULL)
+      AND (
+        t.creator_id = ?
+        OR t.id IN (
+          SELECT e.tournament_id FROM events e
+          JOIN bets b ON b.event_id = e.id
+          WHERE b.user_id = ?
+        )
+        OR t.id IN (
+          SELECT e.tournament_id FROM events e
+          JOIN players p ON p.event_id = e.id
+          JOIN users u ON (LOWER(p.name) = LOWER(u.real_name) OR LOWER(p.name) = LOWER(u.nickname))
+          WHERE u.id = ?
+        )
+        OR t.id IN (
+          SELECT tournament_id FROM minigame_duels
+          WHERE (creator_id = ? OR opponent_id = ?) AND tournament_id IS NOT NULL
+        )
+        OR t.id IN (
+          SELECT tournament_id FROM anybets
+          WHERE (creator_id = ? OR id IN (SELECT bet_id FROM anybet_participants WHERE user_id = ?))
+            AND tournament_id IS NOT NULL
+        )
+      )
+    ORDER BY t.created_at DESC
+    LIMIT 1
+  `).get(userId, userId, userId, userId, userId, userId, userId);
+
+  if (!t) return null;
+  return {
+    id: t.id,
+    name: t.name,
+    shareCode: t.share_code,
+    status: t.status,
+    creatorId: t.creator_id
+  };
+}
+
 export function getFullTournament(idOrCode) {
   let tournament = stmts.getTournamentById.get(idOrCode);
   if (!tournament) tournament = stmts.getTournamentByCode.get(idOrCode);
@@ -1487,7 +1542,9 @@ export function getFullTournament(idOrCode) {
     const players = stmts.getPlayersByEvent.all(e.id);
     const totalPool = stmts.getTotalPool.get(e.id).total;
     const betCount = stmts.getBetCount.get(e.id).count;
-    const winnerPlayer = e.winner_id ? players.find(p => p.id === e.winner_id) : null;
+    const winnerIds = (e.winner_id || '').split(',').map(s => s.trim()).filter(Boolean);
+    const winnerPlayers = winnerIds.map(wId => players.find(p => p.id === wId)).filter(Boolean);
+    const winnerName = winnerPlayers.length > 0 ? winnerPlayers.map(p => p.name).join(', ') : null;
     return {
       id: e.id,
       name: e.name,
@@ -1495,7 +1552,9 @@ export function getFullTournament(idOrCode) {
       status: e.status,
       shareCode: e.share_code,
       winnerId: e.winner_id,
-      winnerName: winnerPlayer?.name || null,
+      winnerIds,
+      isTie: winnerIds.length > 1,
+      winnerName,
       players: players.map(p => ({ id: p.id, name: p.name })),
       totalPool,
       betCount,
@@ -1609,13 +1668,24 @@ export function getTournamentNetSettlement(tournamentId) {
       continue;
     }
 
+    const winnerIds = (ev.winner_id || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (winnerIds.length === 0) continue;
+
     const totalPool = stmts.getTotalPool.get(ev.id).total;
     const effectivePool = totalPool * (ev.payout_percent / 100);
     const houseEdge = totalPool - effectivePool;
-    const winnerPool = stmts.getPlayerPool.get(ev.id, ev.winner_id).total;
 
-    // If nobody bet on the winner, refund all bets (net 0)
-    if (winnerPool === 0) {
+    // Check pools for each winner
+    const winningPools = {};
+    let totalBackedWinners = 0;
+    for (const wId of winnerIds) {
+      const p = stmts.getPlayerPool.get(ev.id, wId).total;
+      winningPools[wId] = p;
+      if (p > 0) totalBackedWinners++;
+    }
+
+    // If nobody bet on any of the winners, refund all bets (net 0)
+    if (totalBackedWinners === 0) {
       for (const bet of bets) {
         const name = bet.bettor_name;
         const key = ensurePlayer(name, bet.user_id);
@@ -1635,7 +1705,11 @@ export function getTournamentNetSettlement(tournamentId) {
       continue;
     }
 
-    const odds = effectivePool / winnerPool;
+    const sharePerWinner = effectivePool / totalBackedWinners;
+    const oddsMap = {};
+    for (const wId of winnerIds) {
+      oddsMap[wId] = winningPools[wId] > 0 ? (sharePerWinner / winningPools[wId]) : 0;
+    }
 
     if (houseEdge > 0) {
       const key = ensurePlayer(creatorName, creatorUserId);
@@ -1655,15 +1729,16 @@ export function getTournamentNetSettlement(tournamentId) {
       const name = bet.bettor_name;
       const key = ensurePlayer(name, bet.user_id);
 
-      const won = bet.player_id === ev.winner_id;
+      const won = winnerIds.includes(bet.player_id);
       if (won) {
+        const odds = oddsMap[bet.player_id] || 0;
         const winnings = bet.amount * odds;
         const netWinnings = winnings - bet.amount;
         players[key].amount += netWinnings;
         players[key].rawTotal += netWinnings;
         const item = {
           type: ev.is_side_bet ? 'sidebet' : 'round',
-          title: ev.name,
+          title: ev.name + (winnerIds.length > 1 ? ' (Delad seger 🤝)' : ''),
           eventId: ev.id,
           won: true,
           amount: Math.round(netWinnings),
@@ -1687,6 +1762,54 @@ export function getTournamentNetSettlement(tournamentId) {
         auditTrail[key].push(item);
       }
     }
+  }
+
+  // Absorb minigame duels tied to this tournament/event
+  const tournamentDuels = db.prepare(`
+    SELECT d.*,
+           cu.nickname as creator_nickname, cu.real_name as creator_real_name,
+           ou.nickname as opponent_nickname, ou.real_name as opponent_real_name
+    FROM minigame_duels d
+    LEFT JOIN users cu ON d.creator_id = cu.id
+    LEFT JOIN users ou ON d.opponent_id = ou.id
+    WHERE d.tournament_id = ? AND d.status = 'completed'
+  `).all(tournamentId);
+
+  for (const d of tournamentDuels) {
+    const stake = Number(d.stake_amount) || 0;
+    if (stake <= 0) continue;
+    if (!d.winner_id || d.winner_id === 'tie') continue;
+
+    const isCreatorWinner = d.winner_id === d.creator_id;
+    const winnerId = isCreatorWinner ? d.creator_id : d.opponent_id;
+    const loserId = isCreatorWinner ? d.opponent_id : d.creator_id;
+    const winnerName = isCreatorWinner ? (d.creator_real_name || d.creator_nickname) : (d.opponent_real_name || d.opponent_nickname);
+    const loserName = isCreatorWinner ? (d.opponent_real_name || d.opponent_nickname) : (d.creator_real_name || d.creator_nickname);
+
+    const winnerKey = ensurePlayer(winnerName, winnerId);
+    const loserKey = ensurePlayer(loserName, loserId);
+
+    players[winnerKey].amount += stake;
+    players[winnerKey].rawTotal += stake;
+    auditTrail[winnerKey].push({
+      type: 'minigame',
+      title: d.custom_title || `Minispel (${d.game_type})`,
+      duelId: d.id,
+      won: true,
+      amount: Math.round(stake),
+      timestamp: d.created_at
+    });
+
+    players[loserKey].amount -= stake;
+    players[loserKey].rawTotal -= stake;
+    auditTrail[loserKey].push({
+      type: 'minigame',
+      title: d.custom_title || `Minispel (${d.game_type})`,
+      duelId: d.id,
+      won: false,
+      amount: -Math.round(stake),
+      timestamp: d.created_at
+    });
   }
 
   // Fetch marked receipts (delbetalningar mitt i resan / kvitteringar)
@@ -1895,10 +2018,16 @@ export const deleteTournament = db.transaction((tournamentId) => {
 
 export function settleTournament(tournamentId) {
   stmts.updateTournamentStatus.run('settled', tournamentId);
+  try {
+    db.prepare("UPDATE minigame_duels SET is_settled = 1, settled_at = datetime('now') WHERE tournament_id = ?").run(tournamentId);
+  } catch {}
 }
 
 export function reopenTournament(tournamentId) {
   stmts.updateTournamentStatus.run('active', tournamentId);
+  try {
+    db.prepare("UPDATE minigame_duels SET is_settled = 0 WHERE tournament_id = ?").run(tournamentId);
+  } catch {}
 }
 
 export function getLeaderboard() {
@@ -1932,13 +2061,15 @@ export function getLeaderboard() {
     u.totalBets++;
     u.totalStaked += bet.amount;
 
-    if (bet.player_id === bet.winner_id) {
+    const winnerIds = (bet.winner_id || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (winnerIds.includes(bet.player_id)) {
       u.wins++;
       const full = getFullEvent(bet.event_id);
       if (full) {
         const effectivePool = full.totalPool * (full.payoutPercent / 100);
-        const winnerPool = full.bets.filter(b => b.playerId === full.winnerId).reduce((s, b) => s + b.amount, 0);
-        const odds = winnerPool > 0 ? (effectivePool / winnerPool) : 0;
+        const winningPool = full.bets.filter(b => b.playerId === bet.player_id).reduce((s, b) => s + b.amount, 0);
+        const sharePerWinner = winnerIds.length > 0 ? effectivePool / winnerIds.length : effectivePool;
+        const odds = winningPool > 0 ? (sharePerWinner / winningPool) : 0;
         const winnings = +(bet.amount * odds).toFixed(2);
         u.totalWon += winnings;
         if (odds > u.bestOdds) {
@@ -2092,7 +2223,7 @@ export function searchUsers(query, excludeUserId) {
 }
 
 // ── Minigame Duels API ─────────────────────────────────
-export function createDuel({ gameType, creatorId, opponentId, stakeAmount, mode }) {
+export function createDuel({ gameType, creatorId, opponentId, stakeAmount, mode, tournamentId = null }) {
   const id = crypto.randomUUID();
   const status = mode === 'table' ? 'active' : (opponentId ? 'pending' : 'active');
   stmts.insertDuel.run({
@@ -2102,7 +2233,8 @@ export function createDuel({ gameType, creatorId, opponentId, stakeAmount, mode 
     opponent_id: opponentId || null,
     stake_amount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1,
     mode: mode || 'online',
-    status
+    status,
+    tournament_id: tournamentId || null
   });
   return getDuelById(id);
 }
@@ -2256,7 +2388,7 @@ export function settleDuelsBetweenUsers(userId, friendId) {
 
 // ── AnyBet Public API ─────────────────────────────────
 
-export function createAnyBet({ title, description, creatorId, judgeId, stakeAmount, betType, deadline, participantIds }) {
+export function createAnyBet({ title, description, creatorId, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId = null }) {
   const betId = crypto.randomUUID();
   const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : (parseFloat(stakeAmount) || 0);
 
@@ -2269,20 +2401,23 @@ export function createAnyBet({ title, description, creatorId, judgeId, stakeAmou
     stake_amount: stake,
     bet_type: betType || 'winner_takes_all',
     deadline: deadline || null,
-    status: 'open'
+    status: 'open',
+    tournament_id: tournamentId || null
   });
 
   // Ensure creator is included in participants
-  const allParticipantIds = new Set(participantIds || []);
-  allParticipantIds.add(creatorId);
+  const allParticipantIds = Array.from(new Set([
+    String(creatorId),
+    ...(participantIds || []).map(String)
+  ]));
 
-  for (const pUserId of allParticipantIds) {
+  for (const uid of allParticipantIds) {
     stmts.insertAnyBetParticipant.run({
       id: crypto.randomUUID(),
       bet_id: betId,
-      user_id: pUserId,
-      choice: 'participant',
-      status: pUserId === creatorId ? 'accepted' : 'invited'
+      user_id: uid,
+      choice: uid === String(creatorId) ? 'creator' : 'participant',
+      status: uid === String(creatorId) ? 'accepted' : 'invited'
     });
   }
 
@@ -2293,7 +2428,16 @@ export function getAnyBetById(id) {
   const bet = stmts.getAnyBetById.get(id);
   if (!bet) return null;
   const participants = stmts.getAnyBetParticipants.all(id);
-  return { ...bet, participants };
+  return {
+    ...bet,
+    tournamentId: bet.tournament_id || null,
+    participants: participants.map(p => ({
+      ...p,
+      realName: p.real_name,
+      avatarEmoji: p.avatar_emoji,
+      avatarUrl: p.avatar_url
+    }))
+  };
 }
 
 export function getAnyBetsForUser(userId) {
@@ -2366,7 +2510,8 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
             opponent_id: loser.user_id,
             stake_amount: bet.stake_amount,
             mode: 'anybet',
-            status: 'completed'
+            status: 'completed',
+            tournament_id: bet.tournament_id || null
           });
           stmts.updateDuelResult.run({
             id: duelId,
@@ -2394,7 +2539,8 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
                 opponent_id: loser.user_id,
                 stake_amount: perWinnerStake,
                 mode: 'anybet',
-                status: 'completed'
+                status: 'completed',
+                tournament_id: bet.tournament_id || null
               });
               stmts.updateDuelResult.run({
                 id: duelId,
@@ -2684,7 +2830,8 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
             opponent_id: loser.user_id,
             stake_amount: perWinnerStake,
             mode: 'flashbet',
-            status: 'completed'
+            status: 'completed',
+            tournament_id: fb.tournament_id || null
           });
           stmts.updateDuelResult.run({
             id: duelId,
@@ -2771,7 +2918,7 @@ export function updateFlashLiveStreamBet(id, flashBetId, stakeAmount, durationSe
 
 // ── Tab Expenses & Even Steven Public API ─────────────
 
-export function createTabExpense({ payerId, title, notes, totalAmount, mode, participantIds = [], loserId = null, receiptImage = null, customShares = null }) {
+export function createTabExpense({ payerId, title, notes, totalAmount, mode, participantIds = [], loserId = null, receiptImage = null, customShares = null, tournamentId = null }) {
   if (!payerId) throw new Error('Payer is required');
   const amount = parseFloat(totalAmount);
   if (isNaN(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
@@ -2799,7 +2946,8 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
       total_amount: amount,
       mode: mode === 'roulette' ? 'roulette' : 'even_steven',
       loser_id: mode === 'roulette' ? (loserId ? String(loserId) : null) : null,
-      receipt_image: receiptImage || null
+      receipt_image: receiptImage || null,
+      tournament_id: tournamentId || null
     });
 
     if (mode === 'roulette') {
@@ -2829,7 +2977,8 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
           winner_id: payerId,
           expense_id: expenseId,
           custom_title: cleanTitle,
-          receipt_image: receiptImage || null
+          receipt_image: receiptImage || null,
+          tournament_id: tournamentId || null
         });
       }
     } else {
@@ -2887,7 +3036,8 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
             winner_id: payerId,
             expense_id: expenseId,
             custom_title: cleanTitle,
-            receipt_image: receiptImage || null
+            receipt_image: receiptImage || null,
+            tournament_id: tournamentId || null
           });
         }
       }
@@ -2907,7 +3057,13 @@ export function getTabExpenseById(id) {
   const participants = stmts.getTabExpenseParticipants.all(id);
   return {
     ...expense,
-    participants
+    tournamentId: expense.tournament_id || null,
+    participants: participants.map(p => ({
+      ...p,
+      realName: p.real_name,
+      avatarEmoji: p.avatar_emoji,
+      avatarUrl: p.avatar_url
+    }))
   };
 }
 
@@ -2916,26 +3072,20 @@ export function getTabExpensesForUser(userId) {
   return stmts.getTabExpensesForUser.all(userId, userId, userId);
 }
 
-export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
-  if (!expenseId) throw new Error('Expense ID is required');
+export function getMyTabExpenses(userId) {
+  if (!userId) return [];
+  const list = stmts.getMyTabExpenses.all(userId);
+  return list.map(e => getTabExpenseById(e.id)).filter(Boolean);
+}
+
+export function convertTabExpenseToEvenSteven(expenseId, payerUserId) {
   const expense = getTabExpenseById(expenseId);
-  if (!expense) throw new Error('Nota / utlägg hittades inte');
-
-  if (expense.mode !== 'roulette') {
-    throw new Error('Endast Not-Roulette kan göras om till Even Steven');
+  if (!expense) throw new Error('Notan hittades inte');
+  if (String(expense.payer_id) !== String(payerUserId)) {
+    throw new Error('Endast den som betalade notan kan göra om den till Even Steven');
   }
-
-  // Authorization: only the loser or the payer can trigger this safety valve
-  const isLoser = String(expense.loser_id) === String(requestingUserId);
-  const isPayer = String(expense.payer_id) === String(requestingUserId);
-  if (!isLoser && !isPayer) {
-    throw new Error('Endast förloraren eller den som lade ut kan göra om notan till Even Steven');
-  }
-
-  const allExpenseDuels = db.prepare('SELECT * FROM minigame_duels WHERE expense_id = ?').all(expenseId);
-  const isAlreadySettled = allExpenseDuels.some(d => d.is_settled === 1);
-  if (isAlreadySettled) {
-    throw new Error('Notan är redan kvitterad och kan inte ändras');
+  if (expense.mode === 'even_steven') {
+    return expense; // Already Even Steven
   }
 
   const participants = expense.participants || [];
@@ -2973,7 +3123,8 @@ export function convertTabExpenseToEvenSteven(expenseId, requestingUserId) {
           winner_id: expense.payer_id,
           expense_id: expenseId,
           custom_title: expense.title,
-          receipt_image: expense.receipt_image || null
+          receipt_image: expense.receipt_image || null,
+          tournament_id: expense.tournament_id || null
         });
       }
     }

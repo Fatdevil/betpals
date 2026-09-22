@@ -1390,6 +1390,13 @@ app.post('/api/events', (req, res) => {
   res.json(full);
 });
 
+app.get('/api/events/active', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.json({ activeEvent: null });
+  const activeEvent = db.getActiveTournamentForUser(user.id);
+  res.json({ activeEvent });
+});
+
 app.get('/api/events/:idOrCode', (req, res) => {
   const event = db.getFullEvent(req.params.idOrCode);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
@@ -1694,7 +1701,7 @@ app.put('/api/events/:id/image', (req, res) => {
 });
 
 app.post('/api/events/:id/finish', (req, res) => {
-  const { pin, winnerId, winnerImageUrl } = req.body;
+  const { pin, winnerId, winnerIds: reqWinnerIds, winnerImageUrl } = req.body;
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
@@ -1710,33 +1717,65 @@ app.post('/api/events/:id/finish', (req, res) => {
     return res.status(400).json({ error: 'Ogiltig bild-URL för vinnaren' });
   }
 
-  const winnerPlayer = db.getPlayerById(winnerId);
-  if (!winnerPlayer || winnerPlayer.event_id !== event.id) {
+  let winnerIds = [];
+  if (Array.isArray(reqWinnerIds) && reqWinnerIds.length > 0) {
+    winnerIds = reqWinnerIds;
+  } else if (typeof winnerId === 'string' && winnerId.includes(',')) {
+    winnerIds = winnerId.split(',').map(s => s.trim()).filter(Boolean);
+  } else if (winnerId) {
+    winnerIds = [winnerId];
+  }
+
+  if (winnerIds.length === 0) {
+    return res.status(400).json({ error: 'Minst en vinnare måste anges' });
+  }
+
+  const winnerPlayers = winnerIds.map(wId => db.getPlayerById(wId));
+  if (winnerPlayers.some(wp => !wp || wp.event_id !== event.id)) {
     return res.status(400).json({ error: 'Ogiltig vinnare för denna match' });
   }
 
-  db.finishEvent(req.params.id, winnerId, winnerImageUrl || null);
+  const storedWinnerId = winnerIds.join(',');
+  db.finishEvent(req.params.id, storedWinnerId, winnerImageUrl || null);
 
   // Calculate payouts
   const full = db.getFullEvent(req.params.id);
   const totalPool = full.totalPool;
   const effectivePool = totalPool * (full.payoutPercent / 100);
-  const winnerBets = full.bets.filter(b => b.playerId === winnerId);
-  const winnerPool = winnerBets.reduce((s, b) => s + b.amount, 0);
-  const odds = winnerPool > 0 ? effectivePool / winnerPool : 0;
 
-  const payouts = winnerBets.map(b => ({
-    bettorName: b.bettorName,
-    betAmount: b.amount,
-    winnings: +(b.amount * odds).toFixed(2),
-    profit: +(b.amount * odds - b.amount).toFixed(2)
-  }));
+  const winnerBets = full.bets.filter(b => winnerIds.includes(b.playerId));
+  const winnerPools = {};
+  let totalBackedWinners = 0;
+  for (const wId of winnerIds) {
+    const p = full.bets.filter(b => b.playerId === wId).reduce((s, b) => s + b.amount, 0);
+    winnerPools[wId] = p;
+    if (p > 0) totalBackedWinners++;
+  }
+
+  const sharePerOutcome = totalBackedWinners > 0 ? effectivePool / totalBackedWinners : 0;
+  const oddsByWinner = {};
+  for (const wId of winnerIds) {
+    oddsByWinner[wId] = winnerPools[wId] > 0 ? sharePerOutcome / winnerPools[wId] : 0;
+  }
+
+  const payouts = winnerBets.map(b => {
+    const odds = oddsByWinner[b.playerId] || 0;
+    return {
+      bettorName: b.bettorName,
+      betAmount: b.amount,
+      winnings: +(b.amount * odds).toFixed(2),
+      profit: +(b.amount * odds - b.amount).toFixed(2)
+    };
+  });
+
+  const winnerNames = winnerPlayers.map(wp => wp.name).join(', ');
 
   broadcastToEvent(event.share_code, {
     type: 'event_finished',
     eventCode: event.share_code,
-    winner: winnerPlayer?.name,
-    winnerImageUrl: winnerImageUrl || null
+    winner: winnerNames,
+    winnerImageUrl: winnerImageUrl || null,
+    isTie: winnerIds.length > 1
   });
 
   if (event.tournament_id) {
@@ -1747,10 +1786,11 @@ app.post('/api/events/:id/finish', (req, res) => {
   res.json({
     ok: true,
     status: 'finished',
-    winner: winnerPlayer?.name,
+    winner: winnerNames,
+    winnerIds,
+    isTie: winnerIds.length > 1,
     totalPool,
     effectivePool,
-    odds: +odds.toFixed(2),
     payouts
   });
 });
@@ -2302,7 +2342,7 @@ app.post('/api/duels', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const { gameType, opponentId, stakeAmount, mode } = req.body;
+  const { gameType, opponentId, stakeAmount, mode, tournamentId } = req.body;
   const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1;
   const duelMode = mode === 'table' ? 'table' : 'online';
 
@@ -2311,7 +2351,8 @@ app.post('/api/duels', (req, res) => {
     creatorId: user.id,
     opponentId: opponentId || null,
     stakeAmount: stake,
-    mode: duelMode
+    mode: duelMode,
+    tournamentId: tournamentId || null
   });
 
   if (opponentId && duelMode === 'online') {
@@ -3757,7 +3798,7 @@ app.post('/api/anybets/create', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const { title, description, judgeId, stakeAmount, betType, deadline, participantIds } = req.body;
+  const { title, description, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId } = req.body;
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'Ange vad bettet handlar om' });
   }
@@ -3771,7 +3812,8 @@ app.post('/api/anybets/create', (req, res) => {
       stakeAmount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : (parseFloat(stakeAmount) || 0),
       betType: betType || 'winner_takes_all',
       deadline: deadline || null,
-      participantIds: Array.isArray(participantIds) ? participantIds : []
+      participantIds: Array.isArray(participantIds) ? participantIds : [],
+      tournamentId: tournamentId || null
     });
 
     if (Array.isArray(participantIds)) {
@@ -4449,7 +4491,8 @@ app.post('/api/tab/expenses', async (req, res) => {
       participantIds: allParticipants,
       loserId: actualLoserId,
       receiptImage,
-      customShares
+      customShares,
+      tournamentId: req.body?.tournamentId || null
     });
 
     const payerName = user.real_name || user.nickname || 'En vän';
@@ -4579,7 +4622,8 @@ app.post('/api/tab/roulette/live-spin', async (req, res) => {
       mode: 'roulette',
       participantIds: allParticipants,
       loserId: actualLoserId,
-      receiptImage
+      receiptImage,
+      tournamentId: req.body?.tournamentId || null
     });
 
     const payerName = user.real_name || user.nickname || 'En vän';

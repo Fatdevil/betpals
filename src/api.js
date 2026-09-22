@@ -141,8 +141,18 @@ export const lockEvent = (id, pin) =>
   request(`/events/${id}/lock`, { method: 'POST', body: { pin } });
 export const reopenEvent = (id, pin) =>
   request(`/events/${id}/reopen`, { method: 'POST', body: { pin } });
-export const finishEvent = (id, winnerId, pin, winnerImageUrl = null) =>
-  request(`/events/${id}/finish`, { method: 'POST', body: { winnerId, pin, winnerImageUrl } });
+export const finishEvent = (id, winnerId, pin, winnerImageUrl = null) => {
+  const isArray = Array.isArray(winnerId);
+  const payload = {
+    winnerId: isArray ? winnerId.join(',') : winnerId,
+    winnerIds: isArray ? winnerId : (typeof winnerId === 'string' && winnerId.includes(',') ? winnerId.split(',').map(s => s.trim()) : [winnerId]),
+    pin,
+    winnerImageUrl
+  };
+  return request(`/events/${id}/finish`, { method: 'POST', body: payload });
+};
+export const getActiveEvent = () =>
+  request('/events/active');
 export const cancelEvent = (id, pin) =>
   request(`/events/${id}/cancel`, { method: 'POST', body: { pin } });
 export const updateEventImage = (id, data) =>
