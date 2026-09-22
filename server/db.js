@@ -1068,6 +1068,10 @@ export function reopenEvent(eventId) {
   stmts.resetEvent.run('open', eventId);
 }
 
+export function cancelEvent(eventId) {
+  stmts.updateEventStatus.run('cancelled', eventId);
+}
+
 export function finishEvent(eventId, winnerId, winnerImageUrl = null) {
   stmts.updateEventWinner.run(winnerId, winnerImageUrl, eventId);
 }
@@ -1334,10 +1338,15 @@ export function getAllTournaments(userId = null) {
                )
                WHERE u.id = ?
              )
+             OR t.id IN (
+               SELECT e.tournament_id FROM events e
+               JOIN bets b ON b.event_id = e.id
+               WHERE b.user_id = ?
+             )
            )
          )
       ORDER BY t.created_at DESC
-    `).all(userId, userId, userId);
+    `).all(userId, userId, userId, userId);
   }
 
   return tournaments.map(t => {
@@ -1419,7 +1428,14 @@ export function getFullTournament(idOrCode) {
 
 export function getTournamentNetSettlement(tournamentId) {
   const events = stmts.getEventsByTournament.all(tournamentId);
-  const finishedEvents = events.filter(r => r.status === 'finished' && r.winner_id);
+  const mainRounds = events.filter(r => !r.is_side_bet);
+  const sideBets = events.filter(r => !!r.is_side_bet);
+  const finishedMainRounds = mainRounds.filter(r => r.status === 'finished').length;
+  const totalMainRounds = mainRounds.length;
+  const finishedSideBets = sideBets.filter(r => r.status === 'finished').length;
+  const totalSideBets = sideBets.length;
+
+  const finishedEvents = events.filter(r => (r.status === 'finished' && r.winner_id) || r.status === 'cancelled');
 
   // Balances and audit trail per person, keyed by unique identity (user:ID or guest:name)
   const players = {};
@@ -1439,7 +1455,6 @@ export function getTournamentNetSettlement(tournamentId) {
       if (name && (!players[key].name || players[key].name === 'Spelare')) players[key].name = name;
     }
     if (!auditTrail[key]) auditTrail[key] = [];
-    if (name && !auditTrail[name]) auditTrail[name] = auditTrail[key];
     return key;
   };
 
@@ -1465,11 +1480,55 @@ export function getTournamentNetSettlement(tournamentId) {
 
   for (const ev of finishedEvents) {
     const bets = stmts.getBetsByEvent.all(ev.id);
+
+    // If event is cancelled, refund all bets (net 0)
+    if (ev.status === 'cancelled') {
+      for (const bet of bets) {
+        const name = bet.bettor_name;
+        const key = ensurePlayer(name, bet.user_id);
+        const item = {
+          type: ev.is_side_bet ? 'sidebet' : 'round',
+          title: ev.name + ' (Inställd – Återbetald)',
+          eventId: ev.id,
+          won: false,
+          isRefund: true,
+          amount: 0,
+          betAmount: bet.amount,
+          payout: bet.amount,
+          timestamp: bet.created_at || ev.created_at
+        };
+        auditTrail[key].push(item);
+      }
+      continue;
+    }
+
     const totalPool = stmts.getTotalPool.get(ev.id).total;
     const effectivePool = totalPool * (ev.payout_percent / 100);
     const houseEdge = totalPool - effectivePool;
     const winnerPool = stmts.getPlayerPool.get(ev.id, ev.winner_id).total;
-    const odds = winnerPool > 0 ? effectivePool / winnerPool : 0;
+
+    // If nobody bet on the winner, refund all bets (net 0)
+    if (winnerPool === 0) {
+      for (const bet of bets) {
+        const name = bet.bettor_name;
+        const key = ensurePlayer(name, bet.user_id);
+        const item = {
+          type: ev.is_side_bet ? 'sidebet' : 'round',
+          title: ev.name + ' (Ingen vinnare – Återbetald)',
+          eventId: ev.id,
+          won: false,
+          isRefund: true,
+          amount: 0,
+          betAmount: bet.amount,
+          payout: bet.amount,
+          timestamp: bet.created_at || ev.created_at
+        };
+        auditTrail[key].push(item);
+      }
+      continue;
+    }
+
+    const odds = effectivePool / winnerPool;
 
     if (houseEdge > 0) {
       const key = ensurePlayer(creatorName, creatorUserId);
@@ -1483,9 +1542,6 @@ export function getTournamentNetSettlement(tournamentId) {
         timestamp: ev.created_at
       };
       auditTrail[key].push(item);
-      if (auditTrail[creatorName] && auditTrail[creatorName] !== auditTrail[key]) {
-        auditTrail[creatorName].push(item);
-      }
     }
 
     for (const bet of bets) {
@@ -1509,9 +1565,6 @@ export function getTournamentNetSettlement(tournamentId) {
           timestamp: bet.created_at || ev.created_at
         };
         auditTrail[key].push(item);
-        if (auditTrail[name] && auditTrail[name] !== auditTrail[key]) {
-          auditTrail[name].push(item);
-        }
       } else {
         players[key].amount -= bet.amount;
         players[key].rawTotal -= bet.amount;
@@ -1525,9 +1578,6 @@ export function getTournamentNetSettlement(tournamentId) {
           timestamp: bet.created_at || ev.created_at
         };
         auditTrail[key].push(item);
-        if (auditTrail[name] && auditTrail[name] !== auditTrail[key]) {
-          auditTrail[name].push(item);
-        }
       }
     }
   }
@@ -1556,9 +1606,6 @@ export function getTournamentNetSettlement(tournamentId) {
         timestamp: r.paid_at
       };
       auditTrail[fromKey].push(sentItem);
-      if (r.from_name && auditTrail[r.from_name] && auditTrail[r.from_name] !== auditTrail[fromKey]) {
-        auditTrail[r.from_name].push(sentItem);
-      }
 
       const receivedItem = {
         type: 'payment_received',
@@ -1569,19 +1616,47 @@ export function getTournamentNetSettlement(tournamentId) {
         timestamp: r.paid_at
       };
       auditTrail[toKey].push(receivedItem);
-      if (r.to_name && auditTrail[r.to_name] && auditTrail[r.to_name] !== auditTrail[toKey]) {
-        auditTrail[r.to_name].push(receivedItem);
+    }
+  }
+
+  // Deterministic whole-kronor balancing (Hamilton's largest-remainder method)
+  // Ensures sum(roundedNet) === 0 exactly, avoiding orphaned crowns.
+  const playerEntries = Object.values(players).map(p => {
+    const raw = p.amount;
+    const rounded = Math.round(raw);
+    return {
+      p,
+      raw,
+      rounded,
+      remainder: raw - rounded
+    };
+  });
+
+  let sumRounded = playerEntries.reduce((sum, e) => sum + e.rounded, 0);
+
+  if (sumRounded !== 0 && playerEntries.length > 0) {
+    if (sumRounded > 0) {
+      playerEntries.sort((a, b) => a.remainder - b.remainder);
+      for (let i = 0; i < playerEntries.length && sumRounded > 0; i++) {
+        playerEntries[i].rounded -= 1;
+        sumRounded -= 1;
+      }
+    } else {
+      playerEntries.sort((a, b) => b.remainder - a.remainder);
+      for (let i = 0; i < playerEntries.length && sumRounded < 0; i++) {
+        playerEntries[i].rounded += 1;
+        sumRounded += 1;
       }
     }
   }
 
   // Calculate minimal transfers (remaining debt to be settled)
-  const people = Object.values(players)
-    .map(p => ({
-      key: p.key,
-      name: p.name,
-      amount: Math.round(p.amount),
-      userId: p.userId
+  const people = playerEntries
+    .map(e => ({
+      key: e.p.key,
+      name: e.p.name,
+      amount: e.rounded,
+      userId: e.p.userId
     }))
     .filter(p => Math.abs(p.amount) >= 1);
 
@@ -1630,16 +1705,31 @@ export function getTournamentNetSettlement(tournamentId) {
     if (creditor.amount === 0) ci++;
   }
 
+  // Backward compatibility: expose auditTrail[name] only when name is unique across participants
+  const nameToKeys = {};
+  for (const key of Object.keys(players)) {
+    const p = players[key];
+    if (p.name) {
+      if (!nameToKeys[p.name]) nameToKeys[p.name] = [];
+      nameToKeys[p.name].push(key);
+    }
+  }
+  for (const [pName, pKeys] of Object.entries(nameToKeys)) {
+    if (pKeys.length === 1 && !auditTrail[pName]) {
+      auditTrail[pName] = auditTrail[pKeys[0]];
+    }
+  }
+
   return {
-    balances: Object.values(players).map(p => ({
-      key: p.key,
-      name: p.name,
-      net: Math.round(p.amount),
-      rawTotal: Math.round(p.rawTotal || 0),
-      totalPaid: Math.round(p.totalPaid || 0),
-      totalReceived: Math.round(p.totalReceived || 0),
-      isDebtFree: Math.abs(Math.round(p.amount)) < 1,
-      userId: p.userId
+    balances: playerEntries.map(e => ({
+      key: e.p.key,
+      name: e.p.name,
+      net: e.rounded,
+      rawTotal: Math.round(e.p.rawTotal || 0),
+      totalPaid: Math.round(e.p.totalPaid || 0),
+      totalReceived: Math.round(e.p.totalReceived || 0),
+      isDebtFree: Math.abs(e.rounded) < 1,
+      userId: e.p.userId
     })),
     transfers,
     receipts: receipts.map(r => ({
@@ -1652,9 +1742,18 @@ export function getTournamentNetSettlement(tournamentId) {
       paidAt: r.paid_at
     })),
     auditTrail,
-    finishedRounds: finishedEvents.length,
-    totalRounds: events.length
+    finishedMainRounds,
+    totalMainRounds,
+    finishedSideBets,
+    totalSideBets,
+    finishedRounds: finishedMainRounds,
+    totalRounds: totalMainRounds
   };
+}
+
+export function createSettlementReceipt(id, tournamentId, fromName, toName, amount, fromUserId = null, toUserId = null) {
+  stmts.insertSettlementReceipt.run(id, tournamentId, fromName, toName, amount, fromUserId, toUserId);
+  return { isPaid: true, id };
 }
 
 export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amount, fromUserId = null, toUserId = null) {
@@ -1689,6 +1788,10 @@ export const deleteTournament = db.transaction((tournamentId) => {
 
 export function settleTournament(tournamentId) {
   stmts.updateTournamentStatus.run('settled', tournamentId);
+}
+
+export function reopenTournament(tournamentId) {
+  stmts.updateTournamentStatus.run('active', tournamentId);
 }
 
 export function getLeaderboard() {

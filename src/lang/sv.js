@@ -234,8 +234,8 @@ export const sv = {
   tab: {
     title: '🧾 Notan',
     subtitle: 'Helgens samlade tävlingar, sido-bets och Swish-uppgörelser',
-    weekendTournament: 'Helgens Tävlingar',
-    swishlist: 'Swishlistan (Dueller)',
+    weekendTournament: 'Turnering',
+    swishlist: 'Minispel & Dueller',
     history: 'Arkiv & Historik',
     noActiveTournaments: 'Ingen aktiv turnering hittades.',
     createOrJoin: 'Skapa en turnering eller gå med via kod för att samla helgens spel!',

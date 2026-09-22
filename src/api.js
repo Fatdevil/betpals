@@ -24,34 +24,53 @@ let ws = null;
 let wsEventCode = null;
 const wsListeners = new Set();
 
-export function connectWebSocket(eventCode) {
+export function connectWebSocket(eventCode = null) {
   // Disconnect previous
   disconnectWebSocket();
 
   wsEventCode = eventCode;
-  ws = new WebSocket(`${WS_BASE}?event=${eventCode}`);
+  const token = localStorage.getItem('betpals_token');
+  const params = new URLSearchParams();
+  if (eventCode) params.set('event', eventCode);
+  if (token) params.set('token', token);
+  const qs = params.toString() ? `?${params.toString()}` : '';
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      for (const listener of wsListeners) {
-        listener(data);
+  try {
+    ws = new WebSocket(`${WS_BASE}${qs}`);
+
+    ws.onopen = () => {
+      if (token) {
+        sendWebSocketMessage({ type: 'auth', token });
       }
-    } catch (e) { /* silent */ }
-  };
+    };
 
-  ws.onclose = () => {
-    // Auto-reconnect after 3s
-    if (wsEventCode === eventCode) {
-      setTimeout(() => {
-        if (wsEventCode === eventCode) {
-          connectWebSocket(eventCode);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'flashlive_started' || data.type === 'flashlive_stopped') {
+          window.dispatchEvent(new CustomEvent('flashlive-stream-updated', { detail: data }));
         }
-      }, 3000);
-    }
-  };
+        for (const listener of wsListeners) {
+          try { listener(data); } catch (err) { console.warn('WS listener error:', err); }
+        }
+      } catch (e) { /* silent */ }
+    };
 
-  ws.onerror = () => {};
+    ws.onclose = () => {
+      // Auto-reconnect after 3s
+      if (wsEventCode === eventCode) {
+        setTimeout(() => {
+          if (wsEventCode === eventCode) {
+            connectWebSocket(eventCode);
+          }
+        }, 3000);
+      }
+    };
+
+    ws.onerror = () => {};
+  } catch (err) {
+    console.warn('Could not establish WebSocket:', err);
+  }
 }
 
 export function disconnectWebSocket() {
@@ -69,11 +88,18 @@ export function onWebSocketMessage(callback) {
 }
 
 export function sendWebSocketMessage(data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      connectWebSocket(wsEventCode);
+    }
+    return false;
+  }
+  try {
     ws.send(JSON.stringify(data));
     return true;
+  } catch (e) {
+    return false;
   }
-  return false;
 }
 
 // ── Admin ──────────────────────────────────────────────
@@ -117,6 +143,8 @@ export const reopenEvent = (id, pin) =>
   request(`/events/${id}/reopen`, { method: 'POST', body: { pin } });
 export const finishEvent = (id, winnerId, pin, winnerImageUrl = null) =>
   request(`/events/${id}/finish`, { method: 'POST', body: { winnerId, pin, winnerImageUrl } });
+export const cancelEvent = (id, pin) =>
+  request(`/events/${id}/cancel`, { method: 'POST', body: { pin } });
 export const updateEventImage = (id, data) =>
   request(`/events/${id}/image`, { method: 'PUT', body: data });
 
@@ -176,8 +204,10 @@ export const addTournamentRound = (id, data) =>
   request('/tournaments/' + id + '/rounds', { method: 'POST', body: data });
 export const createSideBet = (id, data) =>
   request('/tournaments/' + id + '/sidebets', { method: 'POST', body: data });
-export const settleTournament = (id) =>
-  request('/tournaments/' + id + '/settle', { method: 'POST', body: {} });
+export const settleTournament = (id, data = {}) =>
+  request('/tournaments/' + id + '/settle', { method: 'POST', body: data });
+export const reopenTournament = (id, data = {}) =>
+  request('/tournaments/' + id + '/reopen', { method: 'POST', body: data });
 export const getTournamentQR = (code, baseUrl) => {
   const params = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : '';
   return request('/tournaments/' + code + '/qr' + params);

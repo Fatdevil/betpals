@@ -234,8 +234,8 @@ export const en = {
   tab: {
     title: '🧾 The Tab',
     subtitle: 'Weekend tournaments, side-bets, and Swish settlements',
-    weekendTournament: 'Weekend Tournaments',
-    swishlist: 'Swish List (Duels)',
+    weekendTournament: 'Tournament',
+    swishlist: 'Minigames & Duels',
     history: 'Archive & History',
     noActiveTournaments: 'No active tournaments found.',
     createOrJoin: 'Create a tournament or join via code to track all your weekend bets!',

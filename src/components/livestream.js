@@ -2,16 +2,17 @@
 import { showModal, closeModal } from './modal.js';
 import { launchConfetti, escapeHtml, showToast, formatCurrency, createSwishUrl } from '../utils.js';
 import {
+  startBroadcasterSession,
+  startViewerSession,
   startLocalCamera,
   stopLocalCamera,
   switchCamera,
   toggleAudio,
   isAudioEnabled,
+  toggleViewerAudio,
+  isViewerAudioMuted,
   testCameraAccess,
-  initBroadcasterWebRTC,
-  handleBroadcasterWebRTCMessage,
-  startViewerStream,
-  handleViewerWebRTCMessage,
+  publishRoomData,
   stopAllStreams
 } from '../livekitClient.js';
 import {
@@ -23,6 +24,7 @@ import {
   connectWebSocket,
   getFriends,
   startFlashLive,
+  getFlashLive,
   settleFlashLive,
   attachFlashLiveBet,
   stopFlashLive
@@ -88,12 +90,33 @@ export async function openLiveStreamModal({
   isStandalone = false,
   hasBet = true,
   initialQuestion = null,
-  initialFlashBet = null
+  initialFlashBet = null,
+  livekitToken = null,
+  livekitUrl = null,
+  livekitError = null
 } = {}) {
   const user = getStoredUser();
   streamActive = true;
   activeLiveId = liveId;
   viewerCount = 1;
+
+  let token = livekitToken;
+  let url = livekitUrl;
+  let serverError = livekitError;
+
+  if (liveId && (!token || !url)) {
+    try {
+      const liveData = await getFlashLive(liveId);
+      token = liveData.livekitToken || token;
+      url = liveData.livekitUrl || url;
+      serverError = liveData.livekitError || serverError;
+      if (!initialFlashBet && liveData.flashBet) {
+        initialFlashBet = liveData.flashBet;
+      }
+    } catch (e) {
+      console.warn('Could not fetch live session info:', e);
+    }
+  }
 
   // Render Fullscreen Live Stream Modal
   showModal('', `
@@ -203,6 +226,19 @@ export async function openLiveStreamModal({
 
         <!-- Top Right Controls -->
         <div style="display: flex; align-items: center; gap: 8px;">
+          ${!isBroadcaster ? `
+            <button type="button" id="btn-toggle-viewer-audio" style="
+              background: rgba(0,0,0,0.5);
+              border: 1px solid rgba(255,255,255,0.2);
+              color: #fff;
+              width: 36px; height: 36px;
+              border-radius: 50%;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 1.1rem;
+              cursor: pointer;
+            " title="Ljud av/på">🔊</button>
+          ` : ''}
+
           ${isBroadcaster ? `
             <button type="button" id="btn-switch-camera" style="
               background: rgba(0,0,0,0.5);
@@ -353,39 +389,121 @@ export async function openLiveStreamModal({
 
   const videoEl = document.getElementById('livestream-video');
 
-  // Start Local Camera if broadcaster
-  if (isBroadcaster) {
-    const camRes = await startLocalCamera(videoEl);
-    if (!camRes.ok) {
-      showToast('Kameratillstånd nekades eller kunde inte startas: ' + camRes.error, 'error');
+  function handleIncomingLiveCommentOrReaction(data) {
+    if (!data) return;
+    if (data.type === 'live_comment_received') {
+      if (data.userName !== (user?.nickname || 'Jag')) {
+        addCommentToStream(data);
+      }
+    } else if (data.type === 'live_reaction_received') {
+      spawnFloatingEmoji(data.emoji);
     }
+  }
+
+  // Start LiveKit Cloud Session
+  if (isBroadcaster) {
+    if (url && token) {
+      startBroadcasterSession({
+        livekitUrl: url,
+        token,
+        videoElement: videoEl,
+        onViewerCountChange: (count) => {
+          viewerCount = count;
+          const countEl = document.getElementById('live-viewer-count');
+          if (countEl) countEl.innerHTML = `👁️ ${viewerCount} tittare`;
+        },
+        onDataReceived: (data) => {
+          handleIncomingLiveCommentOrReaction(data);
+        }
+      }).catch(err => {
+        console.error('LiveKit broadcaster error:', err);
+        showToast('Kunde inte koppla upp LiveKit SFU: ' + err.message, 'warning');
+        startLocalCamera(videoEl);
+      });
+    } else {
+      if (serverError) {
+        showToast(serverError, 'info');
+      }
+      startLocalCamera(videoEl);
+    }
+
+    // Broadcaster heartbeat loop
     if (liveId) {
-      initBroadcasterWebRTC(liveId, (sig) => sendWebSocketMessage(sig));
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      heartbeatInterval = setInterval(() => {
+        fetch(`/api/flashlive/${liveId}/heartbeat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-token': localStorage.getItem('betpals_token') || ''
+          }
+        }).catch(() => {});
+      }, 12000);
     }
   } else {
-    // For viewers: subscribe to remote stream via WebRTC. NEVER call startLocalCamera()!
-    if (liveId) {
-      startViewerStream(videoEl, liveId, (sig) => sendWebSocketMessage(sig));
+    // Viewer
+    if (url && token) {
+      startViewerSession({
+        livekitUrl: url,
+        token,
+        videoElement: videoEl,
+        onStatusChange: (status) => {
+          if (status === 'connected') {
+            const ph = document.getElementById('livestream-placeholder');
+            if (ph) ph.style.display = 'none';
+          }
+        },
+        onViewerCountChange: (count) => {
+          viewerCount = count;
+          const countEl = document.getElementById('live-viewer-count');
+          if (countEl) countEl.innerHTML = `👁️ ${viewerCount} tittare`;
+        },
+        onAutoplayBlocked: () => {
+          const audioBtn = document.getElementById('btn-toggle-viewer-audio');
+          if (audioBtn) {
+            audioBtn.innerHTML = '🔇';
+            audioBtn.style.background = 'rgba(255, 51, 75, 0.7)';
+          }
+          showToast('Ljudet tystades av webbläsaren. Klicka på 🔇 för att slå på ljud!', 'info');
+        },
+        onDataReceived: (data) => {
+          handleIncomingLiveCommentOrReaction(data);
+        }
+      }).catch(err => {
+        console.error('LiveKit viewer error:', err);
+        showToast('Kunde inte ansluta till videoströmmen: ' + err.message, 'error');
+      });
+    } else if (serverError) {
+      showToast(serverError, 'error');
     }
-    videoEl?.addEventListener('loadeddata', () => {
-      const ph = document.getElementById('livestream-placeholder');
-      if (ph) ph.style.display = 'none';
-    });
   }
 
   // Camera switch listener
   document.getElementById('btn-switch-camera')?.addEventListener('click', async () => {
-    await switchCamera(videoEl);
-    showToast('Bytte kamera! 🔄', 'info');
+    const res = await switchCamera(videoEl);
+    if (res.ok) {
+      showToast('Bytte kamera! 🔄', 'info');
+    } else {
+      showToast('Kunde inte byta kamera: ' + res.error, 'error');
+    }
   });
 
   // Mic toggle listener
   const micBtn = document.getElementById('btn-toggle-mic');
-  micBtn?.addEventListener('click', () => {
-    const active = toggleAudio();
+  micBtn?.addEventListener('click', async () => {
+    const active = await toggleAudio();
     micBtn.innerHTML = active ? '🎙️' : '🔇';
     micBtn.style.background = active ? 'rgba(0,0,0,0.5)' : 'rgba(255, 51, 75, 0.6)';
     showToast(active ? 'Mikrofon på 🎙️' : 'Mikrofon avstängd 🔇', 'info');
+  });
+
+  // Viewer audio toggle listener
+  const viewerAudioBtn = document.getElementById('btn-toggle-viewer-audio');
+  viewerAudioBtn?.addEventListener('click', () => {
+    const active = toggleViewerAudio();
+    viewerAudioBtn.innerHTML = active ? '🔊' : '🔇';
+    viewerAudioBtn.style.background = active ? 'rgba(0,0,0,0.5)' : 'rgba(255, 51, 75, 0.7)';
+    showToast(active ? 'Ljud på 🔊' : 'Ljud av 🔇', 'info');
   });
 
   // Close / Exit listener
@@ -490,13 +608,6 @@ export async function openLiveStreamModal({
         }
       }
       renderLiveBlixtBetWidget(tournamentId, targetBetId, tournamentCode, liveId, isBroadcaster, personalizedBet);
-    } else if (isMatching || msg.liveId === liveId) {
-      // Route WebRTC signaling messages
-      if (isBroadcaster) {
-        handleBroadcasterWebRTCMessage(msg);
-      } else {
-        handleViewerWebRTCMessage(msg);
-      }
     }
   });
 
@@ -562,6 +673,10 @@ export async function openLiveStreamModal({
 
 export function closeLiveStream() {
   streamActive = false;
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
   if (activeLiveId) {
     sendWebSocketMessage({
       type: 'leave_live',
@@ -1199,7 +1314,10 @@ export async function openInstantLiveModal() {
           hasBet: includeBet,
           tournamentName: `${finalTitle} ⚡`,
           initialQuestion: finalTitle,
-          initialFlashBet: res.flashBet
+          initialFlashBet: res.flashBet,
+          livekitToken: res.livekitToken,
+          livekitUrl: res.livekitUrl,
+          livekitError: res.livekitError
         });
       } catch (err) {
         showToast('Kunde inte starta livesändning: ' + err.message, 'error');

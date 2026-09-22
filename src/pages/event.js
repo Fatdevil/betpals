@@ -9,6 +9,48 @@ import { t } from '../i18n.js';
 let wsUnsubscribe = null;
 
 function renderSettlementSection(event, payoutInfo) {
+  if (event.status === 'cancelled') {
+    return `
+      <div class="section-header"><h2 class="section-title">🛑 Match Avbruten</h2></div>
+      <div class="card text-center" style="padding: var(--space-lg);">
+        <div style="font-size: 2.2rem; margin-bottom: var(--space-xs);">⚠️</div>
+        <h3 style="color: var(--danger); margin-bottom: var(--space-xs);">Matchen är inställd / avbruten</h3>
+        <p class="text-muted" style="font-size: 0.85rem;">Inga pengar har dragits och alla lagda bets har återbetalats automatiskt.</p>
+      </div>
+    `;
+  }
+
+  if (payoutInfo?.noWinners) {
+    return `
+      <div class="section-header"><h2 class="section-title">🤝 Återbetalning</h2></div>
+      <div class="card text-center" style="padding: var(--space-lg);">
+        <div style="font-size: 2.2rem; margin-bottom: var(--space-xs);">↩️</div>
+        <h3 style="color: var(--gold); margin-bottom: var(--space-xs);">Ingen satsade på vinnaren</h3>
+        <p class="text-muted" style="font-size: 0.85rem;">Inga deltagare tippade på vinnaren. Ronden räknas som ogiltigförklarad och alla insatser har återbetalats.</p>
+      </div>
+    `;
+  }
+
+  if (event.tournamentId) {
+    return `
+      <div class="section-header"><h2 class="section-title">🏆 Samlad Avräkning</h2></div>
+      <div class="card" style="padding: var(--space-lg); border-left: 4px solid var(--gold);">
+        <div class="flex gap-md" style="align-items: center;">
+          <div style="font-size: 2.2rem;">📊</div>
+          <div>
+            <h3 style="font-size: 1rem; color: var(--gold); margin-bottom: 4px;">Ingår i turnering</h3>
+            <p class="text-muted" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">
+              Denna match avräknas inte separat. Resultat, vinster och förluster kvittas automatiskt med övriga ronder i <strong>THE TAB</strong>.
+            </p>
+            <div class="flex gap-sm">
+              <a href="/#leaderboard" class="btn btn-primary btn-sm">Gå till THE TAB 📱</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   const losingBets = event.bets.filter(b => b.playerId !== event.winnerId);
   if (losingBets.length === 0) return '';
 
@@ -150,18 +192,27 @@ function renderEventContent(event, content, code) {
     const effectivePool = totalPool * (event.payoutPercent / 100);
     const winnerBets = event.bets.filter(b => b.playerId === event.winnerId);
     const winnerPool = winnerBets.reduce((s, b) => s + b.amount, 0);
-    const winnerOdds = winnerPool > 0 ? effectivePool / winnerPool : 0;
+    const hasWinners = winnerPool > 0;
+    const winnerOdds = hasWinners ? effectivePool / winnerPool : 1.0;
 
     payoutInfo = {
       totalPool,
       effectivePool,
       odds: winnerOdds,
-      payouts: winnerBets.map(b => ({
-        name: b.bettorName,
-        bet: b.amount,
-        winnings: +(b.amount * winnerOdds).toFixed(0),
-        profit: +(b.amount * winnerOdds - b.amount).toFixed(0)
-      }))
+      noWinners: !hasWinners,
+      payouts: hasWinners
+        ? winnerBets.map(b => ({
+            name: b.bettorName,
+            bet: b.amount,
+            winnings: +(b.amount * winnerOdds).toFixed(0),
+            profit: +(b.amount * winnerOdds - b.amount).toFixed(0)
+          }))
+        : event.bets.map(b => ({
+            name: b.bettorName,
+            bet: b.amount,
+            winnings: b.amount,
+            profit: 0
+          }))
     };
   }
 

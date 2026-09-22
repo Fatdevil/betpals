@@ -37,7 +37,7 @@ export async function renderLeaderboard(params = {}) {
           🏌️‍♂️ ${t('tab.weekendTournament')}
         </button>
         <button class="tab-nav-btn ${activeTab === 'swishlist' ? 'active' : ''}" data-tab="swishlist">
-          📱 ${t('tab.swishlist')}
+          🎲 ${t('tab.swishlist')}
         </button>
         <button class="tab-nav-btn ${activeTab === 'history' ? 'active' : ''}" data-tab="history">
           📁 ${t('tab.history')}
@@ -86,7 +86,7 @@ export async function renderLeaderboard(params = {}) {
     // Update swishlist pill badge if there is debt
     const swishBtn = content.querySelector('.tab-nav-btn[data-tab="swishlist"]');
     if (swishBtn && duelSettlement.totalOwed > 0) {
-      swishBtn.innerHTML = `📱 ${t('tab.swishlist')} <span class="badge badge-warning" style="font-size: 0.65rem; padding: 2px 6px;">${duelSettlement.totalOwed} kr</span>`;
+      swishBtn.innerHTML = `🎲 ${t('tab.swishlist')} <span class="badge badge-warning" style="font-size: 0.65rem; padding: 2px 6px;">${duelSettlement.totalOwed} kr</span>`;
     }
 
     const tabBody = document.getElementById('tab-body');
@@ -284,11 +284,12 @@ async function renderTournamentTab(container, activeTournaments, user) {
     const medal = i === 0 ? '👑 🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
     const netClass = b.isDebtFree || b.net === 0 ? 'badge badge-success' : b.net > 0 ? 'text-green' : 'text-red';
     const netDisplay = b.isDebtFree || b.net === 0 ? t('tab.debtFreeBadge') : (b.net > 0 ? `+${formatCurrency(b.net)}` : formatCurrency(b.net));
-    const userAudit = auditTrail[b.name] || [];
+    const userAudit = (b.key && auditTrail[b.key]) || auditTrail[b.name] || [];
+    const drawerId = 'audit-' + (b.key ? b.key.replace(/[^a-zA-Z0-9_-]/g, '_') : escapeHtml(b.name));
 
     return `
       <div class="tab-player-group" style="margin-bottom: 6px;">
-        <div class="tab-audit-row" data-name="${escapeHtml(b.name)}" style="${isMe ? 'border-color: var(--gold); background: rgba(255,215,0,0.06);' : ''}">
+        <div class="tab-audit-row" data-drawer-id="${drawerId}" data-name="${escapeHtml(b.name)}" style="${isMe ? 'border-color: var(--gold); background: rgba(255,215,0,0.06);' : ''}">
           <div class="flex align-center gap-sm">
             <span style="font-size: 0.9rem; min-width: 24px;">${medal}</span>
             <div>
@@ -307,7 +308,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
         </div>
 
         <!-- Audit Drawer -->
-        <div class="tab-audit-drawer" id="audit-${escapeHtml(b.name)}" style="display: none;">
+        <div class="tab-audit-drawer" id="${drawerId}" style="display: none;">
           <div class="text-secondary" style="font-size: 0.75rem; font-weight: 700; margin-bottom: 6px; text-transform: uppercase;">
             📋 ${t('tab.auditHistory')} (${b.name})
           </div>
@@ -416,7 +417,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
             🏆 ${escapeHtml(tour.name)}
           </h2>
           <div class="text-muted" style="font-size: 0.75rem;">
-            Kod: <strong>${escapeHtml(tour.shareCode)}</strong> · ${settlement.finishedRounds} av ${settlement.totalRounds} ${t('tab.roundsPlayed')}
+            Kod: <strong>${escapeHtml(tour.shareCode)}</strong> · ${settlement.finishedMainRounds ?? settlement.finishedRounds} av ${settlement.totalMainRounds ?? settlement.totalRounds} ${t('tab.roundsPlayed')}${(settlement.totalSideBets > 0) ? ` · ${settlement.finishedSideBets} av ${settlement.totalSideBets} sido-spel` : ''}
           </div>
         </div>
         <button type="button" class="btn btn-secondary btn-sm btn-tab-open-tour" data-code="${escapeHtml(tour.shareCode)}" style="font-size: 0.75rem; padding: 6px 12px;">
@@ -473,8 +474,8 @@ async function renderTournamentTab(container, activeTournaments, user) {
   // Attach accordion drawer click listeners
   container.querySelectorAll('.tab-audit-row').forEach(row => {
     row.addEventListener('click', () => {
-      const name = row.getAttribute('data-name');
-      const drawer = document.getElementById(`audit-${name}`);
+      const drawerId = row.getAttribute('data-drawer-id') || `audit-${row.getAttribute('data-name')}`;
+      const drawer = document.getElementById(drawerId);
       const chevron = row.querySelector('.audit-chevron');
       if (drawer) {
         const isClosed = drawer.style.display === 'none';
@@ -641,8 +642,13 @@ function renderSwishlistTab(container, duelSettlement, user) {
       <!-- Friends Settlement List -->
       <div class="section-header mb-sm">
         <h3 class="section-title" style="font-size: 0.95rem;">
-          ${isEn ? 'Net Settlement per Friend' : 'Nettoavstämning per Vän'}
+          ${isEn ? '🎮 Minigames & Duels Settlement' : '🎮 Egen avräkning för Minispel & Dueller'}
         </h3>
+        <p class="text-muted" style="font-size: 0.75rem; margin: 2px 0 0;">
+          ${isEn 
+            ? 'Independent peer-to-peer settlement for arcade duels, party games and tabs (separate from tournaments).' 
+            : 'Fristående avräkning mellan dig och dina vänner för alla arkadspel, dueller och notor (separat från turneringen).'}
+        </p>
       </div>
 
       ${friends.length === 0 ? `
@@ -670,45 +676,82 @@ function renderSwishlistTab(container, duelSettlement, user) {
         const uniqueTitles = Array.from(new Set(titles)).slice(0, 2);
 
         return `
-          <div class="swish-settlement-item" style="border-left: 3px solid ${owesYou ? '#4ade80' : '#ef4444'};">
-            <div>
-              <div style="font-weight: 700; font-size: 0.9rem;">${escapeHtml(f.friendName)}</div>
-              <div class="text-muted" style="font-size: 0.75rem;">
-                ${owesYou 
-                  ? (isEn ? `Owes you ${absAmount} kr` : `Ska swisha dig ${absAmount} kr`) 
-                  : (isEn ? `You owe ${absAmount} kr` : `Du ska swisha ${absAmount} kr`)}
-                · ${f.duelsCount || f.duelCount || 1} ${isEn ? 'duels' : 'dueller'}
-              </div>
-              ${uniqueTitles.length > 0 ? `
-                <div style="font-size: 0.72rem; color: var(--gold); margin-top: 2px;">
-                  🧾 ${escapeHtml(uniqueTitles.join(' · '))}
+          <div class="card mb-sm" style="padding: 12px 14px; border-left: 4px solid ${owesYou ? '#4ade80' : '#ef4444'};">
+            <div class="flex-between align-center">
+              <div>
+                <div style="font-weight: 700; font-size: 0.95rem;">${escapeHtml(f.friendName)}</div>
+                <div class="text-muted" style="font-size: 0.78rem;">
+                  ${owesYou 
+                    ? `<strong style="color: #4ade80;">+${absAmount} kr</strong> (${isEn ? 'owes you' : 'ska swisha dig'})` 
+                    : `<strong style="color: #ef4444;">-${absAmount} kr</strong> (${isEn ? 'you owe' : 'du ska swisha'})`}
+                  · ${f.duelsCount || f.duelCount || 1} ${isEn ? 'games/duels' : 'spel/dueller'}
                 </div>
-              ` : ''}
+                ${uniqueTitles.length > 0 ? `
+                  <div style="font-size: 0.72rem; color: var(--gold); margin-top: 2px;">
+                    🧾 ${escapeHtml(uniqueTitles.join(' · '))}
+                  </div>
+                ` : ''}
+              </div>
+              <div class="flex align-center gap-xs">
+                ${hasExpenseReceipt && firstExpenseId ? `
+                  <button type="button" class="btn btn-secondary btn-xs btn-view-tab-receipt" data-expense-id="${firstExpenseId}" style="padding: 5px 8px; font-size: 0.75rem; border-color: rgba(245,158,11,0.4); color: var(--gold); font-weight: 700;" title="${isEn ? 'View attached receipt' : 'Visa kvitto'}">
+                    🧾 ${isEn ? 'Receipt' : 'Kvitto'}
+                  </button>
+                ` : ''}
+                ${!owesYou && f.friendSwish ? `
+                  <a href="${swishUrl}" target="_blank" class="btn btn-primary btn-xs" style="background: #2ecc71; border: none; font-weight: 700; padding: 5px 8px; font-size: 0.75rem;">
+                    📱 ${isEn ? 'Swish' : 'Swisha'} ${absAmount} kr
+                  </a>
+                ` : ''}
+                ${owesYou ? `
+                  <button type="button" class="btn btn-secondary btn-xs btn-remind-friend" data-name="${escapeHtml(f.friendName)}" data-amount="${absAmount}" style="padding: 5px 8px; font-size: 0.75rem;">
+                    💬 ${isEn ? 'Remind' : 'Påminn'}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-xs btn-settle-duel-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" style="padding: 5px 8px; font-size: 0.75rem; font-weight: 700;">
+                    ✅ ${isEn ? 'Settle' : 'Kvittera'}
+                  </button>
+                ` : `
+                  <span class="badge" style="font-size: 0.72rem; background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 4px 8px; border-radius: 6px;">
+                    ⏳ ${isEn ? 'Waiting for confirmation' : 'Väntar på kvittens'}
+                  </span>
+                `}
+              </div>
             </div>
-            <div class="flex align-center gap-xs">
-              ${hasExpenseReceipt && firstExpenseId ? `
-                <button type="button" class="btn btn-secondary btn-xs btn-view-tab-receipt" data-expense-id="${firstExpenseId}" style="padding: 5px 8px; font-size: 0.75rem; border-color: rgba(245,158,11,0.4); color: var(--gold); font-weight: 700;" title="${isEn ? 'View attached receipt' : 'Visa kvitto'}">
-                  🧾 ${isEn ? 'Receipt' : 'Kvitto'}
+
+            ${f.duels && f.duels.length > 0 ? `
+              <div style="margin-top: 8px;">
+                <button type="button" class="btn btn-ghost btn-xs btn-toggle-duels" data-friend-id="${f.friendId}" style="padding: 2px 6px; font-size: 0.72rem; color: var(--gold); border: 1px solid rgba(245,158,11,0.25); border-radius: 4px;">
+                  📋 ${isEn ? 'Show games' : 'Visa minispel'} (${f.duels.length})
                 </button>
-              ` : ''}
-              ${!owesYou && f.friendSwish ? `
-                <a href="${swishUrl}" target="_blank" class="btn btn-primary btn-xs" style="background: #2ecc71; border: none; font-weight: 700; padding: 5px 8px; font-size: 0.75rem;">
-                  📱 ${isEn ? 'Swish' : 'Swisha'} ${absAmount} kr
-                </a>
-              ` : ''}
-              ${owesYou ? `
-                <button type="button" class="btn btn-secondary btn-xs btn-remind-friend" data-name="${escapeHtml(f.friendName)}" data-amount="${absAmount}" style="padding: 5px 8px; font-size: 0.75rem;">
-                  💬 ${isEn ? 'Remind' : 'Påminn'}
-                </button>
-                <button type="button" class="btn btn-secondary btn-xs btn-settle-duel-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" style="padding: 5px 8px; font-size: 0.75rem; font-weight: 700;">
-                  ✅ ${isEn ? 'Settle' : 'Kvittera'}
-                </button>
-              ` : `
-                <span class="badge" style="font-size: 0.72rem; background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 4px 8px; border-radius: 6px;">
-                  ⏳ ${isEn ? 'Waiting for confirmation' : 'Väntar på kvittens'}
-                </span>
-              `}
-            </div>
+                <div class="friend-duels-breakdown" id="duels-for-${f.friendId}" style="display: none; margin-top: 8px; padding: 8px 10px; background: rgba(0,0,0,0.25); border-radius: 6px; font-size: 0.75rem;">
+                  ${f.duels.map(d => {
+                    const gameIcons = {
+                      dice: '🎲', coin: '🪙', darts: '🎯', beerpong: '🍺', quiz: '❓',
+                      rockpaperscissors: '✂️', arcade: '👾', blitz: '⚡', mafia: '🕵️',
+                      anybet: '🤝', flashbet: '⚡', even_steven: '🧾', not_roulette: '💳', shl_fantasy: '🏒'
+                    };
+                    const icon = gameIcons[d.gameType] || '🎲';
+                    const title = d.customTitle || (d.gameType.charAt(0).toUpperCase() + d.gameType.slice(1));
+                    const won = d.youWon;
+                    const sign = won ? '+' : '-';
+                    const color = won ? '#4ade80' : '#f87171';
+                    return `
+                      <div class="flex-between align-center" style="padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06);">
+                        <div>
+                          <span>${icon}</span>
+                          <strong>${escapeHtml(title)}</strong>
+                          <span class="text-muted" style="font-size: 0.7rem; margin-left: 4px;">
+                            (${won ? (isEn ? 'Won' : 'Vinst') : (isEn ? 'Lost' : 'Förlust')})
+                          </span>
+                        </div>
+                        <div style="font-weight: 700; color: ${color};">
+                          ${sign}${d.stakeAmount} kr
+                        </div>
+                      </div>`;
+                  }).join('')}
+                </div>
+              </div>
+            ` : ''}
           </div>`;
       }).join('')}
 
@@ -777,6 +820,21 @@ function renderSwishlistTab(container, duelSettlement, user) {
         navigator.clipboard.writeText(text).then(() => {
           showToast(isEn ? 'Reminder copied to clipboard! 📋' : 'Påminnelsetext kopierad till urklipp! 📋', 'success');
         });
+      }
+    });
+  });
+
+  // Attach toggle duels breakdown listener
+  container.querySelectorAll('.btn-toggle-duels').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const friendId = btn.getAttribute('data-friend-id');
+      const breakdown = container.querySelector(`#duels-for-${friendId}`);
+      if (breakdown) {
+        const isHidden = breakdown.style.display === 'none';
+        breakdown.style.display = isHidden ? 'block' : 'none';
+        btn.textContent = isHidden 
+          ? `▲ ${isEn ? 'Hide games' : 'Dölj minispel'}` 
+          : `📋 ${isEn ? 'Show games' : 'Visa minispel'}`;
       }
     });
   });

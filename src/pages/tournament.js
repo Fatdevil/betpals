@@ -1,9 +1,8 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
 import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
-import { openLiveStreamModal } from '../components/livestream.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { TOURNAMENT_TEMPLATES } from '../templates.js';
@@ -58,7 +57,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   const user = getStoredUser();
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
   const isCreator = (user && t.creatorId === user.id) || hasPinSession;
-  const allFinished = t.rounds.length > 0 && t.rounds.every(r => r.status === 'finished');
+  const allEvents = [...(t.rounds || []), ...(t.sideBets || [])];
+  const allResolved = allEvents.length > 0 && allEvents.every(r => r.status === 'finished' || r.status === 'cancelled');
   const hasTransfers = t.settlement.transfers.length > 0;
   const sideBets = t.sideBets || [];
 
@@ -78,9 +78,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     const modeBadge = sb.betMode === 'self' ? '👤' : '🎲';
     return sb.status === 'finished'
       ? `<span class="badge badge-success" style="font-size: 0.6rem;">✅ ${escapeHtml(sb.winnerName || 'Klar')}</span>`
-      : sb.status === 'locked'
-        ? `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>`
-        : `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
+      : sb.status === 'cancelled'
+        ? `<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>`
+        : sb.status === 'locked'
+          ? `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>`
+          : `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
   };
 
   const renderSideBetCard = (sb) => `
@@ -161,9 +163,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
               <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
               ${r.status === 'finished' 
                 ? '<span class="badge badge-success" style="font-size: 0.6rem;">✅ ' + escapeHtml(r.winnerName || 'Klar') + '</span>'
-                : r.status === 'locked'
-                  ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
-                  : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
+                : r.status === 'cancelled'
+                  ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
+                  : r.status === 'locked'
+                    ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
+                    : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
               }
             </div>
           </div>
@@ -219,9 +223,6 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <button class="btn btn-secondary" id="add-flashbet-btn" style="flex:1; min-width: 100px; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
             ⚡ BlixtBet
           </button>
-          <button class="btn btn-secondary" id="go-live-stream-btn" style="flex:1; min-width: 100px; border-color: #ff334b; color: #ff334b; font-weight: 800;">
-            🔴 Gå Live
-          </button>
         </div>
       ` : ''}
 
@@ -274,7 +275,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <div class="text-center mb-md">
             <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📊</div>
             <p class="text-muted" style="font-size: 0.85rem;">
-              Resultat efter ${t.settlement.finishedRounds} av ${t.settlement.totalRounds} ronder
+              Resultat efter ${t.settlement.finishedMainRounds ?? t.settlement.finishedRounds} av ${t.settlement.totalMainRounds ?? t.settlement.totalRounds} ronder${(t.settlement.totalSideBets > 0) ? ` · ${t.settlement.finishedSideBets} av ${t.settlement.totalSideBets} sido-spel` : ''}
             </p>
           </div>
 
@@ -344,6 +345,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           ${isCreator && t.status === 'active' ? `
             <button class="btn btn-block mt-md" id="settle-tournament-btn" style="background: linear-gradient(135deg, #ffd700, #ff8800); color: #000; font-weight: 800; font-size: 0.95rem; padding: 12px; border: none; border-radius: var(--radius-md); cursor: pointer; box-shadow: 0 4px 15px rgba(255,215,0,0.3);">
               🏆 Avsluta turnering & kora vinnare
+            </button>
+          ` : ''}
+          ${isCreator && t.status === 'settled' ? `
+            <button class="btn btn-secondary btn-block mt-md" id="reopen-tournament-btn" style="font-size: 0.85rem; padding: 10px; width: 100%;">
+              🔓 Återöppna turnering
             </button>
           ` : ''}
         </div>
@@ -657,16 +663,6 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     openFlashBetModal(null, t.id);
   });
 
-  // Go Live stream button click
-  document.getElementById('go-live-stream-btn')?.addEventListener('click', () => {
-    openLiveStreamModal({
-      tournamentId: t.id,
-      tournamentCode: t.shareCode,
-      tournamentName: t.name,
-      isBroadcaster: true
-    });
-  });
-
   // Toggle settlement receipt
   content.querySelectorAll('.toggle-receipt-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -692,12 +688,32 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
   // Settle tournament
   document.getElementById('settle-tournament-btn')?.addEventListener('click', async () => {
+    const allEvs = [...(t.rounds || []), ...(t.sideBets || [])];
+    const unfinished = allEvs.filter(e => e.status !== 'finished' && e.status !== 'cancelled');
+    if (unfinished.length > 0) {
+      showToast(`Alla ronder och sido-spel måste vara avgjorda eller avbrutna (${unfinished.length} kvar).`, 'warning');
+      return;
+    }
     if (!confirm(`Vill du avsluta turneringen "${t.name}" och fastställa slutresultatet?`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
       await settleTournament(t.id, { pin });
       launchConfetti();
       showToast('Turneringen är avslutad! 🏆', 'success');
+      const updated = await getTournament(t.shareCode);
+      renderTournamentContent(content, updated);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // Reopen tournament
+  document.getElementById('reopen-tournament-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Vill du återöppna turneringen "${t.name}"? Resultat och spel blir då redigerbara igen.`)) return;
+    try {
+      const pin = sessionStorage.getItem('betpals_pin') || '';
+      await reopenTournament(t.id, { pin });
+      showToast('Turneringen har återöppnats! 🔓', 'success');
       const updated = await getTournament(t.shareCode);
       renderTournamentContent(content, updated);
     } catch (err) {

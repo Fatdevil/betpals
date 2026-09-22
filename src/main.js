@@ -1,8 +1,8 @@
 import { renderNavbar } from './components/navbar.js';
 import { renderHome } from './pages/home.js';
 import { initAds } from './components/ads.js';
-import { addFriend, getPartyRoom, joinPartyRoom } from './api.js';
-import { isLoggedIn } from './auth.js';
+import { addFriend, getPartyRoom, joinPartyRoom, connectWebSocket } from './api.js';
+import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
 import { openBlind10Modal, openMafiaModal } from './components/minigames.js';
 
@@ -206,6 +206,42 @@ function init() {
       mod.openShlFantasyModal({ joinCode: shlParam });
     }).catch(err => {
       showToast('Kunde inte öppna SHL Fantasy', 'error');
+    });
+  }
+
+  // Connect central WebSocket if logged in
+  if (isLoggedIn()) {
+    connectWebSocket();
+  }
+
+  // Handle live stream deep link ?live=ID or ?liveId=ID
+  const liveParam = url.searchParams.get('live') || url.searchParams.get('liveId');
+  if (liveParam) {
+    url.searchParams.delete('live');
+    url.searchParams.delete('liveId');
+    window.history.replaceState({}, '', url);
+
+    import('./components/livestream.js').then(({ openLiveStreamModal }) => {
+      import('./api.js').then(({ getFlashLive }) => {
+        getFlashLive(liveParam).then(({ live, flashBet, livekitToken, livekitUrl }) => {
+          const currentUser = getStoredUser();
+          const isHost = currentUser && live.hostId === currentUser.id;
+          openLiveStreamModal({
+            isBroadcaster: isHost,
+            isStandalone: true,
+            liveId: live.id,
+            flashBetId: live.flashBetId,
+            hasBet: live.hasBet,
+            tournamentName: `${live.hostName} sänder live ⚡`,
+            initialQuestion: live.question,
+            initialFlashBet: flashBet,
+            livekitToken,
+            livekitUrl
+          });
+        }).catch(err => {
+          showToast(err.message || 'Kunde inte ansluta till livesändningen', 'error');
+        });
+      });
     });
   }
 }

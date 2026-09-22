@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
@@ -10,8 +11,63 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { SHL_PLAYERS, SHL_ROUNDS } from '../src/data/shlPlayers.js';
+import { AccessToken } from 'livekit-server-sdk';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Load environment variables from .env if present
+try {
+  if (typeof process.loadEnvFile === 'function') {
+    const rootEnv = path.resolve(__dirname, '../.env');
+    const serverEnv = path.resolve(__dirname, '.env');
+    if (fs.existsSync(rootEnv)) {
+      process.loadEnvFile(rootEnv);
+    } else if (fs.existsSync(serverEnv)) {
+      process.loadEnvFile(serverEnv);
+    }
+  }
+} catch (e) {
+  // Ignore missing .env or parse issues
+}
+
+// ── LiveKit Cloud Configuration & Token Generation ──
+function getLiveKitConfig() {
+  const url = process.env.LIVEKIT_URL || db.getSetting('livekit_url') || '';
+  const apiKey = process.env.LIVEKIT_API_KEY || db.getSetting('livekit_api_key') || '';
+  const apiSecret = process.env.LIVEKIT_API_SECRET || db.getSetting('livekit_api_secret') || '';
+  return { url, apiKey, apiSecret, configured: Boolean(url && apiKey && apiSecret) };
+}
+
+async function generateLiveKitToken({ roomName, identity, name, metadata = {}, isPublisher = false }) {
+  const config = getLiveKitConfig();
+  if (!config.configured) {
+    return {
+      token: null,
+      url: null,
+      error: 'LiveKit Cloud är inte konfigurerat. Vänligen ange LIVEKIT_URL, LIVEKIT_API_KEY och LIVEKIT_API_SECRET i .env eller inställningar.'
+    };
+  }
+
+  try {
+    const at = new AccessToken(config.apiKey, config.apiSecret, {
+      identity: String(identity),
+      name: String(name || 'Användare'),
+      metadata: JSON.stringify(metadata)
+    });
+    at.addGrant({
+      room: String(roomName),
+      roomJoin: true,
+      canPublish: Boolean(isPublisher),
+      canSubscribe: true,
+      canPublishData: true
+    });
+    const token = await at.toJwt();
+    return { token, url: config.url, error: null };
+  } catch (err) {
+    console.error('Error creating LiveKit token:', err);
+    return { token: null, url: config.url, error: err.message };
+  }
+}
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -432,11 +488,16 @@ function getUserFromToken(req) {
   return db.getUserByToken(token);
 }
 
-// Check if user is creator of event OR has valid PIN
+// Check if user is creator of event, creator of parent tournament, OR has valid PIN
 function verifyEventAdmin(req, event) {
   // Check creator token first
   const user = getUserFromToken(req);
   if (user && event.creator_id === user.id) return true;
+  // If event belongs to a tournament, tournament creator is also an admin
+  if (user && event.tournament_id) {
+    const tour = db.getTournamentById(event.tournament_id);
+    if (tour && tour.creator_id === user.id) return true;
+  }
   // Fall back to PIN
   const { pin } = req.body;
   if (pin && verifyPin(pin)) return true;
@@ -522,6 +583,27 @@ app.post('/api/admin/verify', (req, res) => {
 
 app.get('/api/admin/status', (req, res) => {
   res.json({ hasPin: !!db.getAdminPin() });
+});
+
+app.get('/api/admin/livekit', (req, res) => {
+  const cfg = getLiveKitConfig();
+  res.json({
+    configured: cfg.configured,
+    url: cfg.url,
+    apiKey: cfg.apiKey ? `${cfg.apiKey.slice(0, 4)}...${cfg.apiKey.slice(-4)}` : '',
+    hasSecret: Boolean(cfg.apiSecret)
+  });
+});
+
+app.post('/api/admin/livekit', (req, res) => {
+  const { pin, url, apiKey, apiSecret } = req.body || {};
+  if (!pin || !verifyPin(pin)) {
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  if (url !== undefined) db.setSetting('livekit_url', String(url).trim());
+  if (apiKey !== undefined) db.setSetting('livekit_api_key', String(apiKey).trim());
+  if (apiSecret !== undefined) db.setSetting('livekit_api_secret', String(apiSecret).trim());
+  res.json({ ok: true, configured: getLiveKitConfig().configured });
 });
 
 // Get all users (Superadmin only)
@@ -1246,6 +1328,9 @@ app.post('/api/events', (req, res) => {
     if (!isTournamentCreator && !hasPin) {
       return res.status(403).json({ error: 'Du har inte behörighet att lägga till matcher i denna turnering' });
     }
+    if (tournament.status === 'settled') {
+      return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att lägga till matcher.' });
+    }
   }
 
   const finalName = (name || '').trim();
@@ -1430,6 +1515,13 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
     return res.status(400).json({ error: 'Bettning är stängd för detta event' });
   }
 
+  if (event.tournamentId) {
+    const tournament = db.getFullTournament(event.tournamentId);
+    if (tournament && tournament.status === 'settled') {
+      return res.status(400).json({ error: 'Turneringen är avslutad och tar inte emot fler bets' });
+    }
+  }
+
   const { playerId, amount } = req.body;
   if (!playerId) return res.status(400).json({ error: 'Välj en spelare' });
   if (!event.players.find(p => p.id === playerId)) {
@@ -1491,6 +1583,10 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
 app.post('/api/events/:id/bets/:betId/paid', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+
+  if (event.tournament_id) {
+    return res.status(400).json({ error: 'Matcher i en turnering avräknas samlat i THE TAB' });
+  }
 
   const full = db.getFullEvent(event.id);
   const bet = full?.bets.find(b => b.id === req.params.betId);
@@ -1603,6 +1699,13 @@ app.post('/api/events/:id/finish', (req, res) => {
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t && t.status === 'settled') {
+      return res.status(400).json({ error: 'Turneringen är avslutad och dess resultat är låsta' });
+    }
+  }
+
   if (winnerImageUrl && !isValidImageUrl(winnerImageUrl)) {
     return res.status(400).json({ error: 'Ogiltig bild-URL för vinnaren' });
   }
@@ -1650,6 +1753,32 @@ app.post('/api/events/:id/finish', (req, res) => {
     odds: +odds.toFixed(2),
     payouts
   });
+});
+
+app.post('/api/events/:id/cancel', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t && t.status === 'settled') {
+      return res.status(400).json({ error: 'Turneringen är avslutad och kan inte ändras' });
+    }
+  }
+
+  db.cancelEvent(event.id);
+  broadcastToEvent(event.share_code, {
+    type: 'event_cancelled',
+    eventCode: event.share_code
+  });
+
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
+
+  res.json({ ok: true, status: 'cancelled' });
 });
 
 app.delete('/api/events/:id', (req, res) => {
@@ -1855,6 +1984,10 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
+  if (tournament.status === 'settled') {
+    return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att lägga till nya ronder.' });
+  }
+
   // Get players from latest round to reuse or from request body
   const full = db.getFullTournament(tournament.id);
   const roundNumber = full.rounds.length + 1;
@@ -1919,6 +2052,10 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   const hasPin = req.body.pin && verifyPin(req.body.pin);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
+  }
+
+  if (tournament.status === 'settled') {
+    return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att lägga till nya sido-spel.' });
   }
 
   const { name, players, linkedRoundId, betMode, betAmount, imageUrl } = req.body;
@@ -1989,6 +2126,12 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
+  const allEvents = [...(tournament.rounds || []), ...(tournament.sideBets || [])];
+  const unfinished = allEvents.filter(e => e.status !== 'finished' && e.status !== 'cancelled');
+  if (unfinished.length > 0) {
+    return res.status(400).json({ error: 'Alla ronder och sido-spel måste vara avgjorda eller avbrutna innan turneringen kan avslutas' });
+  }
+
   db.settleTournament(req.params.id);
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
@@ -2000,6 +2143,23 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
     body: `Slutresultatet är fastställt! Se prispallen och nettavräkningen i BetPals.`,
     url: `/#tournament/${tournament.shareCode}`
   }, 'tournaments').catch(() => {});
+
+  res.json({ ok: true });
+});
+
+app.post('/api/tournaments/:id/reopen', (req, res) => {
+  const tournament = db.getFullTournament(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
+
+  const user = getUserFromToken(req);
+  const isCreator = user && tournament.creatorId === user.id;
+  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Ingen behörighet' });
+  }
+
+  db.reopenTournament(tournament.id);
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
   res.json({ ok: true });
 });
@@ -2093,42 +2253,48 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     return res.status(400).json({ error: 'Avsändare och mottagare krävs' });
   }
 
-  const isCreditor = user && ((toUserId && user.id === toUserId) || (toName && (user.nickname === toName || user.real_name === toName)));
-  if (!isCreator && !isCreditor && !hasPin) {
-    return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan kvittera denna överföring' });
-  }
-
   const parsedAmount = Math.round(Number(amount));
   if (isNaN(parsedAmount) || parsedAmount <= 0) {
     return res.status(400).json({ error: 'Belopp måste vara ett positivt heltal' });
   }
 
+  // Calculate current settlement first to find the authoritative server transfer
   const currentSettlement = db.getTournamentNetSettlement(tournament.id);
   const matchingTransfer = (currentSettlement.transfers || []).find(t =>
-    (t.from === fromName || (fromUserId && t.fromUserId === fromUserId)) &&
-    (t.to === toName || (toUserId && t.toUserId === toUserId))
+    (t.from === fromName || (t.fromUserId && fromUserId && t.fromUserId === fromUserId)) &&
+    (t.to === toName || (t.toUserId && toUserId && t.toUserId === toUserId))
   );
 
   if (!matchingTransfer) {
     return res.status(400).json({ error: 'Ingen giltig oreglerad överföring hittades mellan angivna parter' });
   }
 
+  // Enforce creditor authorization exclusively against matchingTransfer (NEVER trust client-supplied toUserId!)
+  const isCreditor = user && (
+    (matchingTransfer.toUserId && user.id === matchingTransfer.toUserId) ||
+    (!matchingTransfer.toUserId && (user.nickname === matchingTransfer.to || user.real_name === matchingTransfer.to))
+  );
+  if (!isCreator && !isCreditor && !hasPin) {
+    return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan kvittera denna överföring' });
+  }
+
   if (parsedAmount > matchingTransfer.amount) {
     return res.status(400).json({ error: `Beloppet (${parsedAmount} kr) överstiger återstående skuld (${matchingTransfer.amount} kr)` });
   }
 
-  const result = db.toggleSettlementReceipt(
-    generateId(),
+  const newReceiptId = generateId();
+  db.createSettlementReceipt(
+    newReceiptId,
     tournament.id,
-    fromName,
-    toName,
+    matchingTransfer.from,
+    matchingTransfer.to,
     parsedAmount,
-    fromUserId || matchingTransfer.fromUserId || null,
-    toUserId || matchingTransfer.toUserId || null
+    matchingTransfer.fromUserId || null,
+    matchingTransfer.toUserId || null
   );
   broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
 
-  res.json({ ok: true, isPaid: result.isPaid, receiptId: result.id });
+  res.json({ ok: true, isPaid: true, receiptId: newReceiptId });
 });
 
 // ── Minigame Duels API ──────────────────────────────
@@ -3974,6 +4140,7 @@ app.post('/api/flashlive/start', async (req, res) => {
     targetUserIds,
     flashBetId,
     createdAt: new Date().toISOString(),
+    lastHeartbeat: Date.now(),
     status: 'active'
   };
 
@@ -3983,6 +4150,15 @@ app.post('/api/flashlive/start', async (req, res) => {
   } catch (e) {
     console.warn('Could not save flash live stream to SQLite:', e);
   }
+
+  // Generate LiveKit Publisher Token for Host
+  const lk = await generateLiveKitToken({
+    roomName: liveId,
+    identity: user.id,
+    name: user.nickname || user.real_name,
+    metadata: { avatar: user.avatar_emoji || '🏌️‍♂️' },
+    isPublisher: true
+  });
 
   // Broadcast to target friends via WebSocket
   const liveNotificationPayload = {
@@ -3997,7 +4173,7 @@ app.post('/api/flashlive/start', async (req, res) => {
   // Also notify creator for confirmation
   broadcastToUser(user.id, liveNotificationPayload);
 
-  // Web Push to target friends
+  // Web Push to target friends directly linking to the live stream
   const pushTitle = isBetting ? `🔴 ${liveSession.hostName} SÄNDER LIVE (BET)` : `🔴 ${liveSession.hostName} SÄNDER LIVE!`;
   const pushBody = isBetting
     ? `⚡ BlixtBet (${duration}s): "${finalQuestion}" – Titta & Betta nu!`
@@ -4006,12 +4182,15 @@ app.post('/api/flashlive/start', async (req, res) => {
   sendPushToUsers(targetUserIds, {
     title: pushTitle,
     body: pushBody,
-    url: `/#arcade`
+    url: `/?live=${liveId}`
   }, 'flashbets').catch(() => {});
 
   res.json({
     live: liveSession,
-    flashBet: createdFlashBet
+    flashBet: createdFlashBet,
+    livekitToken: lk.token,
+    livekitUrl: lk.url,
+    livekitError: lk.error
   });
 });
 
@@ -4022,6 +4201,15 @@ app.get('/api/flashlive/active', (req, res) => {
   const active = [];
   const now = Date.now();
   for (const [id, session] of activeFlashLiveStreams.entries()) {
+    // Check heartbeat timeout: if no heartbeat from publisher for 35s, mark ended
+    if (session.lastHeartbeat && (now - session.lastHeartbeat > 35000)) {
+      session.status = 'ended';
+      activeFlashLiveStreams.delete(id);
+      try { db.updateFlashLiveStreamStatus(id, 'ended'); } catch (e) {}
+      broadcastGlobal({ type: 'flashlive_stopped', liveId: id });
+      continue;
+    }
+
     // Keep active for up to 45 mins or until stopped
     const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
     if (baseTime + 2700000 < now) {
@@ -4030,7 +4218,7 @@ app.get('/api/flashlive/active', (req, res) => {
       continue;
     }
     // Check if user is host or in target audience
-    if (session.hostId === user.id || session.targetUserIds.includes(user.id)) {
+    if (session.hostId === user.id || (session.targetUserIds && session.targetUserIds.includes(user.id))) {
       active.push(session);
     }
   }
@@ -4038,7 +4226,7 @@ app.get('/api/flashlive/active', (req, res) => {
   res.json(active);
 });
 
-app.get('/api/flashlive/:id', (req, res) => {
+app.get('/api/flashlive/:id', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
@@ -4051,8 +4239,35 @@ app.get('/api/flashlive/:id', (req, res) => {
     return res.status(403).json({ error: 'Åtkomst nekad. Du har inte behörighet att se denna livesändning.' });
   }
 
+  const isHost = session.hostId === user.id;
+  const lk = await generateLiveKitToken({
+    roomName: session.id,
+    identity: user.id,
+    name: user.nickname || user.real_name,
+    metadata: { avatar: user.avatar_emoji || '🏌️‍♂️' },
+    isPublisher: isHost
+  });
+
   const flashBet = session.flashBetId ? db.getFlashBet(session.flashBetId, user.id) : null;
-  res.json({ live: session, flashBet });
+  res.json({
+    live: session,
+    flashBet,
+    livekitToken: lk.token,
+    livekitUrl: lk.url,
+    livekitError: lk.error
+  });
+});
+
+app.post('/api/flashlive/:id/heartbeat', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+
+  const session = activeFlashLiveStreams.get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Livesändningen hittades inte' });
+  if (session.hostId !== user.id) return res.status(403).json({ error: 'Bara sändaren kan skicka heartbeat' });
+
+  session.lastHeartbeat = Date.now();
+  res.json({ ok: true });
 });
 
 app.post('/api/flashlive/:id/settle', (req, res) => {

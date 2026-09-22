@@ -70,12 +70,12 @@ export function launchConfetti() {
 }
 
 export function statusLabel(status) {
-  const map = { open: 'Öppen', locked: 'Låst', finished: 'Avslutad' };
+  const map = { open: 'Öppen', locked: 'Låst', finished: 'Avslutad', cancelled: 'Avbruten' };
   return map[status] || status;
 }
 
 export function statusBadgeClass(status) {
-  const map = { open: 'badge-open', locked: 'badge-locked', finished: 'badge-finished' };
+  const map = { open: 'badge-open', locked: 'badge-locked', finished: 'badge-finished', cancelled: 'badge-danger' };
   return map[status] || '';
 }
 
