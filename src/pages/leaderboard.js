@@ -27,10 +27,11 @@ export async function renderLeaderboard(params = {}) {
 
   content.innerHTML = `
     <div class="animate-in the-tab-container">
-      <div class="page-header text-center" style="margin-bottom: var(--space-md);">
-        <div style="font-size: 2.2rem; margin-bottom: 4px;">🧾</div>
-        <h1 class="page-title">${t('tab.title')}</h1>
-        <p class="page-subtitle">${t('tab.subtitle')}</p>
+      <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px;">
+        <div class="the-tab-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
+          <img src="/the-tab-chip.png" alt="THE TAB" class="the-tab-logo-img" style="width: 100%; max-width: 150px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
+        </div>
+        <p class="page-subtitle" style="margin-top: 2px;">${t('tab.subtitle')}</p>
       </div>
 
       <div class="the-tab-nav">

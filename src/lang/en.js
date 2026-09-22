@@ -233,7 +233,7 @@ export const en = {
     win: 'win'
   },
   tab: {
-    title: '🧾 The Tab',
+    title: 'The Tab',
     subtitle: 'Consolidated events, side-bets, and Swish settlements',
     weekendTournament: 'Event',
     swishlist: 'Minigames & Duels',

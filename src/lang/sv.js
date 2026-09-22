@@ -21,7 +21,7 @@ export const sv = {
   },
   nav: {
     home: 'Betting',
-    leaderboard: 'Notan',
+    leaderboard: 'The Tab',
     join: 'Gå med',
     admin: 'Admin',
     account: 'Profil'
@@ -234,7 +234,7 @@ export const sv = {
     win: 'vinst'
   },
   tab: {
-    title: '🧾 Notan',
+    title: 'The Tab',
     subtitle: 'Samlade events, sido-bets och Swish-uppgörelser',
     weekendTournament: 'Event',
     swishlist: 'Minispel & Dueller',
