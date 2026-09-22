@@ -60,7 +60,7 @@ export async function getOrFetchActiveEvent() {
   return currentActiveEvent;
 }
 import { compressImage } from '../imageUtils.js';
-import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
+
 import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
 import { openInstantLiveModal, openLiveStreamModal } from './livestream.js';
@@ -6072,17 +6072,6 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
 
   showModal(`⚡ ${t('arcade.flashbet')}`, `
     <div id="flashbet-container" style="padding: 2px 0; min-height: 380px;">
-      <!-- Push Permission Banner if not enabled -->
-      ${isPushSupported() && getPushPermissionState() !== 'granted' ? `
-        <div id="flashbet-push-banner" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 12px; background: rgba(245, 166, 35, 0.12); border: 1px solid var(--gold); border-radius: var(--radius-md);">
-          <div style="font-size: 0.78rem; line-height: 1.3;">
-            🔔 <strong>${t('arcade.pushEnablePrompt')}</strong>
-          </div>
-          <button type="button" class="btn btn-sm btn-primary" id="btn-flashbet-enable-push" style="flex-shrink: 0; padding: 4px 10px; font-size: 0.75rem;">
-            ${t('arcade.pushEnableBtn')}
-          </button>
-        </div>
-      ` : ''}
 
       <!-- Nav Tabs -->
       <div class="tab-nav mb-md" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -6107,22 +6096,6 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
       message: isEn
         ? 'Are you sure you want to leave? Your entered FlashBet question will be lost.'
         : 'Är du säker på att du vill lämna? Ditt påbörjade FlashBet sparas inte.'
-    }
-  });
-
-  // Wire push enable button
-  document.getElementById('btn-flashbet-enable-push')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-flashbet-enable-push');
-    btn.disabled = true;
-    btn.textContent = '...';
-    try {
-      await subscribeToPush();
-      showToast('🔔 Pushnotiser aktiverade!', 'success');
-      document.getElementById('flashbet-push-banner')?.remove();
-    } catch (err) {
-      showToast(err.message, 'error');
-      btn.disabled = false;
-      btn.textContent = t('arcade.pushEnableBtn');
     }
   });
 
