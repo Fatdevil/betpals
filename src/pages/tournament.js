@@ -86,17 +86,17 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           : `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
   };
 
-  const renderSideBetCard = (sb) => `
-    <div class="bet-item card-clickable round-link" data-code="${escapeHtml(sb.shareCode)}" style="border-left: 3px solid var(--accent); margin-left: var(--space-sm);">
+  const renderSideBetCard = (sb, isNested = false) => `
+    <div class="bet-item card-clickable round-link" data-code="${escapeHtml(sb.shareCode)}" style="${isNested ? 'border-left: 3px solid var(--accent); margin-left: var(--space-sm);' : ''}">
       <div style="flex: 1;">
-        <div class="bet-item-name">🎯 ${escapeHtml(sb.name)}</div>
+        <div class="bet-item-name">${isNested ? '🎯 ' : ''}${escapeHtml(sb.name)}</div>
         <div class="bet-item-player">${sb.players.map(p => escapeHtml(p.name)).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
       </div>
       <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
         <div class="bet-item-amount">${formatCurrency(sb.totalPool)}</div>
         <div class="flex gap-xs" style="align-items: center;">
           ${renderSideBetBadge(sb)}
-          ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort sido-spel">🗑️</button>` : ''}
+          ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
         </div>
       </div>
     </div>
@@ -110,7 +110,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         <div class="flex-between">
           <div>
             <h1 class="page-title">🏆 ${escapeHtml(t.name)}</h1>
-            <p class="page-subtitle">${t.rounds.length} spel · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
+            <p class="page-subtitle">${allEvents.length} spel · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
           </div>
           <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}">${t.status === 'active' ? 'Pågår' : 'Avräknad'}</span>
         </div>
@@ -176,7 +176,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       <div class="section-header">
         <h2 class="section-title">📋 Spel & Tävlingar</h2>
       </div>
-      ${t.rounds.length === 0 ? `
+      ${allEvents.length === 0 ? `
         <div class="card text-center mb-md" style="padding: 24px 16px; border: 1.5px dashed var(--border-light); background: rgba(255,255,255,0.02);">
           <div style="font-size: 2.2rem; margin-bottom: 6px;">🎯</div>
           <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">Inga spel skapade än</h3>
@@ -199,31 +199,26 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
                 <div class="bet-item-name">${escapeHtml(r.name)}</div>
                 <div class="bet-item-player">${r.players.map(p => escapeHtml(p.name)).join(', ')} · ${r.betCount} bets</div>
               </div>
-              <div style="text-align: right;">
+              <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
                 <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
-                ${r.status === 'finished' 
-                  ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
-                  : r.status === 'cancelled'
-                    ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
-                    : r.status === 'locked'
-                      ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
-                      : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
-                }
+                <div class="flex gap-xs" style="align-items: center;">
+                  ${r.status === 'finished' 
+                    ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
+                    : r.status === 'cancelled'
+                      ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
+                      : r.status === 'locked'
+                        ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
+                        : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
+                  }
+                  ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
+                </div>
               </div>
             </div>
-            ${(sideBetsByRound[r.id] || []).map(renderSideBetCard).join('')}
+            ${(sideBetsByRound[r.id] || []).map(sb => renderSideBetCard(sb, true)).join('')}
           `).join('')}
+          ${unlinkedSideBets.map(sb => renderSideBetCard(sb, false)).join('')}
         </div>
       `}
-
-      ${unlinkedSideBets.length > 0 ? `
-        <div class="section-header mt-md">
-          <h2 class="section-title">🎯 Sido-spel</h2>
-        </div>
-        <div class="bet-list">
-          ${unlinkedSideBets.map(renderSideBetCard).join('')}
-        </div>
-      ` : ''}
 
       <!-- Sponsor Banners -->
       ${(t.banners && t.banners.length > 0) || isCreator ? `
@@ -794,7 +789,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     const allEvs = [...(t.rounds || []), ...(t.sideBets || [])];
     const unfinished = allEvs.filter(e => e.status !== 'finished' && e.status !== 'cancelled');
     if (unfinished.length > 0) {
-      showToast(`Alla ronder och sido-spel måste vara avgjorda eller avbrutna (${unfinished.length} kvar).`, 'warning');
+      showToast(`Alla spel måste vara avgjorda eller avbrutna (${unfinished.length} kvar).`, 'warning');
       return;
     }
     if (!confirm(`Vill du avsluta eventet "${t.name}" och fastställa slutresultatet?`)) return;
@@ -931,7 +926,16 @@ function showAddGameModal(t, content) {
   if (t.rounds && t.rounds.length > 0) {
     t.rounds.forEach(r => {
       if (r.players) r.players.forEach(p => {
-        if (!existingPlayerNames.includes(p.name)) existingPlayerNames.push(p.name);
+        const name = typeof p === 'string' ? p : p.name;
+        if (name && !existingPlayerNames.includes(name)) existingPlayerNames.push(name);
+      });
+    });
+  }
+  if (t.sideBets && t.sideBets.length > 0) {
+    t.sideBets.forEach(sb => {
+      if (sb.players) sb.players.forEach(p => {
+        const name = typeof p === 'string' ? p : p.name;
+        if (name && !existingPlayerNames.includes(name)) existingPlayerNames.push(name);
       });
     });
   }

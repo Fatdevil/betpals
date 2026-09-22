@@ -112,4 +112,28 @@ test('Tournament Creation Flow: No automatic Rond 1, stores participants & allow
   assert.equal(resAddGame.status, 200, 'Adding game should succeed');
   assert.equal(resAddGame.body.rounds.length, 1, 'Should now have exactly 1 round');
   assert.equal(resAddGame.body.rounds[0].name, '1X2 Sverige vs Danmark');
+
+  // 4. Add a sidebet game (as done by "Lägg till spel" modal)
+  const resAddSide = await invoke('POST', `/api/tournaments/${tour.id}/sidebets`, {
+    headers: { Authorization: `Bearer ${host.token}` },
+    body: {
+      name: 'Ölhävartävling Final',
+      players: ['Micke', 'Tobbe'],
+      betMode: 'open',
+      betAmount: 50
+    }
+  });
+  assert.equal(resAddSide.status, 200, 'Adding sidebet game should succeed');
+  assert.equal(resAddSide.body.sideBets.length, 1, 'Should now have 1 sidebet game');
+
+  // 5. Verify getAllTournaments counts all games (main rounds + sidebets)
+  const allTours = db.getAllTournaments(host.id);
+  const matched = allTours.find(t => t.id === tour.id);
+  assert.ok(matched, 'Tournament should be listed in getAllTournaments');
+  assert.equal(matched.roundCount, 2, 'roundCount should include both rounds and sidebets (2 total)');
+
+  // 6. Verify getTournamentNetSettlement counts both
+  const settlement = db.getTournamentNetSettlement(tour.id);
+  assert.equal(settlement.totalRounds, 2, 'totalRounds in settlement should be 2');
 });
+

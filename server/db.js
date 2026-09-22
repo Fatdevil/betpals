@@ -1530,8 +1530,7 @@ export function getAllTournaments(userId = null) {
 
   return tournaments.map(t => {
     const rounds = stmts.getEventsByTournament.all(t.id);
-    const mainRounds = rounds.filter(r => !r.is_side_bet);
-    const finishedRounds = mainRounds.filter(r => r.status === 'finished');
+    const finishedRounds = rounds.filter(r => r.status === 'finished');
     const banners = stmts.getBannersByTournament.all(t.id);
     return {
       id: t.id,
@@ -1541,7 +1540,7 @@ export function getAllTournaments(userId = null) {
       creatorId: t.creator_id,
       visibility: t.visibility || 'friends',
       createdAt: t.created_at,
-      roundCount: mainRounds.length,
+      roundCount: rounds.length,
       finishedCount: finishedRounds.length,
       bannerCount: banners.length,
       banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label }))
@@ -2051,8 +2050,8 @@ export function getTournamentNetSettlement(tournamentId) {
     totalMainRounds,
     finishedSideBets,
     totalSideBets,
-    finishedRounds: finishedMainRounds,
-    totalRounds: totalMainRounds
+    finishedRounds: finishedMainRounds + finishedSideBets,
+    totalRounds: totalMainRounds + totalSideBets
   };
 }
 
