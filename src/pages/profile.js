@@ -36,6 +36,30 @@ export async function renderProfile() {
   }
 }
 
+function setupPinToggles(container = document) {
+  if (!container) return;
+  container.querySelectorAll('.btn-toggle-pin').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetId = btn.dataset.target;
+      const input = document.getElementById(targetId);
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+        btn.title = 'Dölj PIN';
+      } else {
+        input.type = 'password';
+        btn.textContent = '👁️';
+        btn.title = 'Visa PIN';
+      }
+    });
+  });
+}
+
 function renderAuthScreen(content) {
   const hasBiometric = isWebAuthnSupported();
 
@@ -82,8 +106,11 @@ function renderAuthScreen(content) {
 
           <div class="form-group">
             <label class="form-label">🔒 ${t('profile.personalPin')} <span class="text-gold">*</span></label>
-            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="reg-pin" 
-                   placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em;" />
+            <div style="position: relative;">
+              <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="reg-pin" 
+                     placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em; padding-right: 44px;" />
+              <button type="button" class="btn-toggle-pin" data-target="reg-pin" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem; padding: 4px;" title="Visa/dölj PIN">👁️</button>
+            </div>
             <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.pinHint')}</span>
           </div>
 
@@ -109,13 +136,16 @@ function renderAuthScreen(content) {
             <label class="form-label">📱 ${t('profile.loginIdentifier')} <span class="text-gold">*</span></label>
             <input type="text" class="form-input" id="login-identifier"
                    placeholder="${t('profile.loginIdentifierPlaceholder')}" required minlength="2" />
-            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Skriv ditt mobilnummer (t.ex. 0701234567) eller smeknamn</span>
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">Skriv mobilnummer (t.ex. 0701234567 eller +46...), bettarnamn eller ditt namn</span>
           </div>
 
           <div class="form-group">
             <label class="form-label">🔒 ${t('profile.loginPin')} <span class="text-gold">*</span></label>
-            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="login-pin"
-                   placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em;" />
+            <div style="position: relative;">
+              <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="login-pin"
+                     placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em; padding-right: 44px;" />
+              <button type="button" class="btn-toggle-pin" data-target="login-pin" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem; padding: 4px;" title="Visa/dölj PIN">👁️</button>
+            </div>
           </div>
 
           <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">${t('profile.loginBtn')}</button>
@@ -220,6 +250,8 @@ function renderAuthScreen(content) {
       btn.textContent = t('profile.loginBtn');
     }
   });
+
+  setupPinToggles(content);
 }
 
 async function checkPendingFriendInvite() {
@@ -280,8 +312,11 @@ function showPinResetUI(identifier, nickname) {
 
       <div class="form-group">
         <label class="form-label">${t('profile.newPin')}</label>
-        <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="new-reset-pin"
-               placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em;" />
+        <div style="position: relative;">
+          <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="new-reset-pin"
+                 placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.5rem; letter-spacing: 0.3em; padding-right: 44px;" />
+          <button type="button" class="btn-toggle-pin" data-target="new-reset-pin" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem; padding: 4px;" title="Visa/dölj PIN">👁️</button>
+        </div>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block" id="btn-submit-reset-pin">
@@ -289,6 +324,8 @@ function showPinResetUI(identifier, nickname) {
       </button>
     </form>
   `;
+
+  setupPinToggles(resetCard);
 
   document.getElementById('pin-reset-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -474,13 +511,19 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         <form id="change-pin-form" class="mt-md" style="display: none; padding-top: var(--space-sm); border-top: 1px solid var(--border-glass);">
           <div class="form-group mb-sm">
             <label class="form-label" style="font-size: 0.75rem;">${t('profile.currentPin')}</label>
-            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="input-current-pin"
-                   placeholder="••••" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.2em;" />
+            <div style="position: relative;">
+              <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="input-current-pin"
+                     placeholder="••••" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.2em; padding-right: 40px;" />
+              <button type="button" class="btn-toggle-pin" data-target="input-current-pin" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 2px;" title="Visa/dölj PIN">👁️</button>
+            </div>
           </div>
           <div class="form-group mb-md">
             <label class="form-label" style="font-size: 0.75rem;">${t('profile.newPin')}</label>
-            <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="input-new-pin"
-                   placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.2em;" />
+            <div style="position: relative;">
+              <input type="password" inputmode="numeric" pattern="[0-9]*" class="form-input text-center" id="input-new-pin"
+                     placeholder="••••" required minlength="4" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.2em; padding-right: 40px;" />
+              <button type="button" class="btn-toggle-pin" data-target="input-new-pin" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 2px;" title="Visa/dölj PIN">👁️</button>
+            </div>
           </div>
           <div class="flex gap-sm">
             <button type="submit" class="btn btn-primary btn-sm" style="flex: 1;">${t('profile.savePin')}</button>
@@ -989,6 +1032,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       });
     });
   });
+
+  setupPinToggles(content);
 }
 
 function showAddFriendModal(currentFriends = []) {

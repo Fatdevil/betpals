@@ -1,13 +1,23 @@
-// ── SQLite Database Layer ─────────────────────────────
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DB_PATH = join(__dirname, 'betpals.db');
+// Database path resolution:
+// 1. Explicit DB_PATH / DATABASE_PATH environment variable
+// 2. Railway volume mount path (RAILWAY_VOLUME_MOUNT_PATH or DATA_DIR)
+// 3. Fallback to local betpals.db in server directory
+const DB_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR;
+const DB_PATH = process.env.DB_PATH || process.env.DATABASE_PATH || (DB_DIR ? join(DB_DIR, 'betpals.db') : join(__dirname, 'betpals.db'));
+
+if (DB_DIR && !fs.existsSync(DB_DIR)) {
+  try { fs.mkdirSync(DB_DIR, { recursive: true }); } catch (e) {}
+}
+
 const db = new Database(DB_PATH);
 
 // Enable WAL mode for better concurrent read performance
@@ -117,6 +127,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id);
   CREATE INDEX IF NOT EXISTS idx_events_share_code ON events(share_code);
   CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
+  CREATE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname);
+  CREATE INDEX IF NOT EXISTS idx_users_swish ON users(swish_number);
+  CREATE INDEX IF NOT EXISTS idx_users_real_name ON users(real_name);
 
   CREATE TABLE IF NOT EXISTS tournament_banners (
     id TEXT PRIMARY KEY,
@@ -469,6 +482,18 @@ try {
 try { db.exec('ALTER TABLE shl_fantasy_leagues ADD COLUMN simulation_data TEXT'); } catch {}
 try { db.exec('ALTER TABLE shl_fantasy_entries ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
 
+// One-time data cleanup: normalize existing swish_number in the users table
+try {
+  const usersWithSwish = db.prepare("SELECT id, swish_number FROM users WHERE swish_number IS NOT NULL AND swish_number != ''").all();
+  const updateSwishStmt = db.prepare("UPDATE users SET swish_number = ? WHERE id = ?");
+  for (const u of usersWithSwish) {
+    const norm = normalizePhone(u.swish_number);
+    if (norm && norm !== u.swish_number) {
+      try { updateSwishStmt.run(norm, u.id); } catch {}
+    }
+  }
+} catch {}
+
 // ── Prepared Statements ──────────────
 const stmts = {
   // Settings
@@ -524,7 +549,13 @@ const stmts = {
   getUserById: db.prepare('SELECT * FROM users WHERE id = ?'),
   getUserByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
   getUserByNickname: db.prepare('SELECT * FROM users WHERE LOWER(nickname) = LOWER(?)'),
-  getUserBySwish: db.prepare('SELECT * FROM users WHERE REPLACE(REPLACE(swish_number, \' \', \'\'), \'-\', \'\') = ?'),
+  getUserByRealName: db.prepare('SELECT * FROM users WHERE LOWER(real_name) = LOWER(?)'),
+  getUserByEmail: db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)'),
+  getUserBySwish: db.prepare(`
+    SELECT * FROM users 
+    WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(swish_number, ' ', ''), '-', ''), '+', ''), '.', ''), '(', ''), ')', '') = ?
+       OR swish_number = ?
+  `),
   getUserByGoogleId: db.prepare('SELECT * FROM users WHERE google_id = ?'),
   getAllUsers: db.prepare('SELECT id, nickname, real_name, swish_number, token, avatar_emoji, avatar_url, email, needs_pin_reset, CASE WHEN pin_hash IS NOT NULL THEN 1 ELSE 0 END as has_pin, created_at FROM users ORDER BY created_at DESC'),
   insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number) VALUES (?, ?, ?, ?, ?, ?)'),
@@ -1151,25 +1182,101 @@ export function deleteCredential(credentialId, userId) {
   stmts.deleteCredential.run(credentialId, userId);
 }
 
+export function normalizePhone(phone) {
+  if (!phone) return '';
+  let digits = String(phone).replace(/[^0-9]/g, '');
+  if (!digits) return '';
+
+  if (digits.startsWith('0046') && digits.length >= 10) {
+    digits = '0' + digits.slice(4);
+  } else if (digits.startsWith('460') && digits.length >= 10) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith('46') && digits.length >= 9 && digits.length <= 13) {
+    digits = '0' + digits.slice(2);
+  } else if (digits.length === 9 && digits.startsWith('7')) {
+    digits = '0' + digits;
+  }
+  return digits;
+}
+
+export function getUserByRealName(realName) {
+  if (!realName) return null;
+  return stmts.getUserByRealName.get(String(realName).trim());
+}
+
+export function getUserByEmail(email) {
+  if (!email) return null;
+  return stmts.getUserByEmail.get(String(email).trim());
+}
+
 export function getUserBySwish(swishNumber) {
   if (!swishNumber) return null;
-  const clean = swishNumber.replace(/[\s\-]/g, '');
+  const clean = String(swishNumber).trim();
   if (!clean) return null;
-  return stmts.getUserBySwish.get(clean);
+
+  const norm = normalizePhone(clean);
+  if (norm) {
+    let u = stmts.getUserBySwish.get(norm, norm);
+    if (u) return u;
+    const intl = '46' + norm.replace(/^0/, '');
+    u = stmts.getUserBySwish.get(intl, intl);
+    if (u) return u;
+  }
+
+  const rawDigits = clean.replace(/[^0-9]/g, '');
+  if (rawDigits && rawDigits !== norm) {
+    let u = stmts.getUserBySwish.get(rawDigits, rawDigits);
+    if (u) return u;
+  }
+
+  return stmts.getUserBySwish.get(clean, clean);
 }
 
 export function getUserByNicknameOrSwish(identifier) {
   if (!identifier) return null;
-  const clean = identifier.trim();
-  // check nickname first
+  const clean = String(identifier).trim();
+  if (!clean) return null;
+
+  // 1. Direct nickname match
   let user = stmts.getUserByNickname.get(clean);
   if (user) return user;
-  // check swish (digits only)
-  const digits = clean.replace(/[\s\-]/g, '');
-  if (digits.length >= 6) {
-    user = stmts.getUserBySwish.get(digits);
+
+  // 2. Stripped @ prefix for nickname
+  if (clean.startsWith('@')) {
+    const withoutAt = clean.slice(1).trim();
+    if (withoutAt) {
+      user = stmts.getUserByNickname.get(withoutAt);
+      if (user) return user;
+    }
+  }
+
+  // 3. Email match if containing @
+  if (clean.includes('@')) {
+    user = stmts.getUserByEmail.get(clean);
     if (user) return user;
   }
+
+  // 4. Real name match
+  user = stmts.getUserByRealName.get(clean);
+  if (user) return user;
+
+  // 5. Phone / Swish match (normalized Swedish, international 46, raw digits)
+  const norm = normalizePhone(clean);
+  if (norm && norm.length >= 6) {
+    user = stmts.getUserBySwish.get(norm, norm);
+    if (user) return user;
+
+    const intl = '46' + norm.replace(/^0/, '');
+    user = stmts.getUserBySwish.get(intl, intl);
+    if (user) return user;
+  }
+
+  const rawDigits = clean.replace(/[^0-9]/g, '');
+  if (rawDigits && rawDigits.length >= 6) {
+    user = stmts.getUserBySwish.get(rawDigits, rawDigits);
+    if (user) return user;
+  }
+
   return null;
 }
 

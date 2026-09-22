@@ -677,7 +677,7 @@ app.post('/api/users/register', (req, res) => {
     return res.status(400).json({ error: 'Detta bettarnamn är redan taget. Välj ett annat!' });
   }
 
-  const cleanSwish = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : null;
+  const cleanSwish = swishNumber ? (db.normalizePhone(swishNumber) || swishNumber.replace(/[^0-9]/g, '')) : null;
   if (cleanSwish) {
     if (cleanSwish.length < 8) {
       return res.status(400).json({ error: 'Ogiltigt Swish-nummer' });
@@ -952,7 +952,7 @@ app.put('/api/users/me/profile', (req, res) => {
     db.updateUserNickname(user.id, nickname.trim());
   }
   if (swishNumber !== undefined && swishNumber !== null && String(swishNumber).trim() !== '') {
-    const cleanSwish = String(swishNumber).replace(/[^0-9]/g, '');
+    const cleanSwish = db.normalizePhone(swishNumber) || String(swishNumber).replace(/[^0-9]/g, '');
     if (cleanSwish.length < 8) {
       return res.status(400).json({ error: 'Ogiltigt Swish-nummer (minst 8 siffror)' });
     }
@@ -987,7 +987,7 @@ app.put('/api/users/me/swish', (req, res) => {
 
   const raw = req.body.swishNumber;
   if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
-    const cleanSwish = String(raw).replace(/[^0-9]/g, '');
+    const cleanSwish = db.normalizePhone(raw) || String(raw).replace(/[^0-9]/g, '');
     if (cleanSwish.length < 8) {
       return res.status(400).json({ error: 'Ogiltigt Swish-nummer (minst 8 siffror)' });
     }
