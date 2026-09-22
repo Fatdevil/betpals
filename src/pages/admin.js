@@ -6,7 +6,6 @@ import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
 import { t, getLang } from '../i18n.js';
 import { compressImage } from '../imageUtils.js';
-import { TOURNAMENT_TEMPLATES } from '../templates.js';
 
 let adminPin = null;
 
@@ -1116,35 +1115,9 @@ async function loadAdminTournaments(loggedIn, hasPinSession, user) {
 
 function showCreateTournamentModal() {
   let players = [];
-  let selectedTemplate = null;
   
   showModal(t('admin.createTournamentTitle'), `
     <form id="create-tournament-form">
-      <!-- Tournament Templates Selector -->
-      <div class="form-group mb-md">
-        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>⚡ Välj mall (snabbstart)</span>
-          <span style="font-size: 0.7rem; color: var(--text-muted);">Valfritt</span>
-        </label>
-        <div class="template-cards-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-          ${TOURNAMENT_TEMPLATES.map(tmpl => `
-            <div class="template-card" data-template-id="${tmpl.id}" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 8px 6px; text-align: center; background: var(--bg-card); transition: all 0.2s; position: relative;">
-              ${tmpl.badge ? `<span style="position: absolute; top: -6px; right: 4px; font-size: 0.6rem; background: var(--gold); color: #000; font-weight: 800; padding: 1px 5px; border-radius: 8px;">${tmpl.badge}</span>` : ''}
-              <div style="font-size: 1.3rem;">${tmpl.icon}</div>
-              <div style="font-weight: 700; font-size: 0.78rem; margin-top: 2px;">${tmpl.title}</div>
-            </div>
-          `).join('')}
-        </div>
-        <!-- Template preview box -->
-        <div id="template-preview-box" style="display: none; margin-top: 8px; padding: 8px 10px; background: rgba(245, 166, 35, 0.08); border: 1px dashed var(--gold); border-radius: var(--radius-sm); font-size: 0.75rem;">
-          <div class="flex-between" style="align-items: center;">
-            <strong id="template-preview-title" class="text-gold"></strong>
-            <button type="button" class="btn btn-sm" id="clear-template-btn" style="padding: 1px 6px; font-size: 0.65rem;">✕ Avmarkera</button>
-          </div>
-          <div id="template-preview-details" style="margin-top: 4px; color: var(--text-secondary);"></div>
-        </div>
-      </div>
-
       <div class="form-group">
         <label class="form-label">${t('admin.tournamentName')}</label>
         <input type="text" class="form-input" id="tournament-name" placeholder="${t('admin.tournamentNamePlaceholder')}" required />
@@ -1205,65 +1178,6 @@ function showCreateTournamentModal() {
       <button type="submit" class="btn btn-primary btn-block" id="tournament-submit-btn">${t('admin.submitCreateTournament')}</button>
     </form>
   `);
-
-  // Template handling
-  const nameInput = document.getElementById('tournament-name');
-  const previewBox = document.getElementById('template-preview-box');
-  const previewTitle = document.getElementById('template-preview-title');
-  const previewDetails = document.getElementById('template-preview-details');
-  const submitBtnEl = document.getElementById('tournament-submit-btn');
-
-  function applyTemplate(tmpl) {
-    selectedTemplate = tmpl;
-    document.querySelectorAll('.template-card').forEach(c => {
-      if (c.dataset.templateId === tmpl.id) {
-        c.style.border = '1.5px solid var(--gold)';
-        c.style.background = 'rgba(245, 166, 35, 0.15)';
-      } else {
-        c.style.border = '1.5px solid var(--border-light)';
-        c.style.background = 'var(--bg-card)';
-      }
-    });
-
-    if (!nameInput.value || nameInput.value === 'Golfresan 2026' || nameInput.value === 'Stora Matchkvällen' || nameInput.value === 'Helgens AW & Fest') {
-      nameInput.value = tmpl.defaultName;
-    }
-
-    previewTitle.innerHTML = `${tmpl.icon} ${escapeHtml(tmpl.title)} vald!`;
-    const roundNames = tmpl.rounds.map(r => r.name).join(', ');
-    const sideBetNames = tmpl.sideBets.map(s => s.name).join(', ');
-    previewDetails.innerHTML = `
-      <div><strong>Ronder:</strong> ${escapeHtml(roundNames)}</div>
-      <div style="margin-top: 2px;"><strong>Färdiga sidospel:</strong> ${escapeHtml(sideBetNames)}</div>
-    `;
-    previewBox.style.display = 'block';
-    if (submitBtnEl) submitBtnEl.textContent = `🚀 Skapa "${tmpl.title}"`;
-  }
-
-  function clearTemplate() {
-    selectedTemplate = null;
-    document.querySelectorAll('.template-card').forEach(c => {
-      c.style.border = '1.5px solid var(--border-light)';
-      c.style.background = 'var(--bg-card)';
-    });
-    previewBox.style.display = 'none';
-    if (submitBtnEl) submitBtnEl.textContent = t('admin.submitCreateTournament');
-  }
-
-  document.querySelectorAll('.template-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const tmpl = TOURNAMENT_TEMPLATES.find(t => t.id === card.dataset.templateId);
-      if (tmpl) {
-        if (selectedTemplate && selectedTemplate.id === tmpl.id) {
-          clearTemplate();
-        } else {
-          applyTemplate(tmpl);
-        }
-      }
-    });
-  });
-
-  document.getElementById('clear-template-btn')?.addEventListener('click', clearTemplate);
 
   const tFriendsDrawer = document.getElementById('tournament-friends-drawer');
   const tFriendsList = document.getElementById('tournament-friends-list');
@@ -1417,18 +1331,7 @@ function showCreateTournamentModal() {
 
     try {
       const pin = getPin();
-      let result;
-      if (selectedTemplate) {
-        result = await api.createTournamentFromTemplate({
-          templateId: selectedTemplate.id,
-          name,
-          players,
-          pin,
-          visibility
-        });
-      } else {
-        result = await api.createTournament({ name, players, pin, visibility });
-      }
+      const result = await api.createTournament({ name, players, pin, visibility });
       closeModal();
       showToast(t('admin.toastTournamentCreated'), 'success');
       navigate('tournament', { code: result.shareCode });
@@ -1436,7 +1339,7 @@ function showCreateTournamentModal() {
       showToast(err.message, 'error');
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = selectedTemplate ? `🚀 Skapa "${selectedTemplate.title}"` : t('admin.submitCreateTournament');
+        submitBtn.textContent = t('admin.submitCreateTournament');
       }
     }
   });

@@ -785,9 +785,16 @@ select.form-input option {
   justify-content: center;
 }
 
-.sponsor-upload-area:hover {
+.sponsor-upload-area:hover,
+.sponsor-upload-area.drag-over {
   border-color: var(--accent);
-  background: rgba(255, 229, 0, 0.05);
+  background: rgba(255, 229, 0, 0.08);
+}
+
+@media (hover: none) {
+  .sponsor-delete-btn {
+    opacity: 0.85;
+  }
 }
 
 .badge-open {

@@ -738,7 +738,7 @@ function clearPinAttempts(userId) {
 function isValidImageUrl(str) {
   if (typeof str !== 'string') return false;
   const s = str.trim();
-  if (!s || s.length > 2000000) return false;
+  if (!s || s.length > 10000000) return false;
   if (/[<>"'\r\n\0]/.test(s)) return false;
   if (s.startsWith('data:image/')) {
     return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s);
@@ -1865,30 +1865,27 @@ app.post('/api/tournaments', (req, res) => {
 
   const id = generateId();
   const shareCode = generateShareCode();
-  db.createTournament(id, finalName, shareCode, user ? user.id : null, visibility);
-
-  // Create first round automatically
-  const eventData = {
-    id: generateId(),
-    name: 'Rond 1',
-    date: new Date().toISOString().split('T')[0],
-    status: 'open',
-    shareCode: generateShareCode(),
-    payoutPercent: 100,
-    minBet: min,
-    maxBet: max,
-    creatorId: user ? user.id : null,
-    swishNumber: swish,
-    tournamentId: id,
-    isSideBet: 0,
-    linkedRoundId: null,
-    betMode: 'open'
-  };
-
-  const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
-  db.createEvent(eventData, playerData);
+  db.createTournament(id, finalName, shareCode, user ? user.id : null, visibility, cleanPlayers);
 
   res.json(db.getFullTournament(id));
+});
+
+app.post('/api/tournaments/:id/participants', (req, res) => {
+  const user = getUserFromToken(req);
+  const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
+  const isCreator = user && tournament.creator_id === user.id;
+  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Endast spelledaren kan lägga till deltagare' });
+  }
+
+  const name = (req.body.name || '').trim();
+  if (!name || name.length < 2) {
+    return res.status(400).json({ error: 'Ett giltigt namn krävs (minst 2 tecken)' });
+  }
+  db.addTournamentParticipant(tournament.id, name, req.body.userId || null);
+  res.json(db.getFullTournament(tournament.id));
 });
 
 // ── Tournament Templates Endpoints ──────────────────

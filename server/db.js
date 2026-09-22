@@ -92,6 +92,17 @@ db.exec(`
     FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE SET NULL
   );
 
+  CREATE TABLE IF NOT EXISTS tournament_participants (
+    id TEXT PRIMARY KEY,
+    tournament_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    user_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_participants_tourney ON tournament_participants(tournament_id);
+
   CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -649,6 +660,9 @@ const stmts = {
   getAllTournaments: db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC'),
   getEventsByTournament: db.prepare('SELECT * FROM events WHERE tournament_id = ? ORDER BY created_at ASC'),
   updateTournamentStatus: db.prepare('UPDATE tournaments SET status = ? WHERE id = ?'),
+  getTournamentParticipants: db.prepare('SELECT * FROM tournament_participants WHERE tournament_id = ? ORDER BY created_at ASC'),
+  insertTournamentParticipant: db.prepare('INSERT OR IGNORE INTO tournament_participants (id, tournament_id, name, user_id) VALUES (?, ?, ?, ?)'),
+  deleteTournamentParticipant: db.prepare('DELETE FROM tournament_participants WHERE tournament_id = ? AND name = ?'),
 
   // Tournament Banners
   getBannersByTournament: db.prepare('SELECT * FROM tournament_banners WHERE tournament_id = ? ORDER BY sort_order ASC, created_at ASC'),
@@ -1437,8 +1451,28 @@ export function getBanners(tournamentId) {
 }
 
 // ── Tournaments ─────────────────────────────────────
-export function createTournament(id, name, shareCode, creatorId, visibility = 'friends') {
+export function createTournament(id, name, shareCode, creatorId, visibility = 'friends', participants = []) {
   stmts.insertTournament.run(id, name, shareCode, creatorId, visibility);
+  if (Array.isArray(participants)) {
+    participants.forEach(p => {
+      const pName = typeof p === 'string' ? p.trim() : (p?.name || '').trim();
+      const pUserId = (typeof p === 'object' && p?.userId) ? p.userId : null;
+      if (pName) {
+        stmts.insertTournamentParticipant.run(generateId(), id, pName, pUserId);
+      }
+    });
+  }
+}
+
+export function addTournamentParticipant(tournamentId, name, userId = null) {
+  const pName = (name || '').trim();
+  if (!pName) return false;
+  stmts.insertTournamentParticipant.run(generateId(), tournamentId, pName, userId);
+  return true;
+}
+
+export function getTournamentParticipants(tournamentId) {
+  return stmts.getTournamentParticipants.all(tournamentId);
 }
 
 export function getTournamentByCode(code) {
@@ -1479,10 +1513,19 @@ export function getAllTournaments(userId = null) {
                JOIN bets b ON b.event_id = e.id
                WHERE b.user_id = ?
              )
+             OR t.id IN (
+               SELECT tp.tournament_id FROM tournament_participants tp
+               JOIN users u ON (
+                 tp.user_id = u.id
+                 OR LOWER(tp.name) = LOWER(u.real_name)
+                 OR LOWER(tp.name) = LOWER(u.nickname)
+               )
+               WHERE u.id = ?
+             )
            )
          )
       ORDER BY t.created_at DESC
-    `).all(userId, userId, userId, userId);
+    `).all(userId, userId, userId, userId, userId);
   }
 
   return tournaments.map(t => {
@@ -1586,9 +1629,12 @@ export function getFullTournament(idOrCode) {
   const rounds = allEvents.filter(e => !e.isSideBet);
   const sideBets = allEvents.filter(e => e.isSideBet);
 
-  // Collect all unique player names across rounds
+  // Collect all unique player names across rounds and tournament participants
   const allPlayers = new Set();
+  const rawParticipants = stmts.getTournamentParticipants.all(tournament.id);
+  rawParticipants.forEach(p => allPlayers.add(p.name));
   rounds.forEach(r => r.players.forEach(p => allPlayers.add(p.name)));
+  sideBets.forEach(s => s.players.forEach(p => allPlayers.add(p.name)));
 
   const banners = stmts.getBannersByTournament.all(tournament.id);
 
@@ -1603,6 +1649,11 @@ export function getFullTournament(idOrCode) {
     rounds,
     sideBets,
     players: [...allPlayers],
+    participants: rawParticipants.map(p => ({
+      id: p.id,
+      name: p.name,
+      userId: p.user_id
+    })),
     banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label })),
     settlement: getTournamentNetSettlement(tournament.id)
   };

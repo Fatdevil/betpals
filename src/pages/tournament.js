@@ -149,32 +149,72 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         </div>
       ` : ''}
 
+      <!-- Participants Card -->
+      <div class="card mb-md" style="padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass);">
+        <div class="flex-between mb-xs" style="align-items: center;">
+          <div style="font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
+            <span>👥 Deltagare</span>
+            <span class="badge badge-secondary" style="font-size: 0.68rem; padding: 1px 7px;">${(t.players || []).length}</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="share-invite-friends-btn" style="font-size: 0.72rem; padding: 2px 10px;">
+            📱 Bjud in
+          </button>
+        </div>
+        <div class="flex gap-xs" style="flex-wrap: wrap; margin-top: 8px;">
+          ${(t.players && t.players.length > 0)
+            ? t.players.map(p => `
+                <span class="badge" style="background: rgba(245, 166, 35, 0.12); color: var(--gold); border: 1px solid rgba(245, 166, 35, 0.35); font-size: 0.78rem; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+                  👤 ${escapeHtml(p)}
+                </span>
+              `).join('')
+            : '<span class="text-muted" style="font-size: 0.75rem;">Inga deltagare tillagda än</span>'
+          }
+        </div>
+      </div>
+
       <!-- Rounds -->
       <div class="section-header">
-        <h2 class="section-title">📋 Spel & Ronder</h2>
+        <h2 class="section-title">📋 Spel & Tävlingar</h2>
       </div>
-      <div class="bet-list">
-        ${t.rounds.map((r, i) => `
-          <div class="bet-item card-clickable round-link" data-code="${escapeHtml(r.shareCode)}" id="round-${r.id}">
-            <div>
-              <div class="bet-item-name">${escapeHtml(r.name)}</div>
-              <div class="bet-item-player">${r.players.map(p => escapeHtml(p.name)).join(', ')} · ${r.betCount} bets</div>
+      ${t.rounds.length === 0 ? `
+        <div class="card text-center mb-md" style="padding: 24px 16px; border: 1.5px dashed var(--border-light); background: rgba(255,255,255,0.02);">
+          <div style="font-size: 2.2rem; margin-bottom: 6px;">🎯</div>
+          <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">Inga spel skapade än</h3>
+          <p class="text-muted" style="font-size: 0.82rem; max-width: 320px; margin: 0 auto 16px;">
+            Vad ska gänget tävla om först? Skapa matchspel på TV (1-X-2), ölhävning (vinnare tar allt) eller poolodds!
+          </p>
+          ${isCreator ? `
+            <button class="btn btn-primary" id="empty-add-game-btn" style="font-weight: 800; padding: 10px 20px; font-size: 0.9rem;">
+              ➕ Lägg till kvällens första spel 🎯
+            </button>
+          ` : `
+            <p class="text-muted" style="font-size: 0.78rem;">Väntar på att spelledaren ska lägga till kvällens första spel...</p>
+          `}
+        </div>
+      ` : `
+        <div class="bet-list">
+          ${t.rounds.map((r, i) => `
+            <div class="bet-item card-clickable round-link" data-code="${escapeHtml(r.shareCode)}" id="round-${r.id}">
+              <div>
+                <div class="bet-item-name">${escapeHtml(r.name)}</div>
+                <div class="bet-item-player">${r.players.map(p => escapeHtml(p.name)).join(', ')} · ${r.betCount} bets</div>
+              </div>
+              <div style="text-align: right;">
+                <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
+                ${r.status === 'finished' 
+                  ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
+                  : r.status === 'cancelled'
+                    ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
+                    : r.status === 'locked'
+                      ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
+                      : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
+                }
+              </div>
             </div>
-            <div style="text-align: right;">
-              <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
-              ${r.status === 'finished' 
-                ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
-                : r.status === 'cancelled'
-                  ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
-                  : r.status === 'locked'
-                    ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
-                    : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
-              }
-            </div>
-          </div>
-          ${(sideBetsByRound[r.id] || []).map(renderSideBetCard).join('')}
-        `).join('')}
-      </div>
+            ${(sideBetsByRound[r.id] || []).map(renderSideBetCard).join('')}
+          `).join('')}
+        </div>
+      `}
 
       ${unlinkedSideBets.length > 0 ? `
         <div class="section-header mt-md">
@@ -536,15 +576,25 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       <form id="banner-form">
         <div class="form-group">
           <label class="form-label">Sponsorbild</label>
-          <div class="sponsor-upload-area" id="banner-drop-area">
-            <div id="banner-preview-container" style="display:none;">
-              <img id="banner-preview-img" class="sponsor-img" style="max-height: 200px;" />
+          <div class="sponsor-upload-area" id="banner-drop-area" style="min-height: 180px; flex-direction: column; gap: var(--space-xs); text-align: center;">
+            <div id="banner-preview-container" style="display:none; width: 100%;">
+              <img id="banner-preview-img" class="sponsor-img" style="max-height: 200px; max-width: 100%; border-radius: var(--radius-sm); object-fit: contain; margin: 0 auto;" />
             </div>
             <div id="banner-upload-placeholder">
-              <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📸</div>
-              <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att välja bild</div>
+              <div style="font-size: 2.2rem; margin-bottom: var(--space-xs);">📸</div>
+              <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">Fota eller välj bild</div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka här för att välja bild eller ta foto</div>
             </div>
             <input type="file" accept="image/*" id="banner-file-input" style="display: none;" />
+            <input type="file" accept="image/*" capture="environment" id="banner-camera-input" style="display: none;" />
+          </div>
+          <div class="flex gap-xs mt-xs" style="justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="banner-camera-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+              📷 Ta foto med mobilen
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="banner-gallery-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+              🖼️ Välj från galleri
+            </button>
           </div>
         </div>
         <div class="form-group">
@@ -562,31 +612,85 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     let selectedImageData = null;
     const dropArea = document.getElementById('banner-drop-area');
     const fileInput = document.getElementById('banner-file-input');
+    const cameraInput = document.getElementById('banner-camera-input');
+    const cameraBtn = document.getElementById('banner-camera-btn');
+    const galleryBtn = document.getElementById('banner-gallery-btn');
     const previewContainer = document.getElementById('banner-preview-container');
     const previewImg = document.getElementById('banner-preview-img');
     const placeholder = document.getElementById('banner-upload-placeholder');
+    const submitBtn = document.getElementById('banner-submit-btn');
 
-    dropArea?.addEventListener('click', () => fileInput.click());
-
-    const handleFile = (file) => {
-      if (!file || !file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        selectedImageData = ev.target.result;
+    const handleFile = async (file) => {
+      if (!file) return;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Komprimerar bild... ⏳';
+      }
+      try {
+        selectedImageData = await compressImage(file, 1000, 0.8);
         previewImg.src = selectedImageData;
         previewContainer.style.display = 'block';
         placeholder.style.display = 'none';
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        showToast(err.message || 'Kunde inte läsa in bilden', 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Ladda upp 📸';
+        }
+      }
     };
 
-    fileInput?.addEventListener('change', (ev) => handleFile(ev.target.files[0]));
+    dropArea?.addEventListener('click', (e) => {
+      if (e.target !== fileInput && e.target !== cameraInput) {
+        fileInput?.click();
+      }
+    });
+
+    cameraBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cameraInput?.click();
+    });
+
+    galleryBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener('click', (e) => e.stopPropagation());
+    cameraInput?.addEventListener('click', (e) => e.stopPropagation());
+
+    fileInput?.addEventListener('change', (ev) => {
+      const file = ev.target.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    cameraInput?.addEventListener('change', (ev) => {
+      const file = ev.target.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    ['dragenter', 'dragover'].forEach(name => {
+      dropArea?.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropArea.classList.add('drag-over');
+      });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+      dropArea?.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropArea.classList.remove('drag-over');
+      });
+    });
+    dropArea?.addEventListener('drop', (e) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file) handleFile(file);
+    });
 
     document.getElementById('banner-form')?.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       if (!selectedImageData) { showToast('Välj en bild först', 'error'); return; }
 
-      const submitBtn = document.getElementById('banner-submit-btn');
       submitBtn.disabled = true;
       submitBtn.textContent = 'Laddar upp...';
 
@@ -628,12 +732,9 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   });
 
   // Add game
-  const addGameBtn = document.getElementById('add-game-btn');
-  if (addGameBtn) {
-    addGameBtn.addEventListener('click', () => {
-      showAddGameModal(t, content);
-    });
-  }
+  const handleOpenAddGame = () => showAddGameModal(t, content);
+  document.getElementById('add-game-btn')?.addEventListener('click', handleOpenAddGame);
+  document.getElementById('empty-add-game-btn')?.addEventListener('click', handleOpenAddGame);
 
   // Active tournament FlashBet banner click
   document.getElementById('active-tournament-flashbet')?.addEventListener('click', () => {
@@ -772,7 +873,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   });
 
   // Share button
-  document.getElementById('share-tournament-btn')?.addEventListener('click', async () => {
+  const handleOpenShareModal = async () => {
     try {
       const baseUrl = window.location.origin;
       const { qr, url } = await getTournamentQR(t.shareCode, baseUrl);
@@ -812,12 +913,21 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     } catch (err) {
       showToast('Kunde inte generera QR-kod', 'error');
     }
-  });
+  };
+
+  document.getElementById('share-tournament-btn')?.addEventListener('click', handleOpenShareModal);
+  document.getElementById('share-invite-friends-btn')?.addEventListener('click', handleOpenShareModal);
 }
 
 function showAddGameModal(t, content) {
-  // Pre-fill players from tournament rounds or settlement
+  // Pre-fill players from tournament participants, rounds, or settlement
   const existingPlayerNames = [];
+  if (t.players && t.players.length > 0) {
+    t.players.forEach(p => {
+      const name = typeof p === 'string' ? p : p.name;
+      if (name && !existingPlayerNames.includes(name)) existingPlayerNames.push(name);
+    });
+  }
   if (t.rounds && t.rounds.length > 0) {
     t.rounds.forEach(r => {
       if (r.players) r.players.forEach(p => {

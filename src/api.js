@@ -212,6 +212,8 @@ export const createTournamentFromTemplate = (data) =>
   request('/tournaments/from-template', { method: 'POST', body: data });
 export const addTournamentRound = (id, data) =>
   request('/tournaments/' + id + '/rounds', { method: 'POST', body: data });
+export const addTournamentParticipant = (id, data) =>
+  request('/tournaments/' + id + '/participants', { method: 'POST', body: data });
 export const createSideBet = (id, data) =>
   request('/tournaments/' + id + '/sidebets', { method: 'POST', body: data });
 export const settleTournament = (id, data = {}) =>

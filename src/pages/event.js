@@ -1,6 +1,7 @@
 // ── Page: Event (view + predict + WebSocket live odds + QR) ──
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
+import { showModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
@@ -232,24 +233,22 @@ function renderEventContent(event, content, code) {
       ` : ''}
 
       <div class="page-header">
-        <div class="flex-between">
-          <h1 class="page-title">${escapeHtml(event.name)}</h1>
-          <div class="flex gap-sm" style="align-items: center;">
+        <div class="flex-between" style="align-items: flex-start; gap: 8px;">
+          <div>
+            <h1 class="page-title" style="margin-bottom: 2px;">${escapeHtml(event.name)}</h1>
+            <div class="flex gap-xs" style="align-items: center; font-size: 0.8rem;">
+              <span class="page-subtitle" style="margin: 0;">${formatDate(event.date)}</span>
+              <span class="text-muted">·</span>
+              <span class="text-gold" style="font-weight: 700;">${escapeHtml(event.shareCode)}</span>
+            </div>
+          </div>
+          <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" id="event-share-modal-btn" style="font-size: 0.72rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
+              📱 Dela
+            </button>
             ${isOpen ? '<span class="live-indicator"><span class="live-dot"></span>LIVE</span>' : ''}
             <span class="badge ${statusBadgeClass(event.status)}">${statusLabel(event.status)}</span>
           </div>
-        </div>
-        <p class="page-subtitle">${formatDate(event.date)}</p>
-      </div>
-
-      <!-- Share Code + QR -->
-      <div class="share-code-display" style="flex-direction: column; gap: var(--space-md);">
-        <div style="text-align: center;">
-          <div class="share-code-label">${t('home.code')}</div>
-          <div class="share-code-text">${escapeHtml(event.shareCode)}</div>
-        </div>
-        <div class="qr-container" id="qr-container">
-          <div class="text-muted" style="font-size: 0.8rem;">${t('common.loading')}</div>
         </div>
       </div>
 
@@ -451,7 +450,9 @@ function renderEventContent(event, content, code) {
     </div>
   `;
 
-  loadQRCode(code);
+  document.getElementById('event-share-modal-btn')?.addEventListener('click', () => {
+    openEventShareModal(code, event.name);
+  });
 
   if (isOpen) {
     if (isLoggedIn()) {
