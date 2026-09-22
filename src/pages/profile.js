@@ -75,9 +75,11 @@ function renderAuthScreen(content) {
 
   content.innerHTML = `
     <div class="animate-in">
-      <div class="page-header text-center">
-        <h1 class="page-title">👤 ${t('profile.title')}</h1>
-        <p class="page-subtitle">${t('profile.simpleAuthHint')}</p>
+      <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px;">
+        <div class="profile-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
+          <img src="/profile-chip.png" alt="PROFILE" class="profile-logo-img" style="width: 100%; max-width: 150px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
+        </div>
+        <p class="page-subtitle" style="margin-top: 2px;">${t('profile.simpleAuthHint')}</p>
       </div>
 
       <div class="card" id="auth-main-card">
@@ -412,10 +414,12 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
 
   content.innerHTML = `
     <div class="animate-in">
-      <div class="page-header">
-        <div class="flex-between">
-          <h1 class="page-title">👤 ${t('profile.title')}</h1>
-          <button class="btn btn-secondary btn-sm" id="logout-btn">${t('profile.logout')}</button>
+      <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px; position: relative;">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: -18px;">
+          <button class="btn btn-secondary btn-sm" id="logout-btn" style="font-size: 0.75rem; padding: 5px 12px; z-index: 2;">${t('profile.logout')}</button>
+        </div>
+        <div class="profile-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
+          <img src="/profile-chip.png" alt="PROFILE" class="profile-logo-img" style="width: 100%; max-width: 140px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
         </div>
       </div>
 
