@@ -3,11 +3,13 @@ import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconne
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
 import { showModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
+import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
 import { t } from '../i18n.js';
 
 let wsUnsubscribe = null;
+let eventSponsorCarouselCleanup = null;
 
 function renderSettlementSection(event, payoutInfo) {
   if (event.status === 'cancelled') {
@@ -288,6 +290,14 @@ function renderEventContent(event, content, code) {
         </div>
       ` : ''}
 
+      <!-- Sponsor Banners -->
+      ${event.banners && event.banners.length > 0 ? renderSponsorCarousel(event.banners, {
+        isCreator: false,
+        carouselId: 'event-sponsor-carousel',
+        title: '⭐ Sponsorer',
+        showSectionHeader: true
+      }) : ''}
+
       <!-- Odds Board -->
       <div class="section-header">
         <h2 class="section-title">📊 ${t('event.odds')}</h2>
@@ -539,6 +549,18 @@ function renderEventContent(event, content, code) {
       } catch (err) { showToast(err.message, 'error'); }
     });
   });
+
+  // Initialize sponsor carousel auto-roll if banners present
+  if (event.banners && event.banners.length > 0) {
+    if (eventSponsorCarouselCleanup) {
+      eventSponsorCarouselCleanup();
+      eventSponsorCarouselCleanup = null;
+    }
+    const carouselEl = document.getElementById('event-sponsor-carousel');
+    if (carouselEl) {
+      eventSponsorCarouselCleanup = initSponsorCarousel(carouselEl, event.banners);
+    }
+  }
 }
 
 async function openEventShareModal(code, eventName) {
@@ -592,5 +614,9 @@ export function cleanupEvent() {
   if (wsUnsubscribe) {
     wsUnsubscribe();
     wsUnsubscribe = null;
+  }
+  if (eventSponsorCarouselCleanup) {
+    eventSponsorCarouselCleanup();
+    eventSponsorCarouselCleanup = null;
   }
 }

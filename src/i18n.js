@@ -3,11 +3,11 @@ import { sv } from './lang/sv.js';
 import { en } from './lang/en.js';
 
 const languages = { sv, en };
-let currentLang = localStorage.getItem('betpals_lang') || detectLanguage();
+let currentLang = (typeof localStorage !== 'undefined' ? localStorage.getItem('betpals_lang') : null) || detectLanguage();
 
 function detectLanguage() {
-  const browserLang = navigator.language?.slice(0, 2) || 'en';
-  return languages[browserLang] ? browserLang : 'en';
+  const browserLang = (typeof navigator !== 'undefined' && navigator.language?.slice(0, 2)) || 'sv';
+  return languages[browserLang] ? browserLang : 'sv';
 }
 
 export function t(key) {
@@ -33,9 +33,13 @@ export function getLang() {
 export function setLang(lang) {
   if (languages[lang]) {
     currentLang = lang;
-    localStorage.setItem('betpals_lang', lang);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('betpals_lang', lang);
+    }
     // Trigger re-render
-    window.dispatchEvent(new CustomEvent('lang-changed'));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lang-changed'));
+    }
   }
 }
 

@@ -2329,6 +2329,8 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
   const banners = db.getBanners(tournament.id);
   db.addBanner(id, tournament.id, imageData, linkUrl || null, label || null, banners.length);
 
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
+
   res.json({ ok: true, banner: { id, imageData, linkUrl, label } });
 });
 
@@ -2344,6 +2346,7 @@ app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
   }
 
   db.removeBanner(req.params.bannerId, tournament.id);
+  broadcastToEvent(tournament.shareCode, { type: 'tournament_updated', tournamentCode: tournament.shareCode });
   res.json({ ok: true });
 });
 

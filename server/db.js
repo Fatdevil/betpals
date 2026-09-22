@@ -1010,6 +1010,15 @@ export function getFullEvent(idOrCode) {
     imageUrl: p.image_url || null
   }));
 
+  const banners = event.tournament_id
+    ? stmts.getBannersByTournament.all(event.tournament_id).map(b => ({
+        id: b.id,
+        imageData: b.image_data,
+        linkUrl: b.link_url || null,
+        label: b.label || null
+      }))
+    : [];
+
   const result = {
     id: event.id,
     name: event.name,
@@ -1025,6 +1034,7 @@ export function getFullEvent(idOrCode) {
     creatorId: event.creator_id,
     swishNumber: event.swish_number,
     tournamentId: event.tournament_id,
+    banners,
     isSideBet: !!event.is_side_bet,
     linkedRoundId: event.linked_round_id,
     betMode: event.bet_mode || 'open',

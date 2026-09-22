@@ -3,17 +3,23 @@ import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } fr
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
+import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { TOURNAMENT_TEMPLATES, GAME_TYPES } from '../templates.js';
 
 let wsUnsubscribe = null;
+let sponsorCarouselCleanup = null;
 
 export function cleanupTournament() {
   disconnectWebSocket();
   if (wsUnsubscribe) {
     wsUnsubscribe();
     wsUnsubscribe = null;
+  }
+  if (sponsorCarouselCleanup) {
+    sponsorCarouselCleanup();
+    sponsorCarouselCleanup = null;
   }
 }
 
@@ -256,24 +262,16 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
       <!-- Sponsor Banners -->
       ${(t.banners && t.banners.length > 0) || isCreator ? `
-        <div class="section-header mt-md">
-          <h2 class="section-title">⭐ Sponsorer</h2>
-        </div>
-        ${t.banners && t.banners.length > 0 ? `
-          <div class="sponsor-carousel">
-            ${t.banners.map(b => {
-              const safeUrl = sanitizeUrl(b.linkUrl);
-              return `
-              <div class="sponsor-slide">
-                ${safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener">` : ''}
-                  <img src="${b.imageData}" alt="${escapeHtml(b.label || 'Sponsor')}" class="sponsor-img" />
-                ${safeUrl ? '</a>' : ''}
-                ${b.label ? `<div class="sponsor-label">${escapeHtml(b.label)}</div>` : ''}
-                ${isCreator ? `<button class="sponsor-delete-btn" data-banner-id="${b.id}" title="Ta bort">✕</button>` : ''}
-              </div>
-            `;}).join('')}
+        ${t.banners && t.banners.length > 0 ? renderSponsorCarousel(t.banners, {
+          isCreator,
+          carouselId: 'tournament-sponsor-carousel',
+          title: '⭐ Sponsorer',
+          showSectionHeader: true
+        }) : `
+          <div class="section-header mt-md">
+            <h2 class="section-title">⭐ Sponsorer</h2>
           </div>
-        ` : ''}
+        `}
         ${isCreator ? `
           <button class="btn btn-secondary btn-sm mt-sm" id="add-banner-btn" style="width: 100%;">
             📸 Lägg till sponsor
@@ -737,6 +735,18 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       }
     });
   });
+
+  // Initialize sponsor carousel auto-roll
+  if (t.banners && t.banners.length > 0) {
+    if (sponsorCarouselCleanup) {
+      sponsorCarouselCleanup();
+      sponsorCarouselCleanup = null;
+    }
+    const carouselEl = document.getElementById('tournament-sponsor-carousel');
+    if (carouselEl) {
+      sponsorCarouselCleanup = initSponsorCarousel(carouselEl, t.banners);
+    }
+  }
 
   // Delete banners
   document.querySelectorAll('.sponsor-delete-btn').forEach(btn => {
