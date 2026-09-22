@@ -231,10 +231,10 @@ export async function openShlFantasyModal(options = {}) {
         
         <!-- Round Selector & Multi-Day Schedule Strip -->
         <div class="card mb-xs" style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(251,191,36,0.3); border-radius: var(--radius-md); padding: 8px 10px;">
-          <div class="flex-between align-center">
-            <div class="flex align-center gap-xs" style="flex: 1;">
-              <span style="font-size: 1rem;">${isMultiplayer ? "🔒" : "🏒"}</span>
-              <select id="shl-round-select" ${isMultiplayer ? 'disabled title="Omgången är låst till kompisligan"' : ""} style="background: transparent; color: var(--gold); font-weight: 800; font-size: 0.84rem; border: none; outline: none; cursor: ${isMultiplayer ? "default" : "pointer"}; max-width: 260px; opacity: ${isMultiplayer ? "0.9" : "1"};">
+          <div class="flex-between align-center" style="flex-wrap: wrap; gap: 6px;">
+            <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
+              <span style="font-size: 1rem; flex-shrink: 0;">${isMultiplayer ? "🔒" : "🏒"}</span>
+              <select id="shl-round-select" ${isMultiplayer ? 'disabled title="Omgången är låst till kompisligan"' : ""} style="background: transparent; color: var(--gold); font-weight: 800; font-size: 0.84rem; border: none; outline: none; cursor: ${isMultiplayer ? "default" : "pointer"}; width: 100%; min-width: 0; max-width: 260px; opacity: ${isMultiplayer ? "0.9" : "1"}; text-overflow: ellipsis;">
                 ${SHL_ROUNDS.map(r => {
                   const now = Date.now();
                   const isFinished = r.status === "finished";
@@ -255,7 +255,7 @@ export async function openShlFantasyModal(options = {}) {
                 `}).join("")}
               </select>
             </div>
-            <span class="badge ${currentRound.days.length > 1 ? "badge-warning" : "badge-accent"}" style="font-size: 0.68rem; font-weight: 700; white-space: nowrap;">
+            <span class="badge ${currentRound.days.length > 1 ? "badge-warning" : "badge-accent"}" style="font-size: 0.68rem; font-weight: 700; white-space: nowrap; flex-shrink: 0;">
               ${currentRound.days.length > 1 ? `📅 ${currentRound.days.length} matchdagar` : "📅 1 matchdag"}
             </span>
           </div>
@@ -263,9 +263,9 @@ export async function openShlFantasyModal(options = {}) {
           <!-- Schedule summary by day -->
           <div style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px;">
             ${currentRound.days.map(d => `
-              <div class="flex-between align-center py-xs" style="font-size: 0.7rem;">
-                <span style="color: #fff; font-weight: 700;">📅 ${d.dayLabel}:</span>
-                <span style="color: var(--text-secondary); text-align: right;">
+              <div class="flex-between align-center py-xs" style="font-size: 0.7rem; gap: 6px; flex-wrap: wrap;">
+                <span style="color: #fff; font-weight: 700; flex-shrink: 0;">📅 ${d.dayLabel}:</span>
+                <span style="color: var(--text-secondary); text-align: right; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${d.games.map(g => `${g.home}-${g.away} (${g.time})`).join(" · ")}">
                   ${d.games.map(g => `${g.home}-${g.away} (${g.time})`).join(" · ")}
                 </span>
               </div>
@@ -275,9 +275,9 @@ export async function openShlFantasyModal(options = {}) {
 
         <!-- Multiplayer / Solo Switch Banner -->
         <div class="card mb-sm" style="background: ${isMultiplayer ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(16,185,129,0.1))" : "rgba(255,255,255,0.03)"}; border: 1px solid ${isMultiplayer ? "var(--gold)" : "var(--border-glass)"}; padding: 8px 10px; border-radius: var(--radius-md);">
-          <div class="flex-between align-center">
-            <div>
-              <div style="font-size: 0.78rem; font-weight: 800; color: ${isMultiplayer ? "var(--gold)" : "#fff"}; display: flex; align-items: center; gap: 6px;">
+          <div class="flex-between align-center" style="flex-wrap: wrap; gap: 8px;">
+            <div style="flex: 1 1 auto; min-width: 0;">
+              <div style="font-size: 0.78rem; font-weight: 800; color: ${isMultiplayer ? "var(--gold)" : "#fff"}; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                 <span>${isMultiplayer ? "👥 KOMPIS-LIGA AKTIV" : "🎮 SOLO / TESTLÄGE"}</span>
                 ${isMultiplayer ? `<span class="badge badge-accent" style="font-family: monospace; font-size: 0.7rem; font-weight: 900;">#${currentLeague.code}</span>` : ""}
               </div>
@@ -288,16 +288,16 @@ export async function openShlFantasyModal(options = {}) {
               </div>
             </div>
 
-            <div class="flex gap-xs">
+            <div class="flex gap-xs" style="flex-shrink: 0; align-items: center;">
               ${isMultiplayer ? `
-                <button type="button" class="btn btn-sm btn-secondary" id="btn-share-shl-league" style="font-size: 0.72rem; padding: 4px 8px; border-color: var(--gold); color: var(--gold); font-weight: 700;" title="Dela länk med vänner">
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-share-shl-league" style="font-size: 0.72rem; padding: 4px 8px; border-color: var(--gold); color: var(--gold); font-weight: 700; white-space: nowrap;" title="Dela länk med vänner">
                   🔗 Bjud in
                 </button>
               ` : `
-                <button type="button" class="btn btn-sm btn-primary" id="btn-create-shl-league" style="font-size: 0.72rem; padding: 5px 10px; font-weight: 700;">
+                <button type="button" class="btn btn-sm btn-primary" id="btn-create-shl-league" style="font-size: 0.72rem; padding: 5px 10px; font-weight: 700; white-space: nowrap;">
                   👥 Skapa Liga
                 </button>
-                <button type="button" class="btn btn-sm btn-ghost" id="btn-join-shl-league" style="font-size: 0.72rem; padding: 5px 8px; color: var(--text-secondary);">
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-join-shl-league" style="font-size: 0.72rem; padding: 5px 8px; color: var(--text-secondary); white-space: nowrap;">
                   Gå med
                 </button>
               `}
@@ -306,17 +306,17 @@ export async function openShlFantasyModal(options = {}) {
         </div>
 
         <!-- Header Mode Tabs -->
-        <div class="flex gap-xs mb-md" style="background: rgba(0,0,0,0.4); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
-          <button type="button" class="btn btn-sm ${activeTab === "draft" ? "btn-primary" : "btn-ghost"}" id="tab-shl-draft" style="flex: 1; font-weight: 700; font-size: 0.78rem; padding: 6px 2px;">
+        <div class="flex gap-xs mb-md" style="background: rgba(0,0,0,0.4); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;">
+          <button type="button" class="btn btn-sm ${activeTab === "draft" ? "btn-primary" : "btn-ghost"}" id="tab-shl-draft" style="flex: 1 0 auto; font-weight: 700; font-size: 0.78rem; padding: 6px 6px; white-space: nowrap;">
             🏒 ${isEn ? "Draft (6)" : "Draft (6)"}
           </button>
-          <button type="button" class="btn btn-sm ${activeTab === "pot" ? "btn-primary" : "btn-ghost"}" id="tab-shl-pot" style="flex: 1; font-weight: 700; font-size: 0.78rem; padding: 6px 2px;">
+          <button type="button" class="btn btn-sm ${activeTab === "pot" ? "btn-primary" : "btn-ghost"}" id="tab-shl-pot" style="flex: 1 0 auto; font-weight: 700; font-size: 0.78rem; padding: 6px 6px; white-space: nowrap;">
             💰 ${isEn ? "Swish Pot" : "Swish-Pott"}
           </button>
-          <button type="button" class="btn btn-sm ${activeTab === "live" ? "btn-primary" : "btn-ghost"}" id="tab-shl-live" style="flex: 1; font-weight: 700; font-size: 0.78rem; padding: 6px 2px;">
+          <button type="button" class="btn btn-sm ${activeTab === "live" ? "btn-primary" : "btn-ghost"}" id="tab-shl-live" style="flex: 1 0 auto; font-weight: 700; font-size: 0.78rem; padding: 6px 6px; white-space: nowrap;">
             ⚡ ${isEn ? "Live Round" : "Live-Rond"}
           </button>
-          <button type="button" class="btn btn-sm ${activeTab === "rules" ? "btn-primary" : "btn-ghost"}" id="tab-shl-rules" style="flex: 0.8; font-weight: 700; font-size: 0.78rem; padding: 6px 2px;">
+          <button type="button" class="btn btn-sm ${activeTab === "rules" ? "btn-primary" : "btn-ghost"}" id="tab-shl-rules" style="flex: 0.8 0 auto; font-weight: 700; font-size: 0.78rem; padding: 6px 6px; white-space: nowrap;">
             📖 ${isEn ? "Rules" : "Regler"}
           </button>
         </div>
@@ -455,7 +455,7 @@ export async function openShlFantasyModal(options = {}) {
 
       <!-- Filters & Search -->
       <div class="mb-sm">
-        <div class="flex gap-xs mb-xs">
+        <div class="flex gap-xs mb-xs" style="flex-wrap: wrap;">
           <!-- Position pills -->
           <button type="button" class="btn btn-xs ${activePosFilter === "all" ? "btn-secondary" : "btn-ghost"} pos-pill" data-pos="all">Alla</button>
           <button type="button" class="btn btn-xs ${activePosFilter === "G" ? "btn-secondary" : "btn-ghost"} pos-pill" data-pos="G">🧤 Målvakter</button>
@@ -463,34 +463,34 @@ export async function openShlFantasyModal(options = {}) {
           <button type="button" class="btn btn-xs ${activePosFilter === "F" ? "btn-secondary" : "btn-ghost"} pos-pill" data-pos="F">🏒 Forwards</button>
         </div>
 
-        <div class="flex gap-xs">
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
           <!-- Team Select -->
-          <select id="shl-team-select" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1;">
+          <select id="shl-team-select" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1 1 130px; min-width: 0;">
             <option value="all">${isEn ? "All SHL Teams" : "Alla SHL-Lag"}</option>
             ${SHL_TEAMS.map(t => `<option value="${t.short}" ${activeTeamFilter === t.short ? "selected" : ""}>${t.name} (${t.city})</option>`).join("")}
           </select>
           <!-- Search input -->
-          <input type="text" id="shl-search-input" placeholder="${isEn ? "Search player..." : "Sök spelare..."}" value="${escapeHtml(searchQuery)}" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1.2;" />
+          <input type="text" id="shl-search-input" placeholder="${isEn ? "Search player..." : "Sök spelare..."}" value="${escapeHtml(searchQuery)}" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1 1 120px; min-width: 0;" />
         </div>
 
         <!-- Action bar: Count + Add missing player + Reset -->
-        <div class="flex-between align-center mt-xs" style="font-size: 0.72rem; padding: 2px 2px;">
-          <span style="color: var(--text-secondary);">
+        <div class="flex-between align-center mt-xs" style="font-size: 0.72rem; padding: 2px 2px; flex-wrap: wrap; gap: 4px;">
+          <span style="color: var(--text-secondary); min-width: 0;">
             Visar <strong style="color: #fff;">${filteredPlayers.length}</strong> spelare (av ${allPlayers.length})
           </span>
           ${!isMultiplayer ? `
-            <div class="flex gap-xs">
-              <button type="button" class="btn btn-xs ${isAddingPlayer ? "btn-secondary" : "btn-ghost"}" id="btn-toggle-add-player" style="padding: 2px 8px; font-size: 0.72rem; color: var(--gold); border: 1px dashed rgba(255,215,0,0.4);">
+            <div class="flex gap-xs" style="flex-shrink: 0; align-items: center;">
+              <button type="button" class="btn btn-xs ${isAddingPlayer ? "btn-secondary" : "btn-ghost"}" id="btn-toggle-add-player" style="padding: 2px 8px; font-size: 0.72rem; color: var(--gold); border: 1px dashed rgba(255,215,0,0.4); white-space: nowrap;">
                 ${isAddingPlayer ? "✕ Avbryt" : "➕ Lägg till spelare (solo)"}
               </button>
               ${customPlayers.length > 0 ? `
-                <button type="button" class="btn btn-xs btn-ghost text-danger" id="btn-reset-custom-players" style="padding: 2px 6px; font-size: 0.7rem;" title="Rensa egna tillagda spelare">
+                <button type="button" class="btn btn-xs btn-ghost text-danger" id="btn-reset-custom-players" style="padding: 2px 6px; font-size: 0.7rem; white-space: nowrap;" title="Rensa egna tillagda spelare">
                   🔄 Rensa (${customPlayers.length})
                 </button>
               ` : ""}
             </div>
           ` : `
-            <span class="badge badge-outline" style="font-size: 0.65rem; color: var(--gold); border-color: rgba(255,215,0,0.3);">
+            <span class="badge badge-outline" style="font-size: 0.65rem; color: var(--gold); border-color: rgba(255,215,0,0.3); flex-shrink: 0; white-space: nowrap;">
               🔒 Officiellt SHL-register
             </span>
           `}
@@ -503,21 +503,21 @@ export async function openShlFantasyModal(options = {}) {
               ➕ Skapa / Lägg till spelare i SHL 2026/2027
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
-              <input type="text" id="new-player-name" placeholder="Spelarens namn (t.ex. Lucas Wallmark)" style="background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 6px 8px; font-size: 0.8rem;" />
-              <div class="flex gap-xs">
-                <select id="new-player-team" style="flex: 1.2; background: #0f172a; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem;">
+              <input type="text" id="new-player-name" placeholder="Spelarens namn (t.ex. Lucas Wallmark)" style="background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 6px 8px; font-size: 0.8rem; width: 100%; box-sizing: border-box;" />
+              <div class="flex gap-xs" style="flex-wrap: wrap;">
+                <select id="new-player-team" style="flex: 1 1 110px; min-width: 0; background: #0f172a; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem;">
                   ${SHL_TEAMS.map(t => `<option value="${t.short}">${t.name} (${t.short})</option>`).join("")}
                 </select>
-                <select id="new-player-pos" style="flex: 1; background: #0f172a; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem;">
+                <select id="new-player-pos" style="flex: 1 1 90px; min-width: 0; background: #0f172a; color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem;">
                   <option value="G">🧤 Målvakt</option>
                   <option value="D">🛡️ Back</option>
                   <option value="F" selected>🏒 Forward</option>
                 </select>
-                <input type="number" id="new-player-num" placeholder="Nr" value="10" min="1" max="99" style="width: 50px; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem; text-align: center;" />
+                <input type="number" id="new-player-num" placeholder="Nr" value="10" min="1" max="99" style="width: 50px; flex-shrink: 0; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem; text-align: center;" />
               </div>
-              <div class="flex-between align-center mt-xs">
+              <div class="flex-between align-center mt-xs" style="flex-wrap: wrap; gap: 6px;">
                 <span style="font-size: 0.7rem; color: var(--text-secondary);">Sparas endast i solo-läge</span>
-                <button type="button" class="btn btn-xs btn-primary font-bold" id="btn-submit-new-player" style="padding: 4px 10px; font-size: 0.75rem;">
+                <button type="button" class="btn btn-xs btn-primary font-bold" id="btn-submit-new-player" style="padding: 4px 10px; font-size: 0.75rem; white-space: nowrap;">
                   Spara & Välj direkt 🏒
                 </button>
               </div>
@@ -549,13 +549,13 @@ export async function openShlFantasyModal(options = {}) {
             : "⚠️ Spelledig";
 
           return `
-            <div class="player-card-item flex-between align-center" style="background: rgba(255,255,255,0.03); border: 1px solid ${isSelected ? "var(--gold)" : "var(--border-glass)"}; border-radius: var(--radius-sm); padding: 8px 10px;">
-              <div class="flex align-center gap-sm">
-                <span style="background: rgba(0,0,0,0.4); border: 1px solid ${posBadgeColor}; color: ${posBadgeColor}; font-weight: 800; font-size: 0.7rem; width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;">
+            <div class="player-card-item flex-between align-center" style="background: rgba(255,255,255,0.03); border: 1px solid ${isSelected ? "var(--gold)" : "var(--border-glass)"}; border-radius: var(--radius-sm); padding: 8px 10px; gap: 8px;">
+              <div class="flex align-center gap-sm" style="flex: 1 1 auto; min-width: 0;">
+                <span style="background: rgba(0,0,0,0.4); border: 1px solid ${posBadgeColor}; color: ${posBadgeColor}; font-weight: 800; font-size: 0.7rem; width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;">
                   ${p.pos}
                 </span>
-                <div>
-                  <div style="font-weight: 700; font-size: 0.85rem; color: #fff;">
+                <div style="flex: 1 1 auto; min-width: 0;">
+                  <div style="font-weight: 700; font-size: 0.85rem; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     #${p.num} ${escapeHtml(p.name)}
                   </div>
                   <div class="flex gap-xs" style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 1px; flex-wrap: wrap;">
@@ -566,13 +566,13 @@ export async function openShlFantasyModal(options = {}) {
                 </div>
               </div>
 
-              <div>
+              <div style="flex-shrink: 0;">
                 ${isSelected ? `
-                  <button type="button" class="btn btn-danger btn-xs btn-toggle-player" data-player-id="${p.id}" style="padding: 4px 8px; font-size: 0.75rem;">
+                  <button type="button" class="btn btn-danger btn-xs btn-toggle-player" data-player-id="${p.id}" style="padding: 4px 8px; font-size: 0.75rem; white-space: nowrap;">
                     ✕ Ta bort
                   </button>
                 ` : `
-                  <button type="button" class="btn btn-secondary btn-xs btn-toggle-player" data-player-id="${p.id}" style="padding: 4px 10px; font-size: 0.75rem; border-color: rgba(255,215,0,0.5); color: var(--gold);">
+                  <button type="button" class="btn btn-secondary btn-xs btn-toggle-player" data-player-id="${p.id}" style="padding: 4px 10px; font-size: 0.75rem; border-color: rgba(255,215,0,0.5); color: var(--gold); white-space: nowrap;">
                     + Välj
                   </button>
                 `}
@@ -639,17 +639,17 @@ export async function openShlFantasyModal(options = {}) {
             <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 6px;">
               💵 ${isEn ? "Choose Stake per Person:" : "Välj insats per person:"}
             </label>
-            <div class="flex gap-xs mb-sm">
-              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "free" ? "active" : ""}" data-mode="free" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "free" ? "border-color: #10b981; color: #10b981;" : ""}">
+            <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "free" ? "active" : ""}" data-mode="free" style="flex: 1 1 65px; min-width: 0; font-size: 0.76rem; padding: 7px 2px; white-space: nowrap; ${selectedMode === "free" ? "border-color: #10b981; color: #10b981;" : ""}">
                 🪙 Gratis
               </button>
-              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 20 ? "active" : ""}" data-mode="swish" data-stake="20" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 20 ? "border-color: var(--gold); color: var(--gold);" : ""}">
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 20 ? "active" : ""}" data-mode="swish" data-stake="20" style="flex: 1 1 50px; min-width: 0; font-size: 0.76rem; padding: 7px 2px; white-space: nowrap; ${selectedMode === "swish" && selectedStake === 20 ? "border-color: var(--gold); color: var(--gold);" : ""}">
                 20 kr
               </button>
-              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 50 ? "active" : ""}" data-mode="swish" data-stake="50" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 50 ? "border-color: var(--gold); color: var(--gold);" : ""}">
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 50 ? "active" : ""}" data-mode="swish" data-stake="50" style="flex: 1 1 60px; min-width: 0; font-size: 0.76rem; padding: 7px 2px; white-space: nowrap; ${selectedMode === "swish" && selectedStake === 50 ? "border-color: var(--gold); color: var(--gold);" : ""}">
                 50 kr 🔥
               </button>
-              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 100 ? "active" : ""}" data-mode="swish" data-stake="100" style="flex: 1; font-size: 0.78rem; padding: 8px 4px; ${selectedMode === "swish" && selectedStake === 100 ? "border-color: var(--gold); color: var(--gold);" : ""}">
+              <button type="button" class="btn btn-sm stake-btn ${selectedMode === "swish" && selectedStake === 100 ? "active" : ""}" data-mode="swish" data-stake="100" style="flex: 1 1 55px; min-width: 0; font-size: 0.76rem; padding: 7px 2px; white-space: nowrap; ${selectedMode === "swish" && selectedStake === 100 ? "border-color: var(--gold); color: var(--gold);" : ""}">
                 100 kr
               </button>
             </div>
@@ -658,11 +658,11 @@ export async function openShlFantasyModal(options = {}) {
 
         <!-- Participants List -->
         <div class="card mb-md" style="padding: 10px 12px; background: rgba(0,0,0,0.3);">
-          <div class="flex-between mb-xs align-center">
+          <div class="flex-between mb-xs align-center" style="flex-wrap: wrap; gap: 4px;">
             <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">
               👥 ${isMultiplayer ? `Kompisar i ligan (${participants.length}):` : `Kompisar i potten:`}
             </span>
-            <span class="badge badge-success" style="font-size: 0.65rem;">KLARA FÖR NEDSLÄPP 🏒</span>
+            <span class="badge badge-success" style="font-size: 0.65rem; flex-shrink: 0; white-space: nowrap;">KLARA FÖR NEDSLÄPP 🏒</span>
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -670,15 +670,15 @@ export async function openShlFantasyModal(options = {}) {
               const pCount = (p.lineup?.goalie ? 1 : 0) + (p.lineup?.defenders?.length || 0) + (p.lineup?.forwards?.length || 0);
               const isMe = p.user_id === currentUser.id || p.id === "me";
               return `
-                <div class="flex-between align-center py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.82rem;">
-                  <div class="flex align-center gap-xs">
-                    <span>${p.avatar_emoji || "🏒"}</span>
-                    <span style="color: ${isMe ? "#10b981" : "#fff"}; font-weight: ${isMe ? "700" : "600"};">
+                <div class="flex-between align-center py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.82rem; flex-wrap: wrap; gap: 4px;">
+                  <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
+                    <span style="flex-shrink: 0;">${p.avatar_emoji || "🏒"}</span>
+                    <span style="color: ${isMe ? "#10b981" : "#fff"}; font-weight: ${isMe ? "700" : "600"}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                       ${escapeHtml(p.user_name || p.name)} ${isMe ? "(Du)" : ""}
                     </span>
-                    ${p.swish_number ? `<span class="badge" style="font-size: 0.65rem; background: rgba(255,255,255,0.08); padding: 1px 4px;">📱 ${p.swish_number}</span>` : ""}
+                    ${p.swish_number ? `<span class="badge" style="font-size: 0.65rem; background: rgba(255,255,255,0.08); padding: 1px 4px; flex-shrink: 0; white-space: nowrap;">📱 ${p.swish_number}</span>` : ""}
                   </div>
-                  <span style="color: ${pCount === 6 ? "#10b981" : "var(--gold)"}; font-size: 0.75rem; font-weight: 700;">
+                  <span style="color: ${pCount === 6 ? "#10b981" : "var(--gold)"}; font-size: 0.75rem; font-weight: 700; flex-shrink: 0; white-space: nowrap;">
                     ${pCount === 6 ? "✓ 6/6 klara" : `${pCount}/6 valda`}
                   </span>
                 </div>
@@ -778,11 +778,11 @@ export async function openShlFantasyModal(options = {}) {
       <div style="padding: 4px 0;">
         
         <!-- Action bar / simulation button -->
-        <div class="flex-between align-center mb-sm" style="background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
-          <div>
+        <div class="flex-between align-center mb-sm" style="background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); flex-wrap: wrap; gap: 8px;">
+          <div style="flex: 1 1 auto; min-width: 0;">
             <div style="font-size: 0.8rem; font-weight: 800; color: ${isRoundComplete ? "#fbbf24" : "#10b981"}; display: flex; align-items: center; gap: 4px;">
-              <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: ${isRoundComplete ? "#fbbf24" : "#10b981"}; box-shadow: 0 0 8px ${isRoundComplete ? "#fbbf24" : "#10b981"};"></span>
-              ${statusText}
+              <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: ${isRoundComplete ? "#fbbf24" : "#10b981"}; box-shadow: 0 0 8px ${isRoundComplete ? "#fbbf24" : "#10b981"}; flex-shrink: 0;"></span>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${statusText}</span>
             </div>
             <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 1px;">
               ${statusDesc}
@@ -790,11 +790,11 @@ export async function openShlFantasyModal(options = {}) {
           </div>
 
           ${(!isMultiplayer || currentLeague.creator_id === currentUser.id) ? `
-            <button type="button" class="btn btn-sm btn-secondary" id="btn-simulate-round" style="font-size: 0.75rem; padding: 6px 10px; font-weight: 700; border-color: var(--gold); color: var(--gold);">
+            <button type="button" class="btn btn-sm btn-secondary" id="btn-simulate-round" style="font-size: 0.75rem; padding: 6px 10px; font-weight: 700; border-color: var(--gold); color: var(--gold); flex-shrink: 0; white-space: nowrap;">
               ${simBtnLabel}
             </button>
           ` : `
-            <div style="font-size: 0.72rem; color: var(--gold); font-weight: 700;">
+            <div style="font-size: 0.72rem; color: var(--gold); font-weight: 700; flex-shrink: 0; white-space: nowrap;">
               ${isRoundComplete ? "Avgjord 🏆" : "Väntar på skaparen ⏳"}
             </div>
           `}
@@ -811,20 +811,20 @@ export async function openShlFantasyModal(options = {}) {
               const isFirst = rank === 0 && sq.points > 0;
               return `
                 <div class="card" style="padding: 10px 12px; background: ${isFirst ? "linear-gradient(135deg, rgba(251,191,36,0.15), rgba(16,185,129,0.08))" : "rgba(255,255,255,0.02)"}; border: 1px solid ${isFirst ? "var(--gold)" : sq.isMe ? "rgba(16,185,129,0.4)" : "var(--border-glass)"};">
-                  <div class="flex-between align-center">
-                    <div class="flex align-center gap-xs">
-                      <span style="font-weight: 900; font-size: 1rem; width: 22px; color: ${rank === 0 ? "var(--gold)" : "var(--text-secondary)"};">
+                  <div class="flex-between align-center" style="flex-wrap: wrap; gap: 6px;">
+                    <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
+                      <span style="font-weight: 900; font-size: 1rem; width: 22px; color: ${rank === 0 ? "var(--gold)" : "var(--text-secondary)"}; flex-shrink: 0;">
                         ${rank === 0 ? "🥇" : rank === 1 ? "🥈" : rank === 2 ? "🥉" : `#${rank + 1}`}
                       </span>
-                      <span style="font-size: 1.1rem;">${sq.avatar}</span>
-                      <div>
-                        <div style="font-weight: 700; font-size: 0.88rem; color: ${sq.isMe ? "#10b981" : "#fff"};">
+                      <span style="font-size: 1.1rem; flex-shrink: 0;">${sq.avatar}</span>
+                      <div style="flex: 1 1 auto; min-width: 0;">
+                        <div style="font-weight: 700; font-size: 0.88rem; color: ${sq.isMe ? "#10b981" : "#fff"}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                           ${escapeHtml(sq.name)} ${sq.isMe ? "(Du)" : ""}
                         </div>
-                        ${sq.swish ? `<div style="font-size: 0.65rem; color: var(--text-secondary);">📱 ${escapeHtml(sq.swish)}</div>` : ""}
+                        ${sq.swish ? `<div style="font-size: 0.65rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📱 ${escapeHtml(sq.swish)}</div>` : ""}
                       </div>
                     </div>
-                    <div style="text-align: right;">
+                    <div style="text-align: right; flex-shrink: 0;">
                       <span style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 900; color: var(--gold);">
                         ${sq.points}p
                       </span>
@@ -873,29 +873,29 @@ export async function openShlFantasyModal(options = {}) {
                   });
 
                   return `
-                    <div class="flex-between align-center" style="padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.78rem;">
-                      <div>
-                        <span style="font-weight: 700; color: #fff;">${escapeHtml(loser.name)}</span>
+                    <div class="flex-between align-center" style="padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.78rem; flex-wrap: wrap; gap: 6px;">
+                      <div style="flex: 1 1 auto; min-width: 0;">
+                        <span style="font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">${escapeHtml(loser.name)}</span>
                         <div style="font-size: 0.68rem; color: var(--text-secondary);">
                           Ska swisha ${activeStake} kr → ${escapeHtml(leader.name)}
                         </div>
                       </div>
 
-                      <div class="flex align-center gap-xs">
+                      <div class="flex align-center gap-xs" style="flex-shrink: 0;">
                         ${loser.isPaid ? `
-                          <span class="badge badge-success" style="font-size: 0.65rem; padding: 3px 6px;">Betald ✅</span>
+                          <span class="badge badge-success" style="font-size: 0.65rem; padding: 3px 6px; white-space: nowrap;">Betald ✅</span>
                         ` : `
                           ${loser.isMe ? `
-                            <a href="${swishUrl}" class="btn btn-sm btn-success" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none; font-weight: 700;">
+                            <a href="${swishUrl}" class="btn btn-sm btn-success" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none; font-weight: 700; white-space: nowrap;">
                               📱 Swisha ${activeStake} kr
                             </a>
                           ` : `
-                            <span class="badge badge-warning" style="font-size: 0.65rem;">Väntar</span>
+                            <span class="badge badge-warning" style="font-size: 0.65rem; white-space: nowrap;">Väntar</span>
                           `}
                         `}
 
                         ${(leader.isMe || loser.isMe || !isMultiplayer) ? `
-                          <button type="button" class="btn btn-xs ${loser.isPaid ? "btn-ghost" : "btn-secondary"} btn-toggle-shl-paid" data-user-id="${loser.id}" data-is-paid="${loser.isPaid ? "0" : "1"}" style="font-size: 0.68rem; padding: 3px 6px;">
+                          <button type="button" class="btn btn-xs ${loser.isPaid ? "btn-ghost" : "btn-secondary"} btn-toggle-shl-paid" data-user-id="${loser.id}" data-is-paid="${loser.isPaid ? "0" : "1"}" style="font-size: 0.68rem; padding: 3px 6px; white-space: nowrap;">
                             ${loser.isPaid ? "Ångra" : "Kvitto ✓"}
                           </button>
                         ` : ""}

@@ -1098,6 +1098,12 @@ select.form-input option {
   animation: slideUp 0.3s var(--ease-spring);
 }
 
+@media (max-width: 480px) {
+  .modal-content {
+    padding: var(--space-lg) 12px;
+  }
+}
+
 /* ── Fullscreen Modal (e.g. Livestream, Immersive Views) ── */
 .modal-overlay.modal-overlay-fullscreen {
   align-items: stretch !important;

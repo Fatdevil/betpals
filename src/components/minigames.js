@@ -754,19 +754,19 @@ function openCoinFlipModal(initialDuel = null) {
           <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;" id="coin-side-prompt-label">
             ${activeMode === 'swish' ? t('arcade.coinSidePickPrompt') : t('arcade.coinFlipPrompt')}
           </div>
-          <div class="flex gap-sm mb-xs" style="justify-content: center;">
-            <button type="button" class="btn btn-secondary coin-pick-btn ${chosenSide === 'head' ? 'active' : ''}" data-side="head" style="flex: 1; ${chosenSide === 'head' ? 'border-color: var(--gold);' : ''} font-weight: 700;">
+          <div class="flex gap-sm mb-xs" style="justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary coin-pick-btn ${chosenSide === 'head' ? 'active' : ''}" data-side="head" style="flex: 1 1 120px; min-width: 0; ${chosenSide === 'head' ? 'border-color: var(--gold);' : ''} font-weight: 700; white-space: nowrap;">
               🪙 HEAD (Krona)
             </button>
-            <button type="button" class="btn btn-secondary coin-pick-btn ${chosenSide === 'tails' ? 'active' : ''}" data-side="tails" style="flex: 1; ${chosenSide === 'tails' ? 'border-color: var(--gold);' : ''} font-weight: 700;">
+            <button type="button" class="btn btn-secondary coin-pick-btn ${chosenSide === 'tails' ? 'active' : ''}" data-side="tails" style="flex: 1 1 120px; min-width: 0; ${chosenSide === 'tails' ? 'border-color: var(--gold);' : ''} font-weight: 700; white-space: nowrap;">
               🪙 TAILS (Klave)
             </button>
           </div>
           <!-- Duel matchup assignment preview -->
-          <div id="coin-matchup-preview" style="display: ${activeMode === 'swish' ? 'flex' : 'none'}; justify-content: space-around; font-size: 0.76rem; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); padding: 4px 8px; border: 1px solid var(--border-glass);">
-            <span style="color: var(--gold);"><b>${escapeHtml(p1Name)}:</b> ${chosenSide === 'head' ? '🪙 HEAD' : '🪙 TAILS'}</span>
-            <span style="color: var(--text-muted); font-weight: 800;">VS</span>
-            <span style="color: #f87171;"><b><span id="coin-matchup-p2-name">${escapeHtml(p2Name)}</span>:</b> <span id="coin-matchup-p2-side">${chosenSide === 'head' ? '🪙 TAILS' : '🪙 HEAD'}</span></span>
+          <div id="coin-matchup-preview" style="display: ${activeMode === 'swish' ? 'flex' : 'none'}; justify-content: space-around; font-size: 0.76rem; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); padding: 4px 8px; border: 1px solid var(--border-glass); flex-wrap: wrap; gap: 4px;">
+            <span style="color: var(--gold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><b>${escapeHtml(p1Name)}:</b> ${chosenSide === 'head' ? '🪙 HEAD' : '🪙 TAILS'}</span>
+            <span style="color: var(--text-muted); font-weight: 800; flex-shrink: 0;">VS</span>
+            <span style="color: #f87171; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><b><span id="coin-matchup-p2-name">${escapeHtml(p2Name)}</span>:</b> <span id="coin-matchup-p2-side">${chosenSide === 'head' ? '🪙 TAILS' : '🪙 HEAD'}</span></span>
           </div>
         </div>
 
@@ -2208,21 +2208,21 @@ function openDiceModal(initialDuel = null) {
         <!-- Dice Arena -->
         <div style="display: flex; justify-content: space-around; align-items: center; margin: 12px 0;">
           <!-- Player 1 -->
-          <div>
-            <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px;" id="p1-label">
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold); margin-bottom: 6px; max-width: 110px; margin-left: auto; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" id="p1-label">
               ${activeMode === 'swish' && currentUser ? escapeHtml(currentUser.nickname || 'Du') : t('arcade.diceYou')}
             </div>
             <div class="dice-item" id="player-dice"></div>
             <div class="font-heading font-bold mt-xs" id="player-dice-score" style="font-size: 1.1rem;">6</div>
           </div>
 
-          <div style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 900; color: var(--text-muted);">
+          <div style="font-family: var(--font-heading); font-size: 1.2rem; font-weight: 900; color: var(--text-muted); flex-shrink: 0; padding: 0 4px;">
             VS
           </div>
 
           <!-- Player 2 / Dealer -->
-          <div>
-            <div style="font-weight: 700; font-size: 0.85rem; color: #f87171; margin-bottom: 6px;" id="p2-label">
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-weight: 700; font-size: 0.85rem; color: #f87171; margin-bottom: 6px; max-width: 110px; margin-left: auto; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" id="p2-label">
               ${activeMode === 'swish' ? (selectedFriend ? escapeHtml(selectedFriend.nickname) : (isEn ? 'Opponent' : 'Motståndare')) : t('arcade.diceDealer')}
             </div>
             <div class="dice-item red" id="dealer-dice"></div>
@@ -3478,11 +3478,11 @@ export async function openBlind10Modal(initialRoom = null) {
           <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; margin-bottom: 18px;">
             ${room.results.map((p, idx) => `
               <div class="blind10-podium-item ${tiedPlayerIds.includes(p.id) ? 'rank-1' : ''}">
-                <div class="flex align-center gap-xs">
-                  <span style="font-weight: 700; font-size: 1.1rem;">${tiedPlayerIds.includes(p.id) ? '🔥' : `#${idx + 1}`}</span>
-                  <span>${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
+                <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
+                  <span style="font-weight: 700; font-size: 1.1rem; flex-shrink: 0;">${tiedPlayerIds.includes(p.id) ? '🔥' : `#${idx + 1}`}</span>
+                  <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.avatarEmoji || '👤'} <strong>${escapeHtml(p.nickname)}</strong></span>
                 </div>
-                <div class="text-right">
+                <div class="text-right" style="flex-shrink: 0;">
                   <div style="font-family: monospace; font-weight: 700; color: #fff;">${p.stoppedTime?.toFixed(3)}s</div>
                   <div style="font-size: 0.75rem; color: var(--text-muted);">Diff: ${p.diff?.toFixed(3)}s</div>
                 </div>
@@ -5859,15 +5859,15 @@ export async function openSwishlistModal() {
 
           return `
             <div class="swish-settlement-item" style="border-left: 3px solid ${owesYou ? '#4ade80' : '#ef4444'};">
-              <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 140px;">
                 <div style="width: 34px; height: 34px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; border: 1px solid var(--border-glass);">
                   ${f.friendAvatarUrl ? `<img src="${f.friendAvatarUrl}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (f.friendAvatarEmoji || '👤')}
                 </div>
-                <div style="min-width: 0;">
+                <div style="min-width: 0; flex: 1 1 auto;">
                   <div style="font-weight: 700; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                     ${escapeHtml(f.friendName || f.friendNickname)}
                   </div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted);">
+                  <div style="font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     ${owesYou 
                       ? (isEn ? `Owes you ${absAmount} kr (${f.duelsCount} duels)` : `Ska swisha dig ${absAmount} kr (${f.duelsCount} dueller)`) 
                       : (isEn ? `You owe ${absAmount} kr (${f.duelsCount} duels)` : `Du ska swisha ${absAmount} kr (${f.duelsCount} dueller)`)}
@@ -5875,17 +5875,17 @@ export async function openSwishlistModal() {
                 </div>
               </div>
 
-              <div class="flex gap-xs" style="align-items: center;">
+              <div class="flex gap-xs" style="align-items: center; flex-shrink: 0;">
                 ${!owesYou ? `
-                  <a href="${swishUrl}" class="swish-pay-btn" style="padding: 5px 10px; font-size: 0.75rem;" target="_blank" rel="noopener">
+                  <a href="${swishUrl}" class="swish-pay-btn" style="padding: 5px 10px; font-size: 0.75rem; white-space: nowrap;" target="_blank" rel="noopener">
                     📱 ${isEn ? 'Swish' : 'Swisha'} ${absAmount} kr
                   </a>
                 ` : `
-                  <button type="button" class="btn btn-ghost btn-xs btn-remind-friend" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName)}" data-amount="${absAmount}" style="color: var(--gold); font-size: 0.75rem; padding: 4px 8px;">
+                  <button type="button" class="btn btn-ghost btn-xs btn-remind-friend" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName)}" data-amount="${absAmount}" style="color: var(--gold); font-size: 0.75rem; padding: 4px 8px; white-space: nowrap;">
                     💬 ${isEn ? 'Remind' : 'Påminn'}
                   </button>
                 `}
-                <button type="button" class="btn btn-secondary btn-xs btn-settle-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" title="${isEn ? 'Mark as settled' : 'Kvittera som betald'}" style="padding: 5px 8px; font-size: 0.75rem;">
+                <button type="button" class="btn btn-secondary btn-xs btn-settle-friend" data-friend-id="${f.friendId}" data-name="${escapeHtml(f.friendName)}" title="${isEn ? 'Mark as settled' : 'Kvittera som betald'}" style="padding: 5px 8px; font-size: 0.75rem; flex-shrink: 0;">
                   ✅
                 </button>
               </div>
@@ -6194,15 +6194,15 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
 
     return `
       <div class="card flashbet-card" data-fb-id="${fb.id}" style="border: 1.5px solid ${isExpired ? 'var(--border-light)' : 'var(--gold)'}; background: var(--bg-card); position: relative; overflow: hidden; padding: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 1.3rem;">${escapeHtml(fb.creatorAvatar || '👤')}</span>
-            <div>
-              <div style="font-weight: 700; font-size: 0.85rem;">${escapeHtml(fb.creatorRealName || fb.creatorNickname)}</div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;">
+            <span style="font-size: 1.3rem; flex-shrink: 0;">${escapeHtml(fb.creatorAvatar || '👤')}</span>
+            <div style="flex: 1 1 auto; min-width: 0;">
+              <div style="font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(fb.creatorRealName || fb.creatorNickname)}</div>
               <div style="font-size: 0.7rem; color: var(--text-muted);">Insats: <strong>${fb.stakeAmount} kr</strong></div>
             </div>
           </div>
-          <div class="flashbet-timer-badge" id="timer-${fb.id}" style="padding: 4px 10px; border-radius: var(--radius-full); font-size: 0.82rem; font-weight: 800; font-family: monospace; letter-spacing: 0.05em; min-width: 78px; text-align: center; background: ${seconds <= 15 ? 'rgba(231,76,60,0.2)' : 'rgba(245,166,35,0.15)'}; color: ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'}; border: 1px solid ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'};">
+          <div class="flashbet-timer-badge" id="timer-${fb.id}" style="padding: 4px 8px; border-radius: var(--radius-full); font-size: 0.8rem; font-weight: 800; font-family: monospace; letter-spacing: 0.05em; flex-shrink: 0; white-space: nowrap; text-align: center; background: ${seconds <= 15 ? 'rgba(231,76,60,0.2)' : 'rgba(245,166,35,0.15)'}; color: ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'}; border: 1px solid ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'};">
             ⏱️ ${formatSeconds(seconds)}
           </div>
         </div>
@@ -6566,14 +6566,14 @@ export async function openReceiptModal(expenseId) {
               }
 
               return `
-                <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border-left: 3px solid ${badgeColor}; font-size: 0.85rem;">
-                  <div class="flex align-center gap-xs">
-                    <span>${escapeHtml(p.avatar_emoji || '👤')}</span>
-                    <span style="font-weight: 600;">${escapeHtml(name)}</span>
-                    ${isPayer ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
-                    ${isLoser ? `<span class="badge badge-danger" style="font-size: 0.65rem; padding: 1px 4px;">💸 ${isEn ? 'Lost' : 'Tog notan'}</span>` : ''}
+                <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border-left: 3px solid ${badgeColor}; font-size: 0.85rem; flex-wrap: wrap; gap: 6px;">
+                  <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
+                    <span style="flex-shrink: 0;">${escapeHtml(p.avatar_emoji || '👤')}</span>
+                    <span style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(name)}</span>
+                    ${isPayer ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px; flex-shrink: 0; white-space: nowrap;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
+                    ${isLoser ? `<span class="badge badge-danger" style="font-size: 0.65rem; padding: 1px 4px; flex-shrink: 0; white-space: nowrap;">💸 ${isEn ? 'Lost' : 'Tog notan'}</span>` : ''}
                   </div>
-                  <div style="font-weight: 700; color: ${badgeColor}; font-size: 0.8rem;">
+                  <div style="font-weight: 700; color: ${badgeColor}; font-size: 0.8rem; flex-shrink: 0; white-space: nowrap;">
                     ${amountText}
                   </div>
                 </div>`;
@@ -7130,13 +7130,13 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
               <div class="mb-sm" style="display: flex; flex-direction: column; gap: 4px;">
                 ${participants.map(p => {
                   return `
-                    <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.8rem;">
-                      <div class="flex align-center gap-xs">
-                        <span>${escapeHtml(p.avatarEmoji)}</span>
-                        <span style="font-weight: 600;">${escapeHtml(p.name)}</span>
-                        ${p.isMe ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
+                    <div class="flex-between align-center" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); font-size: 0.8rem; flex-wrap: wrap; gap: 6px;">
+                      <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
+                        <span style="flex-shrink: 0;">${escapeHtml(p.avatarEmoji)}</span>
+                        <span style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(p.name)}</span>
+                        ${p.isMe ? `<span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px; flex-shrink: 0; white-space: nowrap;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
                       </div>
-                      <div style="font-weight: 700; color: ${p.isMe ? '#4ade80' : 'var(--gold)'};">
+                      <div style="font-weight: 700; color: ${p.isMe ? '#4ade80' : 'var(--gold)'}; flex-shrink: 0; white-space: nowrap;">
                         ${p.isMe ? `${isEn ? 'Paid' : 'Lade ut'} ${totalAmount} kr` : `${isEn ? 'Owes you' : 'Ska swisha dig'} ${splitEach} kr`}
                       </div>
                     </div>`;
@@ -10511,8 +10511,8 @@ export async function openGimmeModal() {
     <div class="gimme-modal-container" style="max-width: 480px; margin: 0 auto; text-align: center; user-select: none;">
       
       <!-- Top instructions & quick settings -->
-      <div class="flex justify-between items-center mb-sm" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 8px 12px;">
-        <div style="text-align: left;">
+      <div class="flex justify-between items-center mb-sm" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 8px 12px; flex-wrap: wrap; gap: 8px;">
+        <div style="text-align: left; flex: 1 1 140px; min-width: 0;">
           <div style="font-weight: 700; font-size: 0.85rem; color: var(--gold);">
             ⛳️ ${isEn ? 'AR Putt Referee' : 'Live AR-Domare'}
           </div>
@@ -10521,11 +10521,11 @@ export async function openGimmeModal() {
           </div>
         </div>
 
-        <div class="flex gap-xs items-center">
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-gimme-bet" style="font-size: 0.75rem; padding: 4px 8px; border-color: #fbbf24; color: #fbbf24; font-weight: 700;">
+        <div class="flex gap-xs items-center" style="flex-wrap: wrap; flex-shrink: 0;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-gimme-bet" style="font-size: 0.75rem; padding: 4px 8px; border-color: #fbbf24; color: #fbbf24; font-weight: 700; white-space: nowrap;">
             💰 ${isEn ? 'Bet' : 'Betta'}
           </button>
-          <span style="font-size: 0.75rem; color: rgba(255,255,255,0.7);">${isEn ? 'Limit:' : 'Gräns:'}</span>
+          <span style="font-size: 0.75rem; color: rgba(255,255,255,0.7); white-space: nowrap;">${isEn ? 'Limit:' : 'Gräns:'}</span>
           <select id="gimme-dist-select" style="background: rgba(0,0,0,0.6); color: #10b981; border: 1px solid #10b981; border-radius: 6px; padding: 2px 6px; font-size: 0.8rem; font-weight: 700; cursor: pointer;">
             <option value="45">${isEn ? '45 cm (Strict)' : '45 cm (Strikt)'}</option>
             <option value="60" selected>${isEn ? '60 cm (Standard)' : '60 cm (Standard)'}</option>
@@ -10578,18 +10578,18 @@ export async function openGimmeModal() {
         </div>
 
         <!-- Player Names -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px;">
           <div>
             <label style="font-size: 0.72rem; color: #10b981; font-weight: 700; display: block; margin-bottom: 2px;">
               🟢 ${isEn ? 'Claims Gimme:' : 'Tror på Gimme:'}
             </label>
-            <input type="text" id="gimme-p1-name" placeholder="${isEn ? 'Name (e.g. Charlie)' : 'Namn (t.ex. Kalle)'}" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #10b981; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+            <input type="text" id="gimme-p1-name" placeholder="${isEn ? 'Name (e.g. Charlie)' : 'Namn (t.ex. Kalle)'}" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.5); border: 1px solid #10b981; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
           </div>
           <div>
             <label style="font-size: 0.72rem; color: #ef4444; font-weight: 700; display: block; margin-bottom: 2px;">
               🔴 ${isEn ? 'Demands Putt:' : 'Kräver Putt:'}
             </label>
-            <input type="text" id="gimme-p2-name" placeholder="${isEn ? 'Name (e.g. Dave)' : 'Namn (t.ex. Johan)'}" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
+            <input type="text" id="gimme-p2-name" placeholder="${isEn ? 'Name (e.g. Dave)' : 'Namn (t.ex. Johan)'}" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.5); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff;" />
           </div>
         </div>
 
