@@ -31,8 +31,18 @@ export async function renderProfile() {
     ]);
     renderProfileContent(content, user, bets, stats, creds, friends, notifPrefs, photos);
   } catch (err) {
-    clearUser();
-    renderAuthScreen(content);
+    const isAuthError = err && err.message && (
+      err.message.toLowerCase().includes('token') || 
+      err.message.toLowerCase().includes('inloggad') || 
+      err.message.toLowerCase().includes('unauthorized')
+    );
+    if (isAuthError) {
+      clearUser();
+      renderAuthScreen(content);
+    } else {
+      showToast('Kunde inte nå servern just nu. Visar sparad profil.', 'info');
+      renderProfileContent(content, user, [], null, { hasBiometric: false }, [], { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }, []);
+    }
   }
 }
 
