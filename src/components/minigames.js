@@ -410,7 +410,7 @@ export function openAllArcadeGamesModal() {
       id: 'space-invaders',
       name: t('arcade.spaceInvaders'),
       tag: t('arcade.spaceInvadersTag'),
-      desc: isEn ? 'Classic 80s Space Invaders blitz! Solo, 1v1 duels or multi-player highscore' : 'Klassisk 80-tals rymdinvasion i 60s blitz! Solo, 1v1 duell eller gruppturnering',
+      desc: isEn ? 'Classic 80s Space Invaders blitz! Solo, 1v1 duels or multi-player highscore' : 'Klassisk 80-tals rymdinvasion i 60s blitz! Solo, 1v1 duell eller grupp-event',
       iconHtml: `<img src="/space-invaders.png" alt="${t('arcade.spaceInvaders')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {

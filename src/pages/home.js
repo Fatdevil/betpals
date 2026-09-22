@@ -52,8 +52,8 @@ export async function renderHome() {
         <div class="section-header-bar">
           <div class="section-header-title">
             <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b; margin-right: 2px;"></span>
-            <img src="/chip-malta-transparent.png" alt="Tournaments" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
-            <span>TOURNAMENTS</span>
+            <img src="/chip-malta-transparent.png" alt="Events" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+            <span>EVENTS</span>
           </div>
           <div class="flex gap-xs" style="align-items: center;">
             <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">

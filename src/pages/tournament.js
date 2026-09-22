@@ -22,11 +22,11 @@ export async function renderTournament(params = {}) {
   const content = document.getElementById('page-content');
   const code = params.code;
   if (!code) {
-    content.innerHTML = '<div class="text-center text-muted mt-lg">Ingen turnering vald</div>';
+    content.innerHTML = '<div class="text-center text-muted mt-lg">Inget event valt</div>';
     return;
   }
 
-  content.innerHTML = '<div class="text-center text-muted mt-lg">Laddar turnering...</div>';
+  content.innerHTML = '<div class="text-center text-muted mt-lg">Laddar event...</div>';
 
   try {
     const t = await getTournament(code);
@@ -109,16 +109,16 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         <div class="flex-between">
           <div>
             <h1 class="page-title">🏆 ${escapeHtml(t.name)}</h1>
-            <p class="page-subtitle">${t.rounds.length} ronder · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
+            <p class="page-subtitle">${t.rounds.length} spel · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
           </div>
           <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}">${t.status === 'active' ? 'Pågår' : 'Avräknad'}</span>
         </div>
         <div class="flex gap-sm mt-sm" style="justify-content: flex-end; align-items: center;">
           <button class="btn btn-secondary btn-sm" id="share-tournament-btn">
-            📱 Dela turnering
+            📱 Dela event
           </button>
           ${isCreator ? `
-            <button class="btn btn-danger btn-sm" id="delete-tournament-btn" title="Radera hela turneringen" style="font-size: 0.75rem;">
+            <button class="btn btn-danger btn-sm" id="delete-tournament-btn" title="Radera hela eventet" style="font-size: 0.75rem;">
               🗑️ Radera
             </button>
           ` : ''}
@@ -150,7 +150,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
       <!-- Rounds -->
       <div class="section-header">
-        <h2 class="section-title">📋 Ronder</h2>
+        <h2 class="section-title">📋 Spel & Ronder</h2>
       </div>
       <div class="bet-list">
         ${t.rounds.map((r, i) => `
@@ -341,12 +341,12 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <!-- Settle Tournament Button -->
           ${isCreator && t.status === 'active' ? `
             <button class="btn btn-block mt-md" id="settle-tournament-btn" style="background: linear-gradient(135deg, #ffd700, #ff8800); color: #000; font-weight: 800; font-size: 0.95rem; padding: 12px; border: none; border-radius: var(--radius-md); cursor: pointer; box-shadow: 0 4px 15px rgba(255,215,0,0.3);">
-              🏆 Avsluta turnering & kora vinnare
+              🏆 Avsluta event & kora vinnare
             </button>
           ` : ''}
           ${isCreator && t.status === 'settled' ? `
             <button class="btn btn-secondary btn-block mt-md" id="reopen-tournament-btn" style="font-size: 0.85rem; padding: 10px; width: 100%;">
-              🔓 Återöppna turnering
+              🔓 Återöppna event
             </button>
           ` : ''}
         </div>
@@ -672,12 +672,12 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       showToast(`Alla ronder och sido-spel måste vara avgjorda eller avbrutna (${unfinished.length} kvar).`, 'warning');
       return;
     }
-    if (!confirm(`Vill du avsluta turneringen "${t.name}" och fastställa slutresultatet?`)) return;
+    if (!confirm(`Vill du avsluta eventet "${t.name}" och fastställa slutresultatet?`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
       await settleTournament(t.id, { pin });
       launchConfetti();
-      showToast('Turneringen är avslutad! 🏆', 'success');
+      showToast('Eventet är avslutat! 🏆', 'success');
       const updated = await getTournament(t.shareCode);
       renderTournamentContent(content, updated);
     } catch (err) {
@@ -687,11 +687,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
   // Reopen tournament
   document.getElementById('reopen-tournament-btn')?.addEventListener('click', async () => {
-    if (!confirm(`Vill du återöppna turneringen "${t.name}"? Resultat och spel blir då redigerbara igen.`)) return;
+    if (!confirm(`Vill du återöppna eventet "${t.name}"? Resultat och spel blir då redigerbara igen.`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
       await reopenTournament(t.id, { pin });
-      showToast('Turneringen har återöppnats! 🔓', 'success');
+      showToast('Eventet har återöppnats! 🔓', 'success');
       const updated = await getTournament(t.shareCode);
       renderTournamentContent(content, updated);
     } catch (err) {
@@ -701,11 +701,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
   // Delete entire tournament
   document.getElementById('delete-tournament-btn')?.addEventListener('click', async () => {
-    if (!confirm(`Är du säker på att du vill radera hela turneringen "${t.name}" och alla dess spel? Detta kan INTE ångras!`)) return;
+    if (!confirm(`Är du säker på att du vill radera hela eventet "${t.name}" och alla dess spel? Detta kan INTE ångras!`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
       await deleteTournament(t.id, { pin });
-      showToast('Turneringen har raderats', 'success');
+      showToast('Eventet har raderats', 'success');
       navigate('home');
     } catch (err) {
       showToast(err.message, 'error');
@@ -752,8 +752,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     try {
       const baseUrl = window.location.origin;
       const { qr, url } = await getTournamentQR(t.shareCode, baseUrl);
-      const shareMsg = `🏆 Häng med på turneringen ${t.name} i BetPals! Se ställningen och betta här: ${url}`;
-      showModal('📱 Dela turnering', `
+      const shareMsg = `🏆 Häng med på eventet ${t.name} i BetPals! Se ställningen och betta här: ${url}`;
+      showModal('📱 Dela event', `
         <div class="text-center">
           <img src="${qr}" alt="QR-kod" style="width: 200px; height: 200px; border-radius: var(--radius-md); margin-bottom: var(--space-md);" />
           <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">Skanna QR-koden eller dela direkt via länkarna nedan</p>

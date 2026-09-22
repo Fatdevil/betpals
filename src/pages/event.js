@@ -11,10 +11,10 @@ let wsUnsubscribe = null;
 function renderSettlementSection(event, payoutInfo) {
   if (event.status === 'cancelled') {
     return `
-      <div class="section-header"><h2 class="section-title">🛑 Match Avbruten</h2></div>
+      <div class="section-header"><h2 class="section-title">🛑 Spel Avbrutet</h2></div>
       <div class="card text-center" style="padding: var(--space-lg);">
         <div style="font-size: 2.2rem; margin-bottom: var(--space-xs);">⚠️</div>
-        <h3 style="color: var(--danger); margin-bottom: var(--space-xs);">Matchen är inställd / avbruten</h3>
+        <h3 style="color: var(--danger); margin-bottom: var(--space-xs);">Spelet är inställt / avbrutet</h3>
         <p class="text-muted" style="font-size: 0.85rem;">Inga pengar har dragits och alla lagda bets har återbetalats automatiskt.</p>
       </div>
     `;
@@ -26,7 +26,7 @@ function renderSettlementSection(event, payoutInfo) {
       <div class="card text-center" style="padding: var(--space-lg);">
         <div style="font-size: 2.2rem; margin-bottom: var(--space-xs);">↩️</div>
         <h3 style="color: var(--gold); margin-bottom: var(--space-xs);">Ingen satsade på vinnaren</h3>
-        <p class="text-muted" style="font-size: 0.85rem;">Inga deltagare tippade på vinnaren. Ronden räknas som ogiltigförklarad och alla insatser har återbetalats.</p>
+        <p class="text-muted" style="font-size: 0.85rem;">Inga deltagare tippade på vinnaren. Spelet räknas som ogiltigförklarat och alla insatser har återbetalats.</p>
       </div>
     `;
   }
@@ -38,9 +38,9 @@ function renderSettlementSection(event, payoutInfo) {
         <div class="flex gap-md" style="align-items: center;">
           <div style="font-size: 2.2rem;">📊</div>
           <div>
-            <h3 style="font-size: 1rem; color: var(--gold); margin-bottom: 4px;">Ingår i turnering</h3>
+            <h3 style="font-size: 1rem; color: var(--gold); margin-bottom: 4px;">Ingår i ett Event</h3>
             <p class="text-muted" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">
-              Denna match avräknas inte separat. Resultat, vinster och förluster kvittas automatiskt med övriga ronder i <strong>THE TAB</strong>.
+              Detta spel avräknas inte separat. Resultat, vinster och förluster kvittas automatiskt med övriga spel i <strong>THE TAB</strong>.
             </p>
             <div class="flex gap-sm">
               <a href="/#leaderboard" class="btn btn-primary btn-sm">Gå till THE TAB 📱</a>

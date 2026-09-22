@@ -84,20 +84,20 @@ export const TOURNAMENT_TEMPLATES = [
   },
   {
     id: 'padel_tourney',
-    title: 'Padelturnering',
+    title: 'Padelevent',
     icon: '🎾',
     badge: 'Padel',
     description: 'Lagmatcher, Vinnare & Bäst smash',
-    defaultName: 'Helgens Padelturnering',
+    defaultName: 'Helgens Padelevent',
     rounds: [
       { name: 'Lag A vs Lag B (1-X-2)' }
     ],
     sideBets: [
       {
-        name: '🏆 Vinnare av turneringen',
+        name: '🏆 Vinnare av eventet',
         betMode: 'open',
         betAmount: 100,
-        description: 'Vilket par tar hem hela turneringen?'
+        description: 'Vilket par tar hem hela eventet?'
       },
       {
         name: '💥 Mest over-the-fence smashar',

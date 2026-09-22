@@ -34,7 +34,7 @@ export async function renderLeaderboard(params = {}) {
 
       <div class="the-tab-nav">
         <button class="tab-nav-btn ${activeTab === 'tournaments' ? 'active' : ''}" data-tab="tournaments">
-          🏌️‍♂️ ${t('tab.weekendTournament')}
+          🏆 ${t('tab.weekendTournament')}
         </button>
         <button class="tab-nav-btn ${activeTab === 'swishlist' ? 'active' : ''}" data-tab="swishlist">
           🎲 ${t('tab.swishlist')}
@@ -266,7 +266,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
   if (activeTournaments.length > 1) {
     selectorHtml = `
       <div class="tab-tournament-selector">
-        <span class="text-muted" style="font-size: 0.8rem; font-weight: 700;">Turnering:</span>
+        <span class="text-muted" style="font-size: 0.8rem; font-weight: 700;">Event:</span>
         <select class="form-input" id="tab-tour-select" style="max-width: 200px; padding: 4px 8px; font-size: 0.8rem;">
           ${activeTournaments.map(t => `
             <option value="${escapeHtml(t.shareCode)}" ${t.shareCode === currentTournamentCode ? 'selected' : ''}>
@@ -646,8 +646,8 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </h3>
         <p class="text-muted" style="font-size: 0.75rem; margin: 2px 0 0;">
           ${isEn 
-            ? 'Independent peer-to-peer settlement for arcade duels, party games and tabs (separate from tournaments).' 
-            : 'Fristående avräkning mellan dig och dina vänner för alla arkadspel, dueller och notor (separat från turneringen).'}
+            ? 'Independent peer-to-peer settlement for arcade duels, party games and tabs (separate from events).' 
+            : 'Fristående avräkning mellan dig och dina vänner för alla arkadspel, dueller och notor (separat från eventet).'}
         </p>
       </div>
 

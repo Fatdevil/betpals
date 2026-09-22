@@ -376,7 +376,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     if (!albumsMap.has(key)) {
       albumsMap.set(key, {
         id: p.tournamentId,
-        name: p.tournamentName || 'Okänd turnering',
+        name: p.tournamentName || 'Okänt event',
         code: p.tournamentCode,
         photos: []
       });
@@ -458,7 +458,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             <div style="font-size: 2rem; margin-bottom: 6px;">🤝</div>
             <div style="font-weight: 600; margin-bottom: 4px;">Inga vänner tillagda än</div>
             <div style="font-size: 0.75rem; color: var(--text-secondary); max-width: 320px; margin: 0 auto;">
-              Lägg till polarna med deras @smeknamn eller dela din inbjudningslänk för att snabbt välja dem som deltagare i spel & turneringar!
+              Lägg till polarna med deras @smeknamn eller dela din inbjudningslänk för att snabbt välja dem som deltagare i spel & events!
             </div>
           </div>
         ` : `
@@ -587,7 +587,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
                 <input type="checkbox" id="pref-notify-duels" ${notifPrefs.notifyDuels ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
               </label>
               <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; cursor: pointer; padding: 4px 0;">
-                <span>🏆 <strong>Turneringar: Nya ronder & Resultat</strong></span>
+                <span>🏆 <strong>Events: Nya spel & Resultat</strong></span>
                 <input type="checkbox" id="pref-notify-tournaments" ${notifPrefs.notifyTournaments ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
               </label>
             </div>
@@ -703,7 +703,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             <span class="badge badge-accent" style="font-size: 0.7rem; padding: 2px 6px;">${photos.length}</span>
           </div>
           ${photos.length > 0 ? `
-            <span class="text-muted" style="font-size: 0.72rem;">${albums.length} ${albums.length === 1 ? 'resa/turnering' : 'resor/turneringar'}</span>
+            <span class="text-muted" style="font-size: 0.72rem;">${albums.length} ${albums.length === 1 ? 'resa/event' : 'resor/events'}</span>
           ` : ''}
         </div>
 
@@ -712,7 +712,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             <div style="font-size: 2rem; margin-bottom: 6px;">🏖️</div>
             <div style="font-weight: 600; margin-bottom: 4px;">Inga fotominnen än</div>
             <div style="font-size: 0.75rem; color: var(--text-secondary); max-width: 300px; margin: 0 auto;">
-              När du eller kompisarna delar bilder i era turneringar sparas de automatiskt här som ett personligt fotoalbum!
+              När du eller kompisarna delar bilder i era events sparas de automatiskt här som ett personligt fotoalbum!
             </div>
           </div>
         ` : `
@@ -724,13 +724,13 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
                     <span>⛳</span> <span>${escapeHtml(alb.name)}</span>
                   </div>
                   <button type="button" class="btn btn-sm btn-secondary view-album-tournament-btn" data-code="${escapeHtml(alb.code)}" style="font-size: 0.68rem; padding: 2px 8px;">
-                    Gå till turnering →
+                    Gå till event →
                   </button>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px;">
                   ${alb.photos.map(photo => `
                     <div class="profile-photo-thumb" data-photo-id="${photo.id}" style="aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; position: relative; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); background: #111;">
-                      <img src="${photo.thumbnailUrl || photo.url}" alt="${escapeHtml(photo.caption || 'Turneringsminne')}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;" loading="lazy" />
+                      <img src="${photo.thumbnailUrl || photo.url}" alt="${escapeHtml(photo.caption || 'Eventminne')}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;" loading="lazy" />
                       ${photo.likeCount > 0 ? `
                         <div style="position: absolute; bottom: 3px; right: 3px; background: rgba(0,0,0,0.7); backdrop-filter: blur(2px); border-radius: 8px; padding: 1px 4px; font-size: 0.65rem; color: #fff; display: flex; align-items: center; gap: 2px;">
                           ❤️ ${photo.likeCount}
@@ -1018,7 +1018,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       showModal('📸 ' + escapeHtml(photo.tournamentName || 'Fotomagasin'), `
         <div class="photo-lightbox-modal text-center">
           <div style="max-height: 65vh; display: flex; align-items: center; justify-content: center; background: #000; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm);">
-            <img src="${photo.url}" alt="${escapeHtml(photo.caption || 'Turneringsminne')}" style="max-width: 100%; max-height: 65vh; object-fit: contain;" />
+            <img src="${photo.url}" alt="${escapeHtml(photo.caption || 'Eventminne')}" style="max-width: 100%; max-height: 65vh; object-fit: contain;" />
           </div>
           ${photo.caption ? `
             <p style="font-size: 0.95rem; font-weight: 500; margin-bottom: var(--space-xs); text-align: left;">
@@ -1030,7 +1030,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             <span>${formatDate(photo.createdAt)} · ❤️ ${photo.likeCount || 0}</span>
           </div>
           <button type="button" class="btn btn-primary btn-block lightbox-go-tournament-btn" data-code="${escapeHtml(photo.tournamentCode)}">
-            🏆 Gå till turneringen & se resultat
+            🏆 Gå till eventet & se resultat
           </button>
         </div>
       `);

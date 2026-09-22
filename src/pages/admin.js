@@ -1330,7 +1330,7 @@ function showCreateTournamentModal() {
 
     const name = document.getElementById('tournament-name').value.trim();
     if (!name || name.length < 2) {
-      showToast('Ett turneringsnamn krävs (minst 2 tecken)', 'error');
+      showToast('Ett eventnamn krävs (minst 2 tecken)', 'error');
       return;
     }
 
