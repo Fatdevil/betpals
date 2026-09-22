@@ -236,8 +236,10 @@ async function initHomeLiveBanners() {
     `;
 
     document.getElementById('home-live-stream-banner')?.addEventListener('click', () => {
+      const currentUser = getStoredUser();
+      const isHost = currentUser && s.hostId && s.hostId === currentUser.id;
       openLiveStreamModal({
-        isBroadcaster: false,
+        isBroadcaster: isHost,
         isStandalone: true,
         hasBet: s.hasBet !== false,
         liveId: s.id,
