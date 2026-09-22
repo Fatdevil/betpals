@@ -14,21 +14,42 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
   } else if (onCloseOrOptions && typeof onCloseOrOptions === 'object') {
     options = onCloseOrOptions;
     onClose = options.onClose || null;
+  } else if (maybeOptions && typeof maybeOptions === 'object') {
+    if (maybeOptions.onClose && !onClose) onClose = maybeOptions.onClose;
+    options = { ...options, ...maybeOptions };
   }
 
-  root.innerHTML = `
-    <div class="modal-overlay" id="modal-overlay">
-      <div class="modal-content" style="position: relative;">
-        <div class="modal-header">
-          <h3 class="modal-title">${title}</h3>
-          <button class="modal-close" id="modal-close-btn">&times;</button>
-        </div>
-        <div class="modal-body">
+  const isFullScreen = Boolean(options.fullScreen);
+
+  if (isFullScreen) {
+    root.innerHTML = `
+      <div class="modal-overlay modal-overlay-fullscreen" id="modal-overlay">
+        <div class="modal-content-fullscreen" id="modal-fullscreen-container">
+          ${title ? `
+            <div class="modal-header" style="position: absolute; top: 12px; left: 16px; right: 16px; z-index: 20;">
+              <h3 class="modal-title" style="color: #fff;">${title}</h3>
+              <button class="modal-close" id="modal-close-btn">&times;</button>
+            </div>
+          ` : ''}
           ${contentHtml}
         </div>
       </div>
-    </div>
-  `;
+    `;
+  } else {
+    root.innerHTML = `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-content" style="position: relative;">
+          <div class="modal-header">
+            <h3 class="modal-title">${title}</h3>
+            <button class="modal-close" id="modal-close-btn">&times;</button>
+          </div>
+          <div class="modal-body">
+            ${contentHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   let busyChecker = options.isBusy || false;
   let customConfirmTexts = options.confirmTexts || null;
@@ -135,7 +156,7 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
 
   root.querySelector('#modal-close-btn')?.addEventListener('click', attemptClose);
   root.querySelector('#modal-overlay')?.addEventListener('click', (e) => {
-    if (e.target.id === 'modal-overlay') {
+    if (!isFullScreen && e.target.id === 'modal-overlay') {
       attemptClose();
     }
   });

@@ -1043,6 +1043,43 @@ select.form-input option {
   animation: slideUp 0.3s var(--ease-spring);
 }
 
+/* ── Fullscreen Modal (e.g. Livestream, Immersive Views) ── */
+.modal-overlay.modal-overlay-fullscreen {
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  background: #000 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  z-index: 10000 !important;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.modal-content-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  background: #000;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  overflow: hidden;
+  box-shadow: none !important;
+  transform: none !important;
+  animation: fadeIn 0.2s var(--ease-out) !important;
+}
+
 .modal-header {
   display: flex;
   align-items: center;

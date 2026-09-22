@@ -35,6 +35,8 @@ let streamActive = false;
 let viewerCount = 1;
 let wsUnsub = null;
 let activeLiveId = null;
+let heartbeatInterval = null;
+let isClosingLiveStream = false;
 
 function addCommentToStream({ userName, userAvatar, text, isBetNotice = false }) {
   const container = document.getElementById('live-comments-stream');
@@ -121,11 +123,13 @@ export async function openLiveStreamModal({
   // Render Fullscreen Live Stream Modal
   showModal('', `
     <div id="livestream-fullscreen" style="
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      width: 100vw; height: 100vh;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
       background: #000;
-      z-index: 10000;
+      z-index: 10;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -135,7 +139,8 @@ export async function openLiveStreamModal({
       ${!isBroadcaster ? `
         <div id="livestream-placeholder" style="
           position: absolute;
-          top: 0; left: 0; width: 100%; height: 100%;
+          inset: 0;
+          width: 100%; height: 100%;
           display: flex; flex-direction: column; align-items: center; justify-content: center;
           background: radial-gradient(circle at center, #1b2838 0%, #0a0d14 100%);
           z-index: 1;
@@ -151,18 +156,22 @@ export async function openLiveStreamModal({
         </div>
       ` : ''}
 
-      <!-- Video Element (Full screen 9:16 background) -->
-      <video id="livestream-video" autoplay playsinline style="
+      <!-- Video Element (Full screen camera background) -->
+      <video id="livestream-video" autoplay playsinline muted style="
         position: absolute;
-        top: 0; left: 0; width: 100%; height: 100%;
+        inset: 0;
+        width: 100%;
+        height: 100%;
         object-fit: cover;
         z-index: 2;
+        background: #000;
       "></video>
 
       <!-- Video Gradient Overlay for readability -->
       <div style="
         position: absolute;
-        top: 0; left: 0; width: 100%; height: 100%;
+        inset: 0;
+        width: 100%; height: 100%;
         background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.85) 100%);
         z-index: 3;
         pointer-events: none;
@@ -263,6 +272,18 @@ export async function openLiveStreamModal({
             " title="Muta mikrofon">🎙️</button>
           ` : ''}
 
+          <!-- Toggle Clean Camera View / Overlays button -->
+          <button type="button" id="btn-toggle-overlay" style="
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.05rem;
+            cursor: pointer;
+          " title="Ren kameravy / visa kontroller">👁️</button>
+
           <!-- Close / Exit button -->
           <button type="button" id="btn-close-livestream" style="
             background: rgba(255, 51, 75, 0.85);
@@ -279,7 +300,7 @@ export async function openLiveStreamModal({
       </div>
 
       <!-- Bottom Interactive Overlay: Floating BlixtBet card & actions -->
-      <div style="
+      <div id="livestream-bottom-overlay" style="
         position: absolute;
         bottom: env(safe-area-inset-bottom, 20px);
         left: 12px; right: 12px;
@@ -287,6 +308,7 @@ export async function openLiveStreamModal({
         display: flex;
         flex-direction: column;
         gap: 10px;
+        transition: opacity 0.25s ease, transform 0.25s ease;
       ">
         <!-- Live Comments Overlay Stream (TikTok / Instagram style) -->
         <div id="live-comments-stream" style="
@@ -385,7 +407,7 @@ export async function openLiveStreamModal({
         </div>
       </div>
     </div>
-  `, { fullScreen: true });
+  `, () => closeLiveStream(), { fullScreen: true });
 
   const videoEl = document.getElementById('livestream-video');
 
@@ -504,6 +526,21 @@ export async function openLiveStreamModal({
     viewerAudioBtn.innerHTML = active ? '🔊' : '🔇';
     viewerAudioBtn.style.background = active ? 'rgba(0,0,0,0.5)' : 'rgba(255, 51, 75, 0.7)';
     showToast(active ? 'Ljud på 🔊' : 'Ljud av 🔇', 'info');
+  });
+
+  // Toggle Clean Camera View / Overlays listener
+  const overlayToggleBtn = document.getElementById('btn-toggle-overlay');
+  const bottomOverlay = document.getElementById('livestream-bottom-overlay');
+  let overlayVisible = true;
+  overlayToggleBtn?.addEventListener('click', () => {
+    overlayVisible = !overlayVisible;
+    if (bottomOverlay) {
+      bottomOverlay.style.opacity = overlayVisible ? '1' : '0';
+      bottomOverlay.style.pointerEvents = overlayVisible ? 'auto' : 'none';
+      bottomOverlay.style.transform = overlayVisible ? 'translateY(0)' : 'translateY(20px)';
+    }
+    overlayToggleBtn.style.background = overlayVisible ? 'rgba(0,0,0,0.5)' : 'rgba(245, 166, 35, 0.7)';
+    showToast(overlayVisible ? 'Kontroller visas' : 'Ren kameravy 🎥 (tryck 👁️ för kontroller)', 'info');
   });
 
   // Close / Exit listener
@@ -672,26 +709,32 @@ export async function openLiveStreamModal({
 }
 
 export function closeLiveStream() {
-  streamActive = false;
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
+  if (isClosingLiveStream) return;
+  isClosingLiveStream = true;
+  try {
+    streamActive = false;
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    if (activeLiveId) {
+      sendWebSocketMessage({
+        type: 'leave_live',
+        liveId: activeLiveId
+      });
+      activeLiveId = null;
+    }
+    if (wsUnsub) {
+      wsUnsub();
+      wsUnsub = null;
+    }
+    stopAllStreams();
+    const fs = document.getElementById('livestream-fullscreen');
+    if (fs) fs.remove();
+    closeModal();
+  } finally {
+    isClosingLiveStream = false;
   }
-  if (activeLiveId) {
-    sendWebSocketMessage({
-      type: 'leave_live',
-      liveId: activeLiveId
-    });
-    activeLiveId = null;
-  }
-  if (wsUnsub) {
-    wsUnsub();
-    wsUnsub = null;
-  }
-  stopAllStreams();
-  const fs = document.getElementById('livestream-fullscreen');
-  if (fs) fs.remove();
-  closeModal();
 }
 
 async function renderLiveBlixtBetWidget(tournamentId, specificFlashBetId = null, tournamentCode = null, liveId = null, isBroadcaster = true, initialFlashBet = null) {

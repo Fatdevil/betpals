@@ -207,46 +207,65 @@ export async function startViewerSession({
 
 // ── Camera Switch (Preserves Audio!) ──────────────────────────
 export async function switchCamera(videoElement) {
-  if (!activeBroadcasterRoom) return { ok: false, error: 'Ingen aktiv sändning' };
+  if (activeBroadcasterRoom) {
+    currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
 
-  currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+    try {
+      // Disable and re-enable camera with new facing mode
+      // Audio is NOT stopped or affected!
+      await activeBroadcasterRoom.localParticipant.setCameraEnabled(false);
+      await activeBroadcasterRoom.localParticipant.setCameraEnabled(true, {
+        facingMode: currentFacingMode,
+        resolution: VideoPresets.h720.resolution
+      });
 
-  try {
-    // Disable and re-enable camera with new facing mode
-    // Audio is NOT stopped or affected!
-    await activeBroadcasterRoom.localParticipant.setCameraEnabled(false);
-    await activeBroadcasterRoom.localParticipant.setCameraEnabled(true, {
-      facingMode: currentFacingMode,
-      resolution: VideoPresets.h720.resolution
-    });
-
-    if (videoElement) {
-      const cameraTrackPub = activeBroadcasterRoom.localParticipant.getTrackPublication(Track.Source.Camera);
-      if (cameraTrackPub && cameraTrackPub.track) {
-        cameraTrackPub.track.attach(videoElement);
-        await videoElement.play().catch(() => {});
+      if (videoElement) {
+        const cameraTrackPub = activeBroadcasterRoom.localParticipant.getTrackPublication(Track.Source.Camera);
+        if (cameraTrackPub && cameraTrackPub.track) {
+          cameraTrackPub.track.attach(videoElement);
+          await videoElement.play().catch(() => {});
+        }
       }
-    }
 
-    return { ok: true, facingMode: currentFacingMode };
-  } catch (err) {
-    console.error('Kunde inte byta kamera:', err);
-    return { ok: false, error: err.message };
+      return { ok: true, facingMode: currentFacingMode };
+    } catch (err) {
+      console.error('Kunde inte byta kamera:', err);
+      return { ok: false, error: err.message };
+    }
+  } else if (activeLocalStream) {
+    currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+    const res = await startLocalCamera(videoElement, currentFacingMode);
+    return res.ok ? { ok: true, facingMode: currentFacingMode } : { ok: false, error: res.error };
   }
+
+  return { ok: false, error: 'Ingen aktiv sändning' };
 }
 
 // ── Audio Mute / Unmute Controls ──────────────────────────────
 export async function toggleAudio() {
-  if (!activeBroadcasterRoom) return false;
-  const isMuted = !activeBroadcasterRoom.localParticipant.isMicrophoneEnabled;
-  // If muted -> enable, if enabled -> mute
-  await activeBroadcasterRoom.localParticipant.setMicrophoneEnabled(isMuted);
-  return isMuted;
+  if (activeBroadcasterRoom) {
+    const isMuted = !activeBroadcasterRoom.localParticipant.isMicrophoneEnabled;
+    // If muted -> enable, if enabled -> mute
+    await activeBroadcasterRoom.localParticipant.setMicrophoneEnabled(isMuted);
+    return isMuted;
+  }
+  if (activeLocalStream) {
+    const audioTrack = activeLocalStream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      return audioTrack.enabled;
+    }
+  }
+  return false;
 }
 
 export function isAudioEnabled() {
-  if (!activeBroadcasterRoom) return true;
-  return activeBroadcasterRoom.localParticipant.isMicrophoneEnabled;
+  if (activeBroadcasterRoom) return activeBroadcasterRoom.localParticipant.isMicrophoneEnabled;
+  if (activeLocalStream) {
+    const audioTrack = activeLocalStream.getAudioTracks()[0];
+    return audioTrack ? audioTrack.enabled : false;
+  }
+  return true;
 }
 
 export function toggleViewerAudio() {
