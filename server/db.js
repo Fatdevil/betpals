@@ -39,6 +39,8 @@ db.exec(`
     email TEXT,
     avatar_url TEXT,
     avatar_emoji TEXT DEFAULT '🎲',
+    real_name TEXT,
+    swish_number TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -128,8 +130,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_share_code ON events(share_code);
   CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
   CREATE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname);
-  CREATE INDEX IF NOT EXISTS idx_users_swish ON users(swish_number);
-  CREATE INDEX IF NOT EXISTS idx_users_real_name ON users(real_name);
 
   CREATE TABLE IF NOT EXISTS tournament_banners (
     id TEXT PRIMARY KEY,
@@ -153,6 +153,8 @@ try { db.exec('ALTER TABLE events ADD COLUMN winner_image_url TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN image_url TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN swish_number TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN real_name TEXT'); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_users_swish ON users(swish_number)'); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_users_real_name ON users(real_name)'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN pin_hash TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN pin_salt TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN needs_pin_reset INTEGER DEFAULT 0'); } catch {}
