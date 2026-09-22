@@ -4879,6 +4879,9 @@ app.post('/api/shl-fantasy/create', (req, res) => {
   const { name, roundId, stakeAmount, mode } = req.body;
   if (!roundId) return res.status(400).json({ error: 'Omgång måste anges' });
 
+  const round = SHL_ROUNDS.find(r => r.id === roundId);
+  if (!round) return res.status(400).json({ error: 'Ogiltig omgång angiven' });
+
   const leagueName = name?.trim() || `SHL Fantasy (${user.nickname})`;
   const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 50;
   const leagueMode = mode === 'free' ? 'free' : 'swish';
@@ -4892,6 +4895,32 @@ app.post('/api/shl-fantasy/create', (req, res) => {
       mode: leagueMode
     });
     res.json(league);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/shl-fantasy/rounds', (req, res) => {
+  try {
+    const now = Date.now();
+    const roundsSummary = SHL_ROUNDS.map(r => {
+      const lockTs = r.lockTime ? new Date(r.lockTime).getTime() : null;
+      return {
+        id: r.id,
+        roundNumber: r.roundNumber,
+        name: r.name,
+        dateRange: r.dateRange,
+        status: r.status,
+        lockTime: r.lockTime,
+        totalGames: (r.days || []).reduce((sum, d) => sum + (d.games?.length || 0), 0),
+        isLocked: lockTs ? lockTs <= now : false
+      };
+    });
+    res.json({
+      season: '2026/2027',
+      totalRounds: SHL_ROUNDS.length,
+      rounds: roundsSummary
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4925,65 +4954,70 @@ function validateShlLineup(lineup) {
   if (!goalie || !goalie.id) {
     return { valid: false, error: 'Målvakt (G) måste väljas' };
   }
-  if (goalie.pos !== 'G') {
-    return { valid: false, error: 'Målvaktsplatsen måste innehålla en målvakt (G)' };
-  }
-
   if (defenders.length !== 2) {
     return { valid: false, error: 'Exakt 2 backar (D) krävs' };
   }
-  for (const d of defenders) {
-    if (!d || !d.id || d.pos !== 'D') {
-      return { valid: false, error: 'Backplatserna måste innehålla backar (D)' };
-    }
-  }
-
   if (forwards.length !== 3) {
     return { valid: false, error: 'Exakt 3 forwards (F) krävs' };
   }
-  for (const f of forwards) {
-    if (!f || !f.id || f.pos !== 'F') {
-      return { valid: false, error: 'Forwardplatserna måste innehålla forwards (F)' };
-    }
-  }
 
-  // Duplicate checks
-  const allIds = [goalie.id, ...defenders.map(d => d.id), ...forwards.map(f => f.id)];
-  const uniqueIds = new Set(allIds);
-  if (uniqueIds.size !== 6) {
-    return { valid: false, error: 'Samma spelare kan inte väljas på flera platser' };
-  }
-
-  // Canonical player lookup & XSS sanitization
+  // Canonical player lookup & position verification
   const canonicalMap = new Map(SHL_PLAYERS.map(p => [p.id, p]));
-  const cleanPlayer = (p) => {
+
+  const verifyPlayer = (p, expectedPos, roleLabel) => {
+    if (!p || !p.id) {
+      return { valid: false, error: `${roleLabel} måste väljas` };
+    }
     const c = canonicalMap.get(p.id);
-    if (c) {
-      return {
+    if (!c) {
+      return { valid: false, error: `Spelaren "${p.name || p.id}" finns inte i officiella SHL-registret` };
+    }
+    if (c.pos !== expectedPos) {
+      return { valid: false, error: `${c.name} är registrerad som ${c.pos}, inte ${expectedPos}` };
+    }
+    return {
+      valid: true,
+      player: {
         id: c.id,
         name: c.name,
         team: c.team,
         pos: c.pos,
         num: c.num,
         price: c.price
-      };
-    }
-    return {
-      id: String(p.id).slice(0, 36),
-      name: String(p.name || 'Spelare').slice(0, 40).replace(/<[^>]*>?/gm, ''),
-      team: String(p.team || 'SHL').slice(0, 8),
-      pos: p.pos,
-      num: Number(p.num) || 0,
-      price: Number(p.price) || 8
+      }
     };
   };
+
+  const gCheck = verifyPlayer(goalie, 'G', 'Målvakt');
+  if (!gCheck.valid) return { valid: false, error: gCheck.error };
+
+  const cleanDefenders = [];
+  for (const d of defenders) {
+    const dCheck = verifyPlayer(d, 'D', 'Back');
+    if (!dCheck.valid) return { valid: false, error: dCheck.error };
+    cleanDefenders.push(dCheck.player);
+  }
+
+  const cleanForwards = [];
+  for (const f of forwards) {
+    const fCheck = verifyPlayer(f, 'F', 'Forward');
+    if (!fCheck.valid) return { valid: false, error: fCheck.error };
+    cleanForwards.push(fCheck.player);
+  }
+
+  // Duplicate checks
+  const allIds = [gCheck.player.id, ...cleanDefenders.map(d => d.id), ...cleanForwards.map(f => f.id)];
+  const uniqueIds = new Set(allIds);
+  if (uniqueIds.size !== 6) {
+    return { valid: false, error: 'Samma spelare kan inte väljas på flera platser' };
+  }
 
   return {
     valid: true,
     cleanLineup: {
-      goalie: cleanPlayer(goalie),
-      defenders: defenders.map(cleanPlayer),
-      forwards: forwards.map(cleanPlayer)
+      goalie: gCheck.player,
+      defenders: cleanDefenders,
+      forwards: cleanForwards
     }
   };
 }
@@ -5015,17 +5049,20 @@ function simulateShlRound(roundId, existingSimulation = null) {
           away: g.away,
           time: g.time,
           dayLabel: d.dayLabel,
-          homeScore: null,
-          awayScore: null,
-          status: 'upcoming'
+          homeScore: g.status === 'finished' ? g.homeScore : null,
+          awayScore: g.status === 'finished' ? g.awayScore : null,
+          status: g.status || 'upcoming'
         });
       });
     });
   }
 
-  // Simulate today's matches - strictly NO ties (SHL overtime rules)
+  // Simulate today's matches if not already finished - strictly NO ties (SHL overtime rules)
   matches = matches.map(m => {
     if (dayGameIds.has(m.id)) {
+      if (m.status === 'finished' && m.homeScore !== null && m.awayScore !== null) {
+        return m;
+      }
       let hScore = crypto.randomInt(1, 5);
       let aScore = crypto.randomInt(0, 4);
       let isOT = false;
@@ -5063,17 +5100,18 @@ function simulateShlRound(roundId, existingSimulation = null) {
     if (player.pos === 'G') {
       const winPts = teamWon ? 4 : 0;
       const shutoutPts = (teamWon && opponentGoals === 0) ? 5 : 0;
-      const goalsAgainstPts = -opponentGoals;
-      dayPts = Math.max(0, winPts + shutoutPts + goalsAgainstPts);
+      const goalsAgainstPts = -opponentGoals; // -1 pt per goal conceded
+      dayPts = Math.max(-5, winPts + shutoutPts + goalsAgainstPts);
     } else if (player.pos === 'D') {
       const goals = teamGoals > 0 && crypto.randomInt(0, 100) < 18 ? 4 : 0;
       const assists = teamGoals > 0 && crypto.randomInt(0, 100) < 30 ? 2 : 0;
       const pm = teamWon ? (crypto.randomInt(0, 100) < 60 ? 1 : 0) : (crypto.randomInt(0, 100) < 50 ? -1 : 0);
       dayPts = goals + assists + pm;
     } else { // F
-      const goals = teamGoals > 0 && crypto.randomInt(0, 100) < 35 ? (crypto.randomInt(0, 100) < 15 ? 6 : 3) : 0;
+      const goals = teamGoals > 0 && crypto.randomInt(0, 100) < 35 ? (teamGoals >= 2 && crypto.randomInt(0, 100) < 15 ? 6 : 3) : 0;
       const assists = teamGoals > 0 && crypto.randomInt(0, 100) < 35 ? 2 : 0;
-      dayPts = goals + assists;
+      const gwg = (teamWon && teamGoals > 0 && crypto.randomInt(0, 100) < 20) ? 2 : 0;
+      dayPts = goals + assists + gwg;
     }
 
     playerPointsMap[player.id] = (playerPointsMap[player.id] || 0) + dayPts;
@@ -5093,20 +5131,24 @@ function simulateShlRound(roundId, existingSimulation = null) {
 }
 
 function calculateShlEntryScore(lineup, playerPointsMap = {}) {
-  if (!lineup || typeof lineup !== 'object') return { total: 0, forwardPts: 0 };
+  if (!lineup || typeof lineup !== 'object') return { total: 0, forwardPts: 0, defenderPts: 0, goaliePts: 0 };
   let total = 0;
   let forwardPts = 0;
+  let defenderPts = 0;
+  let goaliePts = 0;
 
   if (lineup.goalie && lineup.goalie.id) {
     const pts = playerPointsMap[lineup.goalie.id] || 0;
     lineup.goalie.pts = pts;
     total += pts;
+    goaliePts += pts;
   }
   for (const d of (lineup.defenders || [])) {
     if (d && d.id) {
       const pts = playerPointsMap[d.id] || 0;
       d.pts = pts;
       total += pts;
+      defenderPts += pts;
     }
   }
   for (const f of (lineup.forwards || [])) {
@@ -5117,7 +5159,7 @@ function calculateShlEntryScore(lineup, playerPointsMap = {}) {
       forwardPts += pts;
     }
   }
-  return { total, forwardPts };
+  return { total, forwardPts, defenderPts, goaliePts };
 }
 
 app.post('/api/shl-fantasy/:code/join', (req, res) => {
@@ -5133,6 +5175,13 @@ app.post('/api/shl-fantasy/:code/join', (req, res) => {
 
   if (league.simulation_data && (league.simulation_data.currentDay > 0 || league.simulation_data.roundSimulated)) {
     return res.status(400).json({ error: 'Omgången har redan påbörjats. Laguppställningen kan inte längre ändras.' });
+  }
+
+  const round = SHL_ROUNDS.find(r => r.id === league.round_id);
+  if (round && round.lockTime) {
+    if (new Date(round.lockTime).getTime() <= Date.now()) {
+      return res.status(400).json({ error: 'Deadline har passerat för denna omgång. Laguppställningar är låsta.' });
+    }
   }
 
   const existingEntry = (league.entries || []).find(e => e.user_id === user.id);
@@ -5200,34 +5249,52 @@ app.post('/api/shl-fantasy/:code/simulate', (req, res) => {
 
     // Calculate score for each entry
     const scoredEntries = league.entries.map(e => {
-      const { total, forwardPts } = calculateShlEntryScore(e.lineup, simResult.playerPointsMap);
+      const { total, forwardPts, defenderPts, goaliePts } = calculateShlEntryScore(e.lineup, simResult.playerPointsMap);
       entryPoints[e.user_id] = total;
       return {
         ...e,
         points: total,
-        forwardPts
+        forwardPts,
+        defenderPts,
+        goaliePts
       };
     });
 
     let updatedLeague;
     if (simResult.isFinished) {
-      // Sort entries: total points desc, then forwardPts desc as tie-breaker
+      // 5-stage deterministic tie-breaker:
+      // 1. Total points desc
+      // 2. Forward points desc
+      // 3. Defender points desc
+      // 4. Goalie points desc
       scoredEntries.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
-        return b.forwardPts - a.forwardPts;
+        if (b.forwardPts !== a.forwardPts) return b.forwardPts - a.forwardPts;
+        if (b.defenderPts !== a.defenderPts) return b.defenderPts - a.defenderPts;
+        if (b.goaliePts !== a.goaliePts) return b.goaliePts - a.goaliePts;
+        return 0;
       });
 
-      const winner = scoredEntries[0];
-      if (!winner) {
+      if (scoredEntries.length === 0) {
         return res.status(400).json({ error: 'Inga deltagare i ligan att kora till vinnare' });
       }
+
+      // 5. Pot split if tied across all criteria
+      const top = scoredEntries[0];
+      const tiedWinners = scoredEntries.filter(e =>
+        e.points === top.points &&
+        e.forwardPts === top.forwardPts &&
+        e.defenderPts === top.defenderPts &&
+        e.goaliePts === top.goaliePts
+      );
+      const winnerIds = tiedWinners.map(w => w.user_id);
 
       // Update points first
       for (const [uId, pts] of Object.entries(entryPoints)) {
         db.updateShlEntryPoints(league.id, uId, pts);
       }
 
-      updatedLeague = db.settleShlLeague(league.id, winner.user_id, simResult);
+      updatedLeague = db.settleShlLeague(league.id, winnerIds, simResult);
 
       broadcastToEvent(`shl_${league.code}`, {
         type: 'shl_league_settled',

@@ -3893,69 +3893,73 @@ export function convertTabExpenseToEvenSteven(expenseId, payerUserId) {
     return getShlLeagueById(leagueId);
   }
 
-  export function settleShlLeague(leagueId, winnerId, simulationData = null) {
+  export function settleShlLeague(leagueId, winnerInput, simulationData = null) {
     const league = db.prepare('SELECT * FROM shl_fantasy_leagues WHERE id = ?').get(leagueId);
     if (!league) throw new Error('League not found');
 
-    // Verify winnerId is an entry in this league
-    const winnerEntry = db.prepare('SELECT id FROM shl_fantasy_entries WHERE league_id = ? AND user_id = ?').get(leagueId, winnerId);
-    if (!winnerEntry) throw new Error('Winner is not a participant in this league');
+    const winnerIds = Array.isArray(winnerInput) ? winnerInput : [winnerInput];
+    if (winnerIds.length === 0) throw new Error('No winner specified');
+
+    // Verify all winnerIds are participants in this league
+    for (const wId of winnerIds) {
+      const winnerEntry = db.prepare('SELECT id FROM shl_fantasy_entries WHERE league_id = ? AND user_id = ?').get(leagueId, wId);
+      if (!winnerEntry) throw new Error(`Winner ${wId} is not a participant in this league`);
+    }
+
+    const primaryWinnerId = winnerIds[0];
 
     const tx = db.transaction(() => {
-      if (simulationData) {
-        db.prepare(`
-          UPDATE shl_fantasy_leagues
-          SET status = 'finished', winner_id = ?, simulation_data = ?
-          WHERE id = ?
-        `).run(winnerId, JSON.stringify(simulationData), leagueId);
-      } else {
-        db.prepare(`
-          UPDATE shl_fantasy_leagues
-          SET status = 'finished', winner_id = ?
-          WHERE id = ?
-        `).run(winnerId, leagueId);
-      }
-
-      // Auto mark winner as paid
+      const finalSimData = simulationData ? { ...simulationData, winnerIds } : { winnerIds };
       db.prepare(`
-        UPDATE shl_fantasy_entries
-        SET is_paid = 1
-        WHERE league_id = ? AND user_id = ?
-      `).run(leagueId, winnerId);
+        UPDATE shl_fantasy_leagues
+        SET status = 'finished', winner_id = ?, simulation_data = ?
+        WHERE id = ?
+      `).run(primaryWinnerId, JSON.stringify(finalSimData), leagueId);
+
+      // Auto mark winners as paid
+      for (const wId of winnerIds) {
+        db.prepare(`
+          UPDATE shl_fantasy_entries
+          SET is_paid = 1
+          WHERE league_id = ? AND user_id = ?
+        `).run(leagueId, wId);
+      }
 
       // If stakeAmount > 0 and mode is swish, register debts to The Tab (minigame_duels)
       if (league.mode === 'swish' && league.stake_amount > 0) {
         const losers = db.prepare(`
           SELECT user_id, user_name, is_paid FROM shl_fantasy_entries
-          WHERE league_id = ? AND user_id != ?
-        `).all(leagueId, winnerId);
+          WHERE league_id = ? AND user_id NOT IN (${winnerIds.map(() => '?').join(',')})
+        `).all(leagueId, ...winnerIds);
 
         const leagueTitle = `SHL Fantasy: ${league.name}`;
+        const splitStake = Math.max(1, Math.round(league.stake_amount / winnerIds.length));
 
-        for (const loser of losers) {
-          // Check if a duel for this league & user already exists
-          const existingDuel = db.prepare(`
-            SELECT id FROM minigame_duels
-            WHERE creator_id = ? AND opponent_id = ? AND custom_title = ?
-          `).get(winnerId, loser.user_id, leagueTitle);
+        for (const wId of winnerIds) {
+          for (const loser of losers) {
+            const existingDuel = db.prepare(`
+              SELECT id FROM minigame_duels
+              WHERE creator_id = ? AND opponent_id = ? AND custom_title = ?
+            `).get(wId, loser.user_id, leagueTitle);
 
-          if (!existingDuel) {
-            const duelId = crypto.randomUUID();
-            db.prepare(`
-              INSERT INTO minigame_duels (
-                id, game_type, creator_id, opponent_id, stake_amount, mode,
-                status, winner_id, creator_score, opponent_score, is_settled, custom_title
-              )
-              VALUES (?, 'shl_fantasy', ?, ?, ?, 'shl_fantasy', 'completed', ?, 1, 0, ?, ?)
-            `).run(
-              duelId,
-              winnerId,
-              loser.user_id,
-              league.stake_amount,
-              winnerId,
-              loser.is_paid ? 1 : 0,
-              leagueTitle
-            );
+            if (!existingDuel) {
+              const duelId = crypto.randomUUID();
+              db.prepare(`
+                INSERT INTO minigame_duels (
+                  id, game_type, creator_id, opponent_id, stake_amount, mode,
+                  status, winner_id, creator_score, opponent_score, is_settled, custom_title
+                )
+                VALUES (?, 'shl_fantasy', ?, ?, ?, 'shl_fantasy', 'completed', ?, 1, 0, ?, ?)
+              `).run(
+                duelId,
+                wId,
+                loser.user_id,
+                splitStake,
+                wId,
+                loser.is_paid ? 1 : 0,
+                leagueTitle
+              );
+            }
           }
         }
       }

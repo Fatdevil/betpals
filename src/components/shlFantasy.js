@@ -35,15 +35,15 @@ export async function openShlFantasyModal(options = {}) {
       return options.roundId;
     }
     const today = new Date().toISOString().split('T')[0];
+    const now = Date.now();
     // 1. Check if today matches any scheduled match day
     const todayRound = SHL_ROUNDS.find(r => r.days && r.days.some(d => d.date === today));
     if (todayRound) return todayRound.id;
 
     // 2. Check for upcoming round that has not locked yet
-    const nowIso = new Date().toISOString();
     const upcomingRound = SHL_ROUNDS.find(r => {
-      const lock = r.lockTime || (r.days?.[0]?.date ? `${r.days[0].date}T23:59:59` : null);
-      return lock && lock >= nowIso;
+      const lockTs = r.lockTime ? new Date(r.lockTime).getTime() : null;
+      return lockTs && lockTs > now;
     });
     if (upcomingRound) return upcomingRound.id;
 
@@ -65,10 +65,10 @@ export async function openShlFantasyModal(options = {}) {
     if (raw) customPlayers = JSON.parse(raw);
   } catch (e) {}
 
-  let allPlayers = [...SHL_PLAYERS, ...customPlayers];
+  let allPlayers = isMultiplayer ? [...SHL_PLAYERS] : [...SHL_PLAYERS, ...customPlayers];
 
   function reloadAllPlayers() {
-    allPlayers = [...SHL_PLAYERS, ...customPlayers];
+    allPlayers = isMultiplayer ? [...SHL_PLAYERS] : [...SHL_PLAYERS, ...customPlayers];
   }
 
   // Selected lineup: 1 G, 2 D, 3 F
@@ -235,11 +235,24 @@ export async function openShlFantasyModal(options = {}) {
             <div class="flex align-center gap-xs" style="flex: 1;">
               <span style="font-size: 1rem;">${isMultiplayer ? "🔒" : "🏒"}</span>
               <select id="shl-round-select" ${isMultiplayer ? 'disabled title="Omgången är låst till kompisligan"' : ""} style="background: transparent; color: var(--gold); font-weight: 800; font-size: 0.84rem; border: none; outline: none; cursor: ${isMultiplayer ? "default" : "pointer"}; max-width: 260px; opacity: ${isMultiplayer ? "0.9" : "1"};">
-                ${SHL_ROUNDS.map(r => `
+                ${SHL_ROUNDS.map(r => {
+                  const now = Date.now();
+                  const isFinished = r.status === "finished";
+                  const lockTs = r.lockTime ? new Date(r.lockTime).getTime() : null;
+                  const isLocked = lockTs ? lockTs <= now : false;
+                  const today = new Date().toISOString().split('T')[0];
+                  const isToday = r.days && r.days.some(d => d.date === today);
+
+                  let prefix = "";
+                  if (isFinished) prefix = "✓ ";
+                  else if (isToday) prefix = "🟢 ";
+                  else if (isLocked) prefix = "🔒 ";
+
+                  return `
                   <option value="${r.id}" ${selectedRoundId === r.id ? "selected" : ""} style="background: #0f172a; color: #fff;">
-                    ${r.name} (${r.dateRange}) ${isMultiplayer && selectedRoundId === r.id ? "🔒" : ""}
+                    ${prefix}${r.name} (${r.dateRange}) ${isMultiplayer && selectedRoundId === r.id ? "🔒" : ""}
                   </option>
-                `).join("")}
+                `}).join("")}
               </select>
             </div>
             <span class="badge ${currentRound.days.length > 1 ? "badge-warning" : "badge-accent"}" style="font-size: 0.68rem; font-weight: 700; white-space: nowrap;">
@@ -453,7 +466,7 @@ export async function openShlFantasyModal(options = {}) {
         <div class="flex gap-xs">
           <!-- Team Select -->
           <select id="shl-team-select" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 0.8rem; flex: 1;">
-            <option value="all">${isEn ? "All 14 SHL Teams" : "Alla 14 SHL-Lag"}</option>
+            <option value="all">${isEn ? "All SHL Teams" : "Alla SHL-Lag"}</option>
             ${SHL_TEAMS.map(t => `<option value="${t.short}" ${activeTeamFilter === t.short ? "selected" : ""}>${t.name} (${t.city})</option>`).join("")}
           </select>
           <!-- Search input -->
@@ -465,20 +478,26 @@ export async function openShlFantasyModal(options = {}) {
           <span style="color: var(--text-secondary);">
             Visar <strong style="color: #fff;">${filteredPlayers.length}</strong> spelare (av ${allPlayers.length})
           </span>
-          <div class="flex gap-xs">
-            <button type="button" class="btn btn-xs ${isAddingPlayer ? "btn-secondary" : "btn-ghost"}" id="btn-toggle-add-player" style="padding: 2px 8px; font-size: 0.72rem; color: var(--gold); border: 1px dashed rgba(255,215,0,0.4);">
-              ${isAddingPlayer ? "✕ Avbryt" : "➕ Lägg till spelare"}
-            </button>
-            ${customPlayers.length > 0 ? `
-              <button type="button" class="btn btn-xs btn-ghost text-danger" id="btn-reset-custom-players" style="padding: 2px 6px; font-size: 0.7rem;" title="Rensa egna tillagda spelare">
-                🔄 Rensa (${customPlayers.length})
+          ${!isMultiplayer ? `
+            <div class="flex gap-xs">
+              <button type="button" class="btn btn-xs ${isAddingPlayer ? "btn-secondary" : "btn-ghost"}" id="btn-toggle-add-player" style="padding: 2px 8px; font-size: 0.72rem; color: var(--gold); border: 1px dashed rgba(255,215,0,0.4);">
+                ${isAddingPlayer ? "✕ Avbryt" : "➕ Lägg till spelare (solo)"}
               </button>
-            ` : ""}
-          </div>
+              ${customPlayers.length > 0 ? `
+                <button type="button" class="btn btn-xs btn-ghost text-danger" id="btn-reset-custom-players" style="padding: 2px 6px; font-size: 0.7rem;" title="Rensa egna tillagda spelare">
+                  🔄 Rensa (${customPlayers.length})
+                </button>
+              ` : ""}
+            </div>
+          ` : `
+            <span class="badge badge-outline" style="font-size: 0.65rem; color: var(--gold); border-color: rgba(255,215,0,0.3);">
+              🔒 Officiellt SHL-register
+            </span>
+          `}
         </div>
 
-        <!-- Inline Add Player Form -->
-        ${isAddingPlayer ? `
+        <!-- Inline Add Player Form (solo only) -->
+        ${isAddingPlayer && !isMultiplayer ? `
           <div class="card my-xs" style="background: rgba(15, 23, 42, 0.95); border: 1px solid var(--gold); border-radius: 8px; padding: 10px;">
             <div style="font-size: 0.78rem; font-weight: 800; color: var(--gold); margin-bottom: 6px;">
               ➕ Skapa / Lägg till spelare i SHL 2026/2027
@@ -497,7 +516,7 @@ export async function openShlFantasyModal(options = {}) {
                 <input type="number" id="new-player-num" placeholder="Nr" value="10" min="1" max="99" style="width: 50px; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid var(--border-glass); border-radius: 4px; padding: 5px; font-size: 0.78rem; text-align: center;" />
               </div>
               <div class="flex-between align-center mt-xs">
-                <span style="font-size: 0.7rem; color: var(--text-secondary);">Sparas direkt i din trupp</span>
+                <span style="font-size: 0.7rem; color: var(--text-secondary);">Sparas endast i solo-läge</span>
                 <button type="button" class="btn btn-xs btn-primary font-bold" id="btn-submit-new-player" style="padding: 4px 10px; font-size: 0.75rem;">
                   Spara & Välj direkt 🏒
                 </button>
@@ -944,6 +963,15 @@ export async function openShlFantasyModal(options = {}) {
 
   // ── VIEW 4: RULES & SCORING MATRIX ────────────────────────
   function renderRulesTab() {
+    const firstGame = roundGames[0];
+    let deadlineTimeStr = "19:00";
+    if (currentRound.lockTime) {
+      const d = new Date(currentRound.lockTime);
+      deadlineTimeStr = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    } else if (firstGame?.time) {
+      deadlineTimeStr = firstGame.time;
+    }
+
     return `
       <div style="padding: 4px 0; font-size: 0.82rem; line-height: 1.45;">
         <div class="card mb-sm" style="padding: 12px; background: rgba(0,0,0,0.3); border-left: 3px solid var(--gold);">
@@ -952,8 +980,8 @@ export async function openShlFantasyModal(options = {}) {
           </div>
           <p class="text-secondary" style="margin: 0; font-size: 0.78rem;">
             ${isEn 
-              ? "Draft 1 Goalie, 2 Defenders and 3 Forwards from tonight SHL round before 19:00. Compete against your friends for the Swish pot!" 
-              : "Välj 1 Målvakt, 2 Backar och 3 Forwards inför kvällens omgång före nedsläpp kl 19:00. Tävla med kompisarna om kvällens Swish-pott!"}
+              ? `Draft 1 Goalie, 2 Defenders and 3 Forwards for ${currentRound.name} before match start (${deadlineTimeStr}). Compete against your friends for the Swish pot!` 
+              : `Välj 1 Målvakt, 2 Backar och 3 Forwards inför ${currentRound.name} före nedsläpp (${deadlineTimeStr}). Tävla med kompisarna om kvällens Swish-pott!`}
           </p>
         </div>
 
@@ -993,7 +1021,7 @@ export async function openShlFantasyModal(options = {}) {
           </div>
         </div>
 
-        <div class="card" style="padding: 12px;">
+        <div class="card mb-sm" style="padding: 12px;">
           <div style="font-weight: 800; color: #f59e0b; margin-bottom: 6px;">
             🏒 ${isEn ? "Forward Scoring:" : "Forwardspoäng:"}
           </div>
@@ -1013,6 +1041,19 @@ export async function openShlFantasyModal(options = {}) {
             <span>Hattrick-bonus</span>
             <span class="text-gold font-bold">+3p</span>
           </div>
+        </div>
+
+        <div class="card" style="padding: 12px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08);">
+          <div style="font-weight: 800; color: #fff; margin-bottom: 6px;">
+            ⚖️ ${isEn ? "Tie-breaker Rules:" : "Särskiljning vid lika poäng:"}
+          </div>
+          <ol style="margin: 0; padding-left: 18px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.5;">
+            <li>Flest totala fantasy-poäng</li>
+            <li>Flest poäng från forward-kedjan</li>
+            <li>Flest poäng från back-paret</li>
+            <li>Flest poäng från målvakten</li>
+            <li>Delad förstaplats & delad Swish-pott</li>
+          </ol>
         </div>
       </div>
     `;
@@ -1275,6 +1316,20 @@ export async function openShlFantasyModal(options = {}) {
           return;
         }
 
+        const isPastDeadline = currentRound.lockTime && new Date(currentRound.lockTime).getTime() <= Date.now();
+        if (isPastDeadline) {
+          showToast("Deadline har passerat för denna omgång. Laguppställningar är låsta.", "error");
+          return;
+        }
+
+        const canonicalIds = new Set(SHL_PLAYERS.map(p => p.id));
+        const allSelected = [myLineup.goalie, ...myLineup.defenders, ...myLineup.forwards].filter(Boolean);
+        const hasCustomPlayer = allSelected.some(p => !canonicalIds.has(p.id));
+        if (isMultiplayer && hasCustomPlayer) {
+          showToast("Kompis-ligor tillåter endast officiella SHL-spelare. Byt ut dina egna spelare.", "error");
+          return;
+        }
+
         isLockedIn = true;
         if (isMultiplayer && currentLeague) {
           try {
@@ -1327,6 +1382,11 @@ export async function openShlFantasyModal(options = {}) {
     root.querySelector("#btn-create-shl-league")?.addEventListener("click", async () => {
       if (!isLoggedIn()) {
         alert("Du behöver vara inloggad för att skapa en kompis-liga!");
+        return;
+      }
+      const isPastDeadline = currentRound.lockTime && new Date(currentRound.lockTime).getTime() <= Date.now();
+      if (isPastDeadline) {
+        showToast("Denna omgång har redan startat och kan inte skapas som ny liga.", "error");
         return;
       }
       const defaultName = `SHL Fantasy ${currentRound.name} (${currentUser.nickname})`;
@@ -1682,26 +1742,28 @@ export async function openShlFantasyModal(options = {}) {
       if (!p || !dayActiveTeams.has(p.team)) return 0;
       if (dayPlayerPtsMap.has(p.id)) return dayPlayerPtsMap.get(p.id);
 
+      const game = liveMatchResults.find(m => (m.home === p.team || m.away === p.team) && dayGameIds.has(m.id));
+      if (!game) return 0;
+      const isHome = game.home === p.team;
+      const teamGoals = isHome ? game.homeScore : game.awayScore;
+      const oppGoals = isHome ? game.awayScore : game.homeScore;
+      const teamWon = teamGoals > oppGoals;
+
       let pts = 0;
       if (p.pos === "G") {
-        const game = liveMatchResults.find(m => (m.home === p.team || m.away === p.team) && dayGameIds.has(m.id));
-        const isHome = game && game.home === p.team;
-        const myScore = game ? (isHome ? game.homeScore : game.awayScore) : 0;
-        const oppScore = game ? (isHome ? game.awayScore : game.homeScore) : 0;
-        const won = myScore > oppScore;
-        const winPts = won ? 4 : 0;
-        const shutoutPts = won && oppScore === 0 ? 5 : 0;
-        const goalsAgainstPts = -oppScore;
+        const winPts = teamWon ? 4 : 0;
+        const shutoutPts = teamWon && oppGoals === 0 ? 5 : 0;
+        const goalsAgainstPts = -oppGoals;
         pts = Math.max(-5, winPts + shutoutPts + goalsAgainstPts);
       } else if (p.pos === "D") {
-        const goals = Math.random() > 0.75 ? 4 : 0;
-        const assists = Math.random() > 0.6 ? 2 : 0;
-        const pm = Math.random() > 0.5 ? 1 : -1;
+        const goals = teamGoals > 0 && Math.random() < 0.18 ? 4 : 0;
+        const assists = teamGoals > 0 && Math.random() < 0.30 ? 2 : 0;
+        const pm = teamWon ? (Math.random() < 0.60 ? 1 : 0) : (Math.random() < 0.50 ? -1 : 0);
         pts = goals + assists + pm;
       } else { // F
-        const goals = (Math.random() > 0.6 ? 3 : 0) + (Math.random() > 0.85 ? 3 : 0);
-        const assists = (Math.random() > 0.5 ? 2 : 0) + (Math.random() > 0.8 ? 2 : 0);
-        const gwg = Math.random() > 0.85 ? 2 : 0;
+        const goals = teamGoals > 0 && Math.random() < 0.35 ? (teamGoals >= 2 && Math.random() < 0.15 ? 6 : 3) : 0;
+        const assists = teamGoals > 0 && Math.random() < 0.35 ? 2 : 0;
+        const gwg = teamWon && teamGoals > 0 && Math.random() < 0.20 ? 2 : 0;
         pts = goals + assists + gwg;
       }
 
