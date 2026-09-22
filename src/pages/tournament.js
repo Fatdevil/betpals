@@ -1,4 +1,4 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend } from '../api.js';
 import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -49,6 +49,64 @@ export async function renderTournament(params = {}) {
     });
 
   } catch (err) {
+    if (err.data?.error === 'ACCESS_RESTRICTED' || err.message === 'ACCESS_RESTRICTED') {
+      const rest = err.data || {};
+      const creatorName = escapeHtml(rest.creatorName || 'Arrangören');
+      const isFof = rest.restriction === 'friends_of_friends';
+      const currentUser = getStoredUser();
+
+      content.innerHTML = `
+        <div class="animate-in" style="max-width: 440px; margin: 40px auto; padding: 0 16px;">
+          <div class="card text-center" style="padding: 32px 20px; border: 1.5px solid var(--border-light); background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(10,10,20,0.85) 100%);">
+            <div style="font-size: 3.2rem; margin-bottom: 12px;">🔒</div>
+            <h2 class="font-heading" style="font-size: 1.4rem; margin-bottom: 8px;">Privat Event</h2>
+            <p class="text-secondary" style="font-size: 0.9rem; line-height: 1.5; margin-bottom: 20px;">
+              ${isFof 
+                ? `Detta event är öppet för <strong>${creatorName}</strong> och dennes vänner samt deras vänner.`
+                : `Detta event är endast öppet för personer som är vän med <strong>${creatorName}</strong> i BetPals.`
+              }
+            </p>
+            ${currentUser ? `
+              ${rest.creatorId && rest.creatorId !== currentUser.id ? `
+                <button type="button" class="btn btn-primary btn-block" id="add-host-friend-btn" data-creator="${rest.creatorId}" style="font-weight: 700;">
+                  ➕ Bli vän med ${creatorName}
+                </button>
+              ` : ''}
+            ` : `
+              <button type="button" class="btn btn-primary btn-block" id="login-to-join-btn" style="font-weight: 700;">
+                Logga in för att kontrollera behörighet
+              </button>
+            `}
+            <div class="mt-md">
+              <button type="button" class="btn btn-secondary btn-sm" id="back-home-btn" style="width: 100%;">
+                ← Tillbaka till startsidan
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('back-home-btn')?.addEventListener('click', () => {
+        navigate('home');
+      });
+      document.getElementById('login-to-join-btn')?.addEventListener('click', () => {
+        navigate('profile');
+      });
+      document.getElementById('add-host-friend-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('add-host-friend-btn');
+        if (btn) btn.disabled = true;
+        try {
+          await addFriend(rest.creatorId);
+          showToast(`Vänförfrågan skickad till ${creatorName}! 👥`, 'success');
+          setTimeout(() => renderTournament(params), 800);
+        } catch (e) {
+          showToast(e.message, 'error');
+          if (btn) btn.disabled = false;
+        }
+      });
+      return;
+    }
+
     content.innerHTML = '<div class="text-center text-red mt-lg">' + err.message + '</div>';
   }
 }
@@ -152,7 +210,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       <div class="card mb-md" style="padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass);">
         <div class="flex-between mb-xs" style="align-items: center;">
           <div style="font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
-            <span>👥 Deltagare</span>
+            <span>👥 Med i eventet</span>
             <span class="badge badge-secondary" style="font-size: 0.68rem; padding: 1px 7px;">${(t.players || []).length}</span>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" id="share-invite-friends-btn" style="font-size: 0.72rem; padding: 2px 10px;">
@@ -166,7 +224,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
                   👤 ${escapeHtml(p)}
                 </span>
               `).join('')
-            : '<span class="text-muted" style="font-size: 0.75rem;">Inga deltagare tillagda än</span>'
+            : '<span class="text-muted" style="font-size: 0.75rem;">Inga anslutna än – dela eventet för att bjuda in!</span>'
           }
         </div>
       </div>

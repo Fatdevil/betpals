@@ -15,7 +15,12 @@ async function request(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Något gick fel');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Något gick fel');
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 

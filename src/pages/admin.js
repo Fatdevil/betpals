@@ -1153,24 +1153,30 @@ function showCreateTournamentModal() {
 
       <div class="form-group">
         <label class="form-label">${t('admin.tournamentVisibility')}</label>
-        <div class="visibility-picker" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-          <label class="visibility-card selected" id="vis-card-friends" style="cursor: pointer; border: 1.5px solid var(--gold); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; background: rgba(245, 166, 35, 0.12); transition: all 0.2s;">
+        <div class="visibility-picker" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+          <label class="visibility-card selected" id="vis-card-friends" style="cursor: pointer; border: 1.5px solid var(--gold); border-radius: var(--radius-md); padding: 10px 8px; text-align: center; background: rgba(245, 166, 35, 0.12); transition: all 0.2s;">
             <input type="radio" name="tournament-visibility" value="friends" checked style="display: none;" />
-            <div style="font-size: 1.25rem;">👥</div>
+            <div style="font-size: 1.25rem;">🔒</div>
             <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visFriends')}</div>
             <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visFriendsDesc')}</div>
           </label>
-          <label class="visibility-card" id="vis-card-public" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
+          <label class="visibility-card" id="vis-card-fof" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 8px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
+            <input type="radio" name="tournament-visibility" value="friends_of_friends" style="display: none;" />
+            <div style="font-size: 1.25rem;">👥</div>
+            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visFriendsOfFriends')}</div>
+            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visFriendsOfFriendsDesc')}</div>
+          </label>
+          <label class="visibility-card" id="vis-card-private" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 8px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
+            <input type="radio" name="tournament-visibility" value="private" style="display: none;" />
+            <div style="font-size: 1.25rem;">🔗</div>
+            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visLink')}</div>
+            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visLinkDesc')}</div>
+          </label>
+          <label class="visibility-card" id="vis-card-public" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 8px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
             <input type="radio" name="tournament-visibility" value="public" style="display: none;" />
             <div style="font-size: 1.25rem;">🌐</div>
             <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visPublic')}</div>
             <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visPublicDesc')}</div>
-          </label>
-          <label class="visibility-card" id="vis-card-private" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
-            <input type="radio" name="tournament-visibility" value="private" style="display: none;" />
-            <div style="font-size: 1.25rem;">🔒</div>
-            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visPrivate')}</div>
-            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visPrivateDesc')}</div>
           </label>
         </div>
       </div>
@@ -1313,11 +1319,6 @@ function showCreateTournamentModal() {
     const name = document.getElementById('tournament-name').value.trim();
     if (!name || name.length < 2) {
       showToast('Ett eventnamn krävs (minst 2 tecken)', 'error');
-      return;
-    }
-
-    if (players.length < 2) {
-      showToast(t('admin.toastMinTwoPlayers'), 'error');
       return;
     }
 

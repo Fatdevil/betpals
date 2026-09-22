@@ -1554,6 +1554,13 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
   }
   const userId = loggedInUser.id;
 
+  if (event.tournamentId) {
+    const tournament = db.getFullTournament(event.tournamentId);
+    if (tournament && !db.canUserAccessTournament(tournament, userId)) {
+      return res.status(403).json({ error: 'Du har inte tillträde till detta event' });
+    }
+  }
+
   const betId = generateId();
   db.addBet(betId, event.id, cleanBettor, playerId, betAmount, userId);
 
@@ -1852,16 +1859,14 @@ app.post('/api/tournaments', (req, res) => {
     .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
     .filter(Boolean))];
 
-  if (cleanPlayers.length < 2) {
-    return res.status(400).json({ error: 'Minst 2 deltagare krävs för att skapa en turnering' });
-  }
-
   const min = Math.max(1, Number(req.body.minBet) || 10);
   const max = Math.max(min, Number(req.body.maxBet) || 10000);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
-  const allowedVisibilities = ['public', 'friends', 'private'];
-  const visibility = allowedVisibilities.includes(req.body.visibility) ? req.body.visibility : 'friends';
+  const allowedVisibilities = ['public', 'friends', 'friends_of_friends', 'private', 'link'];
+  let visibility = req.body.visibility;
+  if (visibility === 'link') visibility = 'private';
+  if (!allowedVisibilities.includes(visibility)) visibility = 'friends';
 
   const id = generateId();
   const shareCode = generateShareCode();
@@ -1924,8 +1929,10 @@ app.post('/api/tournaments/from-template', (req, res) => {
   const max = Math.max(min, Number(req.body.maxBet) || 10000);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
-  const allowedVisibilities = ['public', 'friends', 'private'];
-  const visibility = allowedVisibilities.includes(req.body.visibility) ? req.body.visibility : 'friends';
+  const allowedVisibilities = ['public', 'friends', 'friends_of_friends', 'private', 'link'];
+  let visibility = req.body.visibility;
+  if (visibility === 'link') visibility = 'private';
+  if (!allowedVisibilities.includes(visibility)) visibility = 'friends';
 
   const tournamentId = generateId();
   const shareCode = generateShareCode();
@@ -2005,7 +2012,30 @@ app.post('/api/tournaments/from-template', (req, res) => {
 app.get('/api/tournaments/:code', (req, res) => {
   const tournament = db.getFullTournament(req.params.code);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
-  res.json(tournament);
+
+  const user = getUserFromToken(req);
+  const hasPin = req.query.pin && verifyPin(req.query.pin);
+
+  if (!hasPin && !db.canUserAccessTournament(tournament, user ? user.id : null)) {
+    const creator = tournament.creatorId ? db.getUserById(tournament.creatorId) : null;
+    return res.status(403).json({
+      error: 'ACCESS_RESTRICTED',
+      restriction: tournament.visibility || 'friends',
+      creatorId: tournament.creatorId,
+      creatorName: creator ? (creator.real_name || creator.nickname) : 'Arrangören',
+      creatorNickname: creator ? creator.nickname : null
+    });
+  }
+
+  // Auto-register logged-in user as participant when opening the tournament
+  if (user) {
+    const userName = (user.real_name || user.nickname || '').trim();
+    if (userName) {
+      db.addTournamentParticipant(tournament.id, userName, user.id);
+    }
+  }
+
+  res.json(db.getFullTournament(tournament.id));
 });
 
 app.post('/api/tournaments/:id/rounds', (req, res) => {

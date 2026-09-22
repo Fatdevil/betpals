@@ -1467,7 +1467,85 @@ export function createTournament(id, name, shareCode, creatorId, visibility = 'f
 export function addTournamentParticipant(tournamentId, name, userId = null) {
   const pName = (name || '').trim();
   if (!pName) return false;
+  if (userId) {
+    const existing = db.prepare('SELECT id, user_id FROM tournament_participants WHERE tournament_id = ? AND (user_id = ? OR LOWER(name) = LOWER(?))').get(tournamentId, userId, pName);
+    if (existing) {
+      if (!existing.user_id) {
+        db.prepare('UPDATE tournament_participants SET user_id = ? WHERE id = ?').run(userId, existing.id);
+      }
+      return true;
+    }
+  }
   stmts.insertTournamentParticipant.run(crypto.randomUUID(), tournamentId, pName, userId);
+  return true;
+}
+
+export function isFriend(userId, targetUserId) {
+  if (!userId || !targetUserId || userId === targetUserId) return false;
+  const row = db.prepare('SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?').get(userId, targetUserId);
+  return Boolean(row);
+}
+
+export function isFriendOrFriendOfFriend(userId, targetUserId) {
+  if (!userId || !targetUserId) return false;
+  if (userId === targetUserId) return true;
+  const direct = db.prepare('SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?').get(userId, targetUserId);
+  if (direct) return true;
+  const fof = db.prepare(`
+    SELECT 1 FROM friends f1
+    JOIN friends f2 ON f1.friend_id = f2.user_id
+    WHERE f1.user_id = ? AND f2.friend_id = ?
+    LIMIT 1
+  `).get(userId, targetUserId);
+  return Boolean(fof);
+}
+
+export function canUserAccessTournament(tournament, userId = null) {
+  if (!tournament) return false;
+  const vis = tournament.visibility || 'friends';
+  // Public or link/private allows anyone with the link/code
+  if (vis === 'public' || vis === 'private' || vis === 'link') {
+    return true;
+  }
+  if (!userId) {
+    return false;
+  }
+  const creatorId = tournament.creatorId || tournament.creator_id;
+  if (creatorId && creatorId === userId) {
+    return true;
+  }
+  // Already a participant
+  const isPart = db.prepare(`
+    SELECT 1 FROM tournament_participants tp
+    JOIN users u ON (
+      tp.user_id = u.id 
+      OR LOWER(tp.name) = LOWER(u.real_name)
+      OR LOWER(tp.name) = LOWER(u.nickname)
+    )
+    WHERE tp.tournament_id = ? AND u.id = ?
+    LIMIT 1
+  `).get(tournament.id, userId);
+  if (isPart) return true;
+
+  // Already placed a bet
+  const hasBet = db.prepare(`
+    SELECT 1 FROM bets b
+    JOIN events e ON b.event_id = e.id
+    WHERE e.tournament_id = ? AND b.user_id = ?
+    LIMIT 1
+  `).get(tournament.id, userId);
+  if (hasBet) return true;
+
+  if (!creatorId) return true;
+
+  if (vis === 'friends') {
+    return isFriend(userId, creatorId);
+  }
+
+  if (vis === 'friends_of_friends') {
+    return isFriendOrFriendOfFriend(userId, creatorId);
+  }
+
   return true;
 }
 
@@ -1496,36 +1574,45 @@ export function getAllTournaments(userId = null) {
       SELECT DISTINCT t.* FROM tournaments t
       WHERE COALESCE(t.visibility, 'friends') = 'public'
          OR t.creator_id = ?
+         OR t.id IN (
+           SELECT tp.tournament_id FROM tournament_participants tp
+           JOIN users u ON (
+             tp.user_id = u.id
+             OR LOWER(tp.name) = LOWER(u.real_name)
+             OR LOWER(tp.name) = LOWER(u.nickname)
+           )
+           WHERE u.id = ?
+         )
+         OR t.id IN (
+           SELECT e.tournament_id FROM events e
+           JOIN bets b ON b.event_id = e.id
+           WHERE b.user_id = ?
+         )
+         OR t.id IN (
+           SELECT e.tournament_id FROM events e
+           JOIN players p ON p.event_id = e.id
+           JOIN users u ON (
+             LOWER(p.name) = LOWER(u.real_name)
+             OR LOWER(p.name) = LOWER(u.nickname)
+           )
+           WHERE u.id = ?
+         )
          OR (
-           COALESCE(t.visibility, 'friends') = 'friends' AND (
+           COALESCE(t.visibility, 'friends') IN ('friends', 'friends_of_friends') AND (
              t.creator_id IN (SELECT friend_id FROM friends WHERE user_id = ?)
-             OR t.id IN (
-               SELECT e.tournament_id FROM events e
-               JOIN players p ON p.event_id = e.id
-               JOIN users u ON (
-                 LOWER(p.name) = LOWER(u.real_name)
-                 OR LOWER(p.name) = LOWER(u.nickname)
-               )
-               WHERE u.id = ?
-             )
-             OR t.id IN (
-               SELECT e.tournament_id FROM events e
-               JOIN bets b ON b.event_id = e.id
-               WHERE b.user_id = ?
-             )
-             OR t.id IN (
-               SELECT tp.tournament_id FROM tournament_participants tp
-               JOIN users u ON (
-                 tp.user_id = u.id
-                 OR LOWER(tp.name) = LOWER(u.real_name)
-                 OR LOWER(tp.name) = LOWER(u.nickname)
-               )
-               WHERE u.id = ?
+           )
+         )
+         OR (
+           COALESCE(t.visibility, 'friends') = 'friends_of_friends' AND (
+             t.creator_id IN (
+               SELECT f2.friend_id FROM friends f1
+               JOIN friends f2 ON f1.friend_id = f2.user_id
+               WHERE f1.user_id = ?
              )
            )
          )
       ORDER BY t.created_at DESC
-    `).all(userId, userId, userId, userId, userId);
+    `).all(userId, userId, userId, userId, userId, userId);
   }
 
   return tournaments.map(t => {
@@ -2687,13 +2774,22 @@ export function getTournamentParticipantUserIds(tournamentId) {
   const userIds = new Set();
   if (t && t.creator_id) {
     userIds.add(t.creator_id);
-    if (t.visibility === 'friends') {
+    if (t.visibility === 'friends' || t.visibility === 'friends_of_friends') {
       const friendRows = db.prepare('SELECT friend_id FROM friends WHERE user_id = ?').all(t.creator_id);
       for (const f of friendRows) {
         if (f.friend_id) userIds.add(f.friend_id);
       }
     }
   }
+  // Add registered participants with an associated user_id
+  const partRows = db.prepare(`
+    SELECT DISTINCT user_id FROM tournament_participants
+    WHERE tournament_id = ? AND user_id IS NOT NULL
+  `).all(tournamentId);
+  for (const p of partRows) {
+    if (p.user_id) userIds.add(p.user_id);
+  }
+
   // Add users who have placed bets in this tournament
   const bettorRows = db.prepare(`
     SELECT DISTINCT b.user_id
