@@ -541,37 +541,49 @@ function renderEventContent(event, content, code) {
   });
 }
 
-async function loadQRCode(code) {
+async function openEventShareModal(code, eventName) {
   try {
     const baseUrl = window.location.origin;
     const data = await getEventQR(code, baseUrl);
-    const container = document.getElementById('qr-container');
-    if (container) {
-      const shareUrl = `${baseUrl}/?page=event&code=${code}`;
-      const shareMsg = `🎲 Häng på och lägg dina bets i BetPals! Länk: ${shareUrl}`;
-      container.innerHTML = `
-        <img src="${data.qr}" alt="QR ${code}" />
-        <span class="qr-label">${t('event.scanToJoin')}</span>
-        <div class="flex gap-xs mt-sm" style="width: 100%; max-width: 280px; margin: var(--space-sm) auto 0; justify-content: center; flex-wrap: wrap;">
-          <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}" target="_blank" rel="noopener" class="btn btn-sm" style="background: #25D366; color: white; text-decoration: none; font-size: 0.75rem; flex: 1;">
+    const shareUrl = `${baseUrl}/?page=event&code=${code}`;
+    const shareMsg = `🎲 Häng på och lägg dina bets på "${eventName || 'spelet'}" i BetPals! Länk: ${shareUrl}`;
+
+    showModal('📱 Dela spel', `
+      <div class="text-center">
+        <img src="${data.qr}" alt="QR ${code}" style="width: 200px; height: 200px; border-radius: var(--radius-md); margin-bottom: var(--space-md);" />
+        <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">${t('event.scanToJoin')}</p>
+        <div class="flex gap-sm mb-md">
+          <input type="text" class="form-input" value="${shareUrl}" readonly id="event-share-url" style="flex: 1; font-size: 0.75rem;" />
+          <button class="btn btn-sm btn-primary" id="event-copy-url-btn">📋</button>
+        </div>
+        <div class="flex gap-xs" style="justify-content: center; flex-wrap: wrap;">
+          <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}" target="_blank" rel="noopener" class="btn btn-sm" style="background: #25D366; color: white; text-decoration: none; font-size: 0.8rem; flex: 1;">
             💬 WhatsApp
           </a>
-          <a href="sms:?&body=${encodeURIComponent(shareMsg)}" class="btn btn-sm" style="background: #3498db; color: white; text-decoration: none; font-size: 0.75rem; flex: 1;">
+          <a href="sms:?&body=${encodeURIComponent(shareMsg)}" class="btn btn-sm" style="background: #3498db; color: white; text-decoration: none; font-size: 0.8rem; flex: 1;">
             📱 SMS
           </a>
-          <button type="button" class="btn btn-sm btn-secondary copy-event-link-btn" style="font-size: 0.75rem;">
-            📋
-          </button>
+          ${navigator.share ? `
+            <button class="btn btn-sm btn-secondary" id="event-native-share-btn" style="font-size: 0.8rem; flex: 1;">
+              📤 Fler...
+            </button>
+          ` : ''}
         </div>
-      `;
-      container.querySelector('.copy-event-link-btn')?.addEventListener('click', () => {
-        navigator.clipboard.writeText(shareUrl);
-        showToast('Länk kopierad! ✅', 'success');
-      });
-    }
-  } catch (e) {
-    const container = document.getElementById('qr-container');
-    if (container) container.innerHTML = '';
+      </div>
+    `);
+
+    document.getElementById('event-copy-url-btn')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(shareUrl);
+      showToast('Länk kopierad! ✅', 'success');
+    });
+
+    document.getElementById('event-native-share-btn')?.addEventListener('click', async () => {
+      try {
+        await navigator.share({ title: eventName || 'BetPals', text: shareMsg, url: shareUrl });
+      } catch {}
+    });
+  } catch (err) {
+    showToast('Kunde inte generera QR-kod', 'error');
   }
 }
 

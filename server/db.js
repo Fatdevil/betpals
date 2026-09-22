@@ -1458,7 +1458,7 @@ export function createTournament(id, name, shareCode, creatorId, visibility = 'f
       const pName = typeof p === 'string' ? p.trim() : (p?.name || '').trim();
       const pUserId = (typeof p === 'object' && p?.userId) ? p.userId : null;
       if (pName) {
-        stmts.insertTournamentParticipant.run(generateId(), id, pName, pUserId);
+        stmts.insertTournamentParticipant.run(crypto.randomUUID(), id, pName, pUserId);
       }
     });
   }
@@ -1467,7 +1467,7 @@ export function createTournament(id, name, shareCode, creatorId, visibility = 'f
 export function addTournamentParticipant(tournamentId, name, userId = null) {
   const pName = (name || '').trim();
   if (!pName) return false;
-  stmts.insertTournamentParticipant.run(generateId(), tournamentId, pName, userId);
+  stmts.insertTournamentParticipant.run(crypto.randomUUID(), tournamentId, pName, userId);
   return true;
 }
 
