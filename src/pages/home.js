@@ -8,6 +8,7 @@ import { openLiveStreamModal } from '../components/livestream.js';
 import { getStoredUser } from '../auth.js';
 import { openAppQrModal } from '../components/appQrModal.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
+import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
 
 export async function renderHome() {
   const isEn = getLang() === 'en';
@@ -21,6 +22,7 @@ export async function renderHome() {
     </div>
     ${renderMinigamesRoller()}
     <div id="home-lotto-jackpot-banner-container"></div>
+    <div id="home-push-banner-container"></div>
     <div id="tournaments-list"></div>
     <div id="events-list">
       <div class="text-center text-muted mt-lg">${t('common.loading')}</div>
@@ -40,6 +42,7 @@ export async function renderHome() {
   attachMinigamesListeners();
   initHomeLiveBanners();
   initHomeLottoBanner();
+  initHomePushBanner(isEn);
 
   try {
     const [events, tournaments] = await Promise.all([getEvents(), getTournaments()]);
@@ -351,3 +354,59 @@ async function initHomeLottoBanner() {
   window.addEventListener('lotto-updated', handleLottoUpdate);
 }
 
+// ── Push Notification Reminder Banner ────────────────────
+function initHomePushBanner(isEn) {
+  const container = document.getElementById('home-push-banner-container');
+  if (!container) return;
+
+  // Don't show if push is unsupported, already granted, or dismissed this session
+  if (!isPushSupported() || getPushPermissionState() === 'granted') return;
+  if (sessionStorage.getItem('betpals_push_dismissed')) return;
+
+  container.innerHTML = `
+    <div id="home-push-banner" class="animate-in" style="
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 10px 14px; margin-bottom: 12px;
+      background: rgba(245, 166, 35, 0.12);
+      border: 1px solid rgba(245, 166, 35, 0.35);
+      border-radius: 12px;
+    ">
+      <div style="font-size: 0.8rem; line-height: 1.35; flex: 1;">
+        🔔 <strong>${isEn ? 'Enable push notifications' : 'Slå på pushnotiser'}</strong>
+        <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
+          ${isEn ? 'Get notified when friends challenge you or start a FlashBet!' : 'Få notis när polarna utmanar dig eller startar ett BlixtBet!'}
+        </div>
+      </div>
+      <div style="display: flex; gap: 6px; flex-shrink: 0;">
+        <button type="button" id="btn-home-enable-push" class="btn btn-sm btn-primary" style="
+          padding: 5px 12px; font-size: 0.75rem; font-weight: 700;
+          background: linear-gradient(135deg, var(--gold), #e67e22); border: none;
+        ">${isEn ? 'Enable' : 'Aktivera'}</button>
+        <button type="button" id="btn-home-dismiss-push" class="btn btn-sm" style="
+          padding: 5px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.15); color: var(--text-secondary);
+        ">✕</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('btn-home-enable-push')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-home-enable-push');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+      await subscribeToPush();
+      showToast('🔔 Pushnotiser aktiverade! Du får nu notiser från polarna.', 'success');
+      container.innerHTML = '';
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = isEn ? 'Enable' : 'Aktivera';
+    }
+  });
+
+  document.getElementById('btn-home-dismiss-push')?.addEventListener('click', () => {
+    sessionStorage.setItem('betpals_push_dismissed', '1');
+    container.innerHTML = '';
+  });
+}
