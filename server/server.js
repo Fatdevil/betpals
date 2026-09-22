@@ -678,14 +678,12 @@ app.post('/api/users/register', (req, res) => {
   }
 
   const cleanSwish = swishNumber ? (db.normalizePhone(swishNumber) || swishNumber.replace(/[^0-9]/g, '')) : null;
-  if (cleanSwish) {
-    if (cleanSwish.length < 8) {
-      return res.status(400).json({ error: 'Ogiltigt Swish-nummer' });
-    }
-    const existingSwish = db.getUserBySwish(cleanSwish);
-    if (existingSwish) {
-      return res.status(400).json({ error: 'Detta Swish-nummer är redan registrerat på en användare' });
-    }
+  if (!cleanSwish || cleanSwish.length < 8) {
+    return res.status(400).json({ error: 'Swish-nummer är obligatoriskt (minst 8 siffror)' });
+  }
+  const existingSwish = db.getUserBySwish(cleanSwish);
+  if (existingSwish) {
+    return res.status(400).json({ error: 'Detta Swish-nummer är redan registrerat på en användare' });
   }
 
   const id = generateId();

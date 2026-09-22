@@ -210,6 +210,11 @@ function renderAuthScreen(content) {
     const swishNumber = document.getElementById('reg-swish').value.trim();
     const pin = document.getElementById('reg-pin').value.trim();
 
+    if (!swishNumber || swishNumber.replace(/[^0-9]/g, '').length < 8) {
+      showToast('Ange ditt Swish-nummer (minst 8 siffror) 📱', 'error');
+      return;
+    }
+
     if (pin.length !== 4 || !/^\d{4}$/.test(pin)) {
       showToast('PIN-koden måste bestå av exakt 4 siffror', 'error');
       return;
