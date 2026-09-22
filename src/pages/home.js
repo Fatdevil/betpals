@@ -7,6 +7,7 @@ import { renderMinigamesRoller, attachMinigamesListeners, openMegaLottoModal } f
 import { openLiveStreamModal } from '../components/livestream.js';
 import { getStoredUser } from '../auth.js';
 import { openAppQrModal } from '../components/appQrModal.js';
+import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 
 export async function renderHome() {
   const isEn = getLang() === 'en';
@@ -75,16 +76,10 @@ export async function renderHome() {
                 ${tr.status === 'active' ? t('common.active') : '✅ ' + t('common.finished')}
               </span>
             </div>
-            ${tr.banners && tr.banners.length > 0 ? `
-              <div class="sponsor-carousel mt-sm">
-                ${tr.banners.map(b => `
-                  <div class="sponsor-slide">
-                    <img src="${b.imageData}" alt="${escapeHtml(b.label || 'Sponsor')}" class="sponsor-img" />
-                    ${b.label ? `<div class="sponsor-label">${escapeHtml(b.label)}</div>` : ''}
-                  </div>
-                `).join('')}
-              </div>
-            ` : ''}
+            ${tr.banners && tr.banners.length > 0 ? renderSponsorCarousel(tr.banners, {
+              carouselId: `home-sponsor-carousel-${i}`,
+              showSectionHeader: false
+            }) : ''}
           </div>
         `).join('')}
       `;
@@ -92,6 +87,18 @@ export async function renderHome() {
       tList.querySelectorAll('[data-tournament-code]').forEach(card => {
         card.addEventListener('click', () => {
           navigate('tournament', { code: card.dataset.tournamentCode });
+        });
+      });
+
+      // Initialize sponsor carousel auto-roll for each tournament
+      requestAnimationFrame(() => {
+        tournaments.forEach((tr, i) => {
+          if (tr.banners && tr.banners.length > 1) {
+            const carouselEl = document.getElementById(`home-sponsor-carousel-${i}`);
+            if (carouselEl) {
+              initSponsorCarousel(carouselEl, tr.banners);
+            }
+          }
         });
       });
     }
