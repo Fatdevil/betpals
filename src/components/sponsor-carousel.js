@@ -84,8 +84,10 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
   let currentIndex = 0;
   let timer = null;
   let isPaused = false;
+  let isAutoScrolling = false;
   let resumeTimer = null;
   let snapTimer = null;
+  let scrollEndTimer = null;
   let scrollAnimFrame = null;
 
   const updateDots = (activeIdx) => {
@@ -106,9 +108,12 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
     const slides = track.querySelectorAll('.sponsor-slide');
     const slide = slides[currentIndex];
     if (slide) {
-      const trackRect = track.getBoundingClientRect();
-      const slideRect = slide.getBoundingClientRect();
-      const targetScroll = Math.max(0, track.scrollLeft + (slideRect.left - trackRect.left));
+      // Calculate target scroll position cleanly using offsetLeft
+      const targetScroll = slide.offsetLeft !== undefined && slide.offsetParent === track
+        ? slide.offsetLeft
+        : Math.max(0, track.scrollLeft + (slide.getBoundingClientRect().left - track.getBoundingClientRect().left));
+
+      isAutoScrolling = true;
 
       // Temporarily release scroll-snap so smooth scroll animation completes cleanly
       track.style.scrollSnapType = 'none';
@@ -120,7 +125,12 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
       if (snapTimer) clearTimeout(snapTimer);
       snapTimer = setTimeout(() => {
         if (track) track.style.scrollSnapType = 'x mandatory';
-      }, 500);
+      }, 650);
+
+      if (scrollEndTimer) clearTimeout(scrollEndTimer);
+      scrollEndTimer = setTimeout(() => {
+        isAutoScrolling = false;
+      }, 700);
     }
     updateDots(currentIndex);
   };
@@ -174,13 +184,19 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
   const onTouchEnd = () => {
     pauseTemporarily(4000);
   };
+  const onTouchCancel = () => {
+    pauseTemporarily(2000);
+  };
   track.addEventListener('touchstart', onTouchStart, { passive: true });
   track.addEventListener('touchend', onTouchEnd, { passive: true });
+  track.addEventListener('touchcancel', onTouchCancel, { passive: true });
 
   // Sync active dot on manual scroll/swipe
   const onScroll = () => {
+    if (isAutoScrolling) return;
     if (scrollAnimFrame) cancelAnimationFrame(scrollAnimFrame);
     scrollAnimFrame = requestAnimationFrame(() => {
+      if (isAutoScrolling) return;
       const slides = track.querySelectorAll('.sponsor-slide');
       const trackRect = track.getBoundingClientRect();
       let closestIdx = 0;
@@ -201,6 +217,19 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
   };
   track.addEventListener('scroll', onScroll, { passive: true });
 
+  // Visibility change: pause when tab is hidden, resume when visible
+  const onVisibilityChange = () => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      stopAutoRoll();
+    } else {
+      isPaused = false;
+      startAutoRoll();
+    }
+  };
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+
   // Start auto-roll
   startAutoRoll();
 
@@ -208,12 +237,17 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
     stopAutoRoll();
     if (resumeTimer) clearTimeout(resumeTimer);
     if (snapTimer) clearTimeout(snapTimer);
-    if (scrollAnimFrame) cancelAnimationFrame(scrollAnimFrame);
+    if (scrollEndTimer) clearTimeout(scrollEndTimer);
+    if (scrollAnimFrame && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(scrollAnimFrame);
     track.removeEventListener('mouseenter', onMouseEnter);
     track.removeEventListener('mouseleave', onMouseLeave);
     track.removeEventListener('touchstart', onTouchStart);
     track.removeEventListener('touchend', onTouchEnd);
+    track.removeEventListener('touchcancel', onTouchCancel);
     track.removeEventListener('scroll', onScroll);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    }
     container._carouselCleanup = null;
   };
 

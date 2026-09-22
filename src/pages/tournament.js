@@ -825,10 +825,12 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       sponsorCarouselCleanup();
       sponsorCarouselCleanup = null;
     }
-    const carouselEl = document.getElementById('tournament-sponsor-carousel');
-    if (carouselEl) {
-      sponsorCarouselCleanup = initSponsorCarousel(carouselEl, t.banners);
-    }
+    requestAnimationFrame(() => {
+      const carouselEl = document.getElementById('tournament-sponsor-carousel');
+      if (carouselEl) {
+        sponsorCarouselCleanup = initSponsorCarousel(carouselEl, t.banners);
+      }
+    });
   }
 
   // Delete banners

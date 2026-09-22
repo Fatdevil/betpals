@@ -163,3 +163,52 @@ test('Tournament Sponsor Banner: renderSponsorCarousel markup generation', async
   assert.ok(htmlMulti.includes('data-index="1"'), 'Should have index 1 dot');
   assert.ok(!htmlMulti.includes('sponsor-delete-btn'), 'Non-creator should not see delete button');
 });
+
+test('Tournament Sponsor Banner: initSponsorCarousel lifecycle and touch handlers', async () => {
+  const { initSponsorCarousel } = await import('../src/components/sponsor-carousel.js');
+
+  const listeners = {};
+  const mockTrack = {
+    scrollLeft: 0,
+    style: {},
+    addEventListener: (ev, fn) => { listeners[ev] = fn; },
+    removeEventListener: (ev) => { delete listeners[ev]; },
+    querySelectorAll: (sel) => {
+      if (sel === '.sponsor-slide') {
+        return [
+          { offsetLeft: 0, offsetParent: mockTrack, getBoundingClientRect: () => ({ left: 20, width: 300 }) },
+          { offsetLeft: 308, offsetParent: mockTrack, getBoundingClientRect: () => ({ left: 328, width: 300 }) }
+        ];
+      }
+      return [];
+    },
+    getBoundingClientRect: () => ({ left: 20, width: 350 }),
+    scrollTo: () => {}
+  };
+
+  const mockDots = [
+    { classList: { toggle: () => {} }, setAttribute: () => {}, removeAttribute: () => {}, addEventListener: () => {} },
+    { classList: { toggle: () => {} }, setAttribute: () => {}, removeAttribute: () => {}, addEventListener: () => {} }
+  ];
+
+  const mockContainer = {
+    querySelector: (sel) => sel === '.sponsor-carousel' ? mockTrack : null,
+    querySelectorAll: (sel) => sel === '.sponsor-dot' ? mockDots : []
+  };
+
+  const banners = [{ id: '1' }, { id: '2' }];
+  const cleanup = initSponsorCarousel(mockContainer, banners, 10000);
+
+  assert.ok(typeof cleanup === 'function', 'Cleanup should be a function');
+  assert.ok(typeof listeners['touchstart'] === 'function', 'Touchstart listener should be registered');
+  assert.ok(typeof listeners['touchend'] === 'function', 'Touchend listener should be registered');
+  assert.ok(typeof listeners['touchcancel'] === 'function', 'Touchcancel listener should be registered');
+  assert.ok(typeof listeners['scroll'] === 'function', 'Scroll listener should be registered');
+
+  // Verify cleanup removes listeners
+  cleanup();
+  assert.equal(listeners['touchstart'], undefined, 'Touchstart should be cleaned up');
+  assert.equal(listeners['touchend'], undefined, 'Touchend should be cleaned up');
+  assert.equal(listeners['touchcancel'], undefined, 'Touchcancel should be cleaned up');
+  assert.equal(listeners['scroll'], undefined, 'Scroll should be cleaned up');
+});

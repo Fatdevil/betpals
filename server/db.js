@@ -1012,8 +1012,16 @@ export function getFullEvent(idOrCode) {
     imageUrl: p.image_url || null
   }));
 
-  const banners = event.tournament_id
-    ? stmts.getBannersByTournament.all(event.tournament_id).map(b => ({
+  let tournamentId = event.tournament_id || event.tournamentId || null;
+  if (!tournamentId && event.linked_round_id) {
+    try {
+      const parentRound = stmts.getEventById.get(event.linked_round_id);
+      if (parentRound?.tournament_id) tournamentId = parentRound.tournament_id;
+    } catch (_) {}
+  }
+
+  const banners = tournamentId
+    ? stmts.getBannersByTournament.all(tournamentId).map(b => ({
         id: b.id,
         imageData: b.image_data,
         linkUrl: b.link_url || null,

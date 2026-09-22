@@ -1,5 +1,4 @@
-// ── Page: Event (view + predict + WebSocket live odds + QR) ──
-import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage } from '../api.js';
+import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament } from '../api.js';
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
 import { showModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
@@ -139,6 +138,17 @@ export async function renderEvent(params = {}) {
 
   try {
     const event = await getEvent(code);
+
+    // Fallback: If event is in a tournament but banners array is empty, fetch tournament banners
+    if ((!event.banners || event.banners.length === 0) && event.tournamentId) {
+      try {
+        const tour = await getTournament(event.tournamentId);
+        if (tour?.banners && tour.banners.length > 0) {
+          event.banners = tour.banners;
+        }
+      } catch (_) {}
+    }
+
     renderEventContent(event, content, code);
 
     // Connect WebSocket for live updates
@@ -556,10 +566,12 @@ function renderEventContent(event, content, code) {
       eventSponsorCarouselCleanup();
       eventSponsorCarouselCleanup = null;
     }
-    const carouselEl = document.getElementById('event-sponsor-carousel');
-    if (carouselEl) {
-      eventSponsorCarouselCleanup = initSponsorCarousel(carouselEl, event.banners);
-    }
+    requestAnimationFrame(() => {
+      const carouselEl = document.getElementById('event-sponsor-carousel');
+      if (carouselEl) {
+        eventSponsorCarouselCleanup = initSponsorCarousel(carouselEl, event.banners);
+      }
+    });
   }
 }
 
