@@ -1791,12 +1791,18 @@ export function getTournamentNetSettlement(tournamentId) {
     const winnerKey = ensurePlayer(winnerName, winnerId);
     const loserKey = ensurePlayer(loserName, loserId);
 
+    const isExpense = d.game_type === 'even_steven' || Boolean(d.expense_id);
+    const itemType = isExpense ? 'expense' : 'minigame';
+    const displayTitle = d.custom_title || (isExpense ? 'Utlägg' : `Minispel (${d.game_type})`);
+
     players[winnerKey].amount += stake;
     players[winnerKey].rawTotal += stake;
     auditTrail[winnerKey].push({
-      type: 'minigame',
-      title: d.custom_title || `Minispel (${d.game_type})`,
+      type: itemType,
+      title: isExpense ? `Utlägg: ${displayTitle}` : displayTitle,
       duelId: d.id,
+      expenseId: d.expense_id || null,
+      hasReceipt: Boolean(d.receipt_image),
       won: true,
       amount: Math.round(stake),
       timestamp: d.created_at
@@ -1805,9 +1811,11 @@ export function getTournamentNetSettlement(tournamentId) {
     players[loserKey].amount -= stake;
     players[loserKey].rawTotal -= stake;
     auditTrail[loserKey].push({
-      type: 'minigame',
-      title: d.custom_title || `Minispel (${d.game_type})`,
+      type: itemType,
+      title: isExpense ? `Utlägg: ${displayTitle}` : displayTitle,
       duelId: d.id,
+      expenseId: d.expense_id || null,
+      hasReceipt: Boolean(d.receipt_image),
       won: false,
       amount: -Math.round(stake),
       timestamp: d.created_at
@@ -2225,8 +2233,8 @@ export function searchUsers(query, excludeUserId) {
 }
 
 // ── Minigame Duels API ─────────────────────────────────
-export function createDuel({ gameType, creatorId, opponentId, stakeAmount, mode, tournamentId = null }) {
-  const id = crypto.randomUUID();
+export function createDuel({ id: customId, gameType, creatorId, opponentId, stakeAmount, mode, tournamentId = null }) {
+  const id = customId || crypto.randomUUID();
   const status = mode === 'table' ? 'active' : (opponentId ? 'pending' : 'active');
   stmts.insertDuel.run({
     id,

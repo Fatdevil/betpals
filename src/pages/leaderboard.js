@@ -10,6 +10,7 @@ import { formatCurrency, showToast, escapeHtml, createSwishUrl } from '../utils.
 import { t, getLang } from '../i18n.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { openNotanRouletteModal, openReceiptModal } from '../components/minigames.js';
+import { openDelaUtlaggModal } from '../components/delaUtlagg.js';
 
 let activeTab = 'tournaments'; // 'tournaments' | 'swishlist' | 'history'
 let currentTournamentCode = null;
@@ -318,20 +319,28 @@ async function renderTournamentTab(container, activeTournaments, user) {
             </div>
           ` : userAudit.map(item => {
             const isPayment = item.type.startsWith('payment');
+            const isExpense = item.type === 'expense';
             const itemSign = item.amount >= 0 ? '+' : '';
             const itemClass = item.amount >= 0 ? 'text-green' : 'text-red';
-            const icon = isPayment ? '📱' : item.won ? '✅' : '🔴';
+            const icon = isPayment ? '📱' : isExpense ? '🛒' : item.won ? '✅' : '🔴';
             const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
             return `
               <div class="audit-item">
-                <div class="flex align-center gap-xs">
+                <div class="flex align-center gap-xs" style="flex: 1; min-width: 0;">
                   <span>${icon}</span>
-                  <span style="font-weight: 600;">${escapeHtml(item.title)}</span>
+                  <span style="font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(item.title)}</span>
                   ${dateStr ? `<span class="text-muted" style="font-size: 0.65rem;">(${dateStr})</span>` : ''}
                 </div>
-                <div class="${itemClass}" style="font-weight: 700;">
-                  ${itemSign}${formatCurrency(item.amount)}
+                <div class="flex align-center gap-xs">
+                  ${(item.expenseId || item.hasReceipt) ? `
+                    <button type="button" class="btn btn-ghost btn-xs btn-view-tab-receipt" data-expense-id="${escapeHtml(item.expenseId || '')}" style="padding: 1px 6px; font-size: 0.68rem; color: var(--gold); border: 1px solid rgba(245,166,35,0.3); border-radius: 4px;" title="${isEn ? 'View receipt' : 'Visa kvitto'}">
+                      🧾 ${isEn ? 'Receipt' : 'Kvitto'}
+                    </button>
+                  ` : ''}
+                  <div class="${itemClass}" style="font-weight: 700;">
+                    ${itemSign}${formatCurrency(item.amount)}
+                  </div>
                 </div>
               </div>`;
           }).join('')}
@@ -428,6 +437,14 @@ async function renderTournamentTab(container, activeTournaments, user) {
       ${selectorHtml}
       ${heroCardHtml}
 
+      <!-- Action: Dela utlägg -->
+      <div class="mb-md">
+        <button type="button" class="btn btn-primary btn-block" id="btn-event-dela-utlagg" style="padding: 11px 14px; font-weight: 800; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <span>🛒</span> <span>${t('tab.splitExpenseBtn') || 'Dela utlägg'}</span>
+          <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">(${isEn ? 'Food, gas, lunch' : 'Mat, lunch, bensin'})</span>
+        </button>
+      </div>
+
       <!-- Standings & Audit Section -->
       <div class="section-header mt-md mb-xs">
         <h3 class="section-title" style="font-size: 0.95rem;">${t('tab.standingsTitle')}</h3>
@@ -454,6 +471,32 @@ async function renderTournamentTab(container, activeTournaments, user) {
         </button>
       </div>
     </div>`;
+
+  // Attach Dela utlägg listener
+  container.querySelector('#btn-event-dela-utlagg')?.addEventListener('click', () => {
+    const participants = (balances || []).map(b => ({
+      id: b.userId || b.name,
+      name: b.name,
+      nickname: b.name
+    }));
+    openDelaUtlaggModal({
+      tournamentId: tour.id,
+      tournamentName: tour.name,
+      participants,
+      onSaved: () => renderLeaderboard()
+    });
+  });
+
+  // Attach receipt modal viewer listener in audit drawer
+  container.querySelectorAll('.btn-view-tab-receipt').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const expenseId = btn.getAttribute('data-expense-id');
+      if (expenseId) {
+        openReceiptModal(expenseId);
+      }
+    });
+  });
 
   // Attach tournament selector listener
   document.getElementById('tab-tour-select')?.addEventListener('change', (e) => {
@@ -629,10 +672,10 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </div>
       </div>
 
-      <!-- Tab Actions: Dela nota / Not-Roulette -->
+      <!-- Tab Actions: Dela utlägg / Not-Roulette -->
       <div class="flex gap-xs mb-md">
         <button type="button" class="btn btn-primary btn-block" id="btn-swish-split-tab" style="padding: 10px 14px; font-weight: 800; font-size: 0.85rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.25);">
-          ➕ ${isEn ? 'Split Tab (Even Steven)' : 'Dela nota / Krogutlägg'}
+          🛒 ${isEn ? 'Split Expense (Equal / Custom)' : 'Dela utlägg (Dela lika / Anpassa)'}
         </button>
         <button type="button" class="btn btn-secondary" id="btn-swish-roulette" style="padding: 10px 14px; font-weight: 800; font-size: 0.85rem; border-color: rgba(245,158,11,0.4); display: inline-flex; align-items: center; justify-content: center; gap: 6px;" title="${isEn ? 'Play Not-Roulette' : 'Kör Not-Roulette'}">
           <img src="/gold-card.png" alt="Card" style="width: 20px; height: 20px; object-fit: contain;" /> Not-Roulette
@@ -765,7 +808,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
 
   // Attach split tab action listeners
   container.querySelector('#btn-swish-split-tab')?.addEventListener('click', () => {
-    openNotanRouletteModal('even_steven');
+    openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
   });
 
   container.querySelector('#btn-swish-roulette')?.addEventListener('click', () => {

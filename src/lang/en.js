@@ -265,7 +265,10 @@ export const en = {
     roundWon: 'Won',
     roundLost: 'Lost',
     pastTournaments: 'Past closed events',
-    noPastTournaments: 'No previous events in archive.'
+    noPastTournaments: 'No previous events in archive.',
+    splitExpenseBtn: '🛒 Split Expense',
+    splitExpenseDesc: 'Food, lunch, snacks or gas — split evenly or customize',
+    expenseTitle: 'Expense'
   },
   join: {
     title: 'Join',

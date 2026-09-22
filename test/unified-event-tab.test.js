@@ -129,6 +129,7 @@ test('Unified Event: 32 participants (12 on-site + 20 remote), split pots, minig
     mode: 'online',
     tournamentId
   });
+  db.respondDuel(duelId, remoteUsers[0].id, true);
   db.submitDuelResult({
     duelId,
     creatorScore: 6,

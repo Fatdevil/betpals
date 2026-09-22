@@ -3,6 +3,7 @@ import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } fr
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
+import { openDelaUtlaggModal } from '../components/delaUtlagg.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { TOURNAMENT_TEMPLATES, GAME_TYPES } from '../templates.js';
@@ -212,13 +213,18 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       ` : ''}
 
       <!-- Action Buttons -->
-      ${isCreator && t.status === 'active' ? `
+      ${t.status === 'active' ? `
         <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
-          <button class="btn btn-primary" id="add-game-btn" style="flex: 2; min-width: 140px; font-weight: 700;">
-            ➕ Lägg till spel 🎯
-          </button>
-          <button class="btn btn-secondary" id="add-flashbet-btn" style="flex: 1; min-width: 100px; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
-            ⚡ BlixtBet
+          ${isCreator ? `
+            <button class="btn btn-primary" id="add-game-btn" style="flex: 2; min-width: 130px; font-weight: 700;">
+              ➕ Lägg till spel 🎯
+            </button>
+            <button class="btn btn-secondary" id="add-flashbet-btn" style="flex: 1; min-width: 95px; border-color: rgba(245, 166, 35, 0.6); color: var(--accent); font-weight: 700;">
+              ⚡ BlixtBet
+            </button>
+          ` : ''}
+          <button class="btn btn-secondary" id="add-utlagg-btn" style="flex: 1; min-width: 120px; border-color: rgba(16, 185, 129, 0.5); color: #4ade80; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+            🛒 Dela utlägg
           </button>
         </div>
       ` : ''}
@@ -639,6 +645,24 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   // Add tournament FlashBet button click
   document.getElementById('add-flashbet-btn')?.addEventListener('click', () => {
     openFlashBetModal(null, t.id);
+  });
+
+  // Add Dela utlägg button click
+  document.getElementById('add-utlagg-btn')?.addEventListener('click', () => {
+    const participants = (t.settlement?.balances || []).map(b => ({
+      id: b.userId || b.name,
+      name: b.name,
+      nickname: b.name
+    }));
+    openDelaUtlaggModal({
+      tournamentId: t.id,
+      tournamentName: t.name,
+      participants,
+      onSaved: async () => {
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated);
+      }
+    });
   });
 
   // Toggle settlement receipt

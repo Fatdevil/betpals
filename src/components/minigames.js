@@ -6517,13 +6517,13 @@ export async function openReceiptModal(expenseId) {
       <div class="notan-receipt-viewer animate-in" style="max-width: 420px; margin: 0 auto; text-align: left;">
         <div class="flex-between mb-sm" style="align-items: center;">
           <span class="badge ${isRoulette ? 'badge-danger' : 'badge-primary'}" style="font-size: 0.75rem; font-weight: 800; padding: 4px 8px;">
-            ${isRoulette ? '🎰 NOT-ROULETTE' : '⚖️ EVEN STEVEN'}
+            ${isRoulette ? '🎰 NOT-ROULETTE' : (isEn ? '🛒 SPLIT EXPENSE' : '🛒 DELA UTLÄGG')}
           </span>
           <span class="text-muted" style="font-size: 0.75rem;">${dateStr}</span>
         </div>
 
         <h3 class="font-heading" style="color: var(--gold); margin: 0 0 4px; font-size: 1.25rem;">
-          ${escapeHtml(expense.title || (isRoulette ? 'Not-Roulette' : 'Dela nota'))}
+          ${escapeHtml(expense.title || (isRoulette ? 'Not-Roulette' : (isEn ? 'Split Expense' : 'Dela utlägg')))}
         </h3>
         
         <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">

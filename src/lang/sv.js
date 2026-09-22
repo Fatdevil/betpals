@@ -266,7 +266,10 @@ export const sv = {
     roundWon: 'Vinst',
     roundLost: 'Förlust',
     pastTournaments: 'Tidigare avslutade events',
-    noPastTournaments: 'Inga tidigare events i arkivet.'
+    noPastTournaments: 'Inga tidigare events i arkivet.',
+    splitExpenseBtn: '🛒 Dela utlägg',
+    splitExpenseDesc: 'Mat, lunch, fika eller bensin — fördela lika eller anpassa',
+    expenseTitle: 'Utlägg'
   },
   join: {
     title: 'Gå med',
