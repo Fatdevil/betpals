@@ -1151,9 +1151,91 @@ function showCreateTournamentModal() {
         </div>
       </div>
 
-      <button type="submit" class="btn btn-primary btn-block" id="tournament-submit-btn">${t('admin.submitCreateTournament')}</button>
+      <!-- Optional VIP Friend Invites Drawer -->
+      <div class="form-group" style="margin-top: var(--space-sm);">
+        <div class="flex-between mb-xs" style="align-items: center;">
+          <label class="form-label" style="margin: 0; font-size: 0.82rem;">👥 Bjud in vänner (valfritt)</label>
+          <button type="button" class="btn btn-sm btn-ghost" id="ce-toggle-invites-btn" style="font-size: 0.72rem; padding: 2px 8px; color: var(--gold); border: 1px dashed rgba(245,166,35,0.4);">
+            + Välj vänner
+          </button>
+        </div>
+        <div id="ce-invites-drawer" style="display: none; padding: var(--space-sm); background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); margin-top: 4px;">
+          <div class="flex-between mb-xs" style="align-items: center;">
+            <span style="font-size: 0.72rem; color: var(--text-secondary);">De valda får pushnotis och direkt tillträde utan QR!</span>
+            <button type="button" class="btn btn-ghost btn-xs" id="ce-select-all-friends" style="font-size: 0.7rem; color: var(--accent);">Välj alla</button>
+          </div>
+          <div id="ce-friends-invite-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+            <div class="text-muted text-center" style="font-size: 0.75rem; padding: 6px;">Laddar vänner... 👥</div>
+          </div>
+        </div>
+        <div id="ce-invited-summary" style="display: none; font-size: 0.75rem; color: var(--green); margin-top: 4px; font-weight: 600;"></div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block mt-md" id="tournament-submit-btn">${t('admin.submitCreateTournament')}</button>
     </form>
   `);
+
+  let selectedFriendIds = [];
+  const invitesDrawer = document.getElementById('ce-invites-drawer');
+  const invitesList = document.getElementById('ce-friends-invite-list');
+  const invitesSummary = document.getElementById('ce-invited-summary');
+  const toggleInvitesBtn = document.getElementById('ce-toggle-invites-btn');
+  let friendsLoaded = false;
+
+  toggleInvitesBtn?.addEventListener('click', async () => {
+    if (invitesDrawer.style.display === 'block') {
+      invitesDrawer.style.display = 'none';
+      return;
+    }
+    invitesDrawer.style.display = 'block';
+    if (friendsLoaded) return;
+
+    try {
+      const friends = await api.getFriends();
+      friendsLoaded = true;
+      if (!friends || friends.length === 0) {
+        invitesList.innerHTML = `<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Du har inga vänner tillagda än. Gå till din profil för att lägga till vänner!</div>`;
+        return;
+      }
+      invitesList.innerHTML = friends.map(f => `
+        <label class="flex-between" style="padding: 5px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); align-items: center; cursor: pointer; margin-bottom: 2px;">
+          <div class="flex gap-xs" style="align-items: center; min-width: 0;">
+            ${f.avatarUrl ? `<img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover;" />` : `<span>${escapeHtml(f.avatar || '👤')}</span>`}
+            <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
+            </span>
+          </div>
+          <input type="checkbox" class="t-invite-cb" data-id="${f.id}" />
+        </label>
+      `).join('');
+
+      const updateSummary = () => {
+        const cbs = invitesList.querySelectorAll('.t-invite-cb:checked');
+        selectedFriendIds = Array.from(cbs).map(cb => cb.dataset.id);
+        if (selectedFriendIds.length > 0) {
+          invitesSummary.style.display = 'block';
+          invitesSummary.textContent = `✓ ${selectedFriendIds.length} vän${selectedFriendIds.length > 1 ? 'ner' : ''} får VIP-push & direkt tillträde`;
+          toggleInvitesBtn.textContent = `👥 ${selectedFriendIds.length} valda`;
+        } else {
+          invitesSummary.style.display = 'none';
+          toggleInvitesBtn.textContent = '+ Välj vänner';
+        }
+      };
+
+      invitesList.querySelectorAll('.t-invite-cb').forEach(cb => {
+        cb.addEventListener('change', updateSummary);
+      });
+
+      document.getElementById('ce-select-all-friends')?.addEventListener('click', () => {
+        const cbs = invitesList.querySelectorAll('.t-invite-cb');
+        const allChecked = Array.from(cbs).every(c => c.checked);
+        cbs.forEach(c => c.checked = !allChecked);
+        updateSummary();
+      });
+    } catch (err) {
+      invitesList.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem;">${escapeHtml(err.message)}</div>`;
+    }
+  });
 
   document.querySelectorAll('.visibility-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -1189,7 +1271,13 @@ function showCreateTournamentModal() {
 
     try {
       const pin = getPin();
-      const result = await api.createTournament({ name, players: [], pin, visibility });
+      const result = await api.createTournament({
+        name,
+        players: [],
+        pin,
+        visibility,
+        invitedFriendIds: selectedFriendIds
+      });
       closeModal();
       showToast(t('admin.toastTournamentCreated'), 'success');
       navigate('tournament', { code: result.shareCode });

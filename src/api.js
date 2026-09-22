@@ -237,6 +237,8 @@ export const addTournamentBanner = (id, data) =>
   request('/tournaments/' + id + '/banners', { method: 'POST', body: data });
 export const deleteTournamentBanner = (id, bannerId, data) =>
   request('/tournaments/' + id + '/banners/' + bannerId, { method: 'DELETE', body: data });
+export const inviteFriendsToTournament = (id, friendIds) =>
+  request('/tournaments/' + id + '/invite', { method: 'POST', body: { friendIds } });
 
 // ── Tournament Photos ────────────────────────────────
 export const getTournamentPhotos = (id) => request('/tournaments/' + id + '/photos');

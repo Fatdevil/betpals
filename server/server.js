@@ -1880,7 +1880,71 @@ app.post('/api/tournaments', (req, res) => {
   const shareCode = generateShareCode();
   db.createTournament(id, finalName, shareCode, user ? user.id : null, visibility, cleanPlayers);
 
+  // Invite friends directly (VIP access & push notification)
+  const invitedFriendIds = Array.isArray(body.invitedFriendIds) ? body.invitedFriendIds : [];
+  if (invitedFriendIds.length > 0) {
+    const creatorName = user ? (user.nickname || user.real_name || 'En vän') : 'Arrangören';
+    for (const fId of invitedFriendIds) {
+      if (!fId) continue;
+      const friendUser = db.getUserById(fId);
+      if (friendUser) {
+        db.addTournamentParticipant(id, friendUser.nickname, friendUser.id);
+        sendPushToUsers([friendUser.id], {
+          title: '🏆 Inbjudan till event!',
+          body: `${creatorName} har bjudit in dig till ${finalName}!`,
+          url: `/#tournament?code=${shareCode}`
+        }, 'tournaments').catch(() => {});
+
+        broadcastToUser(friendUser.id, {
+          type: 'tournament_invited',
+          tournament: { id, name: finalName, shareCode }
+        });
+      }
+    }
+  }
+
   res.json(db.getFullTournament(id));
+});
+
+app.post('/api/tournaments/:id/invite', (req, res) => {
+  const user = getUserFromToken(req);
+  const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
+  const isCreator = user && tournament.creator_id === user.id;
+  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  if (!isCreator && !hasPin) {
+    return res.status(403).json({ error: 'Endast arrangören kan bjuda in vänner' });
+  }
+
+  const friendIds = Array.isArray(req.body.friendIds) ? req.body.friendIds : [];
+  if (friendIds.length === 0) {
+    return res.status(400).json({ error: 'Inga vänner valdes' });
+  }
+
+  const creatorName = user ? (user.nickname || user.real_name || 'Arrangören') : 'Arrangören';
+  let invitedCount = 0;
+
+  for (const fId of friendIds) {
+    if (!fId) continue;
+    const friendUser = db.getUserById(fId);
+    if (friendUser) {
+      db.addTournamentParticipant(tournament.id, friendUser.nickname, friendUser.id);
+      invitedCount++;
+
+      sendPushToUsers([friendUser.id], {
+        title: '🏆 Inbjudan till event!',
+        body: `${creatorName} har bjudit in dig till ${tournament.name}!`,
+        url: `/#tournament?code=${tournament.share_code}`
+      }, 'tournaments').catch(() => {});
+
+      broadcastToUser(friendUser.id, {
+        type: 'tournament_invited',
+        tournament: { id: tournament.id, name: tournament.name, shareCode: tournament.share_code }
+      });
+    }
+  }
+
+  res.json({ ok: true, invitedCount, tournament: db.getFullTournament(tournament.id) });
 });
 
 app.post('/api/tournaments/:id/participants', (req, res) => {

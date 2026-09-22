@@ -1,4 +1,4 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend } from '../api.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
 import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -893,7 +893,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             <input type="text" class="form-input" value="${url}" readonly id="share-url" style="flex: 1; font-size: 0.75rem;" />
             <button class="btn btn-sm btn-primary" id="copy-url-btn">📋</button>
           </div>
-          <div class="flex gap-xs" style="justify-content: center; flex-wrap: wrap;">
+          <div class="flex gap-xs mb-md" style="justify-content: center; flex-wrap: wrap;">
             <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(shareMsg)}" target="_blank" rel="noopener" class="btn btn-sm" style="background: #25D366; color: white; text-decoration: none; font-size: 0.8rem; flex: 1;">
               💬 WhatsApp
             </a>
@@ -906,6 +906,28 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
               </button>
             ` : ''}
           </div>
+
+          ${isCreator ? `
+            <div class="mt-md pt-sm text-left" style="border-top: 1px solid var(--border-glass);">
+              <div class="flex-between align-center mb-xs">
+                <span style="font-weight: 700; font-size: 0.85rem;">🔔 Skicka VIP-inbjudan (Push)</span>
+                <button type="button" class="btn btn-xs btn-accent" id="share-friends-toggle-btn" style="font-size: 0.72rem; padding: 2px 8px;">
+                  👥 Välj vänner
+                </button>
+              </div>
+              <p class="text-muted" style="font-size: 0.72rem; margin-bottom: 6px;">
+                Bjud in vänner direkt med pushnotis. De får direkt tillträde och slipper scanna QR-koden!
+              </p>
+              <div id="share-friends-drawer" style="display: none; padding: var(--space-xs); background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); margin-top: 4px;">
+                <div id="share-friends-list" style="max-height: 130px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+                  <div class="text-muted text-center" style="font-size: 0.75rem; padding: 6px;">Laddar vänner... 👥</div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm btn-block mt-xs" id="share-send-push-btn" style="font-size: 0.78rem;">
+                  🚀 Skicka VIP-push till valda
+                </button>
+              </div>
+            </div>
+          ` : ''}
         </div>
       `);
       document.getElementById('copy-url-btn')?.addEventListener('click', () => {
@@ -917,6 +939,64 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           await navigator.share({ title: t.name, text: shareMsg, url });
         } catch {}
       });
+
+      if (isCreator) {
+        let friendsLoaded = false;
+        const drawer = document.getElementById('share-friends-drawer');
+        const list = document.getElementById('share-friends-list');
+        const toggleBtn = document.getElementById('share-friends-toggle-btn');
+        const sendPushBtn = document.getElementById('share-send-push-btn');
+
+        toggleBtn?.addEventListener('click', async () => {
+          if (drawer.style.display === 'block') {
+            drawer.style.display = 'none';
+            return;
+          }
+          drawer.style.display = 'block';
+          if (friendsLoaded) return;
+
+          try {
+            const friends = await getFriends();
+            friendsLoaded = true;
+            if (!friends || friends.length === 0) {
+              list.innerHTML = `<div class="text-muted text-center" style="font-size: 0.75rem; padding: 6px;">Du har inga vänner tillagda än.</div>`;
+              return;
+            }
+            list.innerHTML = friends.map(f => `
+              <label class="flex-between" style="padding: 5px 8px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); align-items: center; cursor: pointer;">
+                <div class="flex gap-xs" style="align-items: center; min-width: 0;">
+                  ${f.avatarUrl ? `<img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover;" />` : `<span>${escapeHtml(f.avatar || '👤')}</span>`}
+                  <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
+                  </span>
+                </div>
+                <input type="checkbox" class="share-friend-cb" data-id="${f.id}" />
+              </label>
+            `).join('');
+          } catch (err) {
+            list.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem;">${escapeHtml(err.message)}</div>`;
+          }
+        });
+
+        sendPushBtn?.addEventListener('click', async () => {
+          const cbs = list?.querySelectorAll('.share-friend-cb:checked');
+          const friendIds = Array.from(cbs || []).map(cb => cb.dataset.id);
+          if (friendIds.length === 0) {
+            return showToast('Välj minst en vän att bjuda in', 'error');
+          }
+          sendPushBtn.disabled = true;
+          sendPushBtn.textContent = 'Skickar inbjudan...';
+          try {
+            await inviteFriendsToTournament(t.id, friendIds);
+            closeModal();
+            showToast(`VIP-inbjudan och push skickad till ${friendIds.length} vän${friendIds.length > 1 ? 'ner' : ''}! 🏆`, 'success');
+          } catch (err) {
+            showToast(err.message, 'error');
+            sendPushBtn.disabled = false;
+            sendPushBtn.textContent = '🚀 Skicka VIP-push till valda';
+          }
+        });
+      }
     } catch (err) {
       showToast('Kunde inte generera QR-kod', 'error');
     }
