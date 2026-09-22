@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments, getActiveFlashLives, getActiveLotto } from '../api.js';
-import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
+import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners, openMegaLottoModal } from '../components/minigames.js';
