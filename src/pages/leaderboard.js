@@ -9,7 +9,7 @@ import {
 import { formatCurrency, showToast, escapeHtml, createSwishUrl } from '../utils.js';
 import { t, getLang } from '../i18n.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
-import { openNotanRouletteModal, openReceiptModal } from '../components/minigames.js';
+import { openReceiptModal } from '../components/minigames.js';
 import { openDelaUtlaggModal } from '../components/delaUtlagg.js';
 
 let activeTab = 'tournaments'; // 'tournaments' | 'swishlist' | 'history'
@@ -672,13 +672,11 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </div>
       </div>
 
-      <!-- Tab Actions: Dela utlägg / Not-Roulette -->
-      <div class="flex gap-xs mb-md">
-        <button type="button" class="btn btn-primary btn-block" id="btn-swish-split-tab" style="padding: 10px 14px; font-weight: 800; font-size: 0.85rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.25);">
-          🛒 ${isEn ? 'Split Expense (Equal / Custom)' : 'Dela utlägg (Dela lika / Anpassa)'}
-        </button>
-        <button type="button" class="btn btn-secondary" id="btn-swish-roulette" style="padding: 10px 14px; font-weight: 800; font-size: 0.85rem; border-color: rgba(245,158,11,0.4); display: inline-flex; align-items: center; justify-content: center; gap: 6px;" title="${isEn ? 'Play Not-Roulette' : 'Kör Not-Roulette'}">
-          <img src="/gold-card.png" alt="Card" style="width: 20px; height: 20px; object-fit: contain;" /> Not-Roulette
+      <!-- Tab Actions: Dela utlägg -->
+      <div class="mb-md">
+        <button type="button" class="btn btn-primary btn-block" id="btn-swish-split-tab" style="padding: 11px 14px; font-weight: 800; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <span>🛒</span> <span>${t('tab.splitExpenseBtn') || 'Dela utlägg'}</span>
+          <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">(${isEn ? 'Equal / Custom' : 'Dela lika / Anpassa'})</span>
         </button>
       </div>
 
@@ -811,9 +809,6 @@ function renderSwishlistTab(container, duelSettlement, user) {
     openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
   });
 
-  container.querySelector('#btn-swish-roulette')?.addEventListener('click', () => {
-    openNotanRouletteModal('roulette');
-  });
 
   container.querySelector('.btn-goto-arcade')?.addEventListener('click', () => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'home' } }));
