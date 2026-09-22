@@ -1124,6 +1124,7 @@ app.get('/api/tournaments/:id/photos', (req, res) => {
     userId: p.user_id,
     uploaderName: p.uploader_name,
     uploaderAvatar: p.uploader_avatar,
+    uploaderEmoji: p.uploader_emoji || '🎲',
     createdAt: p.created_at,
     likeCount: p.like_count || 0,
     userLiked: !!p.user_liked
@@ -1146,6 +1147,8 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
     imageData = imageData.replace(/[\r\n\s]+/g, '');
   }
 
+  const shareCode = tournament.shareCode || tournament.share_code;
+
   try {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
@@ -1157,7 +1160,7 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
     // If Cloudinary is configured, use it. Otherwise, fallback to base64 inline (not recommended for prod, but good for test).
     if (cloudName && apiKey && apiSecret) {
       const timestamp = Math.round(Date.now() / 1000);
-      const folder = `betpals/tournaments/${tournament.share_code}`;
+      const folder = `betpals/tournaments/${shareCode}`;
       const signStr = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
       const signature = crypto.createHash('sha1').update(signStr).digest('hex');
 
@@ -1190,7 +1193,23 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
     const photoId = generateId();
     db.addTournamentPhoto(photoId, tournament.id, user.id, url, thumbUrl, caption);
 
-    res.json({ id: photoId, url, thumbnailUrl: thumbUrl, caption, uploaderName: user.nickname, userId: user.id });
+    if (shareCode) {
+      broadcastToEvent(shareCode, {
+        type: 'tournament_updated',
+        tournamentCode: shareCode
+      });
+    }
+
+    res.json({
+      id: photoId,
+      url,
+      thumbnailUrl: thumbUrl,
+      caption,
+      uploaderName: user.nickname,
+      uploaderAvatar: user.avatar_url,
+      uploaderEmoji: user.avatar_emoji || '🎲',
+      userId: user.id
+    });
   } catch (err) {
     console.error('Photo upload error:', err.message);
     res.status(500).json({ error: 'Uppladdningen misslyckades' });
@@ -1201,26 +1220,30 @@ app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   const user = getUserFromToken(req);
   const tournament = db.getFullTournament(req.params.id);
 
-  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   // Verify ownership or super admin
   const hasPin = req.body?.pin && verifyPin(req.body.pin);
-  const isCreator = tournament.creatorId === user.id;
+  if (!user && !hasPin) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  // Actually, we must check if the user is the one who uploaded the photo, or if they are admin.
-  // We'll let `deleteTournamentPhoto` just delete it by db logic for the user if not admin.
-  // But wait, the DB delete photo statement just takes photoId.
-  // We should do a fast check:
+  const isCreator = (user && tournament.creatorId === user.id) || hasPin;
+
   const photos = db.getPhotosByTournament(tournament.id);
   const photo = photos.find(p => p.id === req.params.photoId);
   if (!photo) return res.status(404).json({ error: 'Bilden hittades inte' });
 
-  if (photo.user_id !== user.id && !isCreator && !hasPin) {
+  if ((!user || photo.user_id !== user.id) && !isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet att ta bort denna bild' });
   }
 
   db.deleteTournamentPhoto(req.params.photoId);
+  const shareCode = tournament.shareCode || tournament.share_code;
+  if (shareCode) {
+    broadcastToEvent(shareCode, {
+      type: 'tournament_updated',
+      tournamentCode: shareCode
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -1236,6 +1259,13 @@ app.post('/api/tournaments/:id/photos/:photoId/like', (req, res) => {
   if (!photo) return res.status(404).json({ error: 'Bilden hittades inte i denna turnering' });
 
   const liked = db.togglePhotoLike(req.params.photoId, user.id);
+  const shareCode = tournament.shareCode || tournament.share_code;
+  if (shareCode) {
+    broadcastToEvent(shareCode, {
+      type: 'tournament_updated',
+      tournamentCode: shareCode
+    });
+  }
   res.json({ liked });
 });
 

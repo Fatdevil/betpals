@@ -609,11 +609,12 @@ const stmts = {
   // Tournament Photos
   getPhotosByTournament: db.prepare(`
     SELECT p.*,
-           u.nickname as uploader_name,
+           COALESCE(u.nickname, 'Deltagare') as uploader_name,
            u.avatar_url as uploader_avatar,
+           u.avatar_emoji as uploader_emoji,
            (SELECT COUNT(*) FROM tournament_photo_likes l WHERE l.photo_id = p.id) as like_count
     FROM tournament_photos p
-    JOIN users u ON p.user_id = u.id
+    LEFT JOIN users u ON p.user_id = u.id
     WHERE p.tournament_id = ?
     ORDER BY p.created_at DESC
   `),
@@ -632,13 +633,14 @@ const stmts = {
     SELECT p.*,
            t.name as tournament_name,
            t.share_code as tournament_code,
-           u.nickname as uploader_name,
+           COALESCE(u.nickname, 'Deltagare') as uploader_name,
            u.avatar_url as uploader_avatar,
+           u.avatar_emoji as uploader_emoji,
            (SELECT COUNT(*) FROM tournament_photo_likes l WHERE l.photo_id = p.id) as like_count,
            EXISTS(SELECT 1 FROM tournament_photo_likes l WHERE l.photo_id = p.id AND l.user_id = ?) as user_liked
     FROM tournament_photos p
     JOIN tournaments t ON p.tournament_id = t.id
-    JOIN users u ON p.user_id = u.id
+    LEFT JOIN users u ON p.user_id = u.id
     WHERE t.creator_id = ?
        OR p.user_id = ?
        OR t.id IN (
@@ -1436,6 +1438,7 @@ export function getUserTournamentPhotos(userId) {
     userId: p.user_id,
     uploaderName: p.uploader_name,
     uploaderAvatar: p.uploader_avatar,
+    uploaderEmoji: p.uploader_emoji,
     createdAt: p.created_at,
     likeCount: p.like_count || 0,
     userLiked: !!p.user_liked

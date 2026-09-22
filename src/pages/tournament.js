@@ -118,6 +118,7 @@ export async function renderTournament(params = {}) {
 }
 
 function renderTournamentContent(content, t, photos = [], tournamentFlashBets = []) {
+  const code = t.shareCode;
   const user = getStoredUser();
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
   const isCreator = (user && t.creatorId === user.id) || hasPinSession;
@@ -431,15 +432,18 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <div class="photo-card card animate-in">
             <div class="photo-header flex-between mb-sm" style="align-items: center;">
               <div class="flex" style="align-items: center; gap: 8px;">
-                <div class="avatar-circle" style="width: 28px; height: 28px; font-size: 0.9rem;">${p.uploaderAvatar || '🎲'}</div>
+                ${p.uploaderAvatar 
+                  ? `<img src="${p.uploaderAvatar}" alt="${escapeHtml(p.uploaderName)}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0;" />`
+                  : `<div class="avatar-circle" style="width: 28px; height: 28px; font-size: 0.9rem;">${escapeHtml(p.uploaderEmoji || '🎲')}</div>`
+                }
                 <div>
                   <div style="font-weight: 700; font-size: 0.85rem;">${escapeHtml(p.uploaderName)}</div>
                   <div class="text-muted" style="font-size: 0.7rem;">${new Date(p.createdAt).toLocaleString('sv-SE', {day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit'})}</div>
                 </div>
               </div>
-              ${(user && p.userId === user.id) || isCreator ? `<button class="btn-icon text-red delete-photo-btn" data-id="${p.id}" style="font-size: 0.8rem; background: rgba(255,0,0,0.1); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">✕</button>` : ''}
+              ${(user && p.userId === user.id) || isCreator ? `<button class="btn-icon text-red delete-photo-btn" data-id="${p.id}" style="font-size: 0.8rem; background: rgba(255,0,0,0.1); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;" title="Radera bild">✕</button>` : ''}
             </div>
-            <img src="${p.url}" class="photo-img" style="width: 100%; border-radius: var(--radius-sm); margin-bottom: var(--space-xs); object-fit: cover; max-height: 500px;" loading="lazy" />
+            <img src="${p.url}" class="photo-img photo-feed-img" data-url="${p.url}" data-caption="${escapeHtml(p.caption || '')}" data-uploader="${escapeHtml(p.uploaderName)}" style="width: 100%; border-radius: var(--radius-sm); margin-bottom: var(--space-xs); object-fit: cover; max-height: 500px; cursor: pointer;" title="Klicka för helskärm" loading="lazy" />
             ${p.caption ? `<div class="photo-caption text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">${escapeHtml(p.caption)}</div>` : ''}
             <div class="photo-actions mt-xs">
               <button class="btn-icon like-btn ${p.userLiked ? 'liked' : ''}" data-id="${p.id}" ${!user ? 'disabled style="opacity: 0.5;" title="Logga in för att gilla"' : ''} style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; background: ${p.userLiked ? 'rgba(255, 60, 60, 0.15)' : 'rgba(255,255,255,0.05)'}; transition: all 0.2s ease;">
@@ -461,6 +465,23 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     });
   });
 
+  // Lightbox for photos in live feed
+  content.querySelectorAll('.photo-feed-img').forEach(img => {
+    img.addEventListener('click', () => {
+      const url = img.dataset.url;
+      const caption = img.dataset.caption;
+      const uploader = img.dataset.uploader;
+      showModal('📸 Foto', `
+        <div class="photo-lightbox-modal text-center">
+          <div style="max-height: 70vh; display: flex; align-items: center; justify-content: center; background: #000; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm);">
+            <img src="${url}" alt="${caption || 'Eventfoto'}" style="max-width: 100%; max-height: 70vh; object-fit: contain;" />
+          </div>
+          ${caption ? `<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: var(--space-xs); text-align: left;">${caption}</p>` : ''}
+          <div class="text-muted" style="font-size: 0.8rem; text-align: left;">Delad av <strong>${uploader}</strong></div>
+        </div>
+      `);
+    });
+  });
 
   // Photo Upload
   document.getElementById('add-photo-btn')?.addEventListener('click', () => {
@@ -468,15 +489,25 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       <form id="photo-form">
         <div class="form-group">
           <label class="form-label">Bild</label>
-          <div class="sponsor-upload-area" id="photo-drop-area" style="min-height: 200px;">
+          <div class="sponsor-upload-area" id="photo-drop-area" style="min-height: 180px; flex-direction: column; gap: var(--space-xs); text-align: center;">
             <div id="photo-preview-container" style="display:none; width: 100%;">
-              <img id="photo-preview-img" style="max-width: 100%; max-height: 300px; border-radius: var(--radius-sm); object-fit: contain;" />
+              <img id="photo-preview-img" style="max-width: 100%; max-height: 250px; border-radius: var(--radius-sm); object-fit: contain; margin: 0 auto;" />
             </div>
             <div id="photo-upload-placeholder">
               <div style="font-size: 2.5rem; margin-bottom: var(--space-xs);">📷</div>
-              <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
+              <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">Fota eller välj bild</div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka eller dra in en bild här</div>
             </div>
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="photo-file-input" style="display: none;" />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" id="photo-camera-input" style="display: none;" />
+          </div>
+          <div class="flex gap-xs mt-xs" style="justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" id="photo-camera-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+              📷 Ta foto med mobilen
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="photo-gallery-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+              🖼️ Välj från galleri
+            </button>
           </div>
         </div>
         <div class="form-group">
@@ -490,31 +521,81 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     let selectedImageBase64 = null;
     const dropArea = document.getElementById('photo-drop-area');
     const fileInput = document.getElementById('photo-file-input');
+    const cameraInput = document.getElementById('photo-camera-input');
+    const cameraBtn = document.getElementById('photo-camera-btn');
+    const galleryBtn = document.getElementById('photo-gallery-btn');
     const previewContainer = document.getElementById('photo-preview-container');
     const previewImg = document.getElementById('photo-preview-img');
     const placeholder = document.getElementById('photo-upload-placeholder');
     const submitBtn = document.getElementById('photo-submit-btn');
 
-    dropArea?.addEventListener('click', () => fileInput.click());
-
-    fileInput?.addEventListener('change', async (ev) => {
-      const file = ev.target.files[0];
+    const handleFile = async (file) => {
       if (!file) return;
-      
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Komprimerar bild... ⏳';
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Komprimerar bild... ⏳';
+      }
       try {
         selectedImageBase64 = await compressImage(file, 1000, 0.8);
         previewImg.src = selectedImageBase64;
         previewContainer.style.display = 'block';
         placeholder.style.display = 'none';
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Dela! 🚀';
       } catch (err) {
-        showToast(err.message, 'error');
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Dela! 🚀';
+        showToast(err.message || 'Kunde inte läsa in bilden', 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Dela! 🚀';
+        }
       }
+    };
+
+    dropArea?.addEventListener('click', (e) => {
+      if (e.target !== fileInput && e.target !== cameraInput) {
+        fileInput?.click();
+      }
+    });
+
+    cameraBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cameraInput?.click();
+    });
+
+    galleryBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener('click', (e) => e.stopPropagation());
+    cameraInput?.addEventListener('click', (e) => e.stopPropagation());
+
+    fileInput?.addEventListener('change', (ev) => {
+      const file = ev.target.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    cameraInput?.addEventListener('change', (ev) => {
+      const file = ev.target.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    ['dragenter', 'dragover'].forEach(name => {
+      dropArea?.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropArea.classList.add('drag-over');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(name => {
+      dropArea?.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropArea.classList.remove('drag-over');
+      });
+    });
+
+    dropArea?.addEventListener('drop', (e) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file) handleFile(file);
     });
 
     document.getElementById('photo-form')?.addEventListener('submit', async (ev) => {
@@ -531,11 +612,13 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         });
         closeModal();
         showToast('Bild delad! 📸', 'success');
-        renderTournament({ code }); // Reload to show new photo
+        renderTournament({ code: t.shareCode }); // Reload to show new photo
       } catch (err) {
         showToast(err.message, 'error');
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Försök igen';
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Försök igen';
+        }
       }
     });
   });
@@ -571,7 +654,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       } catch (err) {
         // Revert on error
         showToast('Kunde inte gilla: ' + err.message, 'error');
-        renderTournament({ code }); 
+        renderTournament({ code: t.shareCode }); 
       }
     });
   });
@@ -585,7 +668,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         const pin = sessionStorage.getItem('betpals_pin') || '';
         await deleteTournamentPhoto(t.id, btn.dataset.id, { pin });
         showToast('Bild borttagen', 'success');
-        renderTournament({ code });
+        renderTournament({ code: t.shareCode });
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -727,7 +810,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         closeModal();
         showToast('Sponsor tillagd! ⭐', 'success');
         const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated);
+        renderTournamentContent(content, updated, photos, tournamentFlashBets);
       } catch (err) {
         showToast(err.message, 'error');
         submitBtn.disabled = false;
@@ -758,7 +841,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         await deleteTournamentBanner(t.id, btn.dataset.bannerId, { pin });
         showToast('Sponsor borttagen', 'success');
         const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated);
+        renderTournamentContent(content, updated, photos, tournamentFlashBets);
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -766,7 +849,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   });
 
   // Add game
-  const handleOpenAddGame = () => showAddGameModal(t, content);
+  const handleOpenAddGame = () => showAddGameModal(t, content, photos, tournamentFlashBets);
   document.getElementById('add-game-btn')?.addEventListener('click', handleOpenAddGame);
   document.getElementById('empty-add-game-btn')?.addEventListener('click', handleOpenAddGame);
 
@@ -798,7 +881,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           pin
         });
         const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated);
+        renderTournamentContent(content, updated, photos, tournamentFlashBets);
       } catch (err) {
         showToast(err.message, 'error');
         btn.disabled = false;
@@ -821,7 +904,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       launchConfetti();
       showToast('Eventet är avslutat! 🏆', 'success');
       const updated = await getTournament(t.shareCode);
-      renderTournamentContent(content, updated);
+      renderTournamentContent(content, updated, photos, tournamentFlashBets);
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -835,7 +918,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       await reopenTournament(t.id, { pin });
       showToast('Eventet har återöppnats! 🔓', 'success');
       const updated = await getTournament(t.shareCode);
-      renderTournamentContent(content, updated);
+      renderTournamentContent(content, updated, photos, tournamentFlashBets);
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -865,7 +948,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         await deleteEvent(btn.dataset.id, pin);
         showToast('Spelet togs bort', 'success');
         const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated);
+        renderTournamentContent(content, updated, photos, tournamentFlashBets);
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -1015,7 +1098,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   document.getElementById('share-tournament-btn')?.addEventListener('click', handleOpenShareModal);
 }
 
-function showAddGameModal(t, content) {
+function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   // Pre-fill players from tournament participants, rounds, or settlement
   const existingPlayerNames = [];
   if (t.players && t.players.length > 0) {
@@ -1263,7 +1346,7 @@ function showAddGameModal(t, content) {
       closeModal();
       launchConfetti();
       showToast('Spel tillagt i eventet! 🎯', 'success');
-      renderTournamentContent(content, updated);
+      renderTournamentContent(content, updated, photos, tournamentFlashBets);
     } catch (err) {
       showToast(err.message, 'error');
       if (submitBtn) {

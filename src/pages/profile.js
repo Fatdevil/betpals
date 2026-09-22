@@ -1007,7 +1007,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             </p>
           ` : ''}
           <div class="flex-between text-muted" style="font-size: 0.75rem; margin-bottom: var(--space-md); border-top: 1px solid var(--border-glass); padding-top: var(--space-xs);">
-            <span>Delad av <strong>${escapeHtml(photo.uploaderName || 'Deltagare')}</strong> ${photo.uploaderAvatar || ''}</span>
+            <span>Delad av <strong>${escapeHtml(photo.uploaderName || 'Deltagare')}</strong> ${escapeHtml(photo.uploaderEmoji || '🎲')}</span>
             <span>${formatDate(photo.createdAt)} · ❤️ ${photo.likeCount || 0}</span>
           </div>
           <button type="button" class="btn btn-primary btn-block lightbox-go-tournament-btn" data-code="${escapeHtml(photo.tournamentCode)}">

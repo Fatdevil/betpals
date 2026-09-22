@@ -85,6 +85,7 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
   let timer = null;
   let isPaused = false;
   let resumeTimer = null;
+  let snapTimer = null;
   let scrollAnimFrame = null;
 
   const updateDots = (activeIdx) => {
@@ -102,12 +103,24 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
   const goToSlide = (index) => {
     if (index < 0 || index >= banners.length) return;
     currentIndex = index;
-    const slide = track.children[currentIndex];
+    const slides = track.querySelectorAll('.sponsor-slide');
+    const slide = slides[currentIndex];
     if (slide) {
+      const trackRect = track.getBoundingClientRect();
+      const slideRect = slide.getBoundingClientRect();
+      const targetScroll = Math.max(0, track.scrollLeft + (slideRect.left - trackRect.left));
+
+      // Temporarily release scroll-snap so smooth scroll animation completes cleanly
+      track.style.scrollSnapType = 'none';
       track.scrollTo({
-        left: slide.offsetLeft,
+        left: targetScroll,
         behavior: 'smooth'
       });
+
+      if (snapTimer) clearTimeout(snapTimer);
+      snapTimer = setTimeout(() => {
+        if (track) track.style.scrollSnapType = 'x mandatory';
+      }, 500);
     }
     updateDots(currentIndex);
   };
@@ -128,7 +141,7 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
     }
   };
 
-  const pauseTemporarily = (duration = 5000) => {
+  const pauseTemporarily = (duration = 4500) => {
     isPaused = true;
     if (resumeTimer) clearTimeout(resumeTimer);
     resumeTimer = setTimeout(() => {
@@ -156,19 +169,32 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
 
   // Touch handlers for mobile
   const onTouchStart = () => {
-    pauseTemporarily(6000);
+    isPaused = true;
+  };
+  const onTouchEnd = () => {
+    pauseTemporarily(4000);
   };
   track.addEventListener('touchstart', onTouchStart, { passive: true });
+  track.addEventListener('touchend', onTouchEnd, { passive: true });
 
   // Sync active dot on manual scroll/swipe
   const onScroll = () => {
     if (scrollAnimFrame) cancelAnimationFrame(scrollAnimFrame);
     scrollAnimFrame = requestAnimationFrame(() => {
-      const scrollPos = track.scrollLeft;
-      const width = track.clientWidth || 1;
-      const newIndex = Math.round(scrollPos / width);
-      if (newIndex >= 0 && newIndex < banners.length && newIndex !== currentIndex) {
-        currentIndex = newIndex;
+      const slides = track.querySelectorAll('.sponsor-slide');
+      const trackRect = track.getBoundingClientRect();
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      slides.forEach((sl, idx) => {
+        const slRect = sl.getBoundingClientRect();
+        const diff = Math.abs(slRect.left - trackRect.left);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = idx;
+        }
+      });
+      if (closestIdx !== currentIndex) {
+        currentIndex = closestIdx;
         updateDots(currentIndex);
       }
     });
@@ -181,10 +207,12 @@ export function initSponsorCarousel(target, banners = [], intervalMs = 3500) {
   const cleanup = () => {
     stopAutoRoll();
     if (resumeTimer) clearTimeout(resumeTimer);
+    if (snapTimer) clearTimeout(snapTimer);
     if (scrollAnimFrame) cancelAnimationFrame(scrollAnimFrame);
     track.removeEventListener('mouseenter', onMouseEnter);
     track.removeEventListener('mouseleave', onMouseLeave);
     track.removeEventListener('touchstart', onTouchStart);
+    track.removeEventListener('touchend', onTouchEnd);
     track.removeEventListener('scroll', onScroll);
     container._carouselCleanup = null;
   };

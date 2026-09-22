@@ -4,15 +4,16 @@ import crypto from 'node:crypto';
 import * as db from '../server/db.js';
 
 test('Unified Event: 32 participants (12 on-site + 20 remote), split pots, minigames & minimal Swish transfers', async (t) => {
+  const pfx = crypto.randomUUID().slice(0, 5);
   const creatorId = 'creator_' + crypto.randomUUID();
-  db.createUser(creatorId, 'EventOrganizer', 'tok_' + creatorId, '🏌️', 'Organizer Real', '0701111111');
+  db.createUser(creatorId, 'Org_' + pfx, 'tok_' + creatorId, '🏌️', 'Organizer Real', '070' + crypto.randomInt(1000000, 9999999));
 
   // Create 12 on-site golfers
   const onSiteUsers = [];
   for (let i = 1; i <= 12; i++) {
     const uid = 'onsite_' + i + '_' + crypto.randomUUID().slice(0, 8);
-    const name = `Golfer_${i}`;
-    db.createUser(uid, name, 'tok_' + uid, '⛳', name, `07010000${i.toString().padStart(2, '0')}`);
+    const name = `Golfer_${pfx}_${i}`;
+    db.createUser(uid, name, 'tok_' + uid, '⛳', name, '070' + crypto.randomInt(1000000, 9999999));
     onSiteUsers.push({ id: uid, name });
   }
 
@@ -20,8 +21,8 @@ test('Unified Event: 32 participants (12 on-site + 20 remote), split pots, minig
   const remoteUsers = [];
   for (let i = 1; i <= 20; i++) {
     const uid = 'remote_' + i + '_' + crypto.randomUUID().slice(0, 8);
-    const name = `SofaBettor_${i}`;
-    db.createUser(uid, name, 'tok_' + uid, '🛋️', name, `07020000${i.toString().padStart(2, '0')}`);
+    const name = `SofaBettor_${pfx}_${i}`;
+    db.createUser(uid, name, 'tok_' + uid, '🛋️', name, '070' + crypto.randomInt(1000000, 9999999));
     remoteUsers.push({ id: uid, name });
   }
 
