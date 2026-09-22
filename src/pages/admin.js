@@ -43,9 +43,11 @@ export async function renderAdmin() {
 function renderAdminChoice(content) {
   content.innerHTML = `
     <div class="animate-in">
-      <div class="page-header text-center">
-        <h1 class="page-title">⚙️ ${t('admin.title')}</h1>
-        <p class="page-subtitle">${t('admin.subtitleUser')}</p>
+      <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px;">
+        <div class="admin-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
+          <img src="/admin-chip.png" alt="ADMIN" class="admin-logo-img" style="width: 100%; max-width: 150px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
+        </div>
+        <p class="page-subtitle" style="margin-top: 2px;">${t('admin.subtitleUser')}</p>
       </div>
 
       <div class="card text-center" style="padding: var(--space-xl);">
@@ -109,16 +111,16 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
 
   content.innerHTML = `
     <div class="animate-in">
-      <div class="page-header">
-        <div class="flex-between">
-          <h1 class="page-title">⚙️ ${t('admin.title')}</h1>
-          <div class="flex gap-sm">
-            ${loggedIn ? `<span class="badge badge-success" style="font-size: 0.7rem;">👤 ${user?.nickname || ''}</span>` : ''}
-            ${hasPinSession ? `<span class="badge badge-info" style="font-size: 0.7rem;">🔐 Superadmin</span>` : ''}
-            ${hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-logout-btn">${t('admin.logoutPin')}</button>` : ''}
-          </div>
+      <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px; position: relative;">
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: -18px;">
+          ${loggedIn ? `<span class="badge badge-success" style="font-size: 0.7rem; z-index: 2;">👤 ${user?.nickname || ''}</span>` : ''}
+          ${hasPinSession ? `<span class="badge badge-info" style="font-size: 0.7rem; z-index: 2;">🔐 Superadmin</span>` : ''}
+          ${hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-logout-btn" style="font-size: 0.75rem; padding: 4px 10px; z-index: 2;">${t('admin.logoutPin')}</button>` : ''}
         </div>
-        <p class="page-subtitle">${loggedIn ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
+        <div class="admin-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
+          <img src="/admin-chip.png" alt="ADMIN" class="admin-logo-img" style="width: 100%; max-width: 140px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
+        </div>
+        <p class="page-subtitle" style="margin-top: 2px;">${loggedIn ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
       </div>
 
       <div class="mb-lg">

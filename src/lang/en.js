@@ -90,6 +90,7 @@ export const en = {
     newEvent: '➕ New Event',
     newTournament: '🏆 Create New Event',
     createNewEvent: 'Create New Event',
+    createEvent: 'CREATE EVENT',
     yourEvents: 'Your Matches & Games',
     allEvents: 'All Matches & Games',
     noEvents: "You haven't created any matches yet. Create your first one!",

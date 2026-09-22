@@ -92,6 +92,7 @@ export const sv = {
     newEvent: '➕ Nytt Event',
     newTournament: '🏆 Skapa Nytt Event',
     createNewEvent: 'Skapa Nytt Event',
+    createEvent: 'SKAPA EVENT',
     yourEvents: 'Dina matcher & spel',
     allEvents: 'Alla matcher & spel',
     noEvents: 'Du har inte skapat några events ännu. Skapa ditt första!',
