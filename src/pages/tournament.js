@@ -108,7 +108,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       <div class="page-header">
         <div class="flex-between">
           <div>
-            <h1 class="page-title">🏆 ${escapeHtml(t.name)}</h1>
+            <h1 class="page-title">${escapeHtml(t.name)}</h1>
             <p class="page-subtitle">${allEvents.length} spel · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
           </div>
           <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}">${t.status === 'active' ? 'Pågår' : 'Avräknad'}</span>
