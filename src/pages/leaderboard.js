@@ -118,7 +118,9 @@ async function renderTournamentTab(container, activeTournaments, user) {
   if (!activeTournaments || activeTournaments.length === 0) {
     container.innerHTML = `
       <div class="empty-state card text-center" style="padding: var(--space-xl) var(--space-md);">
-        <div style="font-size: 2.5rem; margin-bottom: var(--space-sm);">⛳</div>
+        <div style="display: flex; justify-content: center; margin-bottom: var(--space-md);">
+          <img src="/malta-chips-gold.png" alt="Malta Betting" class="animate-in" style="width: 140px; max-width: 60vw; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(0,0,0,0.7)) drop-shadow(0 0 16px rgba(255, 215, 0, 0.25));" />
+        </div>
         <h3 class="font-heading" style="color: var(--gold); margin-bottom: 6px;">${t('tab.noActiveTournaments')}</h3>
         <p class="text-muted" style="font-size: 0.85rem; max-width: 360px; margin: 0 auto var(--space-md);">
           ${t('tab.createOrJoin')}
