@@ -194,7 +194,7 @@ export async function openDelaUtlaggModal(options = {}) {
 
           <!-- Receipt Image Upload -->
           <div class="mt-xs">
-            <input type="file" id="utlagg-receipt-file" accept="image/*" capture="environment" style="display: none;" />
+            <input type="file" id="utlagg-receipt-file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" style="display: none;" />
             <div class="flex align-center gap-xs">
               <button type="button" class="btn btn-ghost btn-xs" id="btn-utlagg-receipt-trigger" style="font-size: 0.72rem; padding: 4px 8px; border: 1px dashed rgba(255,255,255,0.2);">
                 📷 ${receiptBase64 ? (isEn ? 'Change Receipt Photo' : 'Byt kvittofoto') : (isEn ? 'Attach Receipt Photo' : 'Fota/bifoga kvitto')}

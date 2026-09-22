@@ -5667,7 +5667,7 @@ export async function openAnyBetModal(initialBetId = null) {
           <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
             ${t('arcade.anybetUploadProof')}
           </label>
-          <input type="file" id="settle-proof-file" accept="image/*" class="form-input" style="padding: 6px 10px; font-size: 0.82rem;" />
+          <input type="file" id="settle-proof-file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" class="form-input" style="padding: 6px 10px; font-size: 0.82rem;" />
           <div id="settle-proof-preview-wrap" style="display: none; margin-top: 8px;">
             <img id="settle-proof-preview" style="max-height: 140px; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); display: block;" />
           </div>
@@ -7033,7 +7033,7 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
 
           <!-- Receipt Photo Attachment -->
           <div class="mt-xs">
-            <input type="file" id="notan-receipt-file" accept="image/*" capture="environment" style="display: none;" />
+            <input type="file" id="notan-receipt-file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" style="display: none;" />
             <div class="flex-between align-center">
               <button type="button" class="btn btn-secondary btn-xs" id="btn-trigger-receipt-file" style="font-size: 0.75rem; padding: 5px 10px; border-color: rgba(255,215,0,0.3); color: var(--gold);">
                 📷 ${receiptBase64 ? (isEn ? 'Change Receipt Photo' : 'Byt Kvittofoto') : (isEn ? 'Take Photo / Attach Receipt' : 'Fota / Bifoga kvitto')}
@@ -10654,7 +10654,7 @@ export async function openGimmeModal() {
           </p>
           <label class="btn btn-secondary btn-sm" style="cursor: pointer;">
             📁 ${isEn ? 'Take / Upload Photo' : 'Knäpp / Välj bild'}
-            <input type="file" id="gimme-file-input" accept="image/*" capture="environment" style="display: none;" />
+            <input type="file" id="gimme-file-input" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" style="display: none;" />
           </label>
         </div>
 

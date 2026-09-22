@@ -318,7 +318,7 @@ function showCreateEventModal() {
             <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
             <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka för att fota / välja omslagsbild</div>
           </div>
-          <input type="file" accept="image/*" id="ce-cover-input" style="display:none;" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="ce-cover-input" style="display:none;" />
         </div>
       </div>
       <div class="form-group">
@@ -375,7 +375,7 @@ function showCreateEventModal() {
         <div class="flex gap-xs" style="align-items: center;">
           <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" style="flex: 1;" />
           <button type="button" class="btn btn-secondary" id="ce-player-avatar-btn" style="padding: 0 10px; font-size: 1.1rem;" title="Bifoga bild till deltagare">📷</button>
-          <input type="file" accept="image/*" id="ce-player-avatar-input" style="display:none;" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="ce-player-avatar-input" style="display:none;" />
         </div>
         <div id="ce-player-avatar-indicator" style="display:none; font-size: 0.75rem; color: var(--gold); margin-top: 4px;">
           Bild vald för nästa deltagare ✅
@@ -633,7 +633,7 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
         <div class="flex gap-sm" style="align-items: center;">
           <input type="text" class="form-input" id="add-player-input" placeholder="${t('admin.addPlayerPlaceholder')}" style="flex:1;" />
           <button type="button" class="btn btn-secondary btn-sm" id="modal-player-avatar-btn" title="Välj bild för deltagare">📷</button>
-          <input type="file" accept="image/*" id="modal-player-avatar-input" style="display: none;" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="modal-player-avatar-input" style="display: none;" />
           <button class="btn btn-primary btn-sm" id="add-player-btn">${t('admin.btnAdd')}</button>
         </div>
         <div id="modal-player-avatar-indicator" style="display: none; font-size: 0.75rem; color: var(--gold); margin-top: 4px;">
@@ -654,7 +654,7 @@ async function showPlayerModal(eventId, eventName, loggedIn, hasPinSession, user
           </div>
         `).join('') || `<p class="text-muted text-center">${t('admin.noPlayersYet')}</p>`}
       </div>
-      <input type="file" accept="image/*" id="change-player-file-input" style="display: none;" />
+      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="change-player-file-input" style="display: none;" />
     `);
 
     let pendingNewPlayerAvatar = null;
@@ -748,7 +748,7 @@ async function showCoverModal(eventId, loggedIn, hasPinSession, user) {
             <div style="font-size: 2rem; margin-bottom: 4px;">📷</div>
             <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
           </div>
-          <input type="file" accept="image/*" id="modal-cover-input" style="display:none;" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="modal-cover-input" style="display:none;" />
         </div>
       </div>
       <button type="button" class="btn btn-primary btn-block mt-md" id="modal-cover-save-btn">Spara omslag ✅</button>
@@ -871,7 +871,7 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
             <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
             <div style="font-size: 0.8rem; color: var(--text-secondary);">Fota scorekort / målgång / resultat</div>
           </div>
-          <input type="file" accept="image/*" id="finish-proof-input" style="display:none;" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="finish-proof-input" style="display:none;" />
         </div>
       </div>
 

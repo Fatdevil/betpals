@@ -7,6 +7,7 @@ import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush } from '../push.js';
 import { navigate } from '../main.js';
+import { compressImage } from '../imageUtils.js';
 import { openBlind10Modal, openMafiaModal } from '../components/minigames.js';
 
 export async function renderProfile() {
@@ -436,7 +437,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             : `<div class="profile-avatar" id="profile-avatar" style="width: 80px; height: 80px; font-size: 2.5rem; margin: 0 auto;">${user.avatar || '👤'}</div>`}
           <div class="avatar-edit-badge" style="position: absolute; bottom: 0; right: 0; background: var(--accent); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">📷</div>
         </div>
-        <input type="file" id="profile-picture-input" accept="image/*" style="display: none;" />
+        <input type="file" id="profile-picture-input" accept="image/jpeg,image/png,image/webp,image/gif,image/*" style="display: none;" />
         
         <div style="font-size: 1.3rem; font-weight: 700; margin-top: var(--space-sm);">${escapeHtml(user.realName || user.nickname)}</div>
         <div style="display: flex; justify-content: center; gap: 8px; margin-top: 4px; align-items: center; flex-wrap: wrap;">
@@ -872,35 +873,6 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   document.getElementById('pref-notify-flashbets')?.addEventListener('change', handlePrefChange);
   document.getElementById('pref-notify-duels')?.addEventListener('change', handlePrefChange);
   document.getElementById('pref-notify-tournaments')?.addEventListener('change', handlePrefChange);
-
-  // Client-side image compression
-  const compressImage = async (file, maxWidth = 800, quality = 0.8) => {
-    return new Promise((resolve, reject) => {
-      if (!file || !file.type.startsWith('image/')) return reject(new Error('Välj en giltig bildfil'));
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = () => reject(new Error('Kunde inte läsa in bilden'));
-        img.src = e.target.result;
-      };
-      reader.onerror = () => reject(new Error('Kunde inte läsa filen'));
-      reader.readAsDataURL(file);
-    });
-  };
 
   // Avatar Upload Interaction
   const avatarBtn = document.getElementById('profile-picture-btn');

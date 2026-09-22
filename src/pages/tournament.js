@@ -501,7 +501,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
               <div style="font-size: 2.5rem; margin-bottom: var(--space-xs);">📷</div>
               <div style="font-size: 0.85rem; color: var(--text-secondary);">Klicka för att fota / välja bild</div>
             </div>
-            <input type="file" accept="image/*" id="photo-file-input" style="display: none;" />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="photo-file-input" style="display: none;" />
           </div>
         </div>
         <div class="form-group">
@@ -632,8 +632,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
               <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">Fota eller välj bild</div>
               <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka här för att välja bild eller ta foto</div>
             </div>
-            <input type="file" accept="image/*" id="banner-file-input" style="display: none;" />
-            <input type="file" accept="image/*" capture="environment" id="banner-camera-input" style="display: none;" />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="banner-file-input" style="display: none;" />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" id="banner-camera-input" style="display: none;" />
           </div>
           <div class="flex gap-xs mt-xs" style="justify-content: center; flex-wrap: wrap;">
             <button type="button" class="btn btn-secondary btn-sm" id="banner-camera-btn" style="font-size: 0.8rem; padding: 6px 12px;">

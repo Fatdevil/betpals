@@ -738,11 +738,13 @@ function clearPinAttempts(userId) {
 function isValidImageUrl(str) {
   if (typeof str !== 'string') return false;
   const s = str.trim();
-  if (!s || s.length > 10000000) return false;
-  if (/[<>"'\r\n\0]/.test(s)) return false;
+  if (!s || s.length > 15000000) return false;
   if (s.startsWith('data:image/')) {
-    return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s);
+    const cleaned = s.replace(/[\r\n\s]+/g, '');
+    if (/[<>"'\0]/.test(cleaned)) return false;
+    return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml|heic|heif|avif);base64,[A-Za-z0-9+/=]+$/.test(cleaned);
   }
+  if (/[<>"'\r\n\0]/.test(s)) return false;
   if (s.startsWith('http://') || s.startsWith('https://')) {
     try {
       const u = new URL(s);
@@ -1052,10 +1054,13 @@ app.put('/api/users/me/avatar', async (req, res) => {
   const user = db.getUserByToken(token);
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
 
-  const { imageData } = req.body;
+  let { imageData } = req.body;
   if (!imageData) return res.status(400).json({ error: 'Bilddata saknas' });
   if (!isValidImageUrl(imageData)) {
     return res.status(400).json({ error: 'Ogiltigt bildformat. Måste vara data:image/ eller giltig http/https-URL.' });
+  }
+  if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+    imageData = imageData.replace(/[\r\n\s]+/g, '');
   }
 
   try {
@@ -1132,10 +1137,13 @@ app.post('/api/tournaments/:id/photos', async (req, res) => {
   const tournament = db.getFullTournament(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
-  const { imageData, caption } = req.body;
+  let { imageData, caption } = req.body;
   if (!imageData) return res.status(400).json({ error: 'Ingen bild skickades' });
   if (!isValidImageUrl(imageData)) {
     return res.status(400).json({ error: 'Ogiltigt bildformat. Måste vara data:image/ eller giltig http/https-URL.' });
+  }
+  if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+    imageData = imageData.replace(/[\r\n\s]+/g, '');
   }
 
   try {
@@ -2241,10 +2249,13 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
-  const { imageData, linkUrl, label } = req.body;
+  let { imageData, linkUrl, label } = req.body;
   if (!imageData) return res.status(400).json({ error: 'Bild krävs' });
   if (!isValidImageUrl(imageData)) {
     return res.status(400).json({ error: 'Ogiltigt bildformat. Måste vara data:image/ eller giltig http/https-URL.' });
+  }
+  if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+    imageData = imageData.replace(/[\r\n\s]+/g, '');
   }
   if (linkUrl && !isValidHttpUrl(linkUrl)) {
     return res.status(400).json({ error: 'Ogiltig länk-URL. Måste börja med http:// eller https://' });

@@ -7,11 +7,13 @@ import * as db from '../server/db.js';
 function isValidImageUrl(str) {
   if (typeof str !== 'string') return false;
   const s = str.trim();
-  if (!s || s.length > 10000000) return false;
-  if (/[<>"'\r\n\0]/.test(s)) return false;
+  if (!s || s.length > 15000000) return false;
   if (s.startsWith('data:image/')) {
-    return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s);
+    const cleaned = s.replace(/[\r\n\s]+/g, '');
+    if (/[<>"'\0]/.test(cleaned)) return false;
+    return /^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml|heic|heif|avif);base64,[A-Za-z0-9+/=]+$/.test(cleaned);
   }
+  if (/[<>"'\r\n\0]/.test(s)) return false;
   if (s.startsWith('http://') || s.startsWith('https://')) {
     try {
       const u = new URL(s);
@@ -37,6 +39,9 @@ test('Tournament Sponsor Banner: validation and persistence', () => {
   const validDataUrl = `data:image/jpeg;base64,${base64Content}`;
 
   assert.equal(isValidImageUrl(validDataUrl), true, 'Compressed JPEG data URL should be valid');
+  assert.equal(isValidImageUrl('data:image/jpeg;base64,' + base64Content.slice(0, 50) + '\r\n' + base64Content.slice(50)), true, 'Base64 with newlines should be accepted and valid');
+  assert.equal(isValidImageUrl('data:image/heic;base64,' + base64Content), true, 'HEIC base64 data URL should be valid');
+  assert.equal(isValidImageUrl('data:image/heif;base64,' + base64Content), true, 'HEIF base64 data URL should be valid');
   assert.equal(isValidImageUrl('https://example.com/sponsor-logo.png'), true, 'HTTPS URL should be valid');
   assert.equal(isValidImageUrl('javascript:alert(1)'), false, 'JavaScript URL should be rejected');
   assert.equal(isValidImageUrl('data:image/jpeg;base64,<script>alert(1)</script>'), false, 'HTML/script injection should be rejected');
