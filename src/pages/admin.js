@@ -4,7 +4,7 @@ import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, 
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
-import { t } from '../i18n.js';
+import { t, getLang } from '../i18n.js';
 import { compressImage } from '../imageUtils.js';
 import { TOURNAMENT_TEMPLATES } from '../templates.js';
 
@@ -113,14 +113,15 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
     <div class="animate-in">
       <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px; position: relative;">
         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: -18px;">
-          ${loggedIn ? `<span class="badge badge-success" style="font-size: 0.7rem; z-index: 2;">👤 ${user?.nickname || ''}</span>` : ''}
+          ${loggedIn ? `<span class="badge badge-success" style="font-size: 0.7rem; z-index: 2;">👤 ${escapeHtml(user?.nickname || '')}</span>` : ''}
           ${hasPinSession ? `<span class="badge badge-info" style="font-size: 0.7rem; z-index: 2;">🔐 Superadmin</span>` : ''}
           ${hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-logout-btn" style="font-size: 0.75rem; padding: 4px 10px; z-index: 2;">${t('admin.logoutPin')}</button>` : ''}
+          ${!hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-unlock-super-btn" style="font-size: 0.75rem; padding: 4px 10px; z-index: 2; border: 1px solid rgba(245,158,11,0.5); color: var(--gold); background: rgba(245,158,11,0.08); font-weight: 600;">🔐 ${t('admin.unlockSuperadmin') || 'Lås upp Superadmin'}</button>` : ''}
         </div>
         <div class="admin-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
           <img src="/admin-chip.png" alt="ADMIN" class="admin-logo-img" style="width: 100%; max-width: 140px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
         </div>
-        <p class="page-subtitle" style="margin-top: 2px;">${loggedIn ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
+        <p class="page-subtitle" style="margin-top: 2px;">${loggedIn && !hasPinSession ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
       </div>
 
       <div class="mb-lg">
@@ -145,6 +146,10 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
       adminPin = null;
       showToast(t('admin.toastSuperLoggedOut'), 'info');
       renderAdmin();
+    });
+  } else {
+    document.getElementById('admin-unlock-super-btn')?.addEventListener('click', () => {
+      showUnlockSuperAdminModal();
     });
   }
 
@@ -975,8 +980,8 @@ async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user
 }
 
 // ── PIN input helpers ────────────────────────────────
-function setupPinInputs() {
-  const digits = document.querySelectorAll('.pin-digit');
+function setupPinInputs(container = document) {
+  const digits = container.querySelectorAll('.pin-digit');
   digits.forEach((input, i) => {
     input.addEventListener('input', (e) => {
       const val = e.target.value.replace(/\D/g, '');
@@ -995,10 +1000,71 @@ function setupPinInputs() {
   digits[0]?.focus();
 }
 
-function collectPin() {
-  return Array.from(document.querySelectorAll('.pin-digit'))
+function collectPin(container = document) {
+  return Array.from(container.querySelectorAll('.pin-digit'))
     .map(el => el.value)
     .join('');
+}
+
+function showUnlockSuperAdminModal() {
+  const isEn = getLang() === 'en';
+  const modalTitle = `🔐 ${t('admin.unlockSuperadmin') || 'Lås upp Superadmin'}`;
+  const contentHtml = `
+    <div style="padding: 10px 0; text-align: center;">
+      <div style="font-size: 2.2rem; margin-bottom: 8px;">🔐</div>
+      <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 16px; line-height: 1.4;">
+        ${t('admin.unlockSuperadminDesc') || 'Ange din 4-siffriga Superadmin-PIN för att få full systembehörighet och kunna hantera användare.'}
+      </p>
+
+      <form id="modal-unlock-pin-form">
+        <div class="pin-input-group" style="margin-bottom: 16px;">
+          <input type="tel" class="pin-digit" maxlength="1" data-pin="0" inputmode="numeric" />
+          <input type="tel" class="pin-digit" maxlength="1" data-pin="1" inputmode="numeric" />
+          <input type="tel" class="pin-digit" maxlength="1" data-pin="2" inputmode="numeric" />
+          <input type="tel" class="pin-digit" maxlength="1" data-pin="3" inputmode="numeric" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" style="padding: 12px; font-weight: 700;">
+          ${t('admin.loginSuperadmin') || 'Lås upp'} 🔓
+        </button>
+      </form>
+    </div>
+  `;
+
+  const { root, close } = showModal(modalTitle, contentHtml);
+  setupPinInputs(root);
+
+  const form = root.querySelector('#modal-unlock-pin-form');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pin = collectPin(root);
+    if (pin.length !== 4) {
+      showToast(t('admin.toastEnterDigits'), 'error');
+      return;
+    }
+
+    try {
+      const status = await api.adminStatus();
+      if (!status.hasPin) {
+        await api.adminSetup(pin);
+        savePin(pin);
+        close();
+        showToast(t('admin.toastPinCreated'), 'success');
+        renderAdmin();
+      } else {
+        const result = await api.adminVerify(pin);
+        if (result.verified) {
+          savePin(pin);
+          close();
+          showToast(t('admin.toastSuperUnlocked') || 'Superadmin upplåst! 🔐', 'success');
+          renderAdmin();
+        } else {
+          showToast(t('admin.toastWrongPin'), 'error');
+        }
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 // ── Tournament Admin ──────────────────────────────────
