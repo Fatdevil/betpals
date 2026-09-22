@@ -11,11 +11,25 @@ const __dirname = dirname(__filename);
 // 1. Explicit DB_PATH / DATABASE_PATH environment variable
 // 2. Railway volume mount path (RAILWAY_VOLUME_MOUNT_PATH or DATA_DIR)
 // 3. Fallback to local betpals.db in server directory
-const DB_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR;
+let DB_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR;
+if (!DB_DIR && fs.existsSync('/data')) {
+  DB_DIR = '/data';
+}
 const DB_PATH = process.env.DB_PATH || process.env.DATABASE_PATH || (DB_DIR ? join(DB_DIR, 'betpals.db') : join(__dirname, 'betpals.db'));
 
-if (DB_DIR && !fs.existsSync(DB_DIR)) {
-  try { fs.mkdirSync(DB_DIR, { recursive: true }); } catch (e) {}
+if (DB_DIR) {
+  if (!fs.existsSync(DB_DIR)) {
+    try { fs.mkdirSync(DB_DIR, { recursive: true }); } catch (e) {}
+  }
+  const sourceDb = join(__dirname, 'betpals.db');
+  if (DB_PATH !== sourceDb && !fs.existsSync(DB_PATH) && fs.existsSync(sourceDb)) {
+    try {
+      fs.copyFileSync(sourceDb, DB_PATH);
+      console.log('Copied existing database to persistent volume at', DB_PATH);
+    } catch (e) {
+      console.warn('Could not copy existing database to volume:', e);
+    }
+  }
 }
 
 const db = new Database(DB_PATH);
