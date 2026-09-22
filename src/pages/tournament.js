@@ -206,29 +206,6 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         </div>
       ` : ''}
 
-      <!-- Participants Card -->
-      <div class="card mb-md" style="padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass);">
-        <div class="flex-between mb-xs" style="align-items: center;">
-          <div style="font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
-            <span>👥 Med i eventet</span>
-            <span class="badge badge-secondary" style="font-size: 0.68rem; padding: 1px 7px;">${(t.players || []).length}</span>
-          </div>
-          <button type="button" class="btn btn-secondary btn-sm" id="share-invite-friends-btn" style="font-size: 0.72rem; padding: 2px 10px;">
-            📱 Bjud in
-          </button>
-        </div>
-        <div class="flex gap-xs" style="flex-wrap: wrap; margin-top: 8px;">
-          ${(t.players && t.players.length > 0)
-            ? t.players.map(p => `
-                <span class="badge" style="background: rgba(245, 166, 35, 0.12); color: var(--gold); border: 1px solid rgba(245, 166, 35, 0.35); font-size: 0.78rem; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
-                  👤 ${escapeHtml(p)}
-                </span>
-              `).join('')
-            : '<span class="text-muted" style="font-size: 0.75rem;">Inga anslutna än – dela eventet för att bjuda in!</span>'
-          }
-        </div>
-      </div>
-
       <!-- Rounds -->
       <div class="section-header">
         <h2 class="section-title">📋 Spel & Tävlingar</h2>
@@ -946,7 +923,6 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   };
 
   document.getElementById('share-tournament-btn')?.addEventListener('click', handleOpenShareModal);
-  document.getElementById('share-invite-friends-btn')?.addEventListener('click', handleOpenShareModal);
 }
 
 function showAddGameModal(t, content) {

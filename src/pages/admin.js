@@ -1114,41 +1114,11 @@ async function loadAdminTournaments(loggedIn, hasPinSession, user) {
 }
 
 function showCreateTournamentModal() {
-  let players = [];
-  
   showModal(t('admin.createTournamentTitle'), `
     <form id="create-tournament-form">
       <div class="form-group">
         <label class="form-label">${t('admin.tournamentName')}</label>
-        <input type="text" class="form-input" id="tournament-name" placeholder="${t('admin.tournamentNamePlaceholder')}" required />
-      </div>
-      <div class="form-group">
-        <div class="flex-between mb-xs">
-          <label class="form-label" style="margin: 0;">${t('admin.tournamentPlayers')}</label>
-          <button type="button" class="btn btn-sm btn-accent" id="tournament-pick-friends" style="font-size: 0.7rem; padding: 2px 8px;">
-            👥 Välj från vänner
-          </button>
-        </div>
-
-        <!-- Inline Friends Picker Drawer for Tournament -->
-        <div id="tournament-friends-drawer" style="display: none; margin-bottom: var(--space-sm); padding: var(--space-sm); background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md);">
-          <div class="flex-between mb-xs" style="align-items: center;">
-            <span style="font-size: 0.8rem; font-weight: 600;">👥 Välj vänner</span>
-            <button type="button" class="btn btn-sm" id="tournament-friends-close" style="padding: 1px 6px; font-size: 0.7rem;">✕</button>
-          </div>
-          <div id="tournament-friends-list" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-sm);">
-            <div class="text-muted" style="font-size: 0.75rem;">Laddar vänner...</div>
-          </div>
-          <button type="button" class="btn btn-primary btn-sm btn-block" id="tournament-friends-add-btn" style="font-size: 0.75rem;">
-            + Lägg till valda vänner
-          </button>
-        </div>
-
-        <div class="flex gap-sm">
-          <input type="text" class="form-input" id="tournament-player-input" placeholder="${t('admin.tournamentPlayerPlaceholder')}" style="flex: 1;" />
-          <button type="button" class="btn btn-sm btn-secondary" id="tournament-add-player-btn">+</button>
-        </div>
-        <div id="tournament-player-list" class="mt-sm"></div>
+        <input type="text" class="form-input" id="tournament-name" placeholder="${t('admin.tournamentNamePlaceholder')}" required autofocus />
       </div>
 
       <div class="form-group">
@@ -1185,73 +1155,6 @@ function showCreateTournamentModal() {
     </form>
   `);
 
-  const tFriendsDrawer = document.getElementById('tournament-friends-drawer');
-  const tFriendsList = document.getElementById('tournament-friends-list');
-
-  document.getElementById('tournament-pick-friends')?.addEventListener('click', async () => {
-    if (tFriendsDrawer.style.display === 'block') {
-      tFriendsDrawer.style.display = 'none';
-      return;
-    }
-    tFriendsDrawer.style.display = 'block';
-    tFriendsList.innerHTML = `<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>`;
-
-    try {
-      const friends = await api.getFriends();
-      if (!friends || friends.length === 0) {
-        tFriendsList.innerHTML = `
-          <div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">
-            Du har inga vänner tillagda än. Gå till din profilsida för att lägga till vänner! 👥
-          </div>
-        `;
-        return;
-      }
-
-      tFriendsList.innerHTML = friends.map(f => {
-        const isAlreadyAdded = players.some(p => p.toLowerCase() === f.nickname.toLowerCase());
-        return `
-          <label class="flex-between" style="padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); align-items: center; cursor: ${isAlreadyAdded ? 'default' : 'pointer'}; opacity: ${isAlreadyAdded ? 0.5 : 1}; margin-bottom: 2px;">
-            <div class="flex gap-xs" style="align-items: center; min-width: 0;">
-              ${f.avatarUrl ? `
-                <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover;" />
-              ` : `
-                <span style="font-size: 0.9rem;">${escapeHtml(f.avatar || '👤')}</span>
-              `}
-              <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
-              </span>
-            </div>
-            <input type="checkbox" class="t-friend-cb" data-nickname="${escapeHtml(f.nickname)}" ${isAlreadyAdded ? 'disabled checked' : ''} />
-          </label>
-        `;
-      }).join('');
-    } catch (err) {
-      tFriendsList.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem; padding: 8px;">${escapeHtml(err.message)}</div>`;
-    }
-  });
-
-  document.getElementById('tournament-friends-close')?.addEventListener('click', () => {
-    tFriendsDrawer.style.display = 'none';
-  });
-
-  document.getElementById('tournament-friends-add-btn')?.addEventListener('click', () => {
-    const checked = tFriendsDrawer.querySelectorAll('.t-friend-cb:checked:not([disabled])');
-    let addedCount = 0;
-    checked.forEach(cb => {
-      const nick = cb.dataset.nickname;
-      if (!players.some(p => p.toLowerCase() === nick.toLowerCase())) {
-        players.push(nick);
-        addedCount++;
-      }
-    });
-
-    if (addedCount > 0) {
-      renderPlayers();
-      showToast(`Lade till ${addedCount} deltagare från vänner! 👥`, 'success');
-    }
-    tFriendsDrawer.style.display = 'none';
-  });
-
   document.querySelectorAll('.visibility-card').forEach(card => {
     card.addEventListener('click', () => {
       document.querySelectorAll('.visibility-card').forEach(c => {
@@ -1267,54 +1170,8 @@ function showCreateTournamentModal() {
     });
   });
 
-  function renderPlayers() {
-    const list = document.getElementById('tournament-player-list');
-    if (!list) return;
-    list.innerHTML = players.map((p, i) => `
-      <div class="flex-between" style="padding: var(--space-xs) 0; font-size: 0.85rem;">
-        <span>${p}</span>
-        <button type="button" class="btn btn-sm" style="padding: 2px 8px; font-size: 0.7rem;" data-remove="${i}">✕</button>
-      </div>
-    `).join('');
-    list.querySelectorAll('[data-remove]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        players.splice(Number(btn.dataset.remove), 1);
-        renderPlayers();
-      });
-    });
-  }
-
-  document.getElementById('tournament-add-player-btn')?.addEventListener('click', () => {
-    const input = document.getElementById('tournament-player-input');
-    const val = input.value.trim();
-    if (val && !players.includes(val)) {
-      players.push(val);
-      renderPlayers();
-      input.value = '';
-      input.focus();
-    }
-  });
-
-  document.getElementById('tournament-player-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('tournament-add-player-btn')?.click();
-    }
-  });
-
   document.getElementById('create-tournament-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-
-    // If input has text, add it first
-    const pInput = document.getElementById('tournament-player-input');
-    if (pInput && pInput.value.trim()) {
-      const val = pInput.value.trim();
-      if (!players.includes(val)) {
-        players.push(val);
-        renderPlayers();
-      }
-      pInput.value = '';
-    }
 
     const name = document.getElementById('tournament-name').value.trim();
     if (!name || name.length < 2) {
@@ -1332,7 +1189,7 @@ function showCreateTournamentModal() {
 
     try {
       const pin = getPin();
-      const result = await api.createTournament({ name, players, pin, visibility });
+      const result = await api.createTournament({ name, players: [], pin, visibility });
       closeModal();
       showToast(t('admin.toastTournamentCreated'), 'success');
       navigate('tournament', { code: result.shareCode });
