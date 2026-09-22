@@ -341,7 +341,20 @@ export function stopAllStreams() {
   stopLocalCamera();
 
   if (activeBroadcasterRoom) {
-    try { activeBroadcasterRoom.disconnect(); } catch (e) {}
+    try {
+      if (activeBroadcasterRoom.localParticipant) {
+        const pubs = activeBroadcasterRoom.localParticipant.trackPublications;
+        if (pubs) {
+          pubs.forEach((pub) => {
+            if (pub && pub.track) {
+              try { pub.track.stop(); } catch (e) {}
+              try { pub.track.detach(); } catch (e) {}
+            }
+          });
+        }
+      }
+      activeBroadcasterRoom.disconnect();
+    } catch (e) {}
     activeBroadcasterRoom = null;
   }
 
@@ -350,6 +363,21 @@ export function stopAllStreams() {
     activeViewerRoom = null;
   }
 
+  // Cleanup video element srcObject and tracks if present
+  try {
+    const videoEl = document.getElementById('livestream-video');
+    if (videoEl) {
+      if (videoEl.srcObject && typeof videoEl.srcObject.getTracks === 'function') {
+        videoEl.srcObject.getTracks().forEach(t => {
+          try { t.stop(); } catch (e) {}
+        });
+      }
+      videoEl.srcObject = null;
+      try { videoEl.pause(); } catch (e) {}
+    }
+  } catch (e) {}
+
   const audioEl = document.getElementById('livekit-remote-audio');
   if (audioEl) audioEl.remove();
 }
+

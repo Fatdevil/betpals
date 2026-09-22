@@ -148,3 +148,54 @@ test('Flash Live Bet Lifecycle — Placement, Settlement and Swish Duel generati
   assert.equal(viewer2Bet.settlementSummary.debts[0].amount, 25);
   assert.equal(viewer2Bet.settlementSummary.debts[0].winnerSwish, viewerUser1.swish_number);
 });
+
+test('Stop Flash Live Stream — Terminates stream, updates status to ended and cancels open flash bet', () => {
+  const liveId = 'live_stop_test_' + Date.now();
+  const flashBetId = 'fb_live_stop_' + Date.now();
+  const stake = 20;
+  const duration = 60;
+  const expiresAt = new Date(Date.now() + 60000).toISOString();
+
+  // Create flash bet
+  db.createFlashBet(flashBetId, hostUser.id, null, 'Slår Peter i vattnet?', duration, expiresAt, stake);
+
+  const session = {
+    id: liveId,
+    hostId: hostUser.id,
+    hostName: hostUser.nickname,
+    hostAvatar: '🏌️',
+    question: 'Slår Peter i vattnet?',
+    hasBet: true,
+    stakeAmount: stake,
+    durationSeconds: duration,
+    expiresAt,
+    targetUserIds: [viewerUser1.id],
+    flashBetId,
+    status: 'active'
+  };
+  db.createFlashLiveStream(session);
+
+  // Viewer 1 places bet
+  db.placeFlashBetEntry('entry-stop-' + Date.now(), flashBetId, viewerUser1.id, 'yes', stake);
+
+  // Ensure bet is open
+  const betBefore = db.getFlashBet(flashBetId);
+  assert.equal(betBefore.status, 'open', 'Bet is open before stop');
+
+  // Stop stream & cancel underlying open bet (mimicking POST /api/flashlive/:id/stop)
+  db.updateFlashLiveStreamStatus(liveId, 'ended');
+  const fb = db.getFlashBet(session.flashBetId);
+  if (fb && (fb.status === 'open' || fb.status === 'locked')) {
+    db.cancelFlashBet(session.flashBetId, hostUser.id);
+  }
+
+  // Verify stream is ended
+  const endedStream = db.getFlashLiveStream(liveId);
+  assert.ok(endedStream, 'Stream exists in database');
+  assert.equal(endedStream.status, 'ended', 'Stream status updated to ended');
+
+  // Verify flash bet was cancelled
+  const betAfter = db.getFlashBet(flashBetId);
+  assert.equal(betAfter.status, 'cancelled', 'Unsettled bet cancelled when stream ended');
+});
+

@@ -37,6 +37,7 @@ let wsUnsub = null;
 let activeLiveId = null;
 let heartbeatInterval = null;
 let isClosingLiveStream = false;
+let currentIsBroadcaster = false;
 
 function addCommentToStream({ userName, userAvatar, text, isBetNotice = false }) {
   const container = document.getElementById('live-comments-stream');
@@ -100,6 +101,7 @@ export async function openLiveStreamModal({
   const user = getStoredUser();
   streamActive = true;
   activeLiveId = liveId;
+  currentIsBroadcaster = !!isBroadcaster;
   viewerCount = 1;
 
   let token = livekitToken;
@@ -178,31 +180,41 @@ export async function openLiveStreamModal({
       "></div>
 
       <!-- Top Bar HUD (Header) -->
-      <div style="
+      <div id="livestream-top-hud" style="
         position: absolute;
-        top: env(safe-area-inset-top, 16px);
-        left: 16px; right: 16px;
+        top: max(env(safe-area-inset-top, 12px), 12px);
+        left: 12px; right: 12px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        z-index: 10;
+        gap: 8px;
+        z-index: 20;
+        pointer-events: auto;
       ">
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+          flex: 1 1 auto;
+          overflow: hidden;
+        ">
           <!-- Red pulsing Live badge -->
           <span style="
             background: #ff334b;
             color: #fff;
-            font-size: 0.72rem;
+            font-size: 0.7rem;
             font-weight: 800;
-            padding: 4px 8px;
+            padding: 4px 7px;
             border-radius: 6px;
             letter-spacing: 0.05em;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 4px;
-            box-shadow: 0 0 12px rgba(255, 51, 75, 0.6);
+            box-shadow: 0 0 10px rgba(255, 51, 75, 0.6);
+            flex-shrink: 0;
           ">
-            <span style="width: 7px; height: 7px; background: #fff; border-radius: 50%; display: inline-block;"></span>
+            <span style="width: 6px; height: 6px; background: #fff; border-radius: 50%; display: inline-block;"></span>
             LIVE
           </span>
 
@@ -210,21 +222,24 @@ export async function openLiveStreamModal({
           <span id="live-viewer-count" style="
             background: rgba(0,0,0,0.55);
             backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             color: #fff;
-            font-size: 0.72rem;
+            font-size: 0.7rem;
             font-weight: 600;
-            padding: 4px 8px;
+            padding: 4px 7px;
             border-radius: 6px;
             border: 1px solid rgba(255,255,255,0.15);
+            white-space: nowrap;
+            flex-shrink: 0;
           ">
-            👁️ ${viewerCount} tittare
+            👁️ ${viewerCount}
           </span>
 
           <span style="
-            color: rgba(255,255,255,0.85);
+            color: rgba(255,255,255,0.9);
             font-size: 0.75rem;
             font-weight: 600;
-            max-width: 140px;
+            min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -234,16 +249,21 @@ export async function openLiveStreamModal({
         </div>
 
         <!-- Top Right Controls -->
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
+        ">
           ${!isBroadcaster ? `
             <button type="button" id="btn-toggle-viewer-audio" style="
               background: rgba(0,0,0,0.5);
               border: 1px solid rgba(255,255,255,0.2);
               color: #fff;
-              width: 36px; height: 36px;
+              width: 34px; height: 34px;
               border-radius: 50%;
               display: flex; align-items: center; justify-content: center;
-              font-size: 1.1rem;
+              font-size: 1rem;
               cursor: pointer;
             " title="Ljud av/på">🔊</button>
           ` : ''}
@@ -253,10 +273,10 @@ export async function openLiveStreamModal({
               background: rgba(0,0,0,0.5);
               border: 1px solid rgba(255,255,255,0.2);
               color: #fff;
-              width: 36px; height: 36px;
+              width: 34px; height: 34px;
               border-radius: 50%;
               display: flex; align-items: center; justify-content: center;
-              font-size: 1.1rem;
+              font-size: 1rem;
               cursor: pointer;
             " title="Byt kamera">🔄</button>
 
@@ -264,10 +284,10 @@ export async function openLiveStreamModal({
               background: rgba(0,0,0,0.5);
               border: 1px solid rgba(255,255,255,0.2);
               color: #fff;
-              width: 36px; height: 36px;
+              width: 34px; height: 34px;
               border-radius: 50%;
               display: flex; align-items: center; justify-content: center;
-              font-size: 1.1rem;
+              font-size: 1rem;
               cursor: pointer;
             " title="Muta mikrofon">🎙️</button>
           ` : ''}
@@ -277,25 +297,34 @@ export async function openLiveStreamModal({
             background: rgba(0,0,0,0.5);
             border: 1px solid rgba(255,255,255,0.2);
             color: #fff;
-            width: 36px; height: 36px;
+            width: 34px; height: 34px;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 1.05rem;
+            font-size: 1rem;
             cursor: pointer;
           " title="Ren kameravy / visa kontroller">👁️</button>
 
-          <!-- Close / Exit button -->
-          <button type="button" id="btn-close-livestream" style="
-            background: rgba(255, 51, 75, 0.85);
-            border: none;
+          <!-- Stop / Leave button -->
+          <button type="button" id="btn-close-livestream" class="${isBroadcaster ? 'btn-stop-live-broadcaster' : 'btn-leave-live'}" style="
+            background: ${isBroadcaster ? 'linear-gradient(135deg, #ff334b, #d90429)' : 'rgba(255, 255, 255, 0.2)'};
+            border: 1px solid ${isBroadcaster ? '#ff334b' : 'rgba(255,255,255,0.3)'};
             color: #fff;
-            width: 36px; height: 36px;
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 1.1rem;
-            font-weight: 800;
+            height: 34px;
+            padding: 0 10px;
+            border-radius: 17px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
             cursor: pointer;
-          ">✕</button>
+            box-shadow: ${isBroadcaster ? '0 2px 10px rgba(255,51,75,0.5)' : 'none'};
+            flex-shrink: 0;
+            white-space: nowrap;
+          " title="${isBroadcaster ? 'Avsluta sändning' : 'Lämna'}">
+            ${isBroadcaster ? '⏹️ Avsluta' : '✕ Lämna'}
+          </button>
         </div>
       </div>
 
@@ -340,6 +369,29 @@ export async function openLiveStreamModal({
             Laddar BlixtBet... ⚡
           </div>
         </div>
+
+        ${isBroadcaster ? `
+          <div style="display: flex; justify-content: flex-end; align-items: center;">
+            <button type="button" id="btn-bottom-stop-live" style="
+              background: linear-gradient(135deg, rgba(220, 38, 38, 0.9), rgba(185, 28, 28, 0.95));
+              backdrop-filter: blur(8px);
+              -webkit-backdrop-filter: blur(8px);
+              border: 1px solid rgba(255,255,255,0.3);
+              color: #fff;
+              padding: 6px 14px;
+              border-radius: 20px;
+              font-size: 0.76rem;
+              font-weight: 800;
+              cursor: pointer;
+              display: inline-flex;
+              align-items: center;
+              gap: 5px;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            " title="Avsluta livesändning">
+              ⏹️ Avsluta sändning
+            </button>
+          </div>
+        ` : ''}
 
         <!-- Interactive Chat Input Bar & Reactions -->
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -544,12 +596,16 @@ export async function openLiveStreamModal({
   });
 
   // Close / Exit listener
-  document.getElementById('btn-close-livestream')?.addEventListener('click', async () => {
-    if (activeLiveId && isBroadcaster) {
-      await stopFlashLive(activeLiveId).catch(() => {});
+  const handleExitRequest = () => {
+    if (isBroadcaster) {
+      showStopBroadcastConfirmation();
+    } else {
+      closeLiveStream();
     }
-    closeLiveStream();
-  });
+  };
+
+  document.getElementById('btn-close-livestream')?.addEventListener('click', handleExitRequest);
+  document.getElementById('btn-bottom-stop-live')?.addEventListener('click', handleExitRequest);
 
   // Join live stream WS room if standalone
   if (liveId) {
@@ -708,11 +764,107 @@ export async function openLiveStreamModal({
 
 }
 
+export function showStopBroadcastConfirmation() {
+  const existing = document.getElementById('live-confirm-stop-modal');
+  if (existing) return;
+
+  const fullscreenContainer = document.getElementById('livestream-fullscreen');
+  if (!fullscreenContainer) {
+    closeLiveStream();
+    return;
+  }
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'live-confirm-stop-modal';
+  modalEl.style.cssText = `
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  `;
+
+  modalEl.innerHTML = `
+    <div style="
+      background: #181d28;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 18px;
+      max-width: 320px;
+      width: 100%;
+      padding: 22px 20px;
+      text-align: center;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
+      font-family: inherit;
+    ">
+      <div style="font-size: 2.2rem; margin-bottom: 8px;">⏹️</div>
+      <div style="font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 8px;">
+        Avsluta livesändningen?
+      </div>
+      <div style="font-size: 0.82rem; color: rgba(255, 255, 255, 0.75); line-height: 1.4; margin-bottom: 20px;">
+        Sändningen stoppas för alla tittare och kameran stängs av omedelbart.
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button type="button" id="btn-confirm-stop-live" style="
+          background: linear-gradient(135deg, #ff334b, #d90429);
+          border: none;
+          color: #fff;
+          padding: 12px 16px;
+          border-radius: 12px;
+          font-size: 0.9rem;
+          font-weight: 800;
+          cursor: pointer;
+          box-shadow: 0 4px 14px rgba(255, 51, 75, 0.4);
+        ">
+          Ja, avsluta sändning
+        </button>
+        <button type="button" id="btn-cancel-stop-live" style="
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          color: #fff;
+          padding: 10px 16px;
+          border-radius: 12px;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+        ">
+          Fortsätt sända 🎥
+        </button>
+      </div>
+    </div>
+  `;
+
+  fullscreenContainer.appendChild(modalEl);
+
+  document.getElementById('btn-cancel-stop-live')?.addEventListener('click', () => {
+    modalEl.remove();
+  });
+
+  document.getElementById('btn-confirm-stop-live')?.addEventListener('click', () => {
+    modalEl.innerHTML = `
+      <div style="background: #181d28; border-radius: 18px; padding: 24px; text-align: center; color: #fff;">
+        <div style="font-size: 1.5rem; margin-bottom: 8px;">⏳</div>
+        <div style="font-weight: 700; font-size: 0.9rem;">Avslutar sändning...</div>
+      </div>
+    `;
+    showToast('Livesändningen har avslutats', 'success');
+    closeLiveStream();
+  });
+}
+
 export function closeLiveStream() {
   if (isClosingLiveStream) return;
   isClosingLiveStream = true;
   try {
     streamActive = false;
+    const liveIdToStop = activeLiveId;
+    const wasHost = currentIsBroadcaster;
+    currentIsBroadcaster = false;
+
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
@@ -729,6 +881,17 @@ export function closeLiveStream() {
       wsUnsub = null;
     }
     stopAllStreams();
+
+    if (liveIdToStop && wasHost) {
+      const stopPromise = stopFlashLive(liveIdToStop);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+      Promise.race([stopPromise, timeoutPromise]).catch(err => {
+        console.warn('stopFlashLive background call error:', err);
+      });
+    }
+
+    const modalConfirm = document.getElementById('live-confirm-stop-modal');
+    if (modalConfirm) modalConfirm.remove();
     const fs = document.getElementById('livestream-fullscreen');
     if (fs) fs.remove();
     closeModal();

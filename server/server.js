@@ -4543,14 +4543,27 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Ej inloggad' });
 
-  const session = activeFlashLiveStreams.get(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Livesändningen hittades inte' });
-  if (session.hostId !== user.id) return res.status(403).json({ error: 'Endast sändaren kan avsluta sändningen' });
+  let session = activeFlashLiveStreams.get(req.params.id);
+  if (!session) {
+    // Fallback to database lookup if not present in memory map
+    const dbSession = db.getFlashLiveStream(req.params.id);
+    if (!dbSession) return res.status(404).json({ error: 'Livesändningen hittades inte' });
+    session = {
+      ...dbSession,
+      targetUserIds: dbSession.targetUserIds || []
+    };
+  }
+
+  const isHost = String(session.hostId) === String(user.id);
+  const isAdmin = !!user.is_admin;
+  if (!isHost && !isAdmin) {
+    return res.status(403).json({ error: 'Endast sändaren kan avsluta sändningen' });
+  }
 
   session.status = 'ended';
-  activeFlashLiveStreams.delete(session.id);
+  activeFlashLiveStreams.delete(req.params.id);
   try {
-    db.updateFlashLiveStreamStatus(session.id, 'ended');
+    db.updateFlashLiveStreamStatus(req.params.id, 'ended');
   } catch (e) {}
 
   // Cancel unsettled underlying bet if stream is terminated
@@ -4569,13 +4582,15 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
 
   const stopPayload = {
     type: 'flashlive_stopped',
-    liveId: session.id,
+    liveId: req.params.id,
     cancelledBet
   };
 
-  broadcastToLive(session.id, stopPayload);
-  for (const fId of session.targetUserIds) {
-    broadcastToUser(fId, stopPayload);
+  broadcastToLive(req.params.id, stopPayload);
+  if (Array.isArray(session.targetUserIds)) {
+    for (const fId of session.targetUserIds) {
+      broadcastToUser(fId, stopPayload);
+    }
   }
   broadcastToUser(user.id, stopPayload);
 
