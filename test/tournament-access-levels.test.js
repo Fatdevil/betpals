@@ -172,3 +172,26 @@ test('Access Control: Level 3 — Private Link (Alla med länk/QR) & Auto-join r
   const feedAfter = db.getAllTournaments(stranger.id);
   assert.ok(feedAfter.some(t => t.id === tour.id), 'Stranger who scanned QR must retain event in feed');
 });
+
+test('Access Control: Public visibility is removed and defaults to closed group (friends)', async () => {
+  const host = createTestUser('u-vis-h4', 'HostPublicTest');
+
+  // Attempt to create with visibility: 'public'
+  const resCreate = await invoke('POST', '/api/tournaments', {
+    headers: { Authorization: `Bearer ${host.token}` },
+    body: {
+      name: 'Illegal Public Event Attempt',
+      visibility: 'public'
+    }
+  });
+  assert.equal(resCreate.status, 200);
+  const tour = resCreate.body;
+  // Must be sanitized to 'friends'
+  assert.equal(tour.visibility, 'friends', 'Public visibility must be sanitized to closed group (friends)');
+
+  // Anonymous visitor without login gets empty list, no public events exposed
+  const resAnon = await invoke('GET', '/api/tournaments');
+  assert.equal(resAnon.status, 200);
+  assert.deepEqual(resAnon.body, [], 'Anonymous users must receive an empty list of tournaments');
+});
+

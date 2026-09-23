@@ -171,6 +171,7 @@ db.exec(`
 
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'friends'"); } catch {}
+try { db.exec("UPDATE tournaments SET visibility = 'friends' WHERE visibility = 'public'"); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN image_url TEXT'); } catch {}
@@ -1524,8 +1525,8 @@ export function isFriendOrFriendOfFriend(userId, targetUserId) {
 export function canUserAccessTournament(tournament, userId = null) {
   if (!tournament) return false;
   const vis = tournament.visibility || 'friends';
-  // Public or link/private allows anyone with the link/code
-  if (vis === 'public' || vis === 'private' || vis === 'link') {
+  // Link/private allows anyone with the link/code
+  if (vis === 'private' || vis === 'link') {
     return true;
   }
   if (!userId) {
@@ -1583,58 +1584,52 @@ export function getTournamentById(id) {
 }
 
 export function getAllTournaments(userId = null) {
-  let tournaments;
   if (!userId) {
-    tournaments = db.prepare(`
-      SELECT * FROM tournaments
-      WHERE COALESCE(visibility, 'friends') = 'public'
-      ORDER BY created_at DESC
-    `).all();
-  } else {
-    tournaments = db.prepare(`
-      SELECT DISTINCT t.* FROM tournaments t
-      WHERE COALESCE(t.visibility, 'friends') = 'public'
-         OR t.creator_id = ?
-         OR t.id IN (
-           SELECT tp.tournament_id FROM tournament_participants tp
-           JOIN users u ON (
-             tp.user_id = u.id
-             OR LOWER(tp.name) = LOWER(u.real_name)
-             OR LOWER(tp.name) = LOWER(u.nickname)
-           )
-           WHERE u.id = ?
-         )
-         OR t.id IN (
-           SELECT e.tournament_id FROM events e
-           JOIN bets b ON b.event_id = e.id
-           WHERE b.user_id = ?
-         )
-         OR t.id IN (
-           SELECT e.tournament_id FROM events e
-           JOIN players p ON p.event_id = e.id
-           JOIN users u ON (
-             LOWER(p.name) = LOWER(u.real_name)
-             OR LOWER(p.name) = LOWER(u.nickname)
-           )
-           WHERE u.id = ?
-         )
-         OR (
-           COALESCE(t.visibility, 'friends') IN ('friends', 'friends_of_friends') AND (
-             t.creator_id IN (SELECT friend_id FROM friends WHERE user_id = ?)
-           )
-         )
-         OR (
-           COALESCE(t.visibility, 'friends') = 'friends_of_friends' AND (
-             t.creator_id IN (
-               SELECT f2.friend_id FROM friends f1
-               JOIN friends f2 ON f1.friend_id = f2.user_id
-               WHERE f1.user_id = ?
-             )
-           )
-         )
-      ORDER BY t.created_at DESC
-    `).all(userId, userId, userId, userId, userId, userId);
+    return [];
   }
+
+  const tournaments = db.prepare(`
+    SELECT DISTINCT t.* FROM tournaments t
+    WHERE t.creator_id = ?
+       OR t.id IN (
+         SELECT tp.tournament_id FROM tournament_participants tp
+         JOIN users u ON (
+           tp.user_id = u.id
+           OR LOWER(tp.name) = LOWER(u.real_name)
+           OR LOWER(tp.name) = LOWER(u.nickname)
+         )
+         WHERE u.id = ?
+       )
+       OR t.id IN (
+         SELECT e.tournament_id FROM events e
+         JOIN bets b ON b.event_id = e.id
+         WHERE b.user_id = ?
+       )
+       OR t.id IN (
+         SELECT e.tournament_id FROM events e
+         JOIN players p ON p.event_id = e.id
+         JOIN users u ON (
+           LOWER(p.name) = LOWER(u.real_name)
+           OR LOWER(p.name) = LOWER(u.nickname)
+         )
+         WHERE u.id = ?
+       )
+       OR (
+         COALESCE(t.visibility, 'friends') IN ('friends', 'friends_of_friends') AND (
+           t.creator_id IN (SELECT friend_id FROM friends WHERE user_id = ?)
+         )
+       )
+       OR (
+         COALESCE(t.visibility, 'friends') = 'friends_of_friends' AND (
+           t.creator_id IN (
+             SELECT f2.friend_id FROM friends f1
+             JOIN friends f2 ON f1.friend_id = f2.user_id
+             WHERE f1.user_id = ?
+           )
+         )
+       )
+    ORDER BY t.created_at DESC
+  `).all(userId, userId, userId, userId, userId, userId);
 
   return tournaments.map(t => {
     const rounds = stmts.getEventsByTournament.all(t.id);

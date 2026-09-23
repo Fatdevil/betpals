@@ -1901,7 +1901,7 @@ app.post('/api/tournaments', (req, res) => {
   const max = Math.max(min, Number(req.body.maxBet) || 10000);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
-  const allowedVisibilities = ['public', 'friends', 'friends_of_friends', 'private', 'link'];
+  const allowedVisibilities = ['friends', 'friends_of_friends', 'private', 'link'];
   let visibility = req.body.visibility;
   if (visibility === 'link') visibility = 'private';
   if (!allowedVisibilities.includes(visibility)) visibility = 'friends';
@@ -2031,7 +2031,7 @@ app.post('/api/tournaments/from-template', (req, res) => {
   const max = Math.max(min, Number(req.body.maxBet) || 10000);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
-  const allowedVisibilities = ['public', 'friends', 'friends_of_friends', 'private', 'link'];
+  const allowedVisibilities = ['friends', 'friends_of_friends', 'private', 'link'];
   let visibility = req.body.visibility;
   if (visibility === 'link') visibility = 'private';
   if (!allowedVisibilities.includes(visibility)) visibility = 'friends';

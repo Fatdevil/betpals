@@ -148,6 +148,8 @@ export const en = {
     visPrivateDesc: 'Anyone who clicks or scans',
     visPublic: 'Open to All',
     visPublicDesc: 'Visible in home feed',
+    legalNoticeTitle: 'Closed Group (Gambling Act)',
+    legalNoticeDesc: 'Games on BetPals take place strictly within private circles. Only share link/code directly with members of your closed group.',
     submitCreateTournament: 'Start Event 🏆',
     tournamentsTitle: '🏆 My Events',
     roundsFinished: 'rounds completed',

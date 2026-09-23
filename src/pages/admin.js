@@ -1123,7 +1123,7 @@ function showCreateTournamentModal() {
 
       <div class="form-group">
         <label class="form-label">${t('admin.tournamentVisibility')}</label>
-        <div class="visibility-picker" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+        <div class="visibility-picker" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
           <label class="visibility-card selected" id="vis-card-friends" style="cursor: pointer; border: 1.5px solid var(--gold); border-radius: var(--radius-md); padding: 10px 8px; text-align: center; background: rgba(245, 166, 35, 0.12); transition: all 0.2s;">
             <input type="radio" name="tournament-visibility" value="friends" checked style="display: none;" />
             <div style="font-size: 1.25rem;">🔒</div>
@@ -1142,12 +1142,9 @@ function showCreateTournamentModal() {
             <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visLink')}</div>
             <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visLinkDesc')}</div>
           </label>
-          <label class="visibility-card" id="vis-card-public" style="cursor: pointer; border: 1.5px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 8px; text-align: center; background: var(--bg-card); transition: all 0.2s;">
-            <input type="radio" name="tournament-visibility" value="public" style="display: none;" />
-            <div style="font-size: 1.25rem;">🌐</div>
-            <div style="font-weight: 700; font-size: 0.78rem; margin-top: 3px;">${t('admin.visPublic')}</div>
-            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">${t('admin.visPublicDesc')}</div>
-          </label>
+        </div>
+        <div style="margin-top: 8px; padding: 8px 10px; background: rgba(245, 166, 35, 0.06); border: 1px solid rgba(245, 166, 35, 0.25); border-radius: var(--radius-md); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
+          ⚖️ <strong style="color: var(--gold);">${t('admin.legalNoticeTitle')}</strong>: ${t('admin.legalNoticeDesc')}
         </div>
       </div>
 

@@ -150,6 +150,8 @@ export const sv = {
     visPrivateDesc: 'Alla som scannar eller klickar',
     visPublic: 'Öppet för alla',
     visPublicDesc: 'Syns i allmänna flödet',
+    legalNoticeTitle: 'Sluten krets (Spellagen)',
+    legalNoticeDesc: 'Spel på BetPals sker uteslutande inom privata sällskap. Dela endast länken/koden direkt med personer i din slutna grupp.',
     submitCreateTournament: 'Starta Event 🏆',
     tournamentsTitle: '🏆 Mina Events',
     roundsFinished: 'spel klara',
