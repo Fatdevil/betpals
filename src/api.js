@@ -312,10 +312,8 @@ export const stopFlashLive = (id) => request('/flashlive/' + id + '/stop', { met
 export const getNotificationPrefs = () => request('/users/notification-prefs');
 export const updateNotificationPrefs = (prefs) => request('/users/notification-prefs', { method: 'PUT', body: prefs });
 
-// ── Tab Expenses & Not-Roulette ──────────────────────
+// ── Tab Expenses (Dela utlägg / The Tab) ───────────
 export const createTabExpense = (data) => request('/tab/expenses', { method: 'POST', body: data });
-export const startLiveNotanRoulette = (data) => request('/tab/roulette/live-spin', { method: 'POST', body: data });
-export const convertTabExpenseToEvenSteven = (id) => request('/tab/expenses/' + id + '/convert-to-even-steven', { method: 'POST', body: {} });
 export const getMyTabExpenses = () => request('/tab/expenses/my');
 export const getTabExpense = (id) => request('/tab/expenses/' + id);
 

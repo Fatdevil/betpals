@@ -960,9 +960,6 @@ const stmts = {
     ORDER BY e.created_at DESC
     LIMIT 30
   `),
-  deleteExpenseDuels: db.prepare('DELETE FROM minigame_duels WHERE expense_id = ?'),
-  updateTabExpenseMode: db.prepare("UPDATE tab_expenses SET mode = 'even_steven' WHERE id = ?"),
-  updateTabExpenseParticipantAmount: db.prepare('UPDATE tab_expense_participants SET amount = ? WHERE expense_id = ? AND user_id = ?'),
 };
 
 // ── Public API ───────────────────────────────────────
@@ -3167,7 +3164,7 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
   const amount = parseFloat(totalAmount);
   if (isNaN(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
 
-  const cleanTitle = (title && title.trim()) ? title.trim() : (mode === 'roulette' ? 'Not-Roulette' : 'Dela nota');
+  const cleanTitle = (title && title.trim()) ? title.trim() : 'Dela nota';
   const cleanNotes = (notes && notes.trim()) ? notes.trim() : null;
   const expenseId = crypto.randomUUID();
 
@@ -3177,7 +3174,7 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
   const allParticipants = Array.from(allParticipantSet);
 
   if (allParticipants.length < 2) {
-    throw new Error('Minst 2 personer krävs för att dela eller spela om en nota');
+    throw new Error('Minst 2 personer krävs för att dela ett utlägg');
   }
 
   const tx = db.transaction(() => {
@@ -3188,47 +3185,15 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
       title: cleanTitle,
       notes: cleanNotes,
       total_amount: amount,
-      mode: mode === 'roulette' ? 'roulette' : 'even_steven',
-      loser_id: mode === 'roulette' ? (loserId ? String(loserId) : null) : null,
+      mode: 'even_steven',
+      loser_id: null,
       receipt_image: receiptImage || null,
       tournament_id: tournamentId || null
     });
 
-    if (mode === 'roulette') {
-      const actualLoser = loserId ? String(loserId) : null;
-      if (!actualLoser) throw new Error('En förlorare måste väljas för Not-Roulette');
-
-      // Record participants
-      for (const uid of allParticipants) {
-        stmts.insertTabExpenseParticipant.run({
-          id: crypto.randomUUID(),
-          expense_id: expenseId,
-          user_id: uid,
-          amount: uid === actualLoser ? amount : 0
-        });
-      }
-
-      // If loser is not the payer, create debt duel where payer is winner and loser is opponent
-      if (actualLoser !== String(payerId)) {
-        const duelId = crypto.randomUUID();
-        stmts.insertTabExpenseDuel.run({
-          id: duelId,
-          game_type: 'not_roulette',
-          creator_id: payerId,
-          opponent_id: actualLoser,
-          stake_amount: amount,
-          mode: 'roulette',
-          winner_id: payerId,
-          expense_id: expenseId,
-          custom_title: cleanTitle,
-          receipt_image: receiptImage || null,
-          tournament_id: tournamentId || null
-        });
-      }
-    } else {
-      // Even Steven: either custom individual shares or split evenly
-      let userShares = {};
-      const hasCustomShares = customShares && typeof customShares === 'object' && Object.keys(customShares).length > 0;
+    // Even Steven: either custom individual shares or split evenly
+    let userShares = {};
+    const hasCustomShares = customShares && typeof customShares === 'object' && Object.keys(customShares).length > 0;
 
       if (hasCustomShares) {
         let allocatedCents = 0;
@@ -3285,7 +3250,6 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
           });
         }
       }
-    }
 
     return expenseId;
   });
@@ -3322,63 +3286,7 @@ export function getMyTabExpenses(userId) {
   return list.map(e => getTabExpenseById(e.id)).filter(Boolean);
 }
 
-export function convertTabExpenseToEvenSteven(expenseId, payerUserId) {
-  const expense = getTabExpenseById(expenseId);
-  if (!expense) throw new Error('Notan hittades inte');
-  if (String(expense.payer_id) !== String(payerUserId)) {
-    throw new Error('Endast den som betalade notan kan göra om den till Even Steven');
-  }
-  if (expense.mode === 'even_steven') {
-    return expense; // Already Even Steven
-  }
-
-  const participants = expense.participants || [];
-  if (participants.length < 2) {
-    throw new Error('För få deltagare för att dela');
-  }
-
-  const totalCents = Math.round(expense.total_amount * 100);
-  const n = participants.length;
-  const baseCents = Math.floor(totalCents / n);
-  const remainderCents = totalCents % n;
-
-  const tx = db.transaction(() => {
-    // 1. Delete old roulette duel(s)
-    stmts.deleteExpenseDuels.run(expenseId);
-
-    // 2. Update tab_expenses mode to 'even_steven'
-    stmts.updateTabExpenseMode.run(expenseId);
-
-    // 3. Update participant amounts and insert new even_steven duels
-    for (let i = 0; i < n; i++) {
-      const p = participants[i];
-      const splitAmount = (baseCents + (i < remainderCents ? 1 : 0)) / 100;
-      stmts.updateTabExpenseParticipantAmount.run(splitAmount, expenseId, p.user_id);
-
-      if (String(p.user_id) !== String(expense.payer_id)) {
-        const duelId = crypto.randomUUID();
-        stmts.insertTabExpenseDuel.run({
-          id: duelId,
-          game_type: 'even_steven',
-          creator_id: expense.payer_id,
-          opponent_id: p.user_id,
-          stake_amount: splitAmount,
-          mode: 'even_steven',
-          winner_id: expense.payer_id,
-          expense_id: expenseId,
-          custom_title: expense.title,
-          receipt_image: expense.receipt_image || null,
-          tournament_id: expense.tournament_id || null
-        });
-      }
-    }
-  });
-
-  tx();
-  return getTabExpenseById(expenseId);
-}
-
-  // ── Healthcheck & Database Backup Operations ─────────
+// ── Healthcheck & Database Backup Operations ─────────
 export function isHealthy() {
   try {
     const row = db.prepare('SELECT 1 as alive').get();

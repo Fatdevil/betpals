@@ -138,7 +138,7 @@ test('Unified Event: 32 participants (12 on-site + 20 remote), split pots, minig
     winnerId: onSiteUsers[0].id
   });
 
-  // 6. Tab Expense absorption: Not-Roulette lunch between 4 golfers tied to the Event
+  // 6. Tab Expense absorption: Even Steven lunch between 4 golfers tied to the Event
   const expenseParticipants = [onSiteUsers[0].id, onSiteUsers[1].id, onSiteUsers[2].id, onSiteUsers[3].id];
   const expense = db.createTabExpense({
     payerId: onSiteUsers[0].id,

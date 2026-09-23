@@ -393,21 +393,6 @@ test('Finding 8 — Even Steven Penny Precision: Sum of split shares matches tot
   assert.equal(Math.round(sumShares * 100) / 100, 100.00, 'Sum of shares must be exactly 100.00 kr');
   assert.ok(shares.includes(33.34), 'One participant should get the 1 extra öre remainder (33.34)');
   assert.equal(shares.filter(s => s === 33.33).length, 2, 'Two participants should get 33.33');
-
-  // Verify converting roulette to even steven maintains penny precision
-  const rouletteExp = db.createTabExpense({
-    payerId: payer.id,
-    totalAmount: 100,
-    participantIds,
-    mode: 'roulette',
-    loserId: p2.id,
-    title: 'Drinks'
-  });
-
-  const converted = db.convertTabExpenseToEvenSteven(rouletteExp.id, payer.id);
-  const convertedShares = converted.participants.map(p => p.amount);
-  const convertedSum = convertedShares.reduce((sum, s) => sum + s, 0);
-  assert.equal(Math.round(convertedSum * 100) / 100, 100.00, 'Converted shares must sum to exactly 100.00 kr');
 });
 
 // ── Finding 9: Custom Shares Strict Cent Matching ─────────────────────
