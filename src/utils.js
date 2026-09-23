@@ -98,9 +98,21 @@ export function sanitizeUrl(url) {
   return '';
 }
 
+export function normalizeSwedishPhone(raw) {
+  if (!raw) return null;
+  const digits = String(raw).replace(/\D/g, '');
+  let normalized = digits;
+  // +46701234567 → 46701234567 (11 digits) → 0701234567
+  if (digits.startsWith('46') && digits.length === 11) normalized = '0' + digits.slice(2);
+  // 467XXXXXXXX (10 digits, no leading 0) → 07XXXXXXXX
+  if (digits.startsWith('467') && digits.length === 10) normalized = '0' + digits.slice(1);
+  // Valid Swedish mobile: 07XXXXXXXX (10 digits)
+  return /^07\d{8}$/.test(normalized) ? normalized : null;
+}
+
 export function createSwishUrl({ phone, amount, message }) {
-  if (!phone) return '#';
-  const cleanPhone = String(phone).replace(/[\s\-]/g, '');
+  const cleanPhone = normalizeSwedishPhone(phone);
+  if (!cleanPhone) return '#';
   const swishData = JSON.stringify({
     version: 1,
     payee: { value: cleanPhone },

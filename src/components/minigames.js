@@ -1,6 +1,6 @@
 // ── Components: Minigames Arcade ────────────────────────
 import { showModal, closeModal } from './modal.js';
-import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl } from '../utils.js';
+import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl, normalizeSwedishPhone } from '../utils.js';
 import { 
   getFriends, 
   createDuel, 
@@ -22,6 +22,8 @@ import {
   getAnyBets,
   getAnyBet,
   joinAnyBet,
+  declineAnyBet,
+  cancelAnyBet,
   settleAnyBet,
   createFlashBet,
   getActiveFlashBets,
@@ -4147,10 +4149,13 @@ export async function openAnyBetModal(initialBetId = null) {
       tabContent.innerHTML = `
         <div style="display: flex; flex-direction: column; gap: 10px;">
           ${activeBets.map(bet => {
-            const isJudge = user.id === bet.judge_id || user.id === bet.creator_id;
+            const isJudge = user.id === bet.judge_id;
+            const isCreator = user.id === bet.creator_id;
             const myPart = (bet.participants || []).find(p => p.user_id === user.id);
             const isYesNo = bet.bet_type === 'yes_no';
-            const totalPot = bet.stake_amount * (bet.participants ? bet.participants.length : 0);
+            const acceptedParticipants = (bet.participants || []).filter(p => p.status === 'accepted');
+            const invitedParticipants = (bet.participants || []).filter(p => p.status === 'invited');
+            const totalPot = bet.stake_amount * acceptedParticipants.length;
 
             return `
               <div class="anybet-card" data-bet-id="${bet.id}">
@@ -4186,13 +4191,16 @@ export async function openAnyBetModal(initialBetId = null) {
 
                 <!-- Participants list -->
                 <div style="margin-bottom: 10px;">
-                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">👥 Deltagare (${bet.participants ? bet.participants.length : 0}):</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">
+                    👥 Deltagare (${acceptedParticipants.length} klara${invitedParticipants.length > 0 ? `, ${invitedParticipants.length} inbjudna` : ''}):
+                  </div>
                   <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                    ${(bet.participants || []).map(p => `
-                      <span class="party-player-chip" style="font-size: 0.75rem; padding: 3px 8px;">
+                    ${(bet.participants || []).filter(p => p.status !== 'declined').map(p => `
+                      <span class="party-player-chip" style="font-size: 0.75rem; padding: 3px 8px; ${p.status === 'invited' ? 'opacity: 0.65; border-style: dashed;' : ''}">
                         <span>${escapeHtml(p.avatar_emoji) || '👤'}</span>
                         <span>${escapeHtml(p.nickname)}</span>
-                        ${isYesNo && p.choice ? `
+                        ${p.status === 'invited' ? `<span style="font-size: 0.7rem; color: var(--text-muted);">(Väntar)</span>` : ''}
+                        ${isYesNo && p.choice && p.choice !== 'participant' ? `
                           <strong style="color: ${p.choice === 'yes' ? '#34d399' : '#f87171'}; margin-left: 2px;">
                             (${p.choice.toUpperCase()})
                           </strong>
@@ -4223,9 +4231,14 @@ export async function openAnyBetModal(initialBetId = null) {
                       <div style="font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; color: var(--text-secondary);">
                         ${isEn ? 'You are invited! Accept the challenge to join the pot:' : 'Du är inbjuden! Acceptera utmaningen för att delta:'}
                       </div>
-                      <button type="button" class="btn btn-primary btn-sm btn-block btn-accept-wta" data-bet-id="${bet.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 9px;">
-                        🤝 ${isEn ? `Accept challenge (${bet.stake_amount > 0 ? bet.stake_amount + ' kr' : '0 kr'})` : `Acceptera vadet (${bet.stake_amount > 0 ? bet.stake_amount + ' kr' : '0 kr'})`}
-                      </button>
+                      <div class="flex gap-xs">
+                        <button type="button" class="btn btn-secondary btn-sm btn-block btn-decline-part" data-bet-id="${bet.id}">
+                          ❌ ${isEn ? 'Decline' : 'Avböj'}
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm btn-block btn-accept-wta" data-bet-id="${bet.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 9px;">
+                          🤝 ${isEn ? `Accept (${bet.stake_amount > 0 ? bet.stake_amount + ' kr' : '0 kr'})` : `Acceptera (${bet.stake_amount > 0 ? bet.stake_amount + ' kr' : '0 kr'})`}
+                        </button>
+                      </div>
                     </div>
                   ` : ''}
                   ${(myPart && myPart.status === 'accepted' && !isJudge) ? `
@@ -4240,6 +4253,15 @@ export async function openAnyBetModal(initialBetId = null) {
                   <button type="button" class="btn btn-primary btn-block btn-sm btn-open-settle" data-bet-id="${bet.id}" style="padding: 10px; font-weight: 700; background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
                     ⚖️ ${t('arcade.anybetSettleBtn')}
                   </button>
+                ` : ''}
+
+                <!-- Creator cancel button -->
+                ${isCreator ? `
+                  <div style="margin-top: 8px; text-align: right;">
+                    <button type="button" class="btn-cancel-bet" data-bet-id="${bet.id}" style="font-size: 0.72rem; text-decoration: underline; background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 4px;">
+                      🗑️ ${isEn ? 'Cancel bet' : 'Avbryt vad'}
+                    </button>
+                  </div>
                 ` : ''}
               </div>
             `;
@@ -4274,6 +4296,35 @@ export async function openAnyBetModal(initialBetId = null) {
           } catch (e) {
             showToast(e.message || 'Kunde inte acceptera vadet', 'error');
             btn.disabled = false;
+          }
+        });
+      });
+
+      // Decline listeners
+      tabContent.querySelectorAll('.btn-decline-part').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const betId = btn.dataset.betId;
+          try {
+            await declineAnyBet(betId);
+            showToast(isEn ? 'Bet declined.' : 'Vadet avböjdes.', 'info');
+            renderActiveTab(tabContent);
+          } catch (e) {
+            showToast(e.message || 'Kunde inte avböja vadet', 'error');
+          }
+        });
+      });
+
+      // Cancel bet listeners
+      tabContent.querySelectorAll('.btn-cancel-bet').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const betId = btn.dataset.betId;
+          if (!confirm(isEn ? 'Are you sure you want to cancel this bet?' : 'Är du säker på att du vill avbryta vadet?')) return;
+          try {
+            await cancelAnyBet(betId);
+            showToast(isEn ? 'Bet cancelled.' : 'Vadet avbröts.', 'info');
+            renderActiveTab(tabContent);
+          } catch (e) {
+            showToast(e.message || 'Kunde inte avbryta vadet', 'error');
           }
         });
       });
@@ -4323,16 +4374,13 @@ export async function openAnyBetModal(initialBetId = null) {
               ? (bet.winning_side === 'yes' ? '✅ JA vann!' : '❌ NEJ vann!')
               : `👑 ${escapeHtml(bet.winner_nickname || 'Vinnare')} vann!`;
 
-            const totalPot = bet.stake_amount * (bet.participants ? bet.participants.length : 0);
-            const myPart = (bet.participants || []).find(p => p.user_id === user?.id);
-            const amIWinner = isYesNo 
-              ? (myPart?.choice === bet.winning_side)
-              : (bet.winner_id === user?.id);
-
-            const winnerUser = (bet.participants || []).find(p => p.user_id === bet.winner_id);
-            const swishUrl = (!amIWinner && bet.stake_amount > 0 && winnerUser?.swish_number)
-              ? createSwishUrl({ phone: winnerUser.swish_number, amount: bet.stake_amount, message: `AnyBet: ${bet.title}` })
-              : null;
+            const acceptedParticipants = (bet.participants || []).filter(p => p.status === 'accepted');
+            const totalPot = bet.stake_amount * acceptedParticipants.length;
+            const settlement = bet.settlement || {};
+            const outcome = settlement.outcome;
+            const amountWon = settlement.amountWon || 0;
+            const amountOwed = settlement.amountOwed || 0;
+            const creditors = settlement.creditors || [];
 
             return `
               <div class="anybet-card completed">
@@ -4360,20 +4408,69 @@ export async function openAnyBetModal(initialBetId = null) {
                   </div>
                 ` : ''}
 
-                <!-- Swish Action if user lost -->
-                ${(!amIWinner && bet.stake_amount > 0) ? `
-                  <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 10px; margin-top: 8px;">
-                    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;">
-                      Du förlorade och är skyldig <strong>${bet.stake_amount} kr</strong>.
+                <!-- Settlement display -->
+                ${outcome === 'winner' ? `
+                  <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 10px; margin-top: 8px;">
+                    <div style="font-size: 0.85rem; font-weight: 700; color: #34d399; margin-bottom: 2px;">
+                      🎉 Grattis! Du vann!
                     </div>
-                    ${swishUrl ? `
-                      <a href="${swishUrl}" class="swish-pay-btn" target="_blank" rel="noopener noreferrer" style="display: block; text-align: center; font-size: 0.85rem; padding: 8px;">
-                        💸 Swisha ${escapeHtml(winnerUser?.nickname || 'vinnaren')} (${bet.stake_amount} kr)
-                      </a>
+                    ${amountWon > 0 ? `
+                      <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        Vinst: <strong>${amountWon} kr</strong> loggat i Notan.
+                      </div>
                     ` : ''}
-                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
+                  </div>
+                ` : ''}
+
+                ${outcome === 'loser' && amountOwed > 0 ? `
+                  <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 10px; margin-top: 8px;">
+                    <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 8px;">
+                      Du förlorade och är skyldig totalt <strong>${amountOwed} kr</strong>.
+                    </div>
+                    ${creditors.length > 0 ? `
+                      <div style="display: flex; flex-direction: column; gap: 6px; margin: 6px 0;">
+                        ${creditors.map(c => {
+                          const swishUrl = c.swishNumber ? createSwishUrl({
+                            phone: c.swishNumber,
+                            amount: c.amount,
+                            message: `AnyBet: ${bet.title}`
+                          }) : null;
+                          return `
+                            <div class="flex justify-between align-center" style="background: rgba(0,0,0,0.25); padding: 6px 10px; border-radius: var(--radius-sm);">
+                              <span style="font-size: 0.8rem;">
+                                <strong>${escapeHtml(c.nickname || c.realName || 'Vinnare')}</strong>: ${c.amount} kr
+                              </span>
+                              ${swishUrl ? `
+                                <a href="${swishUrl}" class="swish-pay-btn" target="_blank" rel="noopener noreferrer" style="font-size: 0.78rem; padding: 4px 10px;">
+                                  💸 Swisha (${c.amount} kr)
+                                </a>
+                              ` : `<span style="font-size: 0.72rem; color: var(--text-muted);">Swish saknas</span>`}
+                            </div>
+                          `;
+                        }).join('')}
+                      </div>
+                    ` : ''}
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 6px;">
                       ✅ Loggat i din <strong>Swishlista & Notan</strong>.
                     </div>
+                  </div>
+                ` : ''}
+
+                ${outcome === 'not_accepted' ? `
+                  <div style="background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); text-align: center;">
+                    Du accepterade inte detta vad.
+                  </div>
+                ` : ''}
+
+                ${outcome === 'neutral' ? `
+                  <div style="background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); text-align: center;">
+                    ${isYesNo ? 'Du valde ingen sida och påverkades inte ekonomiskt.' : 'Du påverkades inte ekonomiskt av detta vad.'}
+                  </div>
+                ` : ''}
+
+                ${outcome === 'declined' ? `
+                  <div style="background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); text-align: center;">
+                    Du avböjde detta vad.
                   </div>
                 ` : ''}
               </div>
@@ -4554,7 +4651,7 @@ export function showIncomingAnyBetModal(bet) {
 
       <div class="flex gap-sm" style="margin-top: 14px;">
         <button type="button" class="btn btn-secondary btn-block" id="btn-decline-anybet" style="padding: 12px;">
-          ❌ ${isEn ? 'Close' : 'Stäng'}
+          ❌ ${isEn ? 'Decline' : 'Avböj'}
         </button>
         <button type="button" class="btn btn-primary btn-block" id="btn-open-anybet-invite" style="padding: 12px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 700;">
           🤝 ${isEn ? 'View AnyBet' : 'Öppna AnyBet'}
@@ -4563,7 +4660,11 @@ export function showIncomingAnyBetModal(bet) {
     </div>
   `);
 
-  document.getElementById('btn-decline-anybet')?.addEventListener('click', () => {
+  document.getElementById('btn-decline-anybet')?.addEventListener('click', async () => {
+    try {
+      await declineAnyBet(bet.id);
+      showToast(isEn ? 'You declined the bet invitation' : 'Du avböjde inbjudan till vadet', 'info');
+    } catch (e) {}
     closeModal();
   });
 
@@ -6872,15 +6973,22 @@ export async function openGimmeModal() {
 
   // Auto-Vision & Lock-on state
   let detectedHole = null; // { x, y, radiusPx, confidence }
-  let detectedBall = null; // { x, y, confidence, lastSeen }
+  let detectedBall = null; // { x, y, confidence }
   let isHoleLocked = false;
   let lockSoundPlayed = false;
   let manualBallTarget = null; // { x, y } if user manually taps screen
   let lastVisionScanTime = 0;
   let measuredDistanceCm = null;
+  let verdictMethod = 'auto'; // 'auto' | 'manual' – recorded in share text
+
+  // Resource tracking
+  let sessionToken = Symbol('gimme-session'); // Fix: async camera race guard
+  let currentObjectUrl = null;               // Fix: object URL leak prevention
+  let visionErrorCount = 0;                  // Fix: rate-limited vision error logging
 
   // Cleanup helper declared before modal creation
   const cleanup = () => {
+    sessionToken = Symbol('disposed');        // invalidate any pending getUserMedia
     if (animFrameId) {
       cancelAnimationFrame(animFrameId);
       animFrameId = null;
@@ -6888,6 +6996,10 @@ export async function openGimmeModal() {
     if (videoStream) {
       videoStream.getTracks().forEach(t => t.stop());
       videoStream = null;
+    }
+    if (currentObjectUrl) {
+      URL.revokeObjectURL(currentObjectUrl);  // free object URL memory
+      currentObjectUrl = null;
     }
     isFrozen = true;
   };
@@ -7268,20 +7380,81 @@ export async function openGimmeModal() {
   });
 
   // Start / Lock In Bet
-  btnStartBet?.addEventListener('click', () => {
-    const p1 = (p1Input?.value || '').trim() || (isEn ? 'Player 1' : 'Spelare 1');
-    const p2 = (p2Input?.value || '').trim() || (isEn ? 'Player 2' : 'Spelare 2');
-    const customPhone = (swishPhoneInput?.value || '').trim();
-    const p1Phone = currentUser?.swishNumber || '';
-    const p2Phone = customPhone || selectedFriend?.swishNumber || '';
+  // Swish bet disclaimer (nivå 3) – shown before locking any Swish bet
+  async function showGimmeSwishDisclaimer() {
+    return new Promise((resolve) => {
+      const dlg = document.createElement('div');
+      dlg.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.75);padding:16px;';
+      dlg.innerHTML = `
+        <div style="background:var(--bg-secondary,#1a1f2e);border:2px solid #fbbf24;border-radius:14px;padding:20px 18px;max-width:340px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.8);text-align:center;">
+          <div style="font-size:2rem;margin-bottom:8px;">🏌️</div>
+          <div style="font-weight:800;font-size:1rem;color:#fbbf24;margin-bottom:10px;">
+            ${isEn ? 'Fun Bet – Play Fair!' : 'Kompis-bet på skoj!'}
+          </div>
+          <p style="font-size:0.82rem;color:rgba(255,255,255,0.85);line-height:1.5;margin-bottom:14px;">
+            ${isEn
+              ? 'BetPals AR Referee uses camera analysis which may be inaccurate depending on lighting, angle and distance from the hole.<br><br>Swish payment is <strong>voluntary and at your own risk</strong>. This is a party game — not a certified measurement tool.'
+              : 'BetPals AR-domare använder kameraanalys som kan vara unexakt beroende på ljus, vinkel och avstånd från hålet.<br><br>Swish-betalning sker <strong>frivilligt och på eget ansvar</strong>. Det här är ett sällskapsspel – inte en certifierad mätmetod.'}
+          </p>
+          <div style="display:flex;gap:10px;">
+            <button id="gimme-disclaimer-cancel" class="btn btn-secondary btn-sm" style="flex:1;font-size:0.82rem;">
+              ${isEn ? 'Cancel' : 'Avbryt'}
+            </button>
+            <button id="gimme-disclaimer-accept" class="btn btn-primary btn-sm" style="flex:1.4;font-size:0.82rem;font-weight:700;background:linear-gradient(135deg,#fbbf24,#d97706);border:none;color:#000;">
+              ${isEn ? "Got it, let's go! 🏌️" : 'Jag fattar, kör igång! 🏌️'}
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(dlg);
+      const cleanup = (result) => { document.body.removeChild(dlg); resolve(result); };
+      dlg.querySelector('#gimme-disclaimer-accept').addEventListener('click', () => cleanup(true));
+      dlg.querySelector('#gimme-disclaimer-cancel').addEventListener('click', () => cleanup(false));
+      dlg.addEventListener('click', (e) => { if (e.target === dlg) cleanup(false); });
+    });
+  }
+
+  btnStartBet?.addEventListener('click', async () => {
+    const p1Raw = (p1Input?.value || '').trim();
+    const p2Raw = (p2Input?.value || '').trim();
+
+    // Fix 1.8: Require real names for Swish bets
+    if (selectedBetMode === 'swish' && (!p1Raw || !p2Raw)) {
+      showToast(
+        isEn ? 'Enter both player names for a Swish bet.' : 'Ange båda spelarnas namn för Swish-bet.',
+        'warning'
+      );
+      return;
+    }
+
+    // Fix 1.9: Validate and normalise Swish phone number
+    const phoneRaw = (swishPhoneInput?.value || '').trim();
+    const normalizedPhone = phoneRaw ? normalizeSwedishPhone(phoneRaw) : '';
+    if (selectedBetMode === 'swish' && phoneRaw && !normalizedPhone) {
+      showToast(
+        isEn ? 'Invalid Swish number – use format 07XXXXXXXX.' : 'Ogiltigt Swish-nummer – använd formatet 07XXXXXXXX.',
+        'warning'
+      );
+      return;
+    }
+
+    // Disclaimer (nivå 3) – must accept before locking a Swish bet
+    if (selectedBetMode === 'swish') {
+      const accepted = await showGimmeSwishDisclaimer();
+      if (!accepted) return;
+    }
+
+    const p1 = p1Raw || (isEn ? 'Player 1' : 'Spelare 1');
+    const p2 = p2Raw || (isEn ? 'Player 2' : 'Spelare 2');
 
     activeBet = {
       mode: selectedBetMode,
       stake: selectedBetMode === 'swish' ? selectedStake : 0,
-      p1, // believes GIMME
-      p2, // demands PUTT
-      p1Phone,
-      p2Phone
+      limitCm: customGimmeCm,  // Fix 1.1: freeze limit at lock time
+      p1,   // believes GIMME
+      p2,   // demands PUTT
+      p1Phone: currentUser?.swishNumber || '',
+      p2Phone: normalizedPhone || selectedFriend?.swishNumber || ''
     };
 
     if (betDrawer) betDrawer.style.display = 'none';
@@ -7289,14 +7462,16 @@ export async function openGimmeModal() {
       activeBetBanner.style.display = 'block';
       if (betInfoHeader) {
         betInfoHeader.textContent = activeBet.mode === 'swish'
-          ? (isEn ? `🎯 ACTIVE BET: ${activeBet.stake} kr (Pot: ${activeBet.stake * 2} kr)` : `🎯 AKTIVT BET: ${activeBet.stake} kr (Pott: ${activeBet.stake * 2} kr)`)
+          ? (isEn
+              ? `🎯 ACTIVE BET: ${activeBet.stake} kr (Pot: ${activeBet.stake * 2} kr) · Limit: ${activeBet.limitCm} cm`
+              : `🎯 AKTIVT BET: ${activeBet.stake} kr (Pott: ${activeBet.stake * 2} kr) · Gräns: ${activeBet.limitCm} cm`)
           : (isEn ? `🎯 ACTIVE BET: BRAGGING RIGHTS! 🪙` : `🎯 AKTIVT BET: ÄRAN & SKRYT! 🪙`);
       }
       if (betInfoPlayers) {
         betInfoPlayers.textContent = `🟢 ${p1} (Gimme) vs 🔴 ${p2} (Putt)`;
       }
     }
-    showToast(isEn ? 'Bet locked in! Walk up and judge!' : 'Bettet är låst! Gå fram till green och döm! 🏌️‍♂️⛳️', 'success');
+    showToast(isEn ? 'Bet locked in! Walk up and judge! 🏌️' : 'Bettet är låst! Gå fram till green och döm! 🏌️‍♂️⛳️', 'success');
   });
 
   // Cancel Bet
@@ -7306,8 +7481,17 @@ export async function openGimmeModal() {
     showToast(isEn ? 'Bet cancelled' : 'Bettet avbröts', 'info');
   });
 
-  // Handle Gimme distance limit selector
+  // Handle Gimme distance limit selector – locked when a bet is active
   distSelect?.addEventListener('change', () => {
+    if (activeBet) {
+      // Fix 1.1: Prevent changing limit after bet is locked
+      showToast(
+        isEn ? 'Limit locked – cancel the bet to change it.' : 'Gräns låst – avbryt bettet för att ändra.',
+        'warning'
+      );
+      distSelect.value = String(activeBet.limitCm); // restore locked value
+      return;
+    }
     customGimmeCm = parseInt(distSelect.value, 10) || 60;
     if (hudRadius) hudRadius.textContent = `${customGimmeCm} cm`;
   });
@@ -7331,6 +7515,36 @@ export async function openGimmeModal() {
     } catch (_) {}
   }
 
+  // Fix 1.3: Cover-crop transform – matches CSS object-fit: cover so that vision
+  // coordinates align with what the user actually sees in the viewport.
+  function drawWithCoverCrop(sourceEl, canvas, ctx) {
+    const srcW = sourceEl.videoWidth || sourceEl.naturalWidth || canvas.width;
+    const srcH = sourceEl.videoHeight || sourceEl.naturalHeight || canvas.height;
+    const dstW = canvas.width;
+    const dstH = canvas.height;
+    if (!srcW || !srcH) {
+      ctx.drawImage(sourceEl, 0, 0, dstW, dstH); // fallback if dimensions unknown
+      return;
+    }
+    const srcAspect = srcW / srcH;
+    const dstAspect = dstW / dstH;
+    let cropW, cropH, cropX, cropY;
+    if (srcAspect > dstAspect) {
+      // Source is wider than destination → crop sides
+      cropH = srcH;
+      cropW = srcH * dstAspect;
+      cropX = (srcW - cropW) / 2;
+      cropY = 0;
+    } else {
+      // Source is taller than destination → crop top/bottom
+      cropW = srcW;
+      cropH = srcW / dstAspect;
+      cropX = 0;
+      cropY = (srcH - cropH) / 2;
+    }
+    ctx.drawImage(sourceEl, cropX, cropY, cropW, cropH, 0, 0, dstW, dstH);
+  }
+
   // Vision Scan Function (Runs every ~100ms to save battery and keep 60fps)
   // Supports both HTMLVideoElement and HTMLImageElement
   function processVisionFrame(sourceEl, width, height) {
@@ -7340,7 +7554,7 @@ export async function openGimmeModal() {
     const vH = visionCanvas.height;
 
     try {
-      visionCtx.drawImage(sourceEl, 0, 0, vW, vH);
+      drawWithCoverCrop(sourceEl, visionCanvas, visionCtx);
       const imgData = visionCtx.getImageData(0, 0, vW, vH);
       const data = imgData.data;
 
@@ -7433,14 +7647,24 @@ export async function openGimmeModal() {
         const detectedHoleRadiusCanvas = validAxes >= 2 ? (sumRadius / validAxes) : 10;
         const screenRadius = Math.max(12, detectedHoleRadiusCanvas * ((scaleX + scaleY) / 2));
 
+        // Fix 1.6: Large position hop → treat as new object, reset confidence
+        const MAX_HOP_PX = 40;
         if (!detectedHole) {
           detectedHole = { x: targetScreenX, y: targetScreenY, radiusPx: screenRadius, confidence: 1 };
         } else {
-          // Smooth lerp movement towards locked target
-          detectedHole.x += (targetScreenX - detectedHole.x) * 0.25;
-          detectedHole.y += (targetScreenY - detectedHole.y) * 0.25;
-          detectedHole.radiusPx += (screenRadius - detectedHole.radiusPx) * 0.2;
-          detectedHole.confidence = Math.min(10, (detectedHole.confidence || 0) + 1);
+          const hop = Math.hypot(targetScreenX - detectedHole.x, targetScreenY - detectedHole.y);
+          if (hop > MAX_HOP_PX) {
+            // Different object – start fresh, unlock
+            detectedHole = { x: targetScreenX, y: targetScreenY, radiusPx: screenRadius, confidence: 1 };
+            isHoleLocked = false;
+            lockSoundPlayed = false;
+          } else {
+            // Smooth lerp movement towards locked target
+            detectedHole.x += (targetScreenX - detectedHole.x) * 0.25;
+            detectedHole.y += (targetScreenY - detectedHole.y) * 0.25;
+            detectedHole.radiusPx += (screenRadius - detectedHole.radiusPx) * 0.2;
+            detectedHole.confidence = Math.min(10, (detectedHole.confidence || 0) + 1);
+          }
         }
         isHoleLocked = detectedHole.confidence >= 3;
       } else {
@@ -7471,9 +7695,15 @@ export async function openGimmeModal() {
             detectedBall.y += (screenBallY - detectedBall.y) * 0.3;
             detectedBall.confidence = Math.min(10, (detectedBall.confidence || 0) + 1);
           }
+        } else {
+          // Fix 1.7: Candidate found but rejected (too close to hole) → decay ball too
+          if (detectedBall) {
+            detectedBall.confidence = (detectedBall.confidence || 1) - 0.5;
+            if (detectedBall.confidence <= 0) detectedBall = null;
+          }
         }
       } else {
-        // Fix 7: Decay detected ball when no candidate is seen
+        // No candidate at all → decay
         if (detectedBall) {
           detectedBall.confidence = (detectedBall.confidence || 1) - 0.5;
           if (detectedBall.confidence <= 0) {
@@ -7481,7 +7711,11 @@ export async function openGimmeModal() {
           }
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      // Fix 1.14: Log vision errors (rate-limited to avoid spam)
+      visionErrorCount++;
+      if (visionErrorCount <= 3) console.warn('[Gimme vision]', err?.message);
+    }
   }
 
   // Draw AR Overlays in realtime loop
@@ -7686,10 +7920,11 @@ export async function openGimmeModal() {
   }
 
   // Trigger Verdict
-  function applyVerdict(approved) {
+  function applyVerdict(approved, method = 'auto') {
     isFrozen = true;
     if (animFrameId) cancelAnimationFrame(animFrameId);
     verdictState = approved ? 'approved' : 'denied';
+    verdictMethod = method; // recorded for share text
 
     playVerdictSound(approved);
 
@@ -7771,18 +8006,24 @@ export async function openGimmeModal() {
   }
 
   // Fix 5: Automatic AR Judge action
+  // Fix 1.2: Require calibrated hole before AR judgment
   btnJudgeAuto?.addEventListener('click', () => {
     const activeBall = manualBallTarget || detectedBall;
     if (!activeBall) {
       showToast(isEn ? '⚪️ Tap screen to place the ball first!' : '⚪️ Tryck på skärmen för att markera bollen först!', 'warning');
       return;
     }
+    if (!isHoleLocked) {
+      showToast(isEn ? '⛳️ Wait for cup calibration (yellow → green lock).' : '⛳️ Vänta tills hålet är kalibrerat (gult → grönt lås).', 'warning');
+      return;
+    }
     if (measuredDistanceCm === null) {
       showToast(isEn ? 'Calculating distance...' : 'Beräknar avstånd...', 'info');
       return;
     }
-    const isApproved = measuredDistanceCm <= customGimmeCm;
-    applyVerdict(isApproved);
+    const limitCm = activeBet?.limitCm ?? customGimmeCm;
+    const isApproved = measuredDistanceCm <= limitCm;
+    applyVerdict(isApproved, 'auto');
   });
 
   // Manual override toggle & buttons
@@ -7792,22 +8033,37 @@ export async function openGimmeModal() {
     }
   });
 
-  btnJudgeYes?.addEventListener('click', () => applyVerdict(true));
-  btnJudgeNo?.addEventListener('click', () => applyVerdict(false));
+  // Fix 1.5: Block one-sided manual verdict for Swish bets
+  btnJudgeYes?.addEventListener('click', () => {
+    if (activeBet?.mode === 'swish') {
+      showToast(isEn ? 'Manual override not allowed for Swish bets – use AR judge.' : 'Manuell dom ej tillåten för Swish-bet – använd AR-domare.', 'error');
+      return;
+    }
+    applyVerdict(true, 'manual');
+  });
+  btnJudgeNo?.addEventListener('click', () => {
+    if (activeBet?.mode === 'swish') {
+      showToast(isEn ? 'Manual override not allowed for Swish bets – use AR judge.' : 'Manuell dom ej tillåten för Swish-bet – använd AR-domare.', 'error');
+      return;
+    }
+    applyVerdict(false, 'manual');
+  });
 
   btnRetake?.addEventListener('click', () => {
     isFrozen = false;
     manualBallTarget = null;
     detectedBall = null;
     measuredDistanceCm = null;
+    verdictMethod = 'auto';
     if (verdictOverlay) verdictOverlay.style.display = 'none';
     renderARFrame();
   });
 
-  // Tap-to-set ball position (Manual override if auto-detect misses or user wants precision)
+  // Tap-to-set ball position – Fix 1.12: ignore clicks from controls (file picker etc.)
   const viewportWrapper = root.querySelector('#gimme-viewport-wrapper');
   viewportWrapper?.addEventListener('click', (e) => {
     if (isFrozen) return;
+    if (e.target.closest('button, label, input, a, select')) return; // Fix 1.12
     const rect = viewportWrapper.getBoundingClientRect();
     const tapX = e.clientX - rect.left;
     const tapY = e.clientY - rect.top;
@@ -7817,22 +8073,29 @@ export async function openGimmeModal() {
     showToast(isEn ? '⚪️ Ball target placed!' : '⚪️ Bollpunkt markerad!', 'info');
   });
 
-  // Fix 8: Localized clipboard share text
+  // Clipboard share text – Fix 1.10: consistent ≤/>, add distance and method label
   btnShare?.addEventListener('click', () => {
     const isApproved = verdictState === 'approved';
-    let text = isApproved 
-      ? (isEn 
-          ? `⛳️ BetPals Gimme Referee: Ball is APPROVED as Gimme (< ${customGimmeCm} cm)! 🏆\nPick up the ball!`
-          : `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (< ${customGimmeCm} cm)! 🏆\nPlocka upp bollen!`)
+    const limitUsed = activeBet?.limitCm ?? customGimmeCm;
+    const distLabel = measuredDistanceCm !== null
+      ? (isEn ? ` (~${measuredDistanceCm} cm, cup rim → ball centre)` : ` (~${measuredDistanceCm} cm, hålkant → bollcentrum)`)
+      : '';
+    const methodLabel = verdictMethod === 'manual'
+      ? (isEn ? ' [manual override]' : ' [manuell dom]')
+      : '';
+    let text = isApproved
+      ? (isEn
+          ? `⛳️ BetPals Gimme Referee: Ball is APPROVED as Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}${methodLabel}\nPick up the ball!`
+          : `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}${methodLabel}\nPlocka upp bollen!`)
       : (isEn
-          ? `⛳️ BetPals Gimme Referee: NOT A GIMME (> ${customGimmeCm} cm)! 😈\nPutt it, coward!`
-          : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${customGimmeCm} cm)! 😈\nPutta din fegis!`);
-    
+          ? `⛳️ BetPals Gimme Referee: NOT A GIMME (> ${limitUsed} cm)! 😈${distLabel}${methodLabel}\nPutt it, coward!`
+          : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${limitUsed} cm)! 😈${distLabel}${methodLabel}\nPutta din fegis!`);
+
     if (activeBet) {
       const winner = isApproved ? activeBet.p1 : activeBet.p2;
       const loser = isApproved ? activeBet.p2 : activeBet.p1;
       text += activeBet.mode === 'swish'
-        ? (isEn 
+        ? (isEn
             ? `\n💰 BET RESULT: ${winner} won ${activeBet.stake * 2} kr! (${loser} sends ${activeBet.stake} kr via Swish)`
             : `\n💰 BET RESULTAT: ${winner} vann ${activeBet.stake * 2} kr! (${loser} ska swisha ${activeBet.stake} kr)`)
         : (isEn
@@ -7848,12 +8111,14 @@ export async function openGimmeModal() {
   });
 
   // Start Camera
+  // Fix 1.4: Disposed-token prevents camera staying active after modal close
   async function initCamera() {
+    const myToken = sessionToken; // capture token before async gap
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('getUserMedia not supported');
       }
-      videoStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
           width: { ideal: 1280 },
@@ -7861,23 +8126,32 @@ export async function openGimmeModal() {
         },
         audio: false
       });
+      // If modal was closed while we were waiting, stop tracks immediately
+      if (sessionToken !== myToken) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+      videoStream = stream;
       if (videoEl) {
         videoEl.srcObject = videoStream;
         await videoEl.play().catch(() => {});
       }
       renderARFrame();
     } catch (err) {
+      if (sessionToken !== myToken) return; // modal already closed, ignore
       console.warn('Camera failed or rejected, falling back to static overlay:', err);
       if (camFallback) camFallback.style.display = 'flex';
       renderARFrame();
     }
   }
 
-  // Fix 6: Fallback image capture with actual vision processing
+  // Fallback image capture with actual vision processing – Fix 1.13: revoke old object URL
   fileInput?.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl); // Fix 1.13
       const imgUrl = URL.createObjectURL(file);
+      currentObjectUrl = imgUrl;
       const img = new Image();
       img.src = imgUrl;
       img.onload = () => {

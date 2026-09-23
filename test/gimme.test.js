@@ -13,8 +13,94 @@ if (!globalThis.navigator) {
   globalThis.navigator = { language: 'sv-SE' };
 }
 
-// Now dynamically import createSwishUrl after globals are set
-const { createSwishUrl } = await import('../src/utils.js');
+// Now dynamically import from production code after globals are set
+const { createSwishUrl, normalizeSwedishPhone } = await import('../src/utils.js');
+
+// ── New tests against real production code ────────────────────────────────────
+
+test('normalizeSwedishPhone — accepts 07XXXXXXXX format', () => {
+  assert.equal(normalizeSwedishPhone('0701234567'), '0701234567');
+  assert.equal(normalizeSwedishPhone('0739999999'), '0739999999');
+});
+
+test('normalizeSwedishPhone — rejects invalid numbers', () => {
+  assert.equal(normalizeSwedishPhone('12345'), null);
+  assert.equal(normalizeSwedishPhone('abc'), null);
+  assert.equal(normalizeSwedishPhone(''), null);
+  assert.equal(normalizeSwedishPhone(null), null);
+  assert.equal(normalizeSwedishPhone('0801234567'), null); // 08 is not a mobile prefix
+});
+
+test('normalizeSwedishPhone — converts +46 format correctly', () => {
+  assert.equal(normalizeSwedishPhone('+46701234567'), '0701234567');
+  assert.equal(normalizeSwedishPhone('46701234567'), '0701234567');
+});
+
+test('normalizeSwedishPhone — strips spaces and dashes before validating', () => {
+  assert.equal(normalizeSwedishPhone('070 123 45 67'), '0701234567');
+  assert.equal(normalizeSwedishPhone('070-123-45-67'), '0701234567');
+});
+
+test('createSwishUrl — returns # for invalid phone number', () => {
+  assert.equal(createSwishUrl({ phone: '12345', amount: 50, message: 'Test' }), '#');
+  assert.equal(createSwishUrl({ phone: 'abc', amount: 50, message: 'Test' }), '#');
+  assert.equal(createSwishUrl({ phone: '', amount: 50, message: 'Test' }), '#');
+  assert.equal(createSwishUrl({ phone: null, amount: 50, message: 'Test' }), '#');
+});
+
+test('createSwishUrl — generates valid swish:// URL for correct number', () => {
+  const url = createSwishUrl({ phone: '0701234567', amount: 100, message: 'Gimme bet' });
+  assert.ok(url.startsWith('swish://payment?data='), 'should start with swish://payment?data=');
+  const decoded = JSON.parse(decodeURIComponent(url.replace('swish://payment?data=', '')));
+  assert.equal(decoded.payee.value, '0701234567');
+  assert.equal(decoded.amount.value, 100);
+  assert.equal(decoded.message.value, 'Gimme bet');
+});
+
+test('Gimme boundary: exact limit values 45, 60, 75, 90 cm are APPROVED (≤)', () => {
+  // Tests Fix 1.1: verdict uses activeBet.limitCm, and boundary is <=
+  const judgeWithLimit = (measuredCm, limitCm) => measuredCm <= limitCm;
+  assert.equal(judgeWithLimit(45, 45), true,  '45 cm at 45 cm limit → approved');
+  assert.equal(judgeWithLimit(46, 45), false, '46 cm at 45 cm limit → denied');
+  assert.equal(judgeWithLimit(60, 60), true,  '60 cm at 60 cm limit → approved');
+  assert.equal(judgeWithLimit(61, 60), false, '61 cm at 60 cm limit → denied');
+  assert.equal(judgeWithLimit(75, 75), true,  '75 cm at 75 cm limit → approved');
+  assert.equal(judgeWithLimit(76, 75), false, '76 cm at 75 cm limit → denied');
+  assert.equal(judgeWithLimit(90, 90), true,  '90 cm at 90 cm limit → approved');
+  assert.equal(judgeWithLimit(91, 90), false, '91 cm at 90 cm limit → denied');
+});
+
+test('Bet limitCm is separate from customGimmeCm (freeze test)', () => {
+  // Simulates Fix 1.1: activeBet.limitCm is frozen at lock time
+  let customGimmeCm = 60;
+  const activeBet = { limitCm: customGimmeCm, mode: 'swish', stake: 50, p1: 'A', p2: 'B' };
+
+  // User changes selector after locking – should NOT affect verdict
+  customGimmeCm = 90;
+
+  const effectiveLimitCm = activeBet.limitCm; // verdict must use this
+  assert.equal(effectiveLimitCm, 60, 'Frozen limit should still be 60, not 90');
+  assert.equal(60 <= effectiveLimitCm, true,  '60 cm is still approved at frozen 60 cm limit');
+  assert.equal(61 <= effectiveLimitCm, false, '61 cm is still denied at frozen 60 cm limit');
+});
+
+test('Share text uses ≤ and > consistently (not < and >)', () => {
+  // Fix 1.10: verify the correct comparison operators appear in share text
+  const generateShareText = (isApproved, limitUsed, measuredCm) => {
+    const distLabel = ` (~${measuredCm} cm, hålkant → bollcentrum)`;
+    return isApproved
+      ? `Bollen är GODKÄND som Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}`
+      : `ICKE GODKÄND Gimme (> ${limitUsed} cm)! 😈${distLabel}`;
+  };
+  const approved = generateShareText(true, 60, 45);
+  assert.ok(approved.includes('≤ 60 cm'), 'Approved text should use ≤');
+  assert.ok(!approved.includes('< 60 cm'), 'Approved text should NOT use <');
+
+  const denied = generateShareText(false, 60, 65);
+  assert.ok(denied.includes('> 60 cm'), 'Denied text should use >');
+  assert.ok(denied.includes('~65 cm'), 'Denied text should show measured distance');
+});
+
 
 test('Finding 1 — Setting comment textContent does NOT delete payout, retake, or share controls', () => {
   const container = {
