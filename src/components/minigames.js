@@ -195,7 +195,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.flashbet'),
       tag: t('arcade.flashbetTag'),
       title: t('arcade.flashbetTitle'),
-      iconHtml: `<span style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.8));">⚡</span>`
+      iconHtml: `<span style="font-size: 1.75rem; line-height: 1; display: inline-block; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.7));">⚡</span>`
     },
     {
       id: 'notan-roulette',
@@ -368,7 +368,7 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.flashbet'),
       tag: t('arcade.flashbetTag'),
       desc: t('arcade.flashbetDesc'),
-      iconHtml: `<span style="font-size: 2.6rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.8));">⚡</span>`
+      iconHtml: `<span style="font-size: 2.1rem; line-height: 1; display: inline-block; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.7));">⚡</span>`
     },
     {
       id: 'notan-roulette',
@@ -4902,7 +4902,8 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     return `${m}:${rem < 10 ? '0' : ''}${rem}`;
   };
 
-  showModal(`<span style="margin-right: 6px;">⚡</span>${t('arcade.flashbet')}`, `
+  const modalTitle = `<span style="display: inline-flex; align-items: center; gap: 6px;"><span style="font-size: 1.15rem; line-height: 1;">⚡</span><span>${t('arcade.flashbet')}</span></span>`;
+  showModal(modalTitle, `
     <div id="flashbet-container" style="padding: 2px 0; min-height: 380px;">
       <p class="game-modal-subheading">${t('arcade.flashbetDesc')}</p>
 

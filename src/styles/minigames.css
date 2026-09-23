@@ -184,6 +184,10 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .arcade-grid-desc {
@@ -201,7 +205,7 @@
   font-size: 0.8rem;
   color: var(--text-secondary);
   text-align: center;
-  margin: -8px auto 14px auto;
+  margin: 0 auto 12px auto;
   max-width: 420px;
   line-height: 1.35;
   white-space: nowrap;
@@ -283,6 +287,10 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* ── 1. COIN FLIP STYLES ───────────────────────────────── */
