@@ -28,6 +28,7 @@ import {
   getFlashBet,
   placeFlashBet,
   settleFlashBet,
+  deleteFlashBet,
   getTournaments,
   getActiveEvent,
   getTabExpense,
@@ -5072,6 +5073,13 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
                 ${t('arcade.flashbetSettleNo')}
               </button>
             </div>
+            ${((fb.entriesCount || fb.betCount || 0) === 0) ? `
+              <div style="margin-top: 10px; text-align: center;">
+                <button type="button" class="btn btn-sm flashbet-delete-btn" data-fb-id="${fb.id}" style="background: rgba(231,76,60,0.12); border: 1px dashed rgba(231,76,60,0.45); color: #e74c3c; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; width: 100%; border-radius: var(--radius-sm); transition: all 0.2s; cursor: pointer;">
+                  🗑️ Ta bort vad (inga röster lagda)
+                </button>
+              </div>
+            ` : ''}
           </div>
         ` : ''}
       </div>
@@ -5145,6 +5153,26 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         } catch (err) {
           showToast(err.message, 'error');
           btn.disabled = false;
+        }
+      });
+    });
+
+    // Deleting (when 0 votes)
+    document.querySelectorAll('.flashbet-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fbId = btn.dataset.fbId;
+        if (!confirm('Vill du ta bort detta BlixtBet? Eftersom ingen har hunnit rösta än raderas det helt.')) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Tar bort...';
+        try {
+          await deleteFlashBet(fbId);
+          showToast('🗑️ BlixtBet borttaget!', 'info');
+          renderActiveTab();
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = '🗑️ Ta bort vad (inga röster lagda)';
         }
       });
     });

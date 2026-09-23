@@ -303,6 +303,7 @@ export const getActiveFlashBets = (tournamentId) => request('/flashbets/active' 
 export const getFlashBet = (id) => request('/flashbets/' + id);
 export const placeFlashBet = (id, choice) => request('/flashbets/' + id + '/bet', { method: 'POST', body: { choice } });
 export const settleFlashBet = (id, winningChoice) => request('/flashbets/' + id + '/settle', { method: 'POST', body: { winningChoice } });
+export const deleteFlashBet = (id) => request('/flashbets/' + id, { method: 'DELETE' });
 
 // ── Instant FlashLive (Spontan-Live) ─────────────────
 export const startFlashLive = (data) => request('/flashlive/start', { method: 'POST', body: data });

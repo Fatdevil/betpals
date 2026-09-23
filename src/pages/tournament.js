@@ -49,7 +49,7 @@ export async function renderTournament(params = {}) {
 
     connectWebSocket(t.shareCode);
     wsUnsubscribe = onWebSocketMessage((msg) => {
-      if (msg.type === 'tournament_updated' || msg.type === 'flash_bet_created' || msg.type === 'flash_bet_settled') {
+      if (msg.type === 'tournament_updated' || msg.type === 'flash_bet_created' || msg.type === 'flash_bet_settled' || msg.type === 'flash_bet_deleted') {
         renderTournament(params);
       }
     });

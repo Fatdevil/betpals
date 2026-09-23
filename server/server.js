@@ -4436,6 +4436,35 @@ app.post('/api/flashbets/:id/settle', (req, res) => {
   }
 });
 
+app.delete('/api/flashbets/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Du måste vara inloggad för att ta bort ett BlixtBet' });
+
+  try {
+    const result = db.deleteFlashBet(req.params.id, user.id);
+
+    const wsPayload = {
+      type: 'flash_bet_deleted',
+      flashBetId: req.params.id,
+      tournamentId: result.tournamentId
+    };
+
+    if (result.targetUserIds && result.targetUserIds.length > 0) {
+      broadcastToUser(user.id, wsPayload);
+      for (const tid of result.targetUserIds) {
+        broadcastToUser(tid, wsPayload);
+      }
+    } else {
+      broadcastGlobal(wsPayload);
+    }
+
+    res.json({ success: true, message: 'BlixtBet borttaget' });
+  } catch (err) {
+    const isForbidden = err.message.includes('skaparen');
+    res.status(isForbidden ? 403 : 400).json({ error: err.message });
+  }
+});
+
 // ── Instant FlashLive (Spontan-Live & BlixtBet) Endpoints ──
 app.post('/api/flashlive/start', async (req, res) => {
   const user = getUserFromToken(req);

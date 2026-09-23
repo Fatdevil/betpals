@@ -702,6 +702,9 @@ export async function openLiveStreamModal({
         }
       }
       renderLiveBlixtBetWidget(tournamentId, targetBetId, tournamentCode, liveId, isBroadcaster, personalizedBet);
+    } else if (msg.type === 'flash_bet_deleted' && (msg.flashBetId === flashBetId || (tournamentId && msg.tournamentId === tournamentId))) {
+      showToast('BlixtBet togs bort.', 'info');
+      renderLiveBlixtBetWidget(tournamentId, null, tournamentCode, liveId, isBroadcaster, null);
     }
   });
 

@@ -890,6 +890,7 @@ const stmts = {
   `),
   updateFlashBetStatus: db.prepare('UPDATE flash_bets SET status = ? WHERE id = ?'),
   updateFlashBetSettle: db.prepare('UPDATE flash_bets SET status = \'settled\', winning_choice = ? WHERE id = ?'),
+  deleteFlashBet: db.prepare('DELETE FROM flash_bets WHERE id = ?'),
 
   // Flash Bet Entries
   insertFlashBetEntry: db.prepare(`
@@ -3057,6 +3058,34 @@ export function cancelFlashBet(flashBetId, userId) {
   if (fb.status === 'settled') throw new Error('Vadet är redan avgjort');
   stmts.updateFlashBetStatus.run('cancelled', fb.id);
   return getFlashBet(flashBetId, userId);
+}
+
+export function deleteFlashBet(flashBetId, userId) {
+  const fb = stmts.getFlashBetById.get(flashBetId);
+  if (!fb) throw new Error('BlixtBet hittades inte');
+  if (fb.creator_id !== userId) throw new Error('Endast skaparen kan ta bort vadet');
+  if (fb.status === 'settled') throw new Error('Vadet är redan avgjort och kan inte tas bort');
+
+  const entries = stmts.getFlashBetEntries.all(flashBetId);
+  if (entries.length > 0) {
+    throw new Error('Det går inte att ta bort vadet eftersom någon redan har lagt ett bet');
+  }
+
+  stmts.deleteFlashBet.run(flashBetId);
+
+  let targetUserIds = null;
+  if (fb.target_user_ids) {
+    try {
+      targetUserIds = JSON.parse(fb.target_user_ids);
+    } catch {}
+  }
+
+  return {
+    success: true,
+    id: flashBetId,
+    tournamentId: fb.tournament_id,
+    targetUserIds
+  };
 }
 
 export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
