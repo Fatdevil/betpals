@@ -8772,8 +8772,18 @@ export async function openLovenGameModal() {
           scorer = formSubmitTip.querySelector('#input-custom-scorer')?.value.trim();
         }
 
+        if (isNaN(pLoven) || isNaN(pOpp) || isNaN(pShots)) {
+          showToast('Fyll i alla fält (mål och skott)', 'warning');
+          return;
+        }
+
         if (!scorer) {
           showToast('Välj eller ange Lövens sista målskytt', 'warning');
+          return;
+        }
+
+        if (Number(currentGame.stake_amount) > 0 && !user.swish_number) {
+          showToast('Du måste ange ditt Swish-nummer i profilen innan du deltar i spel med insats', 'warning');
           return;
         }
 
@@ -8952,6 +8962,10 @@ export async function openLovenGameModal() {
         }
         if (!matchDate) {
           showToast('Ange matchdatum och tid', 'warning');
+          return;
+        }
+        if (stake > 0 && !user.swish_number) {
+          showToast('Du måste ange ditt Swish-nummer i profilen innan du skapar spel med insats', 'warning');
           return;
         }
 

@@ -5025,13 +5025,18 @@ app.post('/api/loven-games', (req, res) => {
     return res.status(400).json({ error: 'Vänligen ange matchdatum och tid' });
   }
 
+  const numericStake = Math.max(0, Math.min(10000, Number(stakeAmount) || 0));
+  if (numericStake > 0 && !user.swish_number) {
+    return res.status(400).json({ error: 'Du måste ange ditt Swish-nummer i profilen innan du skapar spel med insats.' });
+  }
+
   try {
     const game = db.createLovenGame({
       creatorId: user.id,
       opponentTeam: opponentTeam.trim(),
       isHome: isHome ? 1 : 0,
       matchDate,
-      stakeAmount: Number(stakeAmount) || 0,
+      stakeAmount: numericStake,
       tournamentId
     });
 
@@ -5116,6 +5121,13 @@ app.post('/api/loven-games/:id/join', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
+  const targetGame = db.getLovenGame(req.params.id);
+  if (!targetGame) return res.status(404).json({ error: 'Matchen hittades inte' });
+
+  if (targetGame.stake_amount > 0 && !user.swish_number) {
+    return res.status(400).json({ error: 'Du måste ange ditt Swish-nummer i profilen innan du deltar i spel med insats.' });
+  }
+
   const { predLovenGoals, predOpponentGoals, predLastScorer, predShotsOnGoal } = req.body;
 
   try {
@@ -5183,6 +5195,16 @@ app.post('/api/loven-games/:id/settle', (req, res) => {
       gameId: req.params.id,
       game: settledGame
     });
+
+    // Notify participants via push
+    const participantIds = (settledGame.entries || []).map(e => e.user_id);
+    if (participantIds.length > 0) {
+      sendPushToUsers(participantIds, {
+        title: '🟢 Löven Game rättat!',
+        body: `Matchen mot ${settledGame.opponent_team} är avgjord! Kolla THE TAB för resultat och Swish-avräkning.`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+    }
 
     res.json({ ok: true, game: settledGame });
   } catch (err) {

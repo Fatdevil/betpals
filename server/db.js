@@ -3513,7 +3513,12 @@ export function getLatestBackup(customDir = null) {
 
 export function normalizePlayerName(name) {
   if (!name) return '';
-  return name.replace(/^#?\d+\s*/, '').trim().toLowerCase();
+  return name
+    .replace(/^#?\d+\s*/, '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 export function isScorerMatch(pred, actual) {
@@ -3521,9 +3526,23 @@ export function isScorerMatch(pred, actual) {
   const a = normalizePlayerName(actual);
   if (!p || !a) return false;
   if (p === a) return true;
-  if ((p.includes('inga mål') || p.includes('nollade')) && (a.includes('inga mål') || a.includes('nollade'))) {
+
+  // Flexible shutout / no goals handling
+  const noGoalsTokens = ['inga mal', 'nollade', 'nollad', 'ingen', '0 mal', '0-0', 'inga mål'];
+  const pIsNoGoals = noGoalsTokens.some(tok => p.includes(normalizePlayerName(tok)));
+  const aIsNoGoals = noGoalsTokens.some(tok => a.includes(normalizePlayerName(tok)));
+  if (pIsNoGoals && aIsNoGoals) {
     return true;
   }
+  if (pIsNoGoals || aIsNoGoals) {
+    return false;
+  }
+
+  // Surname-only match (e.g. "Wallmark" matches "Lucas Wallmark" or vice-versa)
+  if (p.endsWith(' ' + a) || a.endsWith(' ' + p)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -3540,14 +3559,20 @@ export function createLovenGame({
   if (!opponentTeam || !opponentTeam.trim()) throw new Error('Motståndare saknas');
   if (!matchDate) throw new Error('Matchdatum saknas');
 
+  const matchTime = new Date(matchDate).getTime();
+  if (isNaN(matchTime) || matchTime <= Date.now()) {
+    throw new Error('Matchdatumet måste vara ett giltigt datum i framtiden');
+  }
+
+  const cleanOpponent = opponentTeam.trim().slice(0, 60);
   const stake = Math.max(0, Math.min(10000, Number(stakeAmount) || 0));
 
   stmts.insertLovenGame.run({
     id,
     creator_id: creatorId,
-    opponent_team: opponentTeam.trim(),
+    opponent_team: cleanOpponent,
     is_home: isHome ? 1 : 0,
-    match_date: matchDate,
+    match_date: new Date(matchTime).toISOString(),
     stake_amount: stake,
     status: 'open',
     tournament_id: tournamentId || null
@@ -3601,14 +3626,23 @@ export function submitLovenEntry(gameId, userId, {
     throw new Error('Spelstopp har passerat för denna match');
   }
 
-  const pLoven = Math.max(0, Math.min(30, Math.floor(Number(predLovenGoals) || 0)));
-  const pOpp = Math.max(0, Math.min(30, Math.floor(Number(predOpponentGoals) || 0)));
-  const pShots = Math.max(0, Math.min(150, Math.floor(Number(predShotsOnGoal) || 0)));
+  if (predLovenGoals === undefined || predLovenGoals === null || isNaN(Number(predLovenGoals))) {
+    throw new Error('Ange Lövens mål');
+  }
+  if (predOpponentGoals === undefined || predOpponentGoals === null || isNaN(Number(predOpponentGoals))) {
+    throw new Error('Ange motståndarens mål');
+  }
+  if (predShotsOnGoal === undefined || predShotsOnGoal === null || isNaN(Number(predShotsOnGoal))) {
+    throw new Error('Ange skott på mål');
+  }
   const pScorer = (predLastScorer || '').trim();
-
   if (!pScorer) {
     throw new Error('Välj eller ange sista målskytt');
   }
+
+  const pLoven = Math.max(0, Math.min(30, Math.floor(Number(predLovenGoals))));
+  const pOpp = Math.max(0, Math.min(30, Math.floor(Number(predOpponentGoals))));
+  const pShots = Math.max(0, Math.min(150, Math.floor(Number(predShotsOnGoal))));
 
   const entryId = crypto.randomUUID();
   stmts.insertLovenEntry.run({
@@ -3617,7 +3651,7 @@ export function submitLovenEntry(gameId, userId, {
     user_id: userId,
     pred_loven_goals: pLoven,
     pred_opponent_goals: pOpp,
-    pred_last_scorer: pScorer,
+    pred_last_scorer: pScorer.slice(0, 60),
     pred_shots_on_goal: pShots
   });
 
@@ -3629,6 +3663,9 @@ export function lockLovenGame(gameId, requesterId, isAdmin = false) {
   if (!game) throw new Error('Matchen hittades inte');
   if (game.creator_id !== requesterId && !isAdmin) {
     throw new Error('Endast skaparen kan låsa matchen');
+  }
+  if (game.status !== 'open') {
+    throw new Error('Endast öppna matcher kan låsas');
   }
   stmts.updateLovenGameStatus.run('locked', gameId);
   return getLovenGame(gameId);
@@ -3645,8 +3682,8 @@ export function settleLovenGame(gameId, {
   if (game.creator_id !== requesterId && !isAdmin) {
     throw new Error('Endast skaparen kan rätta matchen');
   }
-  if (game.status === 'settled') {
-    throw new Error('Matchen är redan rättad');
+  if (game.status !== 'open' && game.status !== 'locked') {
+    throw new Error('Endast öppna eller låsta matcher kan rättas');
   }
 
   const resLoven = Math.max(0, Math.floor(Number(resultLovenGoals) || 0));
@@ -3766,8 +3803,8 @@ export function cancelLovenGame(gameId, requesterId, isAdmin = false) {
   if (game.creator_id !== requesterId && !isAdmin) {
     throw new Error('Endast skaparen kan avbryta matchen');
   }
-  if (game.status === 'settled') {
-    throw new Error('Kan inte avbryta en redan rättad match');
+  if (game.status !== 'open' && game.status !== 'locked') {
+    throw new Error('Endast öppna eller låsta matcher kan avbrytas');
   }
   stmts.updateLovenGameStatus.run('cancelled', gameId);
   return getLovenGame(gameId);

@@ -274,5 +274,203 @@ test('Löven Game — Lifecycle, 4-3-2p Scoring, Tie-Splitting & THE TAB Integra
     assert.equal(entryA.pts_shots, 2);
     assert.equal(entryA.points, 9, 'Max 9 points achieved');
   });
+
+  await t.test('7. Cancelled match is terminal — cannot settle, lock or re-cancel', () => {
+    const creator = makeUser('Creator7_' + Date.now(), 'Lars Löven', '0701111117');
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    const game = db.createLovenGame({
+      creatorId: creator.id,
+      opponentTeam: 'Almtuna IS',
+      isHome: 1,
+      matchDate: futureDate,
+      stakeAmount: 20
+    });
+
+    const cancelled = db.cancelLovenGame(game.id, creator.id);
+    assert.equal(cancelled.status, 'cancelled');
+
+    // Attempting to settle a cancelled game must throw
+    assert.throws(() => {
+      db.settleLovenGame(game.id, {
+        resultLovenGoals: 3,
+        resultOpponentGoals: 2,
+        resultLastScorer: 'Lucas Wallmark',
+        resultShotsOnGoal: 30
+      }, creator.id);
+    }, /Endast öppna eller låsta matcher kan rättas/);
+
+    // Attempting to lock a cancelled game must throw
+    assert.throws(() => {
+      db.lockLovenGame(game.id, creator.id);
+    }, /Endast öppna matcher kan låsas/);
+
+    // Attempting to re-cancel must throw
+    assert.throws(() => {
+      db.cancelLovenGame(game.id, creator.id);
+    }, /Endast öppna eller låsta matcher kan avbrytas/);
+  });
+
+  await t.test('8. Settled match is terminal — cannot lock or cancel', () => {
+    const creator = makeUser('Creator8_' + Date.now(), 'Lars Löven', '0701111118');
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    const game = db.createLovenGame({
+      creatorId: creator.id,
+      opponentTeam: 'Tingsryds AIF',
+      isHome: 1,
+      matchDate: futureDate,
+      stakeAmount: 0
+    });
+
+    db.settleLovenGame(game.id, {
+      resultLovenGoals: 2,
+      resultOpponentGoals: 1,
+      resultLastScorer: 'Axel Ottosson',
+      resultShotsOnGoal: 28
+    }, creator.id);
+
+    // Locking settled game must throw
+    assert.throws(() => {
+      db.lockLovenGame(game.id, creator.id);
+    }, /Endast öppna matcher kan låsas/);
+
+    // Cancelling settled game must throw
+    assert.throws(() => {
+      db.cancelLovenGame(game.id, creator.id);
+    }, /Endast öppna eller låsta matcher kan avbrytas/);
+  });
+
+  await t.test('9. Future date and input validation', () => {
+    const creator = makeUser('Creator9_' + Date.now(), 'Lars Löven', '0701111119');
+    const pastDate = new Date(Date.now() - 3600000).toISOString();
+
+    // Rejects past date
+    assert.throws(() => {
+      db.createLovenGame({
+        creatorId: creator.id,
+        opponentTeam: 'Vimmerby HC',
+        isHome: 1,
+        matchDate: pastDate,
+        stakeAmount: 20
+      });
+    }, /giltigt datum i framtiden/);
+
+    // Rejects invalid date string
+    assert.throws(() => {
+      db.createLovenGame({
+        creatorId: creator.id,
+        opponentTeam: 'Vimmerby HC',
+        isHome: 1,
+        matchDate: 'not-a-date',
+        stakeAmount: 20
+      });
+    }, /giltigt datum i framtiden/);
+
+    const validDate = new Date(Date.now() + 3600000).toISOString();
+    const validGame = db.createLovenGame({
+      creatorId: creator.id,
+      opponentTeam: 'Vimmerby HC',
+      isHome: 1,
+      matchDate: validDate,
+      stakeAmount: 20
+    });
+
+    // Rejects missing goals
+    assert.throws(() => {
+      db.submitLovenEntry(validGame.id, creator.id, {
+        predLastScorer: 'Lucas Wallmark',
+        predShotsOnGoal: 30
+      });
+    }, /Ange Lövens mål/);
+
+    // Rejects missing shots
+    assert.throws(() => {
+      db.submitLovenEntry(validGame.id, creator.id, {
+        predLovenGoals: 3,
+        predOpponentGoals: 2,
+        predLastScorer: 'Lucas Wallmark'
+      });
+    }, /Ange skott på mål/);
+
+    // Rejects missing scorer
+    assert.throws(() => {
+      db.submitLovenEntry(validGame.id, creator.id, {
+        predLovenGoals: 3,
+        predOpponentGoals: 2,
+        predLastScorer: '',
+        predShotsOnGoal: 30
+      });
+    }, /Välj eller ange sista målskytt/);
+  });
+
+  await t.test('10. Robust scorer matching (surnames, accents & shutout tokens)', () => {
+    assert.equal(db.isScorerMatch('Wallmark', '#32 Lucas Wallmark'), true, 'Surname alone matches full name with number');
+    assert.equal(db.isScorerMatch('#32 Lucas Wallmark', 'Wallmark'), true, 'Full name matches surname alone');
+    assert.equal(db.isScorerMatch('Topi Niemela', 'Topi Niemelä'), true, 'Matches despite accent difference (e vs ä)');
+    assert.equal(db.isScorerMatch('Reunanen', '#11 Tarmo Reunanen'), true, 'Reunanen matches #11 Tarmo Reunanen');
+    assert.equal(db.isScorerMatch('0 mål', 'Inga mål (Löven nollade)'), true, 'Shutout token 0 mål matches Inga mål');
+    assert.equal(db.isScorerMatch('Nollade', 'inga mål'), true, 'Nollade matches inga mål');
+    assert.equal(db.isScorerMatch('Lucas Wallmark', 'Marcus Nilsson'), false, 'Different players do not match');
+  });
+
+  await t.test('11. THE TAB multi-winner zero-sum settlement and receipt clearing', () => {
+    const creator = makeUser('Creator11_' + Date.now(), 'Lars Löven', '0701111120');
+    const p1 = makeUser('Winner1_' + Date.now(), 'Anna Vinnare', '0701111121');
+    const p2 = makeUser('Winner2_' + Date.now(), 'Bengt Vinnare', '0701111122');
+    const p3 = makeUser('Winner3_' + Date.now(), 'Clara Vinnare', '0701111123');
+    const loser = makeUser('Loser1_' + Date.now(), 'David Förlorare', '0701111124');
+
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    const game = db.createLovenGame({
+      creatorId: creator.id,
+      opponentTeam: 'Kalmar HC',
+      isHome: 1,
+      matchDate: futureDate,
+      stakeAmount: 30
+    });
+
+    // 3 winners with 4p each (exact score 4-1)
+    db.submitLovenEntry(game.id, p1.id, { predLovenGoals: 4, predOpponentGoals: 1, predLastScorer: 'Wallmark', predShotsOnGoal: 20 });
+    db.submitLovenEntry(game.id, p2.id, { predLovenGoals: 4, predOpponentGoals: 1, predLastScorer: 'Nilsson', predShotsOnGoal: 20 });
+    db.submitLovenEntry(game.id, p3.id, { predLovenGoals: 4, predOpponentGoals: 1, predLastScorer: 'Ottosson', predShotsOnGoal: 20 });
+
+    // 1 loser with 0p
+    db.submitLovenEntry(game.id, loser.id, { predLovenGoals: 1, predOpponentGoals: 5, predLastScorer: 'Alba', predShotsOnGoal: 45 });
+
+    // Result: 4 - 1, shots 30 (everyone equally diff 10, but 3 winners got 4p from result)
+    const settled = db.settleLovenGame(game.id, {
+      resultLovenGoals: 4,
+      resultOpponentGoals: 1,
+      resultLastScorer: 'Marcus Björk',
+      resultShotsOnGoal: 30
+    }, creator.id);
+
+    assert.equal(settled.winner_user_ids.length, 3);
+    assert.ok(settled.winner_user_ids.includes(p1.id));
+    assert.ok(settled.winner_user_ids.includes(p2.id));
+    assert.ok(settled.winner_user_ids.includes(p3.id));
+
+    // Check summaries in THE TAB
+    const sP1 = db.getDuelSettlementSummary(p1.id);
+    const sP2 = db.getDuelSettlementSummary(p2.id);
+    const sP3 = db.getDuelSettlementSummary(p3.id);
+    const sLoser = db.getDuelSettlementSummary(loser.id);
+
+    // Stake 30 kr / 3 winners = 10 kr each
+    assert.equal(sP1.totalNet, 10, 'Winner 1 is owed 10 kr');
+    assert.equal(sP2.totalNet, 10, 'Winner 2 is owed 10 kr');
+    assert.equal(sP3.totalNet, 10, 'Winner 3 is owed 10 kr');
+    assert.equal(sLoser.totalNet, -30, 'Loser owes 30 kr total');
+
+    const sumNets = sP1.totalNet + sP2.totalNet + sP3.totalNet + sLoser.totalNet;
+    assert.equal(sumNets, 0, 'Sum of all nets in THE TAB is exactly 0 kr');
+
+    // Settle debt between Winner 1 and Loser (Swish payment verified)
+    db.settleDuelsBetweenUsers(p1.id, loser.id);
+    const sP1After = db.getDuelSettlementSummary(p1.id);
+    const sLoserAfter = db.getDuelSettlementSummary(loser.id);
+
+    assert.equal(sP1After.totalNet, 0, 'Winner 1 is fully settled');
+    assert.equal(sLoserAfter.totalNet, -20, 'Loser now owes remaining 20 kr (10 kr to p2, 10 kr to p3)');
+  });
 });
 
