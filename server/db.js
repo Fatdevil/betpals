@@ -1021,7 +1021,7 @@ const stmts = {
   `),
   getLovenGameById: db.prepare(`
     SELECT g.*,
-           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url, c.swish_number as creator_swish
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url
     FROM loven_games g
     LEFT JOIN users c ON g.creator_id = c.id
     WHERE g.id = ?
@@ -1029,7 +1029,11 @@ const stmts = {
   getLovenGamesList: db.prepare(`
     SELECT DISTINCT g.*,
            c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url,
-           (SELECT COUNT(*) FROM loven_game_entries e WHERE e.game_id = g.id) as participant_count
+           (SELECT COUNT(*) FROM loven_game_entries e WHERE e.game_id = g.id) as participant_count,
+           (SELECT GROUP_CONCAT(u2.real_name || ' (' || e2.points || 'p)', ' & ')
+            FROM loven_game_entries e2
+            JOIN users u2 ON e2.user_id = u2.id
+            WHERE e2.game_id = g.id AND e2.is_winner = 1) as winner_summary
     FROM loven_games g
     LEFT JOIN users c ON g.creator_id = c.id
     ORDER BY g.created_at DESC
@@ -1041,7 +1045,7 @@ const stmts = {
   `),
   getLovenEntriesByGame: db.prepare(`
     SELECT e.*,
-           u.nickname, u.real_name, u.swish_number, u.avatar_emoji, u.avatar_url
+           u.nickname, u.real_name, u.avatar_emoji, u.avatar_url
     FROM loven_game_entries e
     JOIN users u ON e.user_id = u.id
     WHERE e.game_id = ?
@@ -3511,6 +3515,21 @@ export function getLatestBackup(customDir = null) {
 
 // ── Löven Game (Björklöven Matchtips 4-3-2p) ────────────
 
+/**
+ * Validates that a value is a finite integer within [min, max].
+ * Throws an informative Error instead of silently clamping.
+ */
+function validateResultInt(value, label, min = 0, max = 30) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new Error(`${label}: måste vara ett heltal (fick: ${value})`);
+  }
+  if (n < min || n > max) {
+    throw new Error(`${label}: måste vara mellan ${min} och ${max} (fick: ${n})`);
+  }
+  return n;
+}
+
 export function normalizePlayerName(name) {
   if (!name) return '';
   return name
@@ -3686,10 +3705,11 @@ export function settleLovenGame(gameId, {
     throw new Error('Endast öppna eller låsta matcher kan rättas');
   }
 
-  const resLoven = Math.max(0, Math.floor(Number(resultLovenGoals) || 0));
-  const resOpp = Math.max(0, Math.floor(Number(resultOpponentGoals) || 0));
-  const resShots = Math.max(0, Math.floor(Number(resultShotsOnGoal) || 0));
+  const resLoven = validateResultInt(resultLovenGoals, 'Lövens mål', 0, 30);
+  const resOpp   = validateResultInt(resultOpponentGoals, 'Motståndarens mål', 0, 30);
+  const resShots = validateResultInt(resultShotsOnGoal, 'Skott på mål', 0, 150);
   const resScorer = (resultLastScorer || '').trim();
+  if (!resScorer) throw new Error('Sista målskytt saknas');
 
   const entries = stmts.getLovenEntriesByGame.all(gameId);
   if (entries.length === 0) {

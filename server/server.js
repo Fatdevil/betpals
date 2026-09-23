@@ -5004,6 +5004,29 @@ app.get('/api/tab/expenses/:id', (req, res) => {
 
 // ── Löven Game (Björklöven Matchtips 4-3-2p) Routes ──
 
+/**
+ * Masks other players' predictions before match start.
+ * Must be called on every response that returns a Löven game object.
+ */
+function sanitizeLovenGame(game, requestingUser = null) {
+  if (!game) return game;
+  const matchTime = new Date(game.match_date).getTime();
+  const isLockedOrStarted = game.status === 'locked' || game.status === 'settled'
+                            || game.status === 'cancelled' || Date.now() >= matchTime;
+  const sanitizedEntries = (game.entries || []).map(e => {
+    const isSelf = requestingUser && e.user_id === requestingUser.id;
+    if (isLockedOrStarted || isSelf) return e;
+    return {
+      ...e,
+      pred_loven_goals: '🔒',
+      pred_opponent_goals: '🔒',
+      pred_last_scorer: '🔒 Dold fram till matchstart',
+      pred_shots_on_goal: '🔒'
+    };
+  });
+  return { ...game, isLockedOrStarted, entries: sanitizedEntries };
+}
+
 app.post('/api/loven-games', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
@@ -5068,13 +5091,15 @@ app.post('/api/loven-games', (req, res) => {
     }
 
     const fullGame = db.getLovenGame(game.id);
-    res.json({ ok: true, game: fullGame });
+    res.json({ ok: true, game: sanitizeLovenGame(fullGame, user) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 app.get('/api/loven-games', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   try {
     const games = db.getLovenGames();
     res.json(games);
@@ -5085,33 +5110,11 @@ app.get('/api/loven-games', (req, res) => {
 
 app.get('/api/loven-games/:id', (req, res) => {
   const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   try {
     const game = db.getLovenGame(req.params.id);
     if (!game) return res.status(404).json({ error: 'Matchen hittades inte' });
-
-    const matchTime = new Date(game.match_date).getTime();
-    const isLockedOrStarted = game.status === 'locked' || game.status === 'settled' || Date.now() >= matchTime;
-
-    // Mask predictions of other players if match is not locked/started yet
-    const sanitizedEntries = (game.entries || []).map(e => {
-      const isSelf = user && e.user_id === user.id;
-      if (isLockedOrStarted || isSelf) {
-        return e;
-      }
-      return {
-        ...e,
-        pred_loven_goals: '🔒',
-        pred_opponent_goals: '🔒',
-        pred_last_scorer: '🔒 Dold fram till matchstart',
-        pred_shots_on_goal: '🔒'
-      };
-    });
-
-    res.json({
-      ...game,
-      isLockedOrStarted,
-      entries: sanitizedEntries
-    });
+    res.json(sanitizeLovenGame(game, user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -5145,7 +5148,7 @@ app.post('/api/loven-games/:id/join', (req, res) => {
       nickname: user.nickname
     });
 
-    res.json({ ok: true, game: updatedGame });
+    res.json({ ok: true, game: sanitizeLovenGame(updatedGame, user) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -5161,7 +5164,7 @@ app.post('/api/loven-games/:id/lock', (req, res) => {
       type: 'loven_game_locked',
       gameId: req.params.id
     });
-    res.json({ ok: true, game: updatedGame });
+    res.json({ ok: true, game: sanitizeLovenGame(updatedGame, user) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -5178,8 +5181,21 @@ app.post('/api/loven-games/:id/settle', (req, res) => {
     resultShotsOnGoal
   } = req.body;
 
-  if (resultLovenGoals === undefined || resultOpponentGoals === undefined || !resultLastScorer || resultShotsOnGoal === undefined) {
-    return res.status(400).json({ error: 'Vänligen ange resultat, sista målskytt och skott på mål' });
+  // Strict type validation before hitting the database
+  const isValidResultInt = (v, max) =>
+    v !== undefined && v !== null && Number.isFinite(Number(v)) && Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= max;
+
+  if (!isValidResultInt(resultLovenGoals, 30)) {
+    return res.status(400).json({ error: 'Lövens mål måste vara ett heltal mellan 0 och 30' });
+  }
+  if (!isValidResultInt(resultOpponentGoals, 30)) {
+    return res.status(400).json({ error: 'Motståndarens mål måste vara ett heltal mellan 0 och 30' });
+  }
+  if (!isValidResultInt(resultShotsOnGoal, 150)) {
+    return res.status(400).json({ error: 'Skott på mål måste vara ett heltal mellan 0 och 150' });
+  }
+  if (!resultLastScorer || !String(resultLastScorer).trim()) {
+    return res.status(400).json({ error: 'Sista målskytt saknas' });
   }
 
   try {

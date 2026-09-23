@@ -208,9 +208,7 @@
   margin: 0 auto 12px auto;
   max-width: 420px;
   line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 
 /* Individual Game Card in Ticker */

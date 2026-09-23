@@ -367,7 +367,7 @@ export const sv = {
     slots: 'Bandit 777',
     slotsTag: 'Jackpot',
     slotsTitle: 'Bandit 777',
-    slotsDesc: 'Snurra hjulen och jaga jackpotten',
+    slotsDesc: 'P.g.a. lotterilagen (som MaltaBetting givetvis följer slaviskt) spelar vi bara om poäng här 🎰😇',
     slotsChips: 'Dina marker:',
     slotsRefill: '+100 Gratis',
     slotsPrompt: 'Dra i spaken för att spela!',
@@ -569,7 +569,7 @@ export const sv = {
     gimmeWinnerWins: 'vann bettet och tar hem',
     gimmePaySwish: '📱 Swisha vinnaren nu',
     lovenGame: 'Löven Game',
-    lovenGameTag: 'Match tips / Bet the game',
+    lovenGameTag: 'Betta Matchen',
     lovenGameTitle: 'Löven Game – Björklöven Matchtips',
     lovenGameDesc: 'Gissa slutresultat (4p), sista målskytt (3p) & skott på mål (2p närmast) i gängpott!'
   }

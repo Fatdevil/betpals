@@ -366,7 +366,7 @@ export const en = {
     slots: 'Slots 777',
     slotsTag: 'Jackpot',
     slotsTitle: 'Slots 777',
-    slotsDesc: 'Spin the reels and hit the jackpot',
+    slotsDesc: 'Due to gambling laws (which MaltaBetting strictly respects), we only play for points here 🎰😇',
     slotsChips: 'Your chips:',
     slotsRefill: '+100 Free',
     slotsPrompt: 'Pull the lever to play!',
@@ -568,7 +568,7 @@ export const en = {
     gimmeWinnerWins: 'won the bet and takes home',
     gimmePaySwish: '📱 Pay winner via Swish',
     lovenGame: 'Löven Game',
-    lovenGameTag: 'Match tips / Bet the game',
+    lovenGameTag: 'Bet the game',
     lovenGameTitle: 'Löven Game – Björklöven Match Tips',
     lovenGameDesc: 'Predict final score (4p), last goalscorer (3p) & shots on goal (2p closest) in a shared pot!'
   }

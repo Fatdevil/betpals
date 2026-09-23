@@ -8147,7 +8147,7 @@ export async function openLovenGameModal() {
           <img src="/loven-game.png" alt="Björklöven" class="loven-emblem-img" />
           <div class="loven-title-group" style="flex: 1 1 auto; min-width: 0;">
             <h3>LÖVEN GAME <span>🏒</span></h3>
-            <p>Match tips / Bet the game</p>
+            <p>${t('arcade.lovenGameTag')}</p>
           </div>
         </div>
 
@@ -8515,22 +8515,31 @@ export async function openLovenGameModal() {
       try { winnerIds = JSON.parse(winnerIds); } catch { winnerIds = []; }
     }
     const entries = game.entries || [];
-    const winners = entries.filter(e => winnerIds.includes(e.user_id));
     const totalPot = entries.length * (Number(game.stake_amount) || 0);
 
-    if (winners.length === 0) {
-      return 'Inga vinnare korade.';
+    // Detailed view: entries are available, look up winners by user_id
+    if (entries.length > 0) {
+      const winners = entries.filter(e => winnerIds.includes(e.user_id));
+      if (winners.length === 0) return 'Inga vinnare korade.';
+      if (winners.length === 1) {
+        const w = winners[0];
+        return `🎉 ${escapeHtml(w.real_name || w.nickname)} vann hela potten på ${totalPot} kr! (${w.points} poäng)`;
+      }
+      const winnerNames = winners.map(w => escapeHtml(w.real_name || w.nickname)).join(' & ');
+      const share = Math.floor(totalPot / winners.length);
+      return `🤝 Delad vinst! ${winnerNames} delar potten lika: ca ${share} kr var! (${winners[0].points} poäng)`;
     }
 
-    if (winners.length === 1) {
-      const w = winners[0];
-      return `🎉 ${escapeHtml(w.real_name || w.nickname)} vann hela potten på ${totalPot} kr! (${w.points} poäng)`;
+    // History / list view: no entries loaded — use server-produced summary
+    if (game.winner_summary) {
+      return `🎉 ${escapeHtml(game.winner_summary)}`;
     }
 
-    // Multiple winners tie
-    const winnerNames = winners.map(w => escapeHtml(w.real_name || w.nickname)).join(' & ');
-    const share = Math.floor(totalPot / winners.length);
-    return `🤝 Delad vinst! ${winnerNames} delar potten lika: ca ${share} kr var! (${winners[0].points} poäng)`;
+    // No winners (e.g. no participants, or zero-stake cancelled game)
+    if (winnerIds.length === 0) return 'Inga vinnare korade.';
+
+    // Fallback: winner IDs exist but no summary yet (shouldn't happen in practice)
+    return `🎉 ${winnerIds.length} vinnare`;
   }
 
   function renderCreateTab() {
