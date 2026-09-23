@@ -364,3 +364,12 @@ export const getTabExpense = (id) => request('/tab/expenses/' + id);
 // ── App QR Code ───────────────────────────────────────
 export const getAppQr = (url) => request('/app/qr' + (url ? `?url=${encodeURIComponent(url)}` : ''));
 
+// ── Löven Game (Björklöven Matchtips 4-3-2p) ────────────
+export const createLovenGame = (data) => request('/loven-games', { method: 'POST', body: data });
+export const getLovenGames = () => request('/loven-games');
+export const getLovenGame = (id) => request('/loven-games/' + id);
+export const joinLovenGame = (id, data) => request('/loven-games/' + id + '/join', { method: 'POST', body: data });
+export const lockLovenGame = (id) => request('/loven-games/' + id + '/lock', { method: 'POST', body: {} });
+export const settleLovenGame = (id, data) => request('/loven-games/' + id + '/settle', { method: 'POST', body: data });
+export const cancelLovenGame = (id) => request('/loven-games/' + id + '/cancel', { method: 'POST', body: {} });
+

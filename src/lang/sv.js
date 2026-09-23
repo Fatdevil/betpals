@@ -567,6 +567,10 @@ export const sv = {
     gimmeActiveBetTitle: '🎯 AKTIVT GIMME-BET',
     gimmeBetBanner: 'Gå fram till green och döm med AR-lasern!',
     gimmeWinnerWins: 'vann bettet och tar hem',
-    gimmePaySwish: '📱 Swisha vinnaren nu'
+    gimmePaySwish: '📱 Swisha vinnaren nu',
+    lovenGame: 'Löven Game',
+    lovenGameTag: 'Matchtips · 4-3-2p',
+    lovenGameTitle: 'Löven Game – Björklöven Matchtips',
+    lovenGameDesc: 'Gissa slutresultat (4p), sista målskytt (3p) & skott på mål (2p närmast) i gängpott!'
   }
 };

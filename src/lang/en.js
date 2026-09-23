@@ -566,6 +566,10 @@ export const en = {
     gimmeActiveBetTitle: '🎯 ACTIVE GIMME-BET',
     gimmeBetBanner: 'Walk to the green and judge with the AR laser!',
     gimmeWinnerWins: 'won the bet and takes home',
-    gimmePaySwish: '📱 Pay winner via Swish'
+    gimmePaySwish: '📱 Pay winner via Swish',
+    lovenGame: 'Löven Game',
+    lovenGameTag: 'Match Tips · 4-3-2p',
+    lovenGameTitle: 'Löven Game – Björklöven Match Tips',
+    lovenGameDesc: 'Predict final score (4p), last goalscorer (3p) & shots on goal (2p closest) in a shared pot!'
   }
 };

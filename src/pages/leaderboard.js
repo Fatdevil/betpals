@@ -783,6 +783,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
                       space_invaders: '👾',
                       'space-invaders': '👾',
                       slots: '🎰',
+                      loven_game: '🟢',
                       shl_fantasy: '🏒',
                       // Bakåtkompatibilitet för äldre historik
                       dice: '🎲',
@@ -808,6 +809,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
                       space_invaders: 'Space Invaders',
                       'space-invaders': 'Space Invaders',
                       slots: isEn ? 'Slots' : 'Enarmad bandit',
+                      loven_game: 'Löven Game',
                       shl_fantasy: 'SHL Fantasy'
                     };
                     const icon = gameIcons[d.gameType] || '🎲';
