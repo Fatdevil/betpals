@@ -257,29 +257,44 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         </div>
       ` : `
         <div class="bet-list">
-          ${t.rounds.map((r, i) => `
+          ${t.rounds.map((r, i) => {
+            const dl = r.closesAt ? formatDeadline(r.closesAt) : null;
+            const isLockedOrExpired = r.status === 'locked' || (dl && dl.isExpired);
+            const isOpenAndActive = r.status === 'open' && (!dl || !dl.isExpired);
+            return `
             <div class="bet-item card-clickable round-link" data-code="${escapeHtml(r.shareCode)}" id="round-${r.id}">
-              <div>
-                <div class="bet-item-name">${escapeHtml(r.name)}</div>
+              <div style="flex: 1; min-width: 0;">
+                <div class="bet-item-name" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span>${escapeHtml(r.name)}</span>
+                  ${dl && !dl.isExpired ? `<span style="font-size: 0.68rem; color: var(--gold); font-weight: 700; white-space: nowrap;">⏱️ ${dl.shortText}</span>` : ''}
+                </div>
                 <div class="bet-item-player">${r.players.map(p => escapeHtml(p.name)).join(', ')} · ${r.betCount} bets</div>
               </div>
               <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
                 <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
-                <div class="flex gap-xs" style="align-items: center;">
+                <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap; justify-content: flex-end;">
                   ${r.status === 'finished' 
                     ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
                     : r.status === 'cancelled'
                       ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
-                      : r.status === 'locked'
-                        ? '<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>'
-                        : '<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 Öppen</span>'
+                      : isLockedOrExpired
+                        ? `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 ${dl && dl.isExpired ? 'Tid ute' : 'Låst'}</span>`
+                        : `<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 ${dl ? dl.shortText : 'Öppen'}</span>`
                   }
+                  ${isCreator && isOpenAndActive ? `
+                    <button type="button" class="btn btn-sm btn-secondary boost-game-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Boosta spelet med pushnotis">🚀</button>
+                    <button type="button" class="btn btn-sm btn-secondary lock-game-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Stäng bettning nu">🔒</button>
+                  ` : ''}
+                  ${isCreator && isLockedOrExpired && r.status !== 'finished' && r.status !== 'cancelled' ? `
+                    <button type="button" class="btn btn-sm btn-secondary reopen-game-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Öppna bettning igen">🔓</button>
+                  ` : ''}
                   ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
                 </div>
               </div>
             </div>
             ${(sideBetsByRound[r.id] || []).map(sb => renderSideBetCard(sb, true)).join('')}
-          `).join('')}
+            `;
+          }).join('')}
           ${unlinkedSideBets.map(sb => renderSideBetCard(sb, false)).join('')}
         </div>
       `}
@@ -974,6 +989,58 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         showToast('Spelet togs bort', 'success');
         const updated = await getTournament(t.shareCode);
         renderTournamentContent(content, updated, photos, tournamentFlashBets);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Lock game now
+  content.querySelectorAll('.lock-game-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const evName = btn.dataset.name || 'spelet';
+      if (!confirm(`Vill du stänga bettningen för "${evName}" nu? Inga fler bets kommer tas emot.`)) return;
+      try {
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await lockEvent(btn.dataset.id, pin);
+        showToast('Bettning stängd! 🔒', 'info');
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated, photos, tournamentFlashBets);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Reopen game
+  content.querySelectorAll('.reopen-game-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const evName = btn.dataset.name || 'spelet';
+      if (!confirm(`Vill du öppna bettningen för "${evName}" igen?`)) return;
+      try {
+        const pin = sessionStorage.getItem('betpals_pin') || '';
+        await reopenEvent(btn.dataset.id, pin);
+        showToast('Bettningen är öppen igen! 🔓', 'success');
+        const updated = await getTournament(t.shareCode);
+        renderTournamentContent(content, updated, photos, tournamentFlashBets);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Boost game with Web Push
+  content.querySelectorAll('.boost-game-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const evName = btn.dataset.name || 'spelet';
+      if (!confirm(`🚀 Boosta "${evName}"?\n\nDetta skickar en pushnotis till alla deltagare i eventet för att påminna dem om att lägga sina bets!`)) return;
+      try {
+        await boostEvent(btn.dataset.id);
+        launchConfetti();
+        showToast('Spelet boostat med pushnotis! 🚀', 'success');
       } catch (err) {
         showToast(err.message, 'error');
       }
