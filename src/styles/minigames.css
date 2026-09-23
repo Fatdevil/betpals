@@ -1677,5 +1677,168 @@
   font-weight: 700;
 }
 
+/* ── LÖVEN GAME (Björklöven Matchtips 4-3-2p) ──────────── */
+.loven-game-wrapper {
+  background: linear-gradient(180deg, rgba(16, 52, 33, 0.5) 0%, rgba(8, 24, 15, 0.85) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 215, 0, 0.15);
+}
+
+.loven-header-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(15, 59, 37, 0.7) 0%, rgba(7, 26, 16, 0.8) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 12px;
+  margin-bottom: 14px;
+}
+
+.loven-emblem-img {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #d4af37;
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.4);
+  flex-shrink: 0;
+}
+
+.loven-title-group h3 {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loven-title-group p {
+  margin: 2px 0 0 0;
+  font-size: 0.75rem;
+  color: #d4af37;
+  font-weight: 600;
+}
+
+.loven-tab-nav {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+  padding-bottom: 8px;
+}
+
+.loven-tab-btn {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.loven-tab-btn.active {
+  background: rgba(45, 122, 70, 0.35);
+  border-color: #d4af37;
+  color: #ffd700;
+  box-shadow: 0 0 8px rgba(212, 175, 55, 0.25);
+}
+
+.loven-q-box {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s ease;
+}
+
+.loven-q-box:focus-within {
+  border-color: rgba(212, 175, 55, 0.5);
+}
+
+.loven-q-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.loven-q-title {
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loven-pts-badge {
+  background: linear-gradient(135deg, #d4af37 0%, #aa820a 100%);
+  color: #000;
+  font-weight: 900;
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.03em;
+}
+
+.loven-pot-banner {
+  background: linear-gradient(135deg, rgba(45, 122, 70, 0.35) 0%, rgba(15, 59, 37, 0.4) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.loven-rival-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.loven-rival-chip:hover, .loven-rival-chip.active {
+  background: rgba(45, 122, 70, 0.3);
+  border-color: #d4af37;
+  color: #ffd700;
+}
+
+.loven-entry-card {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.loven-entry-card.is-winner {
+  border-color: #ffd700;
+  background: rgba(212, 175, 55, 0.1);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.2);
+}
+
+
 
 

@@ -36,8 +36,16 @@ import {
   getMyMafiaRole,
   submitMafiaNightAction,
   advanceMafiaPhase,
-  voteMafiaLynch
+  voteMafiaLynch,
+  createLovenGame,
+  getLovenGames,
+  getLovenGame,
+  joinLovenGame,
+  settleLovenGame,
+  cancelLovenGame,
+  lockLovenGame
 } from '../api.js';
+import { BJORKLOVEN_ROSTER, NO_GOALS_OPTION, COMMON_OPPONENTS } from '../data/bjorklovenRoster.js';
 
 let currentActiveEvent = null;
 let activeEventFetchedAt = 0;
@@ -253,6 +261,13 @@ export function renderMinigamesRoller() {
       tag: t('arcade.slotsTag'),
       title: t('arcade.slotsTitle'),
       iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'loven-game',
+      name: t('arcade.lovenGame'),
+      tag: t('arcade.lovenGameTag'),
+      title: t('arcade.lovenGameTitle'),
+      iconHtml: `<img src="/loven-game.jpg" alt="${t('arcade.lovenGame')}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.6); border: 2px solid #d4af37;" />`
     }
   ];
 
@@ -380,6 +395,13 @@ export function openAllArcadeGamesModal() {
       tag: t('arcade.gimmeTag'),
       desc: t('arcade.gimmeDesc'),
       iconHtml: `<img src="/golf-gimme.png" alt="${t('arcade.gimme')}" style="width: 48px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
+    },
+    {
+      id: 'loven-game',
+      name: t('arcade.lovenGame'),
+      tag: t('arcade.lovenGameTag'),
+      desc: t('arcade.lovenGameDesc'),
+      iconHtml: `<img src="/loven-game.jpg" alt="${t('arcade.lovenGame')}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 3px 8px rgba(0,0,0,0.6); border: 2px solid #d4af37;" />`
     }
   ];
 
@@ -434,6 +456,7 @@ export function launchGameById(game) {
   else if (game === 'space-invaders') openSpaceInvadersModal();
   else if (game === 'mafia') openMafiaModal();
   else if (game === 'gimme') openGimmeModal();
+  else if (game === 'loven-game') openLovenGameModal();
 }
 
 // ── 3. Event Listeners for Roller (Native Swipe + Drag + Click for both rows) ──
@@ -8000,3 +8023,969 @@ export async function openGimmeModal() {
   root.querySelector('#modal-close-btn')?.addEventListener('click', cleanup);
   root.addEventListener('modal-closed', cleanup);
 }
+
+// ────────────────────────────────────────────────────────
+// 🏒 GAME 11: LÖVEN GAME (Björklöven Matchtips 4-3-2p)
+// ────────────────────────────────────────────────────────
+
+export async function openLovenGameModal() {
+  const isEn = getLang() === 'en';
+  const user = getStoredUser();
+
+  if (!user) {
+    showToast(isEn ? 'Please log in to play Löven Game' : 'Logga in för att spela Löven Game', 'warning');
+    return;
+  }
+
+  let activeTab = 'match'; // 'match' | 'create' | 'history'
+  let games = [];
+  let selectedGameId = null;
+  let friends = [];
+  let isSubmitting = false;
+
+  const { close, root } = showModal(
+    `<img src="/loven-game.jpg" alt="" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover; vertical-align: -5px; margin-right: 6px; border: 1.5px solid #d4af37;" /> LÖVEN GAME`,
+    `<div id="loven-modal-container" style="min-height: 280px; padding: 4px 0;">
+      <div class="text-center text-muted" style="padding: 30px 0;">
+        <span class="spinner" style="font-size: 1.8rem; margin-bottom: 8px;">⏳</span>
+        <div>${isEn ? 'Loading Löven Game...' : 'Laddar Löven Game...'}</div>
+      </div>
+    </div>`,
+    { isGame: true, preventBackdropClose: true, confirmClose: false }
+  );
+
+  async function loadData() {
+    try {
+      const [fetchedGames, fetchedFriends] = await Promise.all([
+        getLovenGames().catch(() => []),
+        getFriends().catch(() => [])
+      ]);
+      games = Array.isArray(fetchedGames) ? fetchedGames : [];
+      friends = Array.isArray(fetchedFriends) ? fetchedFriends : [];
+
+      // Pick selected game: first active open/locked match, else latest
+      if (!selectedGameId && games.length > 0) {
+        const activeMatch = games.find(g => g.status === 'open' || g.status === 'locked');
+        selectedGameId = activeMatch ? activeMatch.id : games[0].id;
+      }
+
+      render();
+    } catch (err) {
+      console.error('Error loading Löven Game:', err);
+      const container = root.querySelector('#loven-modal-container');
+      if (container) {
+        container.innerHTML = `
+          <div class="text-center" style="padding: 20px;">
+            <div style="color: #ef4444; font-weight: 700; margin-bottom: 8px;">Kunde inte ladda Löven Game</div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-retry-loven">Försök igen</button>
+          </div>
+        `;
+        container.querySelector('#btn-retry-loven')?.addEventListener('click', loadData);
+      }
+    }
+  }
+
+  function getRosterSelectOptions(selectedVal = '') {
+    const normSelected = (selectedVal || '').trim().toLowerCase();
+    let isCustomSelected = false;
+
+    const goalies = BJORKLOVEN_ROSTER.filter(p => p.position === 'G');
+    const defenders = BJORKLOVEN_ROSTER.filter(p => p.position === 'D');
+    const forwards = BJORKLOVEN_ROSTER.filter(p => p.position === 'F');
+
+    const renderGroup = (label, list) => `
+      <optgroup label="${label}">
+        ${list.map(p => {
+          const val = `#${p.number} ${p.name}`;
+          const isMatch = normSelected === val.toLowerCase() || normSelected === p.name.toLowerCase();
+          return `<option value="${val}" ${isMatch ? 'selected' : ''}>#${p.number} ${p.name}</option>`;
+        }).join('')}
+      </optgroup>
+    `;
+
+    const noGoalsMatch = normSelected === NO_GOALS_OPTION.toLowerCase() || normSelected.includes('nollade');
+    const knownValues = BJORKLOVEN_ROSTER.map(p => p.name.toLowerCase()).concat([NO_GOALS_OPTION.toLowerCase()]);
+    if (selectedVal && !noGoalsMatch && !knownValues.some(k => normSelected.includes(k))) {
+      isCustomSelected = true;
+    }
+
+    return {
+      isCustomSelected,
+      html: `
+        <option value="">-- Välj målskytt --</option>
+        ${renderGroup('Målvakter', goalies)}
+        ${renderGroup('Backar', defenders)}
+        ${renderGroup('Forwards', forwards)}
+        <optgroup label="Special">
+          <option value="${NO_GOALS_OPTION}" ${noGoalsMatch ? 'selected' : ''}>🚫 ${NO_GOALS_OPTION}</option>
+          <option value="__custom__" ${isCustomSelected ? 'selected' : ''}>✏️ Egen spelare / Junior...</option>
+        </optgroup>
+      `
+    };
+  }
+
+  async function render() {
+    const container = root.querySelector('#loven-modal-container');
+    if (!container) return;
+
+    let currentGame = null;
+    if (selectedGameId) {
+      try {
+        currentGame = await getLovenGame(selectedGameId);
+      } catch (e) {
+        console.warn('Could not fetch single game:', e);
+      }
+    }
+
+    const openGames = games.filter(g => g.status === 'open' || g.status === 'locked');
+    const settledGames = games.filter(g => g.status === 'settled');
+
+    container.innerHTML = `
+      <div class="loven-game-wrapper">
+        <!-- Top Björklöven Banner -->
+        <div class="loven-header-banner">
+          <img src="/loven-game.jpg" alt="Björklöven" class="loven-emblem-img" />
+          <div class="loven-title-group" style="flex: 1 1 auto; min-width: 0;">
+            <h3>LÖVEN GAME <span>🏒</span></h3>
+            <p>Björklöven Matchtips · 4-3-2p · Gängpott & Swish</p>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="loven-tab-nav">
+          <button type="button" class="loven-tab-btn ${activeTab === 'match' ? 'active' : ''}" data-tab="match">
+            🏒 Match & Tips ${openGames.length > 0 ? `(${openGames.length})` : ''}
+          </button>
+          <button type="button" class="loven-tab-btn ${activeTab === 'create' ? 'active' : ''}" data-tab="create">
+            ➕ Skapa Match
+          </button>
+          <button type="button" class="loven-tab-btn ${activeTab === 'history' ? 'active' : ''}" data-tab="history">
+            📋 Historik (${settledGames.length})
+          </button>
+        </div>
+
+        <!-- Content Area -->
+        <div id="loven-tab-content">
+          ${activeTab === 'match' ? renderMatchTab(currentGame, openGames) : ''}
+          ${activeTab === 'create' ? renderCreateTab() : ''}
+          ${activeTab === 'history' ? renderHistoryTab(settledGames) : ''}
+        </div>
+      </div>
+    `;
+
+    attachEventHandlers(currentGame);
+  }
+
+  function renderMatchTab(game, openGames) {
+    if (!game) {
+      return `
+        <div class="text-center" style="padding: 30px 10px;">
+          <div style="font-size: 2.4rem; margin-bottom: 8px;">🏒</div>
+          <div style="font-weight: 800; font-size: 1.05rem; color: #fff; margin-bottom: 6px;">
+            Ingen aktiv Löven-match just nu
+          </div>
+          <p class="text-muted" style="font-size: 0.82rem; max-width: 320px; margin: 0 auto 16px auto;">
+            Skapa nästa match mot MoDo, Djurgården, AIK eller valfritt lag och bjud in polarna till gängpotten!
+          </p>
+          <button type="button" class="btn btn-primary" id="btn-goto-create-match" style="background: linear-gradient(135deg, #2d7a46 0%, #155724 100%); border-color: #d4af37; font-weight: 800;">
+            ➕ Skapa nästa Löven-match
+          </button>
+        </div>
+      `;
+    }
+
+    const isCreator = user && (game.creator_id === user.id || !!user.is_admin);
+    const matchDateObj = new Date(game.match_date);
+    const dateFormatted = matchDateObj.toLocaleDateString('sv-SE', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const isLocked = game.status === 'locked' || game.status === 'settled' || Date.now() >= matchDateObj.getTime();
+    const isSettled = game.status === 'settled';
+
+    const entries = game.entries || [];
+    const myEntry = entries.find(e => e.user_id === user.id);
+    const totalPot = entries.length * (Number(game.stake_amount) || 0);
+
+    const rosterSelect = getRosterSelectOptions(myEntry?.pred_last_scorer || '');
+
+    return `
+      <!-- Multiple Matches Switcher if more than 1 -->
+      ${openGames.length > 1 ? `
+        <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 10px;">
+          ${openGames.map(g => `
+            <button type="button" class="btn btn-xs ${g.id === game.id ? 'btn-primary' : 'btn-secondary'} match-picker-btn" data-game-id="${g.id}" style="white-space: nowrap; font-size: 0.72rem;">
+              vs ${escapeHtml(g.opponent_team)} (${g.is_home ? 'H' : 'B'})
+            </button>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      <!-- Match Headline & Status -->
+      <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(212,175,55,0.25); border-radius: 10px; padding: 12px; margin-bottom: 12px;">
+        <div class="flex-between align-center mb-xs">
+          <span style="font-size: 0.75rem; color: #d4af37; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+            ${game.is_home ? '🟢 Visionite Arena (Hemma)' : '⚪ Borta'} · ${dateFormatted}
+          </span>
+          <span class="badge" style="background: ${isSettled ? 'rgba(74, 222, 128, 0.2)' : (isLocked ? 'rgba(239, 68, 68, 0.2)' : 'rgba(45, 122, 70, 0.35)')}; color: ${isSettled ? '#4ade80' : (isLocked ? '#ff6b6b' : '#ffd700')}; font-weight: 700; font-size: 0.72rem; border: 1px solid currentColor;">
+            ${isSettled ? '🏁 Rättad' : (isLocked ? '🔒 Spelstopp' : '🟢 Öppen')}
+          </span>
+        </div>
+
+        <div style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 900; color: #fff; text-align: center; margin: 6px 0;">
+          IF Björklöven <span style="color: #d4af37;">vs</span> ${escapeHtml(game.opponent_team)}
+        </div>
+
+        <!-- Pot Banner -->
+        <div class="loven-pot-banner" style="margin-top: 10px; margin-bottom: 0;">
+          <div>
+            <div style="font-size: 0.7rem; color: #d4af37; text-transform: uppercase; font-weight: 700;">Gängpott</div>
+            <div style="font-size: 1.15rem; font-weight: 900; color: #fff;">
+              ${totalPot} kr <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-secondary);">(${entries.length} st à ${game.stake_amount} kr)</span>
+            </div>
+          </div>
+          <div style="text-align: right; font-size: 0.72rem; color: var(--text-muted); max-width: 140px;">
+            Dras i THE TAB & Swish vid rättning
+          </div>
+        </div>
+      </div>
+
+      <!-- Result Banner if Settled -->
+      ${isSettled ? `
+        <div style="background: linear-gradient(135deg, rgba(212,175,55,0.2) 0%, rgba(45,122,70,0.3) 100%); border: 1.5px solid #d4af37; border-radius: 12px; padding: 12px; margin-bottom: 14px; text-align: center;">
+          <div style="font-size: 0.75rem; font-weight: 800; color: #ffd700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">
+            🏆 Officiellt Matchresultat
+          </div>
+          <div style="font-size: 1.4rem; font-weight: 900; color: #fff; margin-bottom: 4px;">
+            Löven ${game.result_loven_goals} - ${game.result_opponent_goals} ${escapeHtml(game.opponent_team)}
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;">
+            Sista målskytt: <strong style="color: #ffd700;">${escapeHtml(game.result_last_scorer || '-')}</strong> · Skott på mål: <strong style="color: #ffd700;">${game.result_shots_on_goal}</strong>
+          </div>
+          <div style="font-size: 0.85rem; font-weight: 800; color: #4ade80; padding-top: 4px; border-top: 1px dashed rgba(212,175,55,0.3);">
+            ${renderWinnerAnnouncement(game)}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Tips Form (If game is open and user can submit/edit) -->
+      ${!isLocked ? `
+        <form id="form-loven-submit-tip" style="margin-bottom: 16px;">
+          <div style="font-size: 0.82rem; font-weight: 800; color: #d4af37; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em;">
+            ${myEntry ? '✏️ Ändra ditt tips' : '🏒 Lämna ditt matchtips'}
+          </div>
+
+          <!-- Fråga 1: Slutresultat (4p) -->
+          <div class="loven-q-box">
+            <div class="loven-q-header">
+              <span class="loven-q-title">1. Slutresultat (Fulltid)</span>
+              <span class="loven-pts-badge">4 POÄNG</span>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
+              Gissa matchens slutresultat (4p för exakt match).
+            </div>
+            <div class="flex align-center" style="justify-content: center; gap: 12px;">
+              <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: #4ade80; font-weight: 700; margin-bottom: 4px;">LÖVEN</div>
+                <div class="flex align-center" style="gap: 4px;">
+                  <button type="button" class="btn btn-secondary btn-xs btn-step" data-target="loven-goals" data-dir="-1" style="width: 28px; height: 28px; padding: 0;">-</button>
+                  <input type="number" id="input-loven-goals" class="form-input text-center" min="0" max="25" value="${myEntry ? myEntry.pred_loven_goals : 4}" style="width: 44px; font-size: 1.1rem; font-weight: 800; padding: 4px;" />
+                  <button type="button" class="btn btn-secondary btn-xs btn-step" data-target="loven-goals" data-dir="1" style="width: 28px; height: 28px; padding: 0;">+</button>
+                </div>
+              </div>
+
+              <div style="font-size: 1.3rem; font-weight: 900; color: #d4af37; padding-top: 16px;">-</div>
+
+              <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; margin-bottom: 4px;">${escapeHtml(game.opponent_team).slice(0, 12)}</div>
+                <div class="flex align-center" style="gap: 4px;">
+                  <button type="button" class="btn btn-secondary btn-xs btn-step" data-target="opp-goals" data-dir="-1" style="width: 28px; height: 28px; padding: 0;">-</button>
+                  <input type="number" id="input-opp-goals" class="form-input text-center" min="0" max="25" value="${myEntry ? myEntry.pred_opponent_goals : 2}" style="width: 44px; font-size: 1.1rem; font-weight: 800; padding: 4px;" />
+                  <button type="button" class="btn btn-secondary btn-xs btn-step" data-target="opp-goals" data-dir="1" style="width: 28px; height: 28px; padding: 0;">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fråga 2: Lövens sista målskytt (3p) -->
+          <div class="loven-q-box">
+            <div class="loven-q-header">
+              <span class="loven-q-title">2. Lövens sista målskytt</span>
+              <span class="loven-pts-badge">3 POÄNG</span>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
+              Vem gör Björklövens sista mål i matchen? (3p).
+            </div>
+            <select id="select-loven-scorer" class="form-input" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 6px;">
+              ${rosterSelect.html}
+            </select>
+            <div id="custom-scorer-box" style="${rosterSelect.isCustomSelected ? 'display: block;' : 'display: none;'} margin-top: 6px;">
+              <input type="text" id="input-custom-scorer" class="form-input" placeholder="Skriv in spelarens namn (t.ex. junior)..." value="${rosterSelect.isCustomSelected ? escapeHtml(myEntry.pred_last_scorer) : ''}" style="font-size: 0.85rem;" />
+            </div>
+          </div>
+
+          <!-- Fråga 3: Lövens skott på mål (2p - närmast) -->
+          <div class="loven-q-box">
+            <div class="loven-q-header">
+              <span class="loven-q-title">3. Lövens skott på mål</span>
+              <span class="loven-pts-badge">2 POÄNG</span>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
+              Totalt antal skott på mål av Löven. <strong>2 poäng till den eller de som är närmast!</strong>
+            </div>
+            <div class="flex align-center gap-xs mb-xs" style="justify-content: center;">
+              <input type="number" id="input-loven-shots" class="form-input text-center" min="5" max="100" value="${myEntry ? myEntry.pred_shots_on_goal : 31}" style="width: 80px; font-size: 1.15rem; font-weight: 800; padding: 6px;" />
+              <span style="font-weight: 700; color: var(--text-secondary); font-size: 0.85rem;">skott</span>
+            </div>
+            <!-- Quick Chips -->
+            <div class="flex gap-xs" style="justify-content: center; flex-wrap: wrap;">
+              ${[26, 29, 31, 33, 36, 40].map(s => `
+                <button type="button" class="btn btn-xs btn-secondary shot-chip-btn" data-shot="${s}" style="font-size: 0.72rem; padding: 2px 7px;">
+                  ${s}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="btn-save-tip" style="background: linear-gradient(135deg, #2d7a46 0%, #155724 100%); border-color: #d4af37; font-weight: 800; font-size: 0.95rem; padding: 10px;">
+            🏒 ${myEntry ? 'Uppdatera mitt tips' : 'Lämna in matchtips'}
+          </button>
+        </form>
+      ` : ''}
+
+      <!-- Deltagare och Tips Leaderboard -->
+      <div style="margin-top: 14px;">
+        <div class="flex-between align-center mb-xs">
+          <span style="font-size: 0.78rem; font-weight: 800; color: #d4af37; text-transform: uppercase;">
+            👥 Deltagarnas Tips (${entries.length})
+          </span>
+          ${!isLocked ? `
+            <span style="font-size: 0.7rem; color: var(--text-muted);">
+              🔒 Dolda fram till matchstart
+            </span>
+          ` : ''}
+        </div>
+
+        ${entries.length === 0 ? `
+          <div class="text-center text-muted" style="padding: 16px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.78rem;">
+            Inga tips inlämnade än. Bli den första!
+          </div>
+        ` : `
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${entries.map((e, idx) => {
+              const isWinner = isSettled && Boolean(e.is_winner);
+              const isMe = e.user_id === user.id;
+
+              return `
+                <div class="loven-entry-card ${isWinner ? 'is-winner' : ''}">
+                  <div class="flex-between align-center mb-xs">
+                    <div class="flex align-center gap-xs">
+                      <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; border: 1px solid var(--border-glass);">
+                        ${e.avatar_url ? `<img src="${e.avatar_url}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (e.avatar_emoji || '👤')}
+                      </div>
+                      <span style="font-weight: 700; font-size: 0.82rem; color: ${isMe ? '#ffd700' : '#fff'};">
+                        ${escapeHtml(e.real_name || e.nickname)} ${isMe ? '(Du)' : ''}
+                      </span>
+                    </div>
+
+                    ${isSettled ? `
+                      <div class="flex align-center gap-xs">
+                        <span style="font-weight: 900; font-size: 0.95rem; color: ${isWinner ? '#ffd700' : '#fff'};">
+                          ${e.points} p
+                        </span>
+                        ${isWinner ? '🏆' : ''}
+                      </div>
+                    ` : `
+                      <span style="font-size: 0.7rem; color: #4ade80; font-weight: 600;">Tips inlämnat ✓</span>
+                    `}
+                  </div>
+
+                  <!-- Tips details -->
+                  <div style="font-size: 0.74rem; color: var(--text-secondary); background: rgba(0,0,0,0.25); border-radius: 6px; padding: 6px 8px; display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 4px; text-align: center;">
+                    <div>
+                      <span style="color: var(--text-muted); display: block; font-size: 0.65rem;">1. Resultat</span>
+                      <strong style="color: ${isSettled && e.pts_result === 4 ? '#4ade80' : 'inherit'};">
+                        ${e.pred_loven_goals === '🔒' ? '🔒' : `${e.pred_loven_goals} - ${e.pred_opponent_goals}`}
+                        ${isSettled ? `(${e.pts_result}p)` : ''}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style="color: var(--text-muted); display: block; font-size: 0.65rem;">2. Sista mål</span>
+                      <strong style="color: ${isSettled && e.pts_scorer === 3 ? '#4ade80' : 'inherit'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">
+                        ${escapeHtml(e.pred_last_scorer || '')}
+                        ${isSettled ? `(${e.pts_scorer}p)` : ''}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style="color: var(--text-muted); display: block; font-size: 0.65rem;">3. Skott</span>
+                      <strong style="color: ${isSettled && e.pts_shots === 2 ? '#4ade80' : 'inherit'};">
+                        ${e.pred_shots_on_goal === '🔒' ? '🔒' : `${e.pred_shots_on_goal} st`}
+                        ${isSettled ? `(${e.pts_shots}p)` : ''}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+
+      <!-- Creator Adjudication & Administration Controls -->
+      ${isCreator ? `
+        <div style="margin-top: 20px; padding-top: 14px; border-top: 1px dashed rgba(212,175,55,0.3);">
+          <div style="font-size: 0.78rem; font-weight: 800; color: #d4af37; margin-bottom: 8px; text-transform: uppercase;">
+            👑 Skaparens Kontroller
+          </div>
+
+          ${!isSettled ? `
+            <div id="settle-controls-box">
+              <button type="button" class="btn btn-block btn-secondary mb-xs" id="btn-toggle-settle-form" style="background: rgba(45,122,70,0.3); border-color: #d4af37; color: #ffd700; font-weight: 800; font-size: 0.88rem; padding: 10px;">
+                🏁 Rätta matchen & Fördela potten
+              </button>
+
+              <div id="loven-settle-form-wrapper" style="display: none; background: rgba(0,0,0,0.4); border: 1px solid #d4af37; border-radius: 10px; padding: 12px; margin-top: 8px;">
+                <div style="font-weight: 800; font-size: 0.85rem; color: #fff; margin-bottom: 10px; text-align: center;">
+                  Mata in officiellt matchresultat:
+                </div>
+
+                <div class="mb-sm">
+                  <label class="form-label" style="font-size: 0.75rem;">1. Slutresultat:</label>
+                  <div class="flex align-center gap-xs" style="justify-content: center;">
+                    <div style="text-align: center;">
+                      <span style="font-size: 0.7rem; color: #4ade80;">Löven mål</span>
+                      <input type="number" id="input-result-loven" class="form-input text-center" min="0" max="30" value="4" style="width: 50px; font-weight: 800;" />
+                    </div>
+                    <span style="font-weight: 800; color: #d4af37; padding-top: 14px;">-</span>
+                    <div style="text-align: center;">
+                      <span style="font-size: 0.7rem; color: var(--text-secondary);">${escapeHtml(game.opponent_team).slice(0, 10)}</span>
+                      <input type="number" id="input-result-opp" class="form-input text-center" min="0" max="30" value="2" style="width: 50px; font-weight: 800;" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mb-sm">
+                  <label class="form-label" style="font-size: 0.75rem;">2. Lövens sista målskytt:</label>
+                  <select id="select-result-scorer" class="form-input" style="font-size: 0.82rem;">
+                    ${getRosterSelectOptions('').html}
+                  </select>
+                  <div id="settle-custom-scorer-box" style="display: none; margin-top: 4px;">
+                    <input type="text" id="input-settle-custom-scorer" class="form-input" placeholder="Spelarens namn..." style="font-size: 0.82rem;" />
+                  </div>
+                </div>
+
+                <div class="mb-md">
+                  <label class="form-label" style="font-size: 0.75rem;">3. Lövens totala skott på mål:</label>
+                  <input type="number" id="input-result-shots" class="form-input text-center" min="0" max="120" value="32" style="width: 100px; margin: 0 auto; font-weight: 800;" />
+                </div>
+
+                <button type="button" class="btn btn-primary btn-block mb-xs" id="btn-confirm-settle-loven" style="background: linear-gradient(135deg, #2d7a46 0%, #155724 100%); border-color: #ffd700; font-weight: 800;">
+                  🏆 Rätta & Tilldela Potten (Even Steven)
+                </button>
+              </div>
+
+              <div class="flex gap-xs mt-xs">
+                ${!isLocked ? `
+                  <button type="button" class="btn btn-secondary btn-xs btn-block" id="btn-manual-lock-loven" style="font-size: 0.72rem;">
+                    🔒 Lås tips nu
+                  </button>
+                ` : ''}
+                <button type="button" class="btn btn-secondary btn-xs btn-block" id="btn-cancel-loven" style="color: #ff6b6b; font-size: 0.72rem;">
+                  ❌ Avbryt match
+                </button>
+              </div>
+            </div>
+          ` : `
+            <div style="font-size: 0.75rem; color: #4ade80; text-align: center; font-weight: 600;">
+              ✓ Matchen är rättad och avräknad i The Tab.
+            </div>
+          `}
+        </div>
+      ` : ''}
+    `;
+  }
+
+  function renderWinnerAnnouncement(game) {
+    let winnerIds = game.winner_user_ids || [];
+    if (typeof winnerIds === 'string') {
+      try { winnerIds = JSON.parse(winnerIds); } catch { winnerIds = []; }
+    }
+    const entries = game.entries || [];
+    const winners = entries.filter(e => winnerIds.includes(e.user_id));
+    const totalPot = entries.length * (Number(game.stake_amount) || 0);
+
+    if (winners.length === 0) {
+      return 'Inga vinnare korade.';
+    }
+
+    if (winners.length === 1) {
+      const w = winners[0];
+      return `🎉 ${escapeHtml(w.real_name || w.nickname)} vann hela potten på ${totalPot} kr! (${w.points} poäng)`;
+    }
+
+    // Multiple winners tie
+    const winnerNames = winners.map(w => escapeHtml(w.real_name || w.nickname)).join(' & ');
+    const share = Math.floor(totalPot / winners.length);
+    return `🤝 Delad vinst! ${winnerNames} delar potten lika: ca ${share} kr var! (${winners[0].points} poäng)`;
+  }
+
+  function renderCreateTab() {
+    // Default match time: upcoming Saturday 18:00 or tomorrow 19:00
+    const now = new Date();
+    const defaultDate = new Date(now.getTime() + 24 * 3600 * 1000);
+    defaultDate.setHours(19, 0, 0, 0);
+    const dateStr = defaultDate.toISOString().slice(0, 16);
+
+    return `
+      <form id="form-create-loven-match" style="padding: 4px 0;">
+        <!-- Opponent -->
+        <div class="mb-sm">
+          <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: #d4af37;">
+            Motståndarlag:
+          </label>
+          <input type="text" id="input-opponent-team" class="form-input" placeholder="T.ex. MoDo Hockey, Djurgårdens IF..." required style="font-weight: 700;" />
+
+          <!-- Quick Rival Chips -->
+          <div class="flex gap-xs mt-xs" style="flex-wrap: wrap;">
+            ${COMMON_OPPONENTS.slice(0, 8).map(opp => `
+              <button type="button" class="loven-rival-chip opponent-chip-btn" data-team="${escapeHtml(opp)}">
+                ${escapeHtml(opp.replace(' IF', '').replace(' Hockey', '').replace(' SK', '').replace(' IK', ''))}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Home / Away -->
+        <div class="mb-sm">
+          <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: #d4af37;">
+            Spelplats:
+          </label>
+          <div class="flex gap-xs">
+            <button type="button" class="btn btn-secondary venue-pick-btn active" data-home="1" style="flex: 1; font-weight: 700; border-color: #d4af37; background: rgba(45, 122, 70, 0.35); color: #ffd700;">
+              🟢 Hemma (Visionite Arena)
+            </button>
+            <button type="button" class="btn btn-secondary venue-pick-btn" data-home="0" style="flex: 1; font-weight: 700;">
+              ⚪ Borta
+            </button>
+          </div>
+        </div>
+
+        <!-- Date & Time -->
+        <div class="mb-sm">
+          <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: #d4af37;">
+            Matchstart & Spelstopp:
+          </label>
+          <input type="datetime-local" id="input-match-date" class="form-input" value="${dateStr}" required style="font-weight: 600;" />
+          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">
+            Bettningen stängs automatiskt när matchen startar.
+          </div>
+        </div>
+
+        <!-- Stake -->
+        <div class="mb-sm">
+          <label class="form-label" style="font-size: 0.8rem; font-weight: 700; color: #d4af37;">
+            Insats per person:
+          </label>
+          <div class="flex align-center gap-xs mb-xs">
+            <input type="number" id="input-stake-amount" class="form-input text-center" min="0" max="10000" step="5" value="50" style="width: 90px; font-size: 1.1rem; font-weight: 800;" />
+            <span style="font-weight: 700; color: var(--text-secondary);">kr</span>
+          </div>
+          <div class="flex gap-xs" style="flex-wrap: wrap;">
+            ${[0, 20, 50, 100, 200].map(s => `
+              <button type="button" class="btn btn-xs btn-secondary stake-chip-btn ${s === 50 ? 'active' : ''}" data-stake="${s}" style="font-size: 0.72rem;">
+                ${s === 0 ? 'Gratis (Äran)' : `${s} kr`}
+              </button>
+            `).join('')}
+          </div>
+          <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">
+            Alla betalar samma insats. Vid delad förstaplats delas potten lika (Even Steven).
+          </div>
+        </div>
+
+        <!-- Invite Friends -->
+        ${friends.length > 0 ? `
+          <div class="mb-md">
+            <label class="form-label flex-between align-center" style="font-size: 0.8rem; font-weight: 700; color: #d4af37;">
+              <span>Bjud in vänner:</span>
+              <button type="button" class="btn btn-xs btn-secondary" id="btn-select-all-friends" style="font-size: 0.68rem; padding: 2px 6px;">
+                Välj alla
+              </button>
+            </label>
+            <div style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+              ${friends.map(f => `
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.78rem; cursor: pointer; padding: 2px 4px;">
+                  <input type="checkbox" class="friend-invite-cb" value="${f.id}" checked />
+                  <span>${escapeHtml(f.real_name || f.nickname)}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <button type="submit" class="btn btn-primary btn-block" id="btn-create-match-submit" style="background: linear-gradient(135deg, #2d7a46 0%, #155724 100%); border-color: #d4af37; font-weight: 800; font-size: 1rem; padding: 12px;">
+          🏒 Skapa Löven Game & Bjud in
+        </button>
+      </form>
+    `;
+  }
+
+  function renderHistoryTab(settledGames) {
+    if (settledGames.length === 0) {
+      return `
+        <div class="text-center text-muted" style="padding: 30px 10px;">
+          <div style="font-size: 2rem; margin-bottom: 8px;">📋</div>
+          <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 4px;">Inga avslutade matcher än</div>
+          <p style="font-size: 0.78rem; max-width: 280px; margin: 0 auto;">
+            När en match är spelad och rättad ser du vinnartavlan, alla deltagares poäng och Swish-uppgörelsen här.
+          </p>
+        </div>
+      `;
+    }
+
+    return `
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        ${settledGames.map(g => {
+          const matchDateObj = new Date(g.match_date);
+          const dateStr = matchDateObj.toLocaleDateString('sv-SE', {
+            month: 'short',
+            day: 'numeric'
+          });
+
+          return `
+            <div class="loven-entry-card" style="border-color: rgba(212,175,55,0.3);">
+              <div class="flex-between align-center mb-xs">
+                <span style="font-size: 0.72rem; color: #d4af37; font-weight: 700;">
+                  ${dateStr} · ${g.is_home ? 'Hemma' : 'Borta'}
+                </span>
+                <span class="badge" style="background: rgba(74,222,128,0.15); color: #4ade80; font-size: 0.7rem; font-weight: 700;">
+                  Slutresultat
+                </span>
+              </div>
+
+              <div style="font-size: 1.1rem; font-weight: 900; color: #fff; text-align: center; margin: 4px 0;">
+                Björklöven ${g.result_loven_goals} - ${g.result_opponent_goals} ${escapeHtml(g.opponent_team)}
+              </div>
+
+              <div style="font-size: 0.75rem; text-align: center; color: var(--text-secondary); margin-bottom: 8px;">
+                Sista mål: <strong style="color: #ffd700;">${escapeHtml(g.result_last_scorer || '-')}</strong> · Skott: <strong style="color: #ffd700;">${g.result_shots_on_goal}</strong>
+              </div>
+
+              <div class="flex-between align-center" style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 6px 10px; font-size: 0.75rem;">
+                <span>${renderWinnerAnnouncement(g)}</span>
+                <button type="button" class="btn btn-xs btn-secondary view-past-match-btn" data-game-id="${g.id}">
+                  Visa tabell
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function attachEventHandlers(currentGame) {
+    // Tab switching
+    root.querySelectorAll('.loven-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeTab = btn.getAttribute('data-tab');
+        render();
+      });
+    });
+
+    // Match switcher button
+    root.querySelectorAll('.match-picker-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedGameId = btn.getAttribute('data-game-id');
+        render();
+      });
+    });
+
+    // View past match from history
+    root.querySelectorAll('.view-past-match-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedGameId = btn.getAttribute('data-game-id');
+        activeTab = 'match';
+        render();
+      });
+    });
+
+    // Go to create match from empty state
+    root.querySelector('#btn-goto-create-match')?.addEventListener('click', () => {
+      activeTab = 'create';
+      render();
+    });
+
+    // ── Tab 1 Handlers: Tips Submission ──
+    const formSubmitTip = root.querySelector('#form-loven-submit-tip');
+    if (formSubmitTip && currentGame) {
+      // Stepper buttons for goals
+      formSubmitTip.querySelectorAll('.btn-step').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.getAttribute('data-target');
+          const dir = parseInt(btn.getAttribute('data-dir'), 10) || 0;
+          const input = target === 'loven-goals'
+            ? formSubmitTip.querySelector('#input-loven-goals')
+            : formSubmitTip.querySelector('#input-opp-goals');
+          if (input) {
+            const current = parseInt(input.value, 10) || 0;
+            input.value = Math.max(0, Math.min(25, current + dir));
+          }
+        });
+      });
+
+      // Scorer dropdown custom trigger
+      const selectScorer = formSubmitTip.querySelector('#select-loven-scorer');
+      const customScorerBox = formSubmitTip.querySelector('#custom-scorer-box');
+      selectScorer?.addEventListener('change', () => {
+        if (selectScorer.value === '__custom__') {
+          customScorerBox.style.display = 'block';
+          customScorerBox.querySelector('#input-custom-scorer')?.focus();
+        } else {
+          customScorerBox.style.display = 'none';
+        }
+      });
+
+      // Quick shot chips
+      formSubmitTip.querySelectorAll('.shot-chip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const shotVal = btn.getAttribute('data-shot');
+          const shotsInput = formSubmitTip.querySelector('#input-loven-shots');
+          if (shotsInput) shotsInput.value = shotVal;
+        });
+      });
+
+      // Submit Tips
+      formSubmitTip.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (isSubmitting) return;
+
+        const pLoven = parseInt(formSubmitTip.querySelector('#input-loven-goals')?.value, 10);
+        const pOpp = parseInt(formSubmitTip.querySelector('#input-opp-goals')?.value, 10);
+        const pShots = parseInt(formSubmitTip.querySelector('#input-loven-shots')?.value, 10);
+
+        let scorer = selectScorer ? selectScorer.value : '';
+        if (scorer === '__custom__') {
+          scorer = formSubmitTip.querySelector('#input-custom-scorer')?.value.trim();
+        }
+
+        if (!scorer) {
+          showToast('Välj eller ange Lövens sista målskytt', 'warning');
+          return;
+        }
+
+        isSubmitting = true;
+        const btnSave = formSubmitTip.querySelector('#btn-save-tip');
+        if (btnSave) btnSave.disabled = true;
+
+        try {
+          await joinLovenGame(currentGame.id, {
+            predLovenGoals: pLoven,
+            predOpponentGoals: pOpp,
+            predLastScorer: scorer,
+            predShotsOnGoal: pShots
+          });
+          playCoinSound();
+          showToast('Ditt matchtips är sparat! 🏒 ⭐', 'success');
+          await loadData();
+        } catch (err) {
+          showToast(err.message || 'Kunde inte spara tipset', 'error');
+        } finally {
+          isSubmitting = false;
+          if (btnSave) btnSave.disabled = false;
+        }
+      });
+    }
+
+    // ── Tab 1 Creator Controls ──
+    const btnToggleSettle = root.querySelector('#btn-toggle-settle-form');
+    const settleFormWrapper = root.querySelector('#loven-settle-form-wrapper');
+    btnToggleSettle?.addEventListener('click', () => {
+      const isHidden = settleFormWrapper.style.display === 'none';
+      settleFormWrapper.style.display = isHidden ? 'block' : 'none';
+    });
+
+    const selectResultScorer = root.querySelector('#select-result-scorer');
+    const settleCustomScorerBox = root.querySelector('#settle-custom-scorer-box');
+    selectResultScorer?.addEventListener('change', () => {
+      if (selectResultScorer.value === '__custom__') {
+        settleCustomScorerBox.style.display = 'block';
+        settleCustomScorerBox.querySelector('#input-settle-custom-scorer')?.focus();
+      } else {
+        settleCustomScorerBox.style.display = 'none';
+      }
+    });
+
+    // Confirm Settle
+    const btnConfirmSettle = root.querySelector('#btn-confirm-settle-loven');
+    btnConfirmSettle?.addEventListener('click', async () => {
+      if (!currentGame || isSubmitting) return;
+
+      const resLoven = parseInt(root.querySelector('#input-result-loven')?.value, 10);
+      const resOpp = parseInt(root.querySelector('#input-result-opp')?.value, 10);
+      const resShots = parseInt(root.querySelector('#input-result-shots')?.value, 10);
+
+      let scorer = selectResultScorer ? selectResultScorer.value : '';
+      if (scorer === '__custom__') {
+        scorer = root.querySelector('#input-settle-custom-scorer')?.value.trim();
+      }
+
+      if (isNaN(resLoven) || isNaN(resOpp) || !scorer || isNaN(resShots)) {
+        showToast('Fyll i alla resultatfält för att rätta matchen', 'warning');
+        return;
+      }
+
+      if (!confirm('Är du säker på att du vill rätta matchen och fördela potten?')) {
+        return;
+      }
+
+      isSubmitting = true;
+      btnConfirmSettle.disabled = true;
+
+      try {
+        await settleLovenGame(currentGame.id, {
+          resultLovenGoals: resLoven,
+          resultOpponentGoals: resOpp,
+          resultLastScorer: scorer,
+          resultShotsOnGoal: resShots
+        });
+        playWinSound();
+        launchConfetti();
+        showToast('Matchen är rättad och potten fördelad i THE TAB! 🏆', 'success');
+        await loadData();
+      } catch (err) {
+        showToast(err.message || 'Kunde inte rätta matchen', 'error');
+      } finally {
+        isSubmitting = false;
+        btnConfirmSettle.disabled = false;
+      }
+    });
+
+    // Manual lock
+    root.querySelector('#btn-manual-lock-loven')?.addEventListener('click', async () => {
+      if (!currentGame) return;
+      try {
+        await lockLovenGame(currentGame.id);
+        showToast('Tipsen är nu låsta! 🔒', 'info');
+        await loadData();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    // Cancel match
+    root.querySelector('#btn-cancel-loven')?.addEventListener('click', async () => {
+      if (!currentGame) return;
+      if (!confirm('Vill du verkligen avbryta denna match?')) return;
+      try {
+        await cancelLovenGame(currentGame.id);
+        showToast('Matchen har avbrutits', 'info');
+        await loadData();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    // ── Tab 2 Handlers: Create Match ──
+    const formCreate = root.querySelector('#form-create-loven-match');
+    if (formCreate) {
+      // Opponent quick chips
+      formCreate.querySelectorAll('.opponent-chip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const team = btn.getAttribute('data-team');
+          const oppInput = formCreate.querySelector('#input-opponent-team');
+          if (oppInput) oppInput.value = team;
+        });
+      });
+
+      // Venue buttons
+      let isHomeSelected = 1;
+      formCreate.querySelectorAll('.venue-pick-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          formCreate.querySelectorAll('.venue-pick-btn').forEach(b => {
+            b.classList.remove('active');
+            b.style.borderColor = 'rgba(255,255,255,0.12)';
+            b.style.background = 'rgba(0,0,0,0.2)';
+            b.style.color = 'var(--text-secondary)';
+          });
+          btn.classList.add('active');
+          btn.style.borderColor = '#d4af37';
+          btn.style.background = 'rgba(45, 122, 70, 0.35)';
+          btn.style.color = '#ffd700';
+          isHomeSelected = parseInt(btn.getAttribute('data-home'), 10);
+        });
+      });
+
+      // Stake chips
+      formCreate.querySelectorAll('.stake-chip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          formCreate.querySelectorAll('.stake-chip-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const stake = btn.getAttribute('data-stake');
+          const stakeInput = formCreate.querySelector('#input-stake-amount');
+          if (stakeInput) stakeInput.value = stake;
+        });
+      });
+
+      // Select all friends
+      formCreate.querySelector('#btn-select-all-friends')?.addEventListener('click', () => {
+        const cbs = formCreate.querySelectorAll('.friend-invite-cb');
+        const allChecked = Array.from(cbs).every(cb => cb.checked);
+        cbs.forEach(cb => { cb.checked = !allChecked; });
+      });
+
+      // Create match submit
+      formCreate.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (isSubmitting) return;
+
+        const opponent = formCreate.querySelector('#input-opponent-team')?.value.trim();
+        const matchDate = formCreate.querySelector('#input-match-date')?.value;
+        const stake = parseInt(formCreate.querySelector('#input-stake-amount')?.value, 10) || 0;
+
+        if (!opponent) {
+          showToast('Ange motståndarlag', 'warning');
+          return;
+        }
+        if (!matchDate) {
+          showToast('Ange matchdatum och tid', 'warning');
+          return;
+        }
+
+        const friendIds = Array.from(formCreate.querySelectorAll('.friend-invite-cb:checked')).map(cb => cb.value);
+
+        isSubmitting = true;
+        const submitBtn = formCreate.querySelector('#btn-create-match-submit');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+          const res = await createLovenGame({
+            opponentTeam: opponent,
+            isHome: Boolean(isHomeSelected),
+            matchDate: new Date(matchDate).toISOString(),
+            stakeAmount: stake,
+            targetFriendIds: friendIds
+          });
+
+          playWinSound();
+          showToast(`Löven Game skapat mot ${opponent}! 🏒`, 'success');
+          selectedGameId = res?.game?.id || null;
+          activeTab = 'match';
+          await loadData();
+        } catch (err) {
+          showToast(err.message || 'Kunde inte skapa matchen', 'error');
+        } finally {
+          isSubmitting = false;
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+  }
+
+  // Initial load
+  loadData();
+}
+
