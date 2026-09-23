@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -69,13 +70,69 @@ async function generateLiveKitToken({ roomName, identity, name, metadata = {}, i
   }
 }
 
+// ── Process Crash Resilience ─────────────────────────
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ [unhandledRejection] Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 [uncaughtException] Uncaught Exception:', err);
+});
+
 const app = express();
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.set('trust proxy', 1);
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https://res.cloudinary.com"],
+      connectSrc: ["'self'", "wss:"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Serve frontend in production
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
+
+// ── Healthcheck (Public endpoint for Railway & uptime monitoring) ──
+app.get('/api/health', (req, res) => {
+  const dbOk = db.isHealthy ? db.isHealthy() : true;
+  if (!dbOk) {
+    return res.status(503).json({ status: 'unhealthy', database: false });
+  }
+  res.json({
+    status: 'ok',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    database: true
+  });
+});
+
+// ── Client Error Reporting (Logs uncaught frontend errors) ──────────
+app.post('/api/client-errors', (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const limit = db.checkRateLimit ? db.checkRateLimit('client_err:' + ip) : { allowed: true };
+  if (!limit.allowed) {
+    return res.status(429).json({ error: 'Too many error reports' });
+  }
+  if (db.recordFailedAttempt) {
+    db.recordFailedAttempt('client_err:' + ip, 20, 5); // Max 20 reports per 5 min
+  }
+
+  const { message, source, lineno, colno, url } = req.body || {};
+  console.warn(`[CLIENT-ERROR] IP: ${ip} | URL: ${url || 'unknown'} | ${message} at ${source || 'unknown'}:${lineno || '?'}:${colno || '?'}`);
+  res.json({ ok: true });
+});
 
 // ── HTTP server + WebSocket ──────────────────────────
 const server = createServer(app);
@@ -90,6 +147,52 @@ const partyClients = new Map(); // partyId → Set<ws>
 const partyCodeToId = new Map();// 4-char code → partyId
 const liveClients = new Map();  // liveId → Set<ws>
 const activeFlashLiveStreams = new Map(); // liveId → stream object { id, hostId, hostName, question, expiresAt, targetUserIds, flashBetId }
+
+// ── Party Room Cleanup ───────────────────────────────
+const ROOM_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+function cleanupStaleRooms() {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [roomId, room] of partyRooms) {
+    const age = now - new Date(room.createdAt).getTime();
+    const isFinished = room.status === 'results' || room.status === 'finished';
+    const isStale = age > ROOM_TTL_MS;
+    const isFinishedOld = isFinished && age > 30 * 60 * 1000; // 30 min after results
+    
+    if (isStale || isFinishedOld) {
+      partyRooms.delete(roomId);
+      partyCodeToId.delete(room.code);
+      partyClients.delete(roomId);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`[cleanup] Removed ${cleaned} stale party room(s)`);
+  }
+}
+
+// Run cleanup every 15 minutes (stale party rooms & expired rate limits)
+setInterval(() => {
+  cleanupStaleRooms();
+  try {
+    if (db.cleanupExpiredRateLimits) db.cleanupExpiredRateLimits();
+  } catch (err) {
+    console.error('Error cleaning up rate limits:', err);
+  }
+}, 15 * 60 * 1000).unref();
+
+// Run daily automated database backup (every 24 hours)
+setInterval(async () => {
+  try {
+    if (db.backupDatabase) {
+      const res = await db.backupDatabase();
+      console.log(`[backup] Daily automated database backup created: ${res.filename} (${Math.round(res.sizeBytes / 1024)} KB)`);
+    }
+  } catch (err) {
+    console.error('Error creating daily backup:', err);
+  }
+}, 24 * 60 * 60 * 1000).unref();
 
 // Hydrate active streams from database on startup
 try {
@@ -114,7 +217,6 @@ function updateLiveViewerCount(liveId) {
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const eventCode = url.searchParams.get('event');
-  const userToken = url.searchParams.get('token');
   const duelId = url.searchParams.get('duel');
   const partyId = url.searchParams.get('party');
   const liveIdParam = url.searchParams.get('live');
@@ -142,18 +244,6 @@ wss.on('connection', (ws, req) => {
   const subscribedLives = new Set();
   if (liveIdParam) {
     tryJoinLive(liveIdParam);
-  }
-
-  if (userToken) {
-    const user = db.getUserByToken(userToken);
-    if (user) {
-      boundUserId = user.id;
-      if (!userClients.has(user.id)) userClients.set(user.id, new Set());
-      userClients.get(user.id).add(ws);
-      if (liveIdParam) {
-        tryJoinLive(liveIdParam);
-      }
-    }
   }
 
   function tryJoinDuel(dId) {
@@ -488,6 +578,14 @@ function getUserFromToken(req) {
   return db.getUserByToken(token);
 }
 
+// Middleware: require authenticated user
+function requireAuth(req, res, next) {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  req.user = user;
+  next();
+}
+
 // Check if user is creator of event, creator of parent tournament, OR has valid PIN
 function verifyEventAdmin(req, event) {
   // Check creator token first
@@ -522,35 +620,17 @@ app.post('/api/admin/setup', (req, res) => {
   res.json({ ok: true });
 });
 
-// Admin PIN Rate Limiter (IP based)
-const adminPinAttempts = new Map(); // ip -> { count: number, lockedUntil: number }
-
+// Admin PIN Rate Limiter (IP based, SQLite backed)
 function checkAdminRateLimit(ip) {
-  const record = adminPinAttempts.get(ip);
-  if (!record) return { allowed: true };
-  if (record.lockedUntil && Date.now() < record.lockedUntil) {
-    const minutesLeft = Math.max(1, Math.ceil((record.lockedUntil - Date.now()) / 60000));
-    return { allowed: false, minutesLeft };
-  }
-  if (record.lockedUntil && Date.now() >= record.lockedUntil) {
-    adminPinAttempts.delete(ip);
-    return { allowed: true };
-  }
-  return { allowed: true, count: record.count };
+  return db.checkRateLimit('admin:' + ip);
 }
 
 function recordFailedAdminAttempt(ip) {
-  const record = adminPinAttempts.get(ip) || { count: 0, lockedUntil: 0 };
-  record.count++;
-  if (record.count >= 5) {
-    record.lockedUntil = Date.now() + 15 * 60 * 1000;
-  }
-  adminPinAttempts.set(ip, record);
-  return record;
+  return db.recordFailedAttempt('admin:' + ip, 5, 15);
 }
 
 function clearAdminAttempts(ip) {
-  adminPinAttempts.delete(ip);
+  db.clearRateLimit('admin:' + ip);
 }
 
 app.post('/api/admin/verify', (req, res) => {
@@ -654,13 +734,106 @@ app.post('/api/admin/users/:id/reset-pin', (req, res) => {
   });
 });
 
+// ── Admin Database Backup Operations ─────────────────
+app.post('/api/admin/backup', async (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limitCheck = checkAdminRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
+    });
+  }
+
+  const { pin } = req.body || {};
+  if (!pin || !verifyPin(pin)) {
+    recordFailedAdminAttempt(ip);
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  clearAdminAttempts(ip);
+
+  try {
+    const backupResult = await db.backupDatabase();
+    res.json({ ok: true, backup: backupResult });
+  } catch (err) {
+    console.error('Backup failed:', err);
+    res.status(500).json({ error: 'Kunde inte skapa säkerhetskopia: ' + err.message });
+  }
+});
+
+app.get('/api/admin/backup/latest', (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limitCheck = checkAdminRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
+    });
+  }
+
+  const pin = req.query.pin || req.headers['x-admin-pin'];
+  if (!pin || !verifyPin(pin)) {
+    recordFailedAdminAttempt(ip);
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  clearAdminAttempts(ip);
+
+  const latest = db.getLatestBackup();
+  res.json({ ok: true, backup: latest });
+});
+
+app.get('/api/admin/backup/download', (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limitCheck = checkAdminRateLimit(ip);
+  if (!limitCheck.allowed) {
+    return res.status(429).json({
+      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
+    });
+  }
+
+  const pin = req.query.pin || req.headers['x-admin-pin'];
+  if (!pin || !verifyPin(pin)) {
+    recordFailedAdminAttempt(ip);
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  clearAdminAttempts(ip);
+
+  const latest = db.getLatestBackup();
+  if (!latest || !fs.existsSync(latest.path)) {
+    return res.status(404).json({ error: 'Ingen säkerhetskopia hittades. Skapa en backup först.' });
+  }
+
+  res.download(latest.path, latest.name);
+});
+
 // ── Users ────────────────────────────────────────────
+const BETPALS_INVITE_CODE = process.env.BETPALS_INVITE_CODE || null;
+
 app.post('/api/users/register', (req, res) => {
-  const { name, realName, nickname, swishNumber, pin, avatarEmoji } = req.body;
+  const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
+  const regKey = 'register:' + clientIp;
+  const regLimit = db.checkRateLimit(regKey);
+  if (!regLimit.allowed) {
+    return res.status(429).json({
+      error: `För många registreringsförsök från denna IP-adress. Försök igen om ${regLimit.minutesLeft} minuter.`
+    });
+  }
+
+  const { name, realName, nickname, swishNumber, pin, avatarEmoji, inviteCode } = req.body;
+
+  // Invite code check (only active when BETPALS_INVITE_CODE is set)
+  if (BETPALS_INVITE_CODE) {
+    if (!inviteCode || inviteCode.trim() !== BETPALS_INVITE_CODE) {
+      db.recordFailedAttempt(regKey, 10, 15);
+      return res.status(403).json({
+        error: 'Ogiltig inbjudningskod. Kontakta arrangören för att få en kod.'
+      });
+    }
+  }
+
   const finalName = (name || realName || '').trim();
   const finalNickname = (nickname || '').trim();
 
   if (!finalName || finalName.length < 2) {
+    db.recordFailedAttempt(regKey, 10, 15);
     return res.status(400).json({ error: 'Ange ditt riktiga för- och efternamn (minst 2 tecken)' });
   }
 
@@ -688,9 +861,10 @@ app.post('/api/users/register', (req, res) => {
 
   const id = generateId();
   const token = crypto.randomBytes(32).toString('hex');
-  const emoji = avatarEmoji || '👤';
+  const emoji = sanitizeEmoji(avatarEmoji, '👤');
 
   db.createUser(id, finalNickname, token, emoji, finalName, cleanSwish, pin);
+  db.clearRateLimit(regKey);
 
   res.json({
     id,
@@ -703,35 +877,27 @@ app.post('/api/users/register', (req, res) => {
   });
 });
 
-// Rate limiting for PIN verification (in-memory tracker with 15 min lockout after 5 fails)
-const pinAttempts = new Map(); // userId -> { count: number, lockedUntil: number }
-
+// Rate limiting for PIN verification (SQLite backed with 15 min lockout after 5 fails)
 function checkPinRateLimit(userId) {
-  const record = pinAttempts.get(userId);
-  if (!record) return { allowed: true };
-  if (record.lockedUntil && Date.now() < record.lockedUntil) {
-    const minutesLeft = Math.max(1, Math.ceil((record.lockedUntil - Date.now()) / 60000));
-    return { allowed: false, minutesLeft };
-  }
-  if (record.lockedUntil && Date.now() >= record.lockedUntil) {
-    pinAttempts.delete(userId);
-    return { allowed: true };
-  }
-  return { allowed: true, count: record.count };
+  return db.checkRateLimit('pin:' + userId);
 }
 
 function recordFailedPinAttempt(userId) {
-  const record = pinAttempts.get(userId) || { count: 0, lockedUntil: 0 };
-  record.count++;
-  if (record.count >= 5) {
-    record.lockedUntil = Date.now() + 15 * 60 * 1000;
-  }
-  pinAttempts.set(userId, record);
-  return record;
+  return db.recordFailedAttempt('pin:' + userId, 5, 15);
 }
 
 function clearPinAttempts(userId) {
-  pinAttempts.delete(userId);
+  db.clearRateLimit('pin:' + userId);
+}
+
+// Emoji Sanitization Helper
+export function sanitizeEmoji(str, fallback = '👤') {
+  if (!str || typeof str !== 'string') return fallback;
+  const trimmed = str.trim();
+  if (trimmed.length === 0 || trimmed.length > 8) return fallback;
+  if (/[<>"'&;\\\/=`\0]/.test(trimmed)) return fallback;
+  const isEmoji = /^[\p{Emoji}\p{Emoji_Component}\p{Emoji_Modifier}\p{Emoji_Modifier_Base}\p{Emoji_Presentation}\u200d\ufe0f]+$/u.test(trimmed);
+  return isEmoji ? trimmed : fallback;
 }
 
 // URL & Image Sanitization Helpers
@@ -813,12 +979,16 @@ app.post('/api/users/login', (req, res) => {
     clearPinAttempts(user.id);
   }
 
+  // Rotate token on every successful login
+  const newToken = crypto.randomBytes(32).toString('hex');
+  db.updateUserToken(user.id, newToken);
+
   res.json({
     id: user.id,
     nickname: user.nickname,
     realName: user.real_name,
     swishNumber: user.swish_number,
-    token: user.token,
+    token: newToken,
     avatar: user.avatar_emoji,
     avatarUrl: user.avatar_url,
     email: user.email
@@ -907,8 +1077,17 @@ app.post('/api/users/change-pin', (req, res) => {
     clearPinAttempts(user.id);
   }
 
-  db.setUserPin(user.id, newPin);
-  res.json({ ok: true, message: 'PIN-koden har ändrats! 🔒' });
+  // Rotate token on PIN change for security
+  const newToken = crypto.randomBytes(32).toString('hex');
+  db.setUserPin(user.id, newPin, newToken);
+  res.json({ ok: true, message: 'PIN-koden har ändrats! 🔒', token: newToken });
+});
+
+// Logout — invalidate current token
+app.post('/api/users/logout', requireAuth, (req, res) => {
+  const newToken = crypto.randomBytes(32).toString('hex');
+  db.updateUserToken(req.user.id, newToken);
+  res.json({ ok: true, message: 'Utloggad' });
 });
 
 // WebAuthn / FaceID / TouchID (Disabled temporarily for security hardening)
@@ -940,7 +1119,7 @@ app.put('/api/users/me/profile', (req, res) => {
   const user = db.getUserByToken(token);
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
 
-  const { name, realName, nickname, swishNumber } = req.body;
+  const { name, realName, nickname, swishNumber, avatarEmoji, avatar_emoji } = req.body;
   if (name || realName) {
     db.updateUserRealName(user.id, (name || realName).trim());
   }
@@ -950,6 +1129,10 @@ app.put('/api/users/me/profile', (req, res) => {
       return res.status(400).json({ error: 'Detta bettarnamn är redan upptaget' });
     }
     db.updateUserNickname(user.id, nickname.trim());
+  }
+  const newEmoji = avatarEmoji || avatar_emoji;
+  if (newEmoji !== undefined && newEmoji !== null) {
+    db.updateUserAvatar(user.id, sanitizeEmoji(newEmoji, user.avatar_emoji || '👤'));
   }
   if (swishNumber !== undefined && swishNumber !== null && String(swishNumber).trim() !== '') {
     const cleanSwish = db.normalizePhone(swishNumber) || String(swishNumber).replace(/[^0-9]/g, '');
@@ -1048,7 +1231,7 @@ app.get('/api/users/me/photos', (req, res) => {
   res.json(photos);
 });
 
-app.put('/api/users/me/avatar', async (req, res) => {
+app.put('/api/users/me/avatar', express.json({ limit: '10mb' }), async (req, res) => {
   const token = req.headers['x-user-token'];
   if (!token) return res.status(401).json({ error: 'Ej inloggad' });
   const user = db.getUserByToken(token);
@@ -1131,7 +1314,7 @@ app.get('/api/tournaments/:id/photos', (req, res) => {
   })));
 });
 
-app.post('/api/tournaments/:id/photos', async (req, res) => {
+app.post('/api/tournaments/:id/photos', express.json({ limit: '10mb' }), async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs för att ladda upp bilder' });
 
@@ -1326,10 +1509,9 @@ app.delete('/api/friends/:friendId', (req, res) => {
   res.json({ ok: true, message: 'Vän borttagen' });
 });
 
-app.get('/api/users/search', (req, res) => {
-  const user = getUserFromToken(req);
+app.get('/api/users/search', requireAuth, (req, res) => {
   const query = req.query.q || '';
-  const results = db.searchUsers(query, user ? user.id : '');
+  const results = db.searchUsers(query, req.user.id);
   res.json(results);
 });
 
@@ -1339,7 +1521,7 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // ── Events ───────────────────────────────────────────
-app.get('/api/events', (req, res) => {
+app.get('/api/events', requireAuth, (req, res) => {
   const includeAll = req.query.all === '1';
   res.json(db.getEventSummaries(includeAll));
 });
@@ -1433,7 +1615,7 @@ app.get('/api/events/active', (req, res) => {
   res.json({ activeEvent });
 });
 
-app.get('/api/events/:idOrCode', (req, res) => {
+app.get('/api/events/:idOrCode', requireAuth, (req, res) => {
   const event = db.getFullEvent(req.params.idOrCode);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   res.json(event);
@@ -5449,6 +5631,15 @@ app.post('/api/shl-fantasy/:code/toggle-paid', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Central Express Error Handler ─────────────────────
+app.use((err, req, res, next) => {
+  console.error(`💥 [EXPRESS-ERROR] ${req.method} ${req.url}:`, err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({ error: 'Ett internt serverfel uppstod.' });
 });
 
 // ── SPA fallback (must be after all API routes) ──────

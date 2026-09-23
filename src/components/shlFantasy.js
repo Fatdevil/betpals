@@ -3,7 +3,7 @@ import { showModal, closeModal } from "./modal.js";
 import { t, getLang } from "../i18n.js";
 import { getStoredUser, isLoggedIn } from "../auth.js";
 import { getFriends, createShlLeague, getShlLeague, joinShlLeague, inviteFriendsToShlLeague, settleShlLeague, simulateShlLeague, toggleShlPaid, connectWebSocket, onWebSocketMessage, disconnectWebSocket } from "../api.js";
-import { showToast, createSwishUrl } from "../utils.js";
+import { showToast, createSwishUrl, escapeHtml } from "../utils.js";
 import { SHL_SEASON, SHL_TEAMS, SHL_PLAYERS, SHL_ROUNDS, getGamesForRound, FANTASY_SCORING } from "../data/shlPlayers.js";
 
 export async function openShlFantasyModal(options = {}) {
@@ -672,7 +672,7 @@ export async function openShlFantasyModal(options = {}) {
               return `
                 <div class="flex-between align-center py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.82rem; flex-wrap: wrap; gap: 4px;">
                   <div class="flex align-center gap-xs" style="flex: 1 1 auto; min-width: 0;">
-                    <span style="flex-shrink: 0;">${p.avatar_emoji || "🏒"}</span>
+                    <span style="flex-shrink: 0;">${escapeHtml(p.avatar_emoji) || "🏒"}</span>
                     <span style="color: ${isMe ? "#10b981" : "#fff"}; font-weight: ${isMe ? "700" : "600"}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                       ${escapeHtml(p.user_name || p.name)} ${isMe ? "(Du)" : ""}
                     </span>
@@ -1797,9 +1797,4 @@ export async function openShlFantasyModal(options = {}) {
   }
 
   attachTabListeners();
-}
-
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

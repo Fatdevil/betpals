@@ -1328,7 +1328,53 @@ async function loadAdminUsers(pin) {
           `).join('')}
         </div>
       </div>
+
+      <div class="section-header mt-lg">
+        <h2 class="section-title">💾 Databas & Säkerhetskopiering</h2>
+      </div>
+      <div class="card" style="padding: var(--space-md);">
+        <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-sm);">
+          Skapa en omedelbar säkerhetskopia av SQLite-databasen (användare, spel, odds, turneringar och saldon) eller ladda ned den senaste databasfilen (.db) till din dator.
+        </p>
+        <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; align-items: center;">
+          <button class="btn btn-primary btn-sm" id="btn-create-backup">
+            💾 Säkerhetskopiera nu
+          </button>
+          <a class="btn btn-secondary btn-sm" id="btn-download-backup" href="/api/admin/backup/download?pin=${encodeURIComponent(pin)}" download>
+            ⬇️ Ladda ned senaste backup (.db)
+          </a>
+        </div>
+        <div id="admin-backup-status" class="mt-xs text-muted" style="font-size: 0.75rem;"></div>
+      </div>
     `;
+
+    // Hook up backup create button
+    container.querySelector('#btn-create-backup')?.addEventListener('click', async () => {
+      const btn = container.querySelector('#btn-create-backup');
+      const statusEl = container.querySelector('#admin-backup-status');
+      btn.disabled = true;
+      btn.textContent = 'Skapar backup... ⏳';
+      try {
+        const res = await fetch('/api/admin/backup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin })
+        }).then(r => r.json());
+        if (res.ok && res.backup) {
+          showToast('Säkerhetskopia skapad! 💾', 'success');
+          if (statusEl) {
+            statusEl.innerHTML = `<span class="text-green">✓ Senaste backup: ${escapeHtml(res.backup.filename)} (${Math.round(res.backup.sizeBytes / 1024)} KB)</span>`;
+          }
+        } else {
+          showToast(res.error || 'Kunde inte skapa backup', 'error');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 Säkerhetskopiera nu';
+      }
+    });
 
     container.querySelectorAll('.reset-user-pin-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -1354,6 +1400,6 @@ async function loadAdminUsers(pin) {
       });
     });
   } catch (err) {
-    container.innerHTML = `<div class="text-red text-center">${err.message}</div>`;
+    container.innerHTML = `<div class="text-red text-center">${escapeHtml(err.message)}</div>`;
   }
 }

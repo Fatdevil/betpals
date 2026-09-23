@@ -55,6 +55,7 @@ db.exec(`
     avatar_emoji TEXT DEFAULT '🎲',
     real_name TEXT,
     swish_number TEXT,
+    token_created_at TEXT DEFAULT (datetime('now')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -189,6 +190,19 @@ try { db.exec('ALTER TABLE users ADD COLUMN reset_code_expires TEXT'); } catch {
 try { db.exec('ALTER TABLE users ADD COLUMN notify_flashbets INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_duels INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_tournaments INTEGER DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN token_created_at TEXT'); } catch { /* Column already exists */ }
+
+// Rate limiting table (persistent across restarts)
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+} catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_credentials (
@@ -268,8 +282,6 @@ try { db.exec('ALTER TABLE minigame_duels ADD COLUMN expense_id TEXT'); } catch 
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN custom_title TEXT'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN receipt_image TEXT'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN tournament_id TEXT'); } catch {}
-try { db.exec('ALTER TABLE anybets ADD COLUMN tournament_id TEXT'); } catch {}
-try { db.exec('ALTER TABLE tab_expenses ADD COLUMN tournament_id TEXT'); } catch {}
 
 try {
   db.exec(`
@@ -348,6 +360,7 @@ try {
       winner_id TEXT,
       winning_side TEXT,
       proof_image_url TEXT,
+      tournament_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (judge_id) REFERENCES users(id) ON DELETE CASCADE
@@ -371,6 +384,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_anybet_part_user ON anybet_participants(user_id);
   `);
 } catch {}
+try { db.exec('ALTER TABLE anybets ADD COLUMN tournament_id TEXT'); } catch (e) { /* Column already exists – expected on existing databases */ }
 
 try {
   db.exec(`
@@ -450,6 +464,7 @@ try {
       mode TEXT NOT NULL,
       loser_id TEXT,
       receipt_image TEXT,
+      tournament_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (payer_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (loser_id) REFERENCES users(id) ON DELETE SET NULL
@@ -468,6 +483,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_tab_part_user ON tab_expense_participants(user_id);
   `);
 } catch {}
+try { db.exec('ALTER TABLE tab_expenses ADD COLUMN tournament_id TEXT'); } catch (e) { /* Column already exists – expected on existing databases */ }
 
 try {
   db.exec(`
@@ -578,7 +594,7 @@ const stmts = {
 
   // Users
   getUserById: db.prepare('SELECT * FROM users WHERE id = ?'),
-  getUserByToken: db.prepare('SELECT * FROM users WHERE token = ?'),
+  getUserByToken: db.prepare('SELECT * FROM users WHERE token = ? AND (token_created_at IS NULL OR datetime(token_created_at, \'+30 days\') > datetime(\'now\'))'),
   getUserByNickname: db.prepare('SELECT * FROM users WHERE LOWER(nickname) = LOWER(?)'),
   getUserByRealName: db.prepare('SELECT * FROM users WHERE LOWER(real_name) = LOWER(?)'),
   getUserByEmail: db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)'),
@@ -588,10 +604,11 @@ const stmts = {
        OR swish_number = ?
   `),
   getUserByGoogleId: db.prepare('SELECT * FROM users WHERE google_id = ?'),
-  getAllUsers: db.prepare('SELECT id, nickname, real_name, swish_number, token, avatar_emoji, avatar_url, email, needs_pin_reset, CASE WHEN pin_hash IS NOT NULL THEN 1 ELSE 0 END as has_pin, created_at FROM users ORDER BY created_at DESC'),
-  insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number) VALUES (?, ?, ?, ?, ?, ?)'),
-  insertUserWithPin: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number, pin_hash, pin_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
-  setUserPin: db.prepare('UPDATE users SET pin_hash = ?, pin_salt = ?, needs_pin_reset = 0, reset_code = NULL, reset_code_expires = NULL, token = coalesce(?, token) WHERE id = ?'),
+  getAllUsers: db.prepare('SELECT id, nickname, real_name, swish_number, avatar_emoji, avatar_url, email, needs_pin_reset, CASE WHEN pin_hash IS NOT NULL THEN 1 ELSE 0 END as has_pin, created_at FROM users ORDER BY created_at DESC'),
+  insertUser: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number, token_created_at) VALUES (?, ?, ?, ?, ?, ?, datetime(\'now\'))'),
+  insertUserWithPin: db.prepare('INSERT INTO users (id, nickname, token, avatar_emoji, real_name, swish_number, pin_hash, pin_salt, token_created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'),
+  setUserPin: db.prepare('UPDATE users SET pin_hash = ?, pin_salt = ?, needs_pin_reset = 0, reset_code = NULL, reset_code_expires = NULL, token = coalesce(?, token), token_created_at = CASE WHEN ? IS NOT NULL THEN datetime(\'now\') ELSE token_created_at END WHERE id = ?'),
+  updateUserToken: db.prepare('UPDATE users SET token = ?, token_created_at = datetime(\'now\') WHERE id = ?'),
   resetUserPin: db.prepare('UPDATE users SET pin_hash = NULL, pin_salt = NULL, needs_pin_reset = 1, reset_code = ?, reset_code_expires = ? WHERE id = ?'),
   insertGoogleUser: db.prepare('INSERT INTO users (id, nickname, token, google_id, email, avatar_url) VALUES (?, ?, ?, ?, ?, ?)'),
   updateUserGoogle: db.prepare('UPDATE users SET email = ?, avatar_url = ?, nickname = ? WHERE google_id = ?'),
@@ -600,6 +617,12 @@ const stmts = {
   updateUserSwish: db.prepare('UPDATE users SET swish_number = ? WHERE id = ?'),
   updateUserRealName: db.prepare('UPDATE users SET real_name = ? WHERE id = ?'),
   updateUserNickname: db.prepare('UPDATE users SET nickname = ? WHERE id = ?'),
+
+  // Rate Limiting (persistent)
+  getRateLimit: db.prepare('SELECT * FROM rate_limits WHERE key = ?'),
+  upsertRateLimit: db.prepare('INSERT INTO rate_limits (key, count, locked_until, updated_at) VALUES (?, ?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET count = ?, locked_until = ?, updated_at = datetime(\'now\')'),
+  deleteRateLimit: db.prepare('DELETE FROM rate_limits WHERE key = ?'),
+  cleanupExpiredRateLimits: db.prepare('DELETE FROM rate_limits WHERE locked_until IS NOT NULL AND datetime(locked_until) < datetime(\'now\')'),
 
   // Credentials (WebAuthn / FaceID / TouchID)
   insertCredential: db.prepare('INSERT INTO user_credentials (id, user_id, credential_id, public_key) VALUES (?, ?, ?, ?)'),
@@ -695,7 +718,7 @@ const stmts = {
   insertFriend: db.prepare('INSERT OR IGNORE INTO friends (id, user_id, friend_id) VALUES (?, ?, ?)'),
   deleteFriend: db.prepare('DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)'),
   searchUsers: db.prepare(`
-    SELECT id, nickname, real_name, avatar_emoji, avatar_url, swish_number
+    SELECT id, nickname, real_name, avatar_emoji, avatar_url
     FROM users
     WHERE id != ? AND (
       nickname LIKE ? OR
@@ -975,7 +998,6 @@ export function getEventSummaries(includeTournamentEvents = false) {
     maxBet: e.max_bet,
     winnerId: e.winner_id,
     creatorId: e.creator_id,
-    swishNumber: e.swish_number,
     tournamentId: e.tournament_id,
     imageUrl: e.image_url || null,
     winnerImageUrl: e.winner_image_url || null,
@@ -1217,7 +1239,11 @@ export function verifyUserPin(user, pin) {
 export function setUserPin(userId, pin, newToken = null) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = hashUserPin(pin, salt);
-  stmts.setUserPin.run(hash, salt, newToken, userId);
+  stmts.setUserPin.run(hash, salt, newToken, newToken, userId);
+}
+
+export function updateUserToken(userId, newToken) {
+  stmts.updateUserToken.run(newToken, userId);
 }
 
 export function resetUserPin(userId, resetCode, expiresIso = null) {
@@ -1227,6 +1253,39 @@ export function resetUserPin(userId, resetCode, expiresIso = null) {
 
 export function getAllUsers() {
   return stmts.getAllUsers.all();
+}
+
+// ── Rate Limiting (Persistent) ────────────────────────
+export function checkRateLimit(key) {
+  const row = stmts.getRateLimit.get(key);
+  if (!row) return { allowed: true };
+  if (row.locked_until && new Date(row.locked_until) > new Date()) {
+    const minutesLeft = Math.max(1, Math.ceil((new Date(row.locked_until) - new Date()) / 60000));
+    return { allowed: false, minutesLeft };
+  }
+  if (row.locked_until) {
+    stmts.deleteRateLimit.run(key);
+    return { allowed: true };
+  }
+  return { allowed: true, count: row.count };
+}
+
+export function recordFailedAttempt(key, maxAttempts = 5, lockoutMinutes = 15) {
+  const row = stmts.getRateLimit.get(key) || { count: 0 };
+  const newCount = row.count + 1;
+  const lockedUntil = newCount >= maxAttempts
+    ? new Date(Date.now() + lockoutMinutes * 60000).toISOString()
+    : null;
+  stmts.upsertRateLimit.run(key, newCount, lockedUntil, newCount, lockedUntil);
+  return { count: newCount, locked: newCount >= maxAttempts };
+}
+
+export function clearRateLimit(key) {
+  stmts.deleteRateLimit.run(key);
+}
+
+export function cleanupExpiredRateLimits() {
+  stmts.cleanupExpiredRateLimits.run();
 }
 
 // ── WebAuthn / FaceID / TouchID Credentials ──────────
@@ -3988,5 +4047,65 @@ export function convertTabExpenseToEvenSteven(expenseId, payerUserId) {
     tx();
     return getShlLeagueById(leagueId);
   }
+
+// ── Healthcheck & Database Backup Operations ─────────
+export function isHealthy() {
+  try {
+    const row = db.prepare('SELECT 1 as alive').get();
+    return row && row.alive === 1;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function backupDatabase(customDir = null) {
+  const targetDir = customDir || join(dirname(DB_PATH), 'backups');
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `betpals-backup-${timestamp}.db`;
+  const targetPath = join(targetDir, filename);
+
+  await db.backup(targetPath);
+
+  // Prune backups older than 7 days, keep at most 7 newest
+  try {
+    const files = fs.readdirSync(targetDir)
+      .filter(f => f.startsWith('betpals-backup-') && f.endsWith('.db'))
+      .map(f => ({ name: f, path: join(targetDir, f), time: fs.statSync(join(targetDir, f)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+
+    if (files.length > 7) {
+      for (const oldFile of files.slice(7)) {
+        try { fs.unlinkSync(oldFile.path); } catch (e) {}
+      }
+    }
+  } catch (err) {
+    console.warn('Could not prune old backups:', err);
+  }
+
+  const stat = fs.statSync(targetPath);
+  return {
+    filename,
+    path: targetPath,
+    sizeBytes: stat.size,
+    timestamp: new Date().toISOString()
+  };
+}
+
+export function getLatestBackup(customDir = null) {
+  const targetDir = customDir || join(dirname(DB_PATH), 'backups');
+  if (!fs.existsSync(targetDir)) return null;
+
+  const files = fs.readdirSync(targetDir)
+    .filter(f => f.startsWith('betpals-backup-') && f.endsWith('.db'))
+    .map(f => ({ name: f, path: join(targetDir, f), time: fs.statSync(join(targetDir, f)).mtimeMs }))
+    .sort((a, b) => b.time - a.time);
+
+  return files.length > 0 ? files[0] : null;
+}
+
 
 

@@ -1,7 +1,7 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
@@ -72,7 +72,7 @@ function setupPinToggles(container = document) {
 }
 
 function renderAuthScreen(content) {
-  const hasBiometric = isWebAuthnSupported();
+  const hasBiometric = false; // Disabled until FIDO2 is fully implemented
 
   content.innerHTML = `
     <div class="animate-in">
@@ -125,6 +125,13 @@ function renderAuthScreen(content) {
               <button type="button" class="btn-toggle-pin" data-target="reg-pin" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem; padding: 4px;" title="Visa/dölj PIN">👁️</button>
             </div>
             <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.pinHint')}</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">🎟️ ${t('profile.inviteCode')}</label>
+            <input type="text" class="form-input" id="reg-invite-code" 
+                   placeholder="${t('profile.inviteCodePlaceholder')}" maxlength="50" autocomplete="off" />
+            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.inviteCodeHint')}</span>
           </div>
 
           <button type="submit" class="btn btn-primary btn-block" id="reg-submit-btn">${t('profile.startBetting')}</button>
@@ -210,6 +217,7 @@ function renderAuthScreen(content) {
     const nickname = document.getElementById('reg-nickname').value.trim();
     const swishNumber = document.getElementById('reg-swish').value.trim();
     const pin = document.getElementById('reg-pin').value.trim();
+    const inviteCode = document.getElementById('reg-invite-code')?.value.trim() || undefined;
 
     if (!swishNumber || swishNumber.replace(/[^0-9]/g, '').length < 8) {
       showToast('Ange ditt Swish-nummer (minst 8 siffror) 📱', 'error');
@@ -226,7 +234,7 @@ function renderAuthScreen(content) {
     btn.textContent = 'Skapar profil... ⏳';
 
     try {
-      const user = await registerUser({ name, nickname, swishNumber, pin, avatarEmoji: '👤' });
+      const user = await registerUser({ name, nickname, swishNumber, pin, avatarEmoji: '👤', inviteCode });
       storeUser(user);
       await checkPendingFriendInvite();
       await checkPendingPartyJoin();
@@ -433,7 +441,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       <div class="card text-center" style="padding: var(--space-xl); position: relative;">
         <div class="avatar-upload-wrapper" id="profile-picture-btn" style="cursor: pointer; display: inline-block; position: relative;">
           ${user.avatarUrl 
-            ? `<img src="${user.avatarUrl}" alt="${user.nickname}" class="profile-avatar-img" />`
+            ? `<img src="${sanitizeUrl(user.avatarUrl)}" alt="${user.nickname}" class="profile-avatar-img" />`
             : `<div class="profile-avatar" id="profile-avatar" style="width: 80px; height: 80px; font-size: 2.5rem; margin: 0 auto;">${user.avatar || '👤'}</div>`}
           <div class="avatar-edit-badge" style="position: absolute; bottom: 0; right: 0; background: var(--accent); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">📷</div>
         </div>

@@ -1,0 +1,120 @@
+# BetPals – Operativ Runbook för Beta & Drift
+
+Denna lathund är en praktisk guide för dig som driftar och administrerar BetPals under den slutna betan (20 användare) och inför skarp matchkväll.
+
+---
+
+## 1. Miljövariabler & Konfiguration
+
+Ställs in i driftmiljön (t.ex. **Railway → Settings → Variables**):
+
+| Variabel | Standard | Beskrivning |
+|---|---|---|
+| `NODE_ENV` | `production` | Sätt alltid till `production` i skarp drift. |
+| `PORT` | `3001` | Porten Express lyssnar på (Railway sätter detta automatiskt). |
+| `BETPALS_INVITE_CODE` | *Ingen (öppen)* | **Viktig för betan:** Sätt en hemlig kod (t.ex. `BETAPALS2025`) så kan endast inbjudna kompisar registrera sig. |
+| `ADMIN_PIN` | *Ingen* | Fyrsiffrig PIN för Superadmin. Om den inte är satt kan den sättas vid första besöket på `/admin`. |
+| `RAILWAY_VOLUME_MOUNT_PATH` | `/data` | Sökväg till persistent disk. Säkerställer att SQLite-databasen överlever omstarter och deploys. |
+| `DB_PATH` | `/data/betpals.db` | Alternativ explicit sökväg till databasfilen. |
+| `CLOUDINARY_URL` | *Valfri* | För molnlagring av profil- och turneringsfoton. |
+| `LIVEKIT_URL` / `API_KEY` / `API_SECRET` | *Valfri* | För livesänd betting och video. |
+
+---
+
+## 2. Deploy på Railway
+
+BetPals använder Railway med **Nixpacks**:
+
+1. **Konfigurationsfil**: [railway.json](file:///Users/sarahsackerud/Documents/antigravity/charming-mendel/betpals/railway.json)
+   - Build-kommando: `npm install --include=dev && npm run build`
+   - Start-kommando: `npm start`
+   - Hälsokontroll: `GET /api/health` (svarar `{"status":"ok", "database":true}`)
+2. **Persistent Disk (Volym)**:
+   - Skapa en volym i Railway: Klicka på tjänsten → **Volumes** → **Add Volume**.
+   - Sätt Mount Path till `/data`.
+   - Databasen sparas automatiskt i `/data/betpals.db` och automatiserade säkerhetskopior i `/data/backups/`.
+
+---
+
+## 3. Säkerhetskopiering (Backup & Restore)
+
+SQLite körs i **WAL-läge (Write-Ahead Logging)** och använder native icke-blockerande säkerhetskopiering (`better-sqlite3` backup API).
+
+### A. Automatisk backup
+Servern skapar automatiskt en ny säkerhetskopia en gång per dygn och sparar den i `backups/betpals-backup-YYYY-MM-DD-HHmmss.db`. De senaste 7 dagarnas kopior sparas automatiskt, äldre raderas.
+
+### B. Manuell backup och nedladdning
+1. Logga in i Admin-panelen (`/admin`) med Superadmin-PIN.
+2. Scrolla ned till sektionen **"💾 Databas & Säkerhetskopiering"**.
+3. Klicka på **"💾 Säkerhetskopiera nu"** för att skapa en omedelbar snapshot.
+4. Klicka på **"⬇️ Ladda ned senaste backup (.db)"** för att spara en fullständig `.db`-kopia lokalt på din egen dator.
+
+### C. Återställning från backup
+Om databasen någonsin skulle behöva återställas till en tidigare tidpunkt:
+1. Stoppa tjänsten i Railway (eller pausa deploy).
+2. Ersätt `/data/betpals.db` med den nedladdade backupfilen via Railway CLI eller SSH:
+   ```bash
+   # Ta bort eventuella kvarvarande WAL-filer:
+   rm -f /data/betpals.db-wal /data/betpals.db-shm
+   # Kopiera in din backup:
+   cp /data/backups/betpals-backup-XXXX.db /data/betpals.db
+   ```
+3. Starta servern igen.
+
+---
+
+## 4. Övervakning & Felloggning
+
+BetPals har inbyggd krasch- och felövervakning:
+- **Serverhälsa**: `GET /api/health` returnerar serverns drifttid och bekräftar att databasen svarar.
+- **Kraschskydd**: Globala process-guards (`unhandledRejection` och `uncaughtException`) fångar upp oväntade fel så att servern inte kraschar.
+- **Klientfelrapportering**: Om en användares mobilwebbläsare stöter på ett JavaScript-fel skickas det automatiskt till servern och loggas med prefixet `[CLIENT-ERROR]` i Railways loggar.
+
+Sök i Railway-loggarna efter:
+- `[CLIENT-ERROR]` – Fel som uppstått i mobilen hos någon användare.
+- `💥 [EXPRESS-ERROR]` – Oväntade serverfel på API-anrop.
+- `[cleanup]` – Information om automatiskt städade rum.
+- `[backup]` – Bekräftelse på genomförd databasbackup.
+
+---
+
+## 5. Användaradministration & Support under betan
+
+### Kompis som glömt sin PIN-kod
+1. Gå till `/admin` och lås upp med Admin-PIN.
+2. Under användarlistan, leta upp kompisen och klicka på **"Nollställ PIN"**.
+3. En 6-siffrig engångskod visas i en popup.
+4. Skicka engångskoden till kompisen (t.ex. via SMS/WhatsApp).
+5. Kompisen öppnar inloggningssidan, klickar på *"Glömt PIN? Klicka här för att återställa"*, anger sitt telefonnummer, engångskoden och väljer en ny 4-siffrig PIN.
+
+### Nollställa testdata inför skarp kväll
+Om ni har testbettat och vill nollställa alla saldon och spel inför en riktig match:
+1. Ta en backup först via adminpanelen!
+2. Kör via SQLite (eller admin-script):
+   ```sql
+   DELETE FROM bets;
+   DELETE FROM events;
+   DELETE FROM tournament_matches;
+   DELETE FROM tournaments;
+   DELETE FROM minigame_duels;
+   DELETE FROM tab_expenses;
+   DELETE FROM anybets;
+   -- Användare, profiler och inloggnings-PIN behålls!
+   ```
+
+---
+
+## 6. Checklista för Testkvällen (Kompisbetan)
+
+Följ denna checklista när de 20 kompisarna kör första gången:
+
+- [ ] **Miljövariabel satt**: `BETPALS_INVITE_CODE` är konfigurerad.
+- [ ] **Persistent disk aktiv**: Railway-volym monterad på `/data`.
+- [ ] **Inbjudan**: Dela app-länken och inbjudningskoden till kompisgruppen.
+- [ ] **Registrering**: Låt alla registrera sig med namn, smeknamn, Swish-nummer och 4-siffrig PIN.
+- [ ] **Test 1 – Vanligt spel**: Skapa ett match-event (t.ex. "Sverige vs Finland") och låt vännerna lägga bets.
+- [ ] **Test 2 – Turnering**: Skapa en turnering och bjud in vännerna.
+- [ ] **Test 3 – Dela utlägg (The Tab)**: Skapa ett utlägg (t.ex. pizza/öl) och dela upp mellan deltagarna.
+- [ ] **Test 4 – Minispel i realtid**: Starta ett spel i "The Blind 10.00" eller "Mafia" och be 3–4 personer ansluta via fyrsiffrig rumskod.
+- [ ] **Test 5 – Avräkning & Swish**: Avsluta ett spel, verifiera att Swish-knappen genererar rätt belopp och öppnar Swish-appen med förifyllt nummer.
+- [ ] **Avslut**: Skapa en manuell backup via `/admin` efter kvällens slut.

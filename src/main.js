@@ -6,6 +6,42 @@ import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
 import { openBlind10Modal, openMafiaModal } from './components/minigames.js';
 
+// ── Global Client Error Reporting ─────────────────────
+let reportedErrorsCount = 0;
+function reportClientError(errData) {
+  if (reportedErrorsCount > 10) return;
+  reportedErrorsCount++;
+  try {
+    fetch('/api/client-errors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...errData,
+        url: window.location.href,
+        userAgent: navigator.userAgent
+      })
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+window.addEventListener('error', (event) => {
+  reportClientError({
+    message: event.message,
+    source: event.filename,
+    lineno: event.lineno,
+    colno: event.colno
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  reportClientError({
+    message: event.reason?.message || String(event.reason),
+    source: 'unhandledrejection',
+    lineno: 0,
+    colno: 0
+  });
+});
+
 let currentPage = 'home';
 let currentParams = {};
 let activeCleanup = null;

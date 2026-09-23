@@ -238,7 +238,7 @@ export async function openDelaUtlaggModal(options = {}) {
               return `
                 <button type="button" class="btn-toggle-participant ${isSelected ? 'active' : ''}" data-uid="${escapeHtml(p.id)}" 
                   style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 0.75rem; border-radius: 20px; cursor: pointer; transition: all 0.15s; border: 1px solid ${isSelected ? 'var(--gold)' : 'rgba(255,255,255,0.1)'}; background: ${isSelected ? 'rgba(255, 215, 0, 0.15)' : 'rgba(0,0,0,0.2)'}; color: ${isSelected ? '#fff' : 'var(--text-muted)'};">
-                  <span>${p.avatarEmoji || '👤'}</span>
+                  <span>${escapeHtml(p.avatarEmoji) || '👤'}</span>
                   <span style="font-weight: 600;">${escapeHtml(p.name)}</span>
                   ${p.id === payerId ? `<span style="font-size: 0.62rem; color: #4ade80; font-weight: 800;">(${isEn ? 'Payer' : 'Lade ut'})</span>` : ''}
                 </button>`;
@@ -298,7 +298,7 @@ export async function openDelaUtlaggModal(options = {}) {
                 return `
                   <div class="flex-between align-center" style="padding: 5px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); border: 1px solid var(--border-glass);">
                     <div class="flex align-center gap-xs" style="flex: 1; min-width: 0;">
-                      <span>${p.avatarEmoji || '👤'}</span>
+                      <span>${escapeHtml(p.avatarEmoji) || '👤'}</span>
                       <span style="font-weight: 600; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p.name)}</span>
                       ${isThePayer ? `<span class="badge badge-warning" style="font-size: 0.6rem; padding: 1px 4px;">${isEn ? 'Payer' : 'Lade ut'}</span>` : ''}
                     </div>

@@ -33,13 +33,25 @@ function invoke(method, url, { body = {}, headers = {} } = {}) {
       headers: normalizedHeaders,
       body,
       query: {},
-      params: {}
+      params: {},
+      // Stream compatibility for helmet/finalhandler
+      _readableState: { pipes: [] },
+      unpipe() {},
+      resume() {},
+      pause() {},
+      socket: { remoteAddress: '127.0.0.1' },
+      connection: { remoteAddress: '127.0.0.1' }
     });
 
     let statusCode = 200;
+    const resHeaders = {};
     const res = Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      headersSent: false,
+      _header: null,
       status(code) {
         statusCode = code;
+        this.statusCode = code;
         return this;
       },
       json(data) {
@@ -48,9 +60,13 @@ function invoke(method, url, { body = {}, headers = {} } = {}) {
       send(data) {
         resolve({ status: statusCode, body: data });
       },
-      setHeader() {},
-      getHeader() {},
-      writeHead(code) { statusCode = code; }
+      end(data) {
+        resolve({ status: statusCode, body: data });
+      },
+      setHeader(name, value) { resHeaders[name.toLowerCase()] = value; },
+      getHeader(name) { return resHeaders[name.toLowerCase()]; },
+      removeHeader(name) { delete resHeaders[name.toLowerCase()]; },
+      writeHead(code) { statusCode = code; this.statusCode = code; }
     });
 
     app.handle(req, res);

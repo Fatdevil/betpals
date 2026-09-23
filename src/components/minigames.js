@@ -861,7 +861,7 @@ function openCoinFlipModal(initialDuel = null) {
       const isSelected = selectedFriend && selectedFriend.id === f.id;
       return `
         <button type="button" class="coin-friend-btn" data-id="${f.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isSelected ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isSelected ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.05)'}; color: ${isSelected ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer;">
-          ${f.avatarUrl ? `<img src="${f.avatarUrl}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (f.avatarEmoji || '👤')}
+          ${f.avatarUrl ? `<img src="${sanitizeUrl(f.avatarUrl)}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (escapeHtml(f.avatarEmoji) || '👤')}
           <span>${escapeHtml(f.nickname)}</span>
         </button>
       `;
@@ -1017,7 +1017,13 @@ function openCoinFlipModal(initialDuel = null) {
   function connectDuelWs(duelId) {
     const token = getToken();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    duelWs = new WebSocket(`${protocol}//${window.location.host}?token=${token}&duel=${duelId}`);
+    duelWs = new WebSocket(`${protocol}//${window.location.host}?duel=${duelId}`);
+
+    duelWs.onopen = () => {
+      if (token) {
+        duelWs.send(JSON.stringify({ type: 'auth', token }));
+      }
+    };
 
     duelWs.onmessage = (event) => {
       try {
@@ -1951,7 +1957,7 @@ function openWheelModal() {
       const isAlreadyIn = items.some(it => it.toLowerCase().startsWith(name.toLowerCase()));
       return `
         <button type="button" class="wheel-friend-pick-btn" data-friend="${escapeHtml(name)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isAlreadyIn ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isAlreadyIn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.06)'}; color: ${isAlreadyIn ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer; transition: all 0.2s;">
-          ${f.avatarUrl ? `<img src="${f.avatarUrl}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (f.avatarEmoji || '👤')}
+          ${f.avatarUrl ? `<img src="${sanitizeUrl(f.avatarUrl)}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (escapeHtml(f.avatarEmoji) || '👤')}
           <span>${escapeHtml(name)}</span>
           <span style="font-weight: 700; margin-left: 2px;">${isAlreadyIn ? '✓' : '+'}</span>
         </button>
@@ -2312,7 +2318,7 @@ function openDiceModal(initialDuel = null) {
       const isSelected = selectedFriend && selectedFriend.id === f.id;
       return `
         <button type="button" class="dice-friend-btn" data-id="${f.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isSelected ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isSelected ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.05)'}; color: ${isSelected ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer;">
-          ${f.avatarUrl ? `<img src="${f.avatarUrl}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (f.avatarEmoji || '👤')}
+          ${f.avatarUrl ? `<img src="${sanitizeUrl(f.avatarUrl)}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (escapeHtml(f.avatarEmoji) || '👤')}
           <span>${escapeHtml(f.nickname)}</span>
         </button>
       `;
@@ -2631,7 +2637,13 @@ function openDiceModal(initialDuel = null) {
         // Connect WebSocket room for this duel
         const token = getToken();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        duelWs = new WebSocket(`${protocol}//${window.location.host}?token=${token}&duel=${activeDuel.id}`);
+        duelWs = new WebSocket(`${protocol}//${window.location.host}?duel=${activeDuel.id}`);
+
+        duelWs.onopen = () => {
+          if (token) {
+            duelWs.send(JSON.stringify({ type: 'auth', token }));
+          }
+        };
 
         duelWs.onmessage = (event) => {
           try {
@@ -2915,7 +2927,7 @@ export async function openBlind10Modal(initialRoom = null) {
           ${friendsList.map(f => `
             <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
               <span style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
-                <span style="font-size: 1.1rem;">${f.avatar_emoji || '👤'}</span>
+                <span style="font-size: 1.1rem;">${escapeHtml(f.avatar_emoji) || '👤'}</span>
                 <strong>${escapeHtml(f.nickname)}</strong>
               </span>
               <input type="checkbox" class="friend-invite-cb" value="${f.id}" ${invitedFriendIds.has(f.id) ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
@@ -3161,11 +3173,14 @@ export async function openBlind10Modal(initialRoom = null) {
     // Establish WebSocket for live room events
     const token = getToken();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}?token=${token || ''}&party=${room.id}`;
+    const wsUrl = `${protocol}//${window.location.host}?party=${room.id}`;
 
     try {
       activeWs = new WebSocket(wsUrl);
       activeWs.onopen = () => {
+        if (token) {
+          activeWs.send(JSON.stringify({ type: 'auth', token }));
+        }
         activeWs.send(JSON.stringify({ action: 'join_party', partyId: room.id }));
       };
       activeWs.onmessage = (event) => {
@@ -3254,7 +3269,7 @@ export async function openBlind10Modal(initialRoom = null) {
         <div style="display: flex; flex-wrap: wrap; gap: 8px;">
           ${(currentRoom.players || []).map(p => `
             <div class="party-player-chip ${p.isHost ? 'host' : ''}">
-              <span>${p.avatarEmoji || (p.isHost ? '👑' : '👤')}</span>
+              <span>${escapeHtml(p.avatarEmoji) || (p.isHost ? '👑' : '👤')}</span>
               <span>${escapeHtml(p.nickname)}</span>
               ${p.isHost ? `<span style="font-size: 0.7rem; opacity: 0.8;">(${isEn ? 'Host' : 'Värd'})</span>` : ''}
             </div>
@@ -3952,7 +3967,7 @@ export async function openMafiaModal(initialRoom = null) {
           ${friendsList.map(f => `
             <label style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; cursor: pointer; border-radius: var(--radius-sm); margin-bottom: 4px; background: rgba(255,255,255,0.02);">
               <span style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
-                <span style="font-size: 1.1rem;">${f.avatar_emoji || '👤'}</span>
+                <span style="font-size: 1.1rem;">${escapeHtml(f.avatar_emoji) || '👤'}</span>
                 <strong>${escapeHtml(f.nickname)}</strong>
               </span>
               <input type="checkbox" class="mafia-friend-invite-cb" value="${f.id}" ${invitedFriendIds.has(f.id) ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
@@ -4120,11 +4135,14 @@ export async function openMafiaModal(initialRoom = null) {
 
     const token = getToken();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}?token=${token || ''}&party=${room.id}`;
+    const wsUrl = `${protocol}//${window.location.host}?party=${room.id}`;
 
     try {
       activeWs = new WebSocket(wsUrl);
       activeWs.onopen = () => {
+        if (token) {
+          activeWs.send(JSON.stringify({ type: 'auth', token }));
+        }
         activeWs.send(JSON.stringify({ action: 'join_party', partyId: room.id }));
       };
       activeWs.onmessage = (event) => {
@@ -4249,7 +4267,7 @@ export async function openMafiaModal(initialRoom = null) {
         <div style="display: flex; flex-wrap: wrap; gap: 8px;">
           ${players.map(p => `
             <div class="party-player-chip ${p.isHost ? 'host' : ''}">
-              <span>${p.avatarEmoji || (p.isHost ? '👑' : '👤')}</span>
+              <span>${escapeHtml(p.avatarEmoji) || (p.isHost ? '👑' : '👤')}</span>
               <span>${escapeHtml(p.nickname)}</span>
               ${p.isHost ? `<span style="font-size: 0.7rem; opacity: 0.8;">(${isEn ? 'Host' : 'Värd'})</span>` : ''}
             </div>
@@ -5211,7 +5229,7 @@ export async function openAnyBetModal(initialBetId = null) {
             ${friendsList.map(f => `
               <label style="display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
                 <span style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem;">
-                  <span>${f.avatar_emoji || '👤'}</span>
+                  <span>${escapeHtml(f.avatar_emoji) || '👤'}</span>
                   <strong>${escapeHtml(f.nickname)}</strong>
                 </span>
                 <input type="checkbox" class="anybet-friend-cb" value="${f.id}" ${invitedFriendIds.has(f.id) ? 'checked' : ''} style="width: 17px; height: 17px; accent-color: var(--gold);" />
@@ -5414,7 +5432,7 @@ export async function openAnyBetModal(initialBetId = null) {
                   <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                     ${(bet.participants || []).map(p => `
                       <span class="party-player-chip" style="font-size: 0.75rem; padding: 3px 8px;">
-                        <span>${p.avatar_emoji || '👤'}</span>
+                        <span>${escapeHtml(p.avatar_emoji) || '👤'}</span>
                         <span>${escapeHtml(p.nickname)}</span>
                         ${isYesNo && p.choice ? `
                           <strong style="color: ${p.choice === 'yes' ? '#34d399' : '#f87171'}; margin-left: 2px;">
@@ -5512,7 +5530,7 @@ export async function openAnyBetModal(initialBetId = null) {
       });
 
     } catch (err) {
-      tabContent.innerHTML = `<div class="text-danger text-center" style="padding: 20px;">${err.message || 'Kunde inte ladda bet'}</div>`;
+      tabContent.innerHTML = `<div class="text-danger text-center" style="padding: 20px;">${escapeHtml(err.message) || 'Kunde inte ladda bet'}</div>`;
     }
   }
 
@@ -5606,7 +5624,7 @@ export async function openAnyBetModal(initialBetId = null) {
         </div>
       `;
     } catch (err) {
-      tabContent.innerHTML = `<div class="text-danger text-center" style="padding: 20px;">${err.message || 'Kunde inte ladda avslutade bet'}</div>`;
+      tabContent.innerHTML = `<div class="text-danger text-center" style="padding: 20px;">${escapeHtml(err.message) || 'Kunde inte ladda avslutade bet'}</div>`;
     }
   }
 
@@ -5650,7 +5668,7 @@ export async function openAnyBetModal(initialBetId = null) {
               ${acceptedParticipants.length > 0 ? acceptedParticipants.map(p => `
                 <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); cursor: pointer;">
                   <span style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem;">
-                    <span>${p.avatar_emoji || '👤'}</span>
+                    <span>${escapeHtml(p.avatar_emoji) || '👤'}</span>
                     <strong>${escapeHtml(p.nickname)}</strong>
                   </span>
                   <input type="radio" name="settle-winner" value="${p.user_id}" ${p.user_id === chosenWinnerId ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);" />
@@ -5949,10 +5967,16 @@ export function setupGlobalDuelListener() {
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}?token=${token}`;
+  const wsUrl = `${protocol}//${window.location.host}`;
 
   try {
     globalDuelWs = new WebSocket(wsUrl);
+    
+    globalDuelWs.onopen = () => {
+      if (token) {
+        globalDuelWs.send(JSON.stringify({ type: 'auth', token }));
+      }
+    };
 
     globalDuelWs.onmessage = (event) => {
       try {
@@ -9471,7 +9495,7 @@ export function openMegaLottoModal(initialOptions = {}) {
           <div class="flex gap-xs flex-wrap">
             ${currentLotto.participants.map(p => `
               <div class="badge badge-secondary" style="padding: 5px 10px; display: inline-flex; align-items: center; gap: 6px;">
-                <span>${p.avatar_emoji || '🎲'}</span>
+                <span>${escapeHtml(p.avatar_emoji) || '🎲'}</span>
                 <span style="font-weight: 700;">${escapeHtml(p.nickname)}</span>
                 <span style="opacity: 0.6; font-size: 0.75rem;">(${p.ticketCount} rad)</span>
               </div>
@@ -9553,7 +9577,7 @@ export function openMegaLottoModal(initialOptions = {}) {
                 return `
                   <label class="badge ${isSelected ? 'badge-primary' : 'badge-secondary'}" style="cursor: pointer; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;">
                     <input type="checkbox" class="create-friend-checkbox" data-user-id="${f.id}" ${isSelected ? 'checked' : ''} style="display:none;" />
-                    <span>${f.avatar_emoji || '🎲'}</span>
+                    <span>${escapeHtml(f.avatar_emoji) || '🎲'}</span>
                     <span>${escapeHtml(f.nickname)}</span>
                   </label>
                 `;

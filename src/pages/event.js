@@ -1,5 +1,5 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { showModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
@@ -237,7 +237,7 @@ function renderEventContent(event, content, code) {
     <div class="animate-in">
       ${event.imageUrl ? `
         <div class="event-hero-banner" id="event-hero-banner">
-          <img src="${event.imageUrl}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
+          <img src="${sanitizeUrl(event.imageUrl)}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
           <div class="event-hero-overlay">
             <span class="badge ${statusBadgeClass(event.status)}" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);">${statusLabel(event.status)}</span>
           </div>
@@ -284,7 +284,7 @@ function renderEventContent(event, content, code) {
         <div class="winner-banner">
           ${winner.imageUrl ? `
             <div style="display: flex; justify-content: center; margin-bottom: var(--space-xs);">
-              <img src="${winner.imageUrl}" alt="${escapeHtml(winner.name)}" class="player-avatar-large" />
+              <img src="${sanitizeUrl(winner.imageUrl)}" alt="${escapeHtml(winner.name)}" class="player-avatar-large" />
             </div>
           ` : ''}
           <div class="winner-label">🏆 ${t('event.winner')}</div>
@@ -383,7 +383,7 @@ function renderEventContent(event, content, code) {
                     <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
                       ${event.players.map(p => `
                         <button type="button" class="btn player-quick-btn" data-player-id="${p.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-full); border: 1.5px solid var(--border-light); background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
-                          ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${escapeHtml(p.name)}" class="player-avatar-mini" />` : ''}
+                          ${p.imageUrl ? `<img src="${sanitizeUrl(p.imageUrl)}" alt="${escapeHtml(p.name)}" class="player-avatar-mini" />` : ''}
                           <span>${escapeHtml(p.name)}</span>
                         </button>
                       `).join('')}

@@ -37,7 +37,6 @@ export function connectWebSocket(eventCode = null) {
   const token = localStorage.getItem('betpals_token');
   const params = new URLSearchParams();
   if (eventCode) params.set('event', eventCode);
-  if (token) params.set('token', token);
   const qs = params.toString() ? `?${params.toString()}` : '';
 
   try {
@@ -164,8 +163,8 @@ export const updateEventImage = (id, data) =>
   request(`/events/${id}/image`, { method: 'PUT', body: data });
 
 // ── Users ─────────────────────────────────────────────
-export const registerUser = ({ name, nickname, swishNumber, pin, avatarEmoji }) =>
-  request('/users/register', { method: 'POST', body: { name, nickname, swishNumber, pin, avatarEmoji } });
+export const registerUser = ({ name, nickname, swishNumber, pin, avatarEmoji, inviteCode }) =>
+  request('/users/register', { method: 'POST', body: { name, nickname, swishNumber, pin, avatarEmoji, inviteCode } });
 export const loginUser = ({ identifier, pin }) =>
   request('/users/login', { method: 'POST', body: { identifier, pin } });
 export const completePinReset = (identifierOrObj, resetCode, newPin) => {

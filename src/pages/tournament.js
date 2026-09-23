@@ -113,7 +113,7 @@ export async function renderTournament(params = {}) {
       return;
     }
 
-    content.innerHTML = '<div class="text-center text-red mt-lg">' + err.message + '</div>';
+    content.innerHTML = '<div class="text-center text-red mt-lg">' + escapeHtml(err.message) + '</div>';
   }
 }
 
