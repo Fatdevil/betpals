@@ -16,6 +16,7 @@ import {
   inviteToParty,
   startPartyGame,
   submitPartyTime,
+  submitPartyScore,
   resolvePartyTie,
   getPartyRoomQR,
   createAnyBet,
@@ -5651,8 +5652,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
         <div class="flex gap-xs justify-center mb-md" style="flex-wrap: wrap;">
           <span class="badge badge-accent">⏱️ 60s Blitz</span>
-          <span class="badge badge-success">❤️❤️❤️ 3 Liv</span>
-          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🪙 Tjäna Chips</span>
+          <span class="badge badge-success">❤️❤️❤️ ${isEn ? '3 Lives' : '3 Liv'}</span>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🪙 ${isEn ? 'Earn Chips' : 'Tjäna Chips'}</span>
         </div>
 
         <div class="card p-sm mb-md text-left" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); font-size: 0.78rem;">
@@ -5693,14 +5694,14 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         </div>
 
         <div class="space-arcade-bezel">
-          <canvas id="space-canvas" class="space-arcade-canvas" width="320" height="300"></canvas>
+          <canvas id="space-canvas" class="space-arcade-canvas" width="320" height="300" role="img" aria-label="${isEn ? 'Space Blitz arcade gameplay screen' : 'Space Blitz spelskärm'}"></canvas>
         </div>
 
         <!-- Touch / Mouse Controls -->
         <div class="space-touch-controls">
-          <button type="button" class="space-btn-ctrl" id="btn-space-left">◀</button>
-          <button type="button" class="space-btn-ctrl space-btn-fire" id="btn-space-fire">🔥 FIRE</button>
-          <button type="button" class="space-btn-ctrl" id="btn-space-right">▶</button>
+          <button type="button" class="space-btn-ctrl" id="btn-space-left" aria-label="${isEn ? 'Move Left' : 'Styr Vänster'}">◀</button>
+          <button type="button" class="space-btn-ctrl space-btn-fire" id="btn-space-fire" aria-label="${isEn ? 'Fire' : 'Skjut'}">🔥 FIRE</button>
+          <button type="button" class="space-btn-ctrl" id="btn-space-right" aria-label="${isEn ? 'Move Right' : 'Styr Höger'}">▶</button>
         </div>
 
         <div class="text-muted mt-sm text-center" style="font-size: 0.72rem;">
@@ -5713,28 +5714,23 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   function renderDuelSetupHtml() {
     return `
       <div class="card p-md text-center">
+        <div style="font-size: 2.5rem; margin-bottom: 6px;">⚔️</div>
         <h4 style="color: var(--gold);">${t('arcade.spaceModeDuel')}</h4>
-        <p class="text-secondary" style="font-size: 0.85rem;">
-          ${isEn ? 'Challenge a friend in 60s Blitz! Highest score takes the Swish pot.' : 'Utmana en kompis på 60s Blitz! Högst poäng tar hem Swish-potten.'}
+        <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 14px;">
+          ${isEn ? 'Multiplayer missions against friends are played in realtime in Party Mode!' : 'Realtidsmatcher mot kompisar körs via Partyläget!'}
         </p>
 
-        <div class="my-md">
-          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
-            ${isEn ? 'Stake per round:' : 'Insats per omgång:'}
-          </label>
-          <div class="flex gap-xs" style="justify-content: center;">
-            <button type="button" class="btn ${selectedStake === 10 ? 'btn-primary' : 'btn-secondary'} btn-sm duel-stake-btn" data-stake="10">10 kr</button>
-            <button type="button" class="btn ${selectedStake === 20 ? 'btn-primary' : 'btn-secondary'} btn-sm duel-stake-btn" data-stake="20">20 kr</button>
-            <button type="button" class="btn ${selectedStake === 50 ? 'btn-primary' : 'btn-secondary'} btn-sm duel-stake-btn" data-stake="50">50 kr</button>
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px; margin: 12px 0; font-size: 0.82rem; text-align: left;">
+          <div style="color: var(--gold); font-weight: 700; margin-bottom: 4px;">💡 ${isEn ? 'How to challenge friends:' : 'Så här utmanar du dina vänner:'}</div>
+          <div class="text-muted" style="line-height: 1.4;">
+            ${isEn 
+              ? '1. Open the <strong>Party</strong> tab.<br/>2. Create a room (choose stake or honor).<br/>3. Share the 4-letter room code or QR code with your friend to play 60s Blitz together!' 
+              : '1. Klicka på fliken <strong>Party</strong>.<br/>2. Skapa ett rum med eller utan insats.<br/>3. Dela 4-bokstavskoden eller QR-koden med kompisen för att köra 60s Blitz samtidigt!'}
           </div>
         </div>
 
-        <div id="duel-friends-selection" class="my-md">
-          <div class="text-muted text-center" style="font-size: 0.8rem;">${t('common.loading')}</div>
-        </div>
-
-        <button type="button" class="btn btn-primary btn-block" id="btn-start-duel-mission" style="font-weight: 700;">
-          ${t('arcade.spaceStartBtn')}
+        <button type="button" class="btn btn-primary btn-block" id="btn-switch-to-party" style="font-weight: 800;">
+          🚀 ${isEn ? 'Go to Party Mode' : 'Gå till Partyläget'}
         </button>
       </div>
     `;
@@ -5834,12 +5830,21 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   }
 
   let activeSpaceEngineCleanup = null;
+  let partyWs = null;
+
+  function disconnectPartyWs() {
+    if (partyWs) {
+      try { partyWs.close(); } catch (_) {}
+      partyWs = null;
+    }
+  }
 
   const { close, root, setBusy } = showModal(modalTitle, renderContent(), () => {
     if (activeSpaceEngineCleanup) {
       activeSpaceEngineCleanup();
       activeSpaceEngineCleanup = null;
     }
+    disconnectPartyWs();
   }, {
     isGame: true,
     preventBackdropClose: true,
@@ -5854,28 +5859,38 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
   setBusy(() => activeSpaceEngineCleanup !== null);
 
+  function switchTab(tabName) {
+    if (activeSpaceEngineCleanup) {
+      activeSpaceEngineCleanup();
+      activeSpaceEngineCleanup = null;
+    }
+    if (tabName !== 'party') {
+      disconnectPartyWs();
+    }
+    activeMode = tabName;
+    soloGameStarted = false;
+    root.querySelectorAll('.space-tab-btn').forEach(b => {
+      if (b.dataset.tab === tabName) {
+        b.classList.add('btn-primary');
+        b.classList.remove('btn-secondary');
+      } else {
+        b.classList.remove('btn-primary');
+        b.classList.add('btn-secondary');
+      }
+    });
+
+    const stage = root.querySelector('#space-stage-content');
+    if (stage) {
+      stage.innerHTML = renderStageContent();
+      attachStageListeners();
+    }
+  }
+
   // Attach tab switching
   function attachTabs() {
     root.querySelectorAll('.space-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        if (activeSpaceEngineCleanup) {
-          activeSpaceEngineCleanup();
-          activeSpaceEngineCleanup = null;
-        }
-        activeMode = btn.dataset.tab;
-        soloGameStarted = false;
-        root.querySelectorAll('.space-tab-btn').forEach(b => {
-          b.classList.remove('btn-primary');
-          b.classList.add('btn-secondary');
-        });
-        btn.classList.add('btn-primary');
-        btn.classList.remove('btn-secondary');
-
-        const stage = root.querySelector('#space-stage-content');
-        if (stage) {
-          stage.innerHTML = renderStageContent();
-          attachStageListeners();
-        }
+        switchTab(btn.dataset.tab);
       });
     });
   }
@@ -5918,8 +5933,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     playWinSound();
     launchConfetti();
 
-    // Reward virtual arcade chips
-    const chipsEarned = Math.max(10, Math.floor(result.score / 100));
+    // Reward virtual arcade chips (capped to prevent infinite farming, SB-10)
+    const chipsEarned = Math.min(50, Math.max(10, Math.floor(result.score / 100)));
     setChips(getChips() + chipsEarned);
 
     stage.innerHTML = `
@@ -5935,7 +5950,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
             ${result.score.toLocaleString()} PTS
           </div>
           <div class="text-muted" style="font-size: 0.8rem; margin-top: 4px;">
-            👾 ${result.aliensKilled} ${isEn ? 'aliens blasted' : 'invasörer besegrade'} · Wave ${result.wave}
+            👾 ${result.aliensKilled} ${isEn ? 'aliens blasted' : 'invasörer besegrade'} · ${isEn ? 'Wave' : 'Våg'} ${result.wave}
           </div>
           <div style="color: var(--gold); font-weight: 700; margin-top: 8px; font-size: 0.85rem;">
             +${chipsEarned} ${isEn ? 'Arcade Chips Earned! 🪙' : 'Arkadmarker intjänade! 🪙'}
@@ -5968,85 +5983,11 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   }
 
   // ── 2. DUEL LISTENERS ───────────────────────────────────
-  let selectedOpponentId = null;
-  async function attachDuelListeners() {
+  function attachDuelListeners() {
     const stage = root.querySelector('#space-stage-content');
     if (!stage) return;
-
-    // Stake chips
-    stage.querySelectorAll('.duel-stake-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        selectedStake = parseInt(btn.dataset.stake, 10);
-        stage.querySelectorAll('.duel-stake-btn').forEach(b => {
-          b.classList.remove('btn-primary');
-          b.classList.add('btn-secondary');
-        });
-        btn.classList.add('btn-primary');
-        btn.classList.remove('btn-secondary');
-      });
-    });
-
-    // Load friends
-    const friendsWrap = stage.querySelector('#duel-friends-selection');
-    try {
-      const friends = await getFriends();
-      if (!friends || friends.length === 0) {
-        friendsWrap.innerHTML = `
-          <div class="text-muted" style="font-size: 0.8rem;">
-            ${isEn ? 'Add friends on your profile to challenge them!' : 'Lägg till vänner på din profil för att utmana dem!'}
-          </div>
-        `;
-      } else {
-        friendsWrap.innerHTML = `
-          <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
-            ${isEn ? 'Choose opponent from your friends:' : 'Välj motståndare bland dina vänner:'}
-          </label>
-          <select id="space-duel-friend-select" class="form-select">
-            ${friends.map(f => `<option value="${f.id}">${escapeHtml(f.nickname || f.name)}</option>`).join('')}
-          </select>
-        `;
-        selectedOpponentId = friends[0].id;
-        stage.querySelector('#space-duel-friend-select')?.addEventListener('change', (e) => {
-          selectedOpponentId = e.target.value;
-        });
-      }
-    } catch (e) {
-      friendsWrap.innerHTML = '';
-    }
-
-    stage.querySelector('#btn-start-duel-mission')?.addEventListener('click', () => {
-      if (!selectedOpponentId) {
-        showToast(isEn ? 'Please select a friend to duel' : 'Välj en kompis att utmana', 'warning');
-        return;
-      }
-
-      stage.innerHTML = renderPlayStageHtml(currentUser ? currentUser.nickname : 'Du');
-      initSpaceEngine({
-        onGameOver: async (result) => {
-          try {
-            const activeEvt = await getOrFetchActiveEvent();
-            const duel = await createDuel({
-              gameType: 'space_invaders',
-              opponentId: selectedOpponentId,
-              stakeAmount: selectedStake,
-              mode: 'online',
-              tournamentId: activeEvt?.id || null
-            });
-
-            if (duel) {
-              await submitDuelRoll(duel.id, {
-                score: result.score,
-                aliensKilled: result.aliensKilled,
-                waveReached: result.wave
-              });
-            }
-            showSoloResults(result);
-            showToast(isEn ? 'Duel challenge sent to friend!' : 'Duell-utmaning skickad till kompisen!', 'success');
-          } catch (err) {
-            showSoloResults(result);
-          }
-        }
-      });
+    stage.querySelector('#btn-switch-to-party')?.addEventListener('click', () => {
+      switchTab('party');
     });
   }
 
@@ -6101,17 +6042,67 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   }
 
   function setupPartyLobbyView(room) {
-    const stage = root.querySelector('#space-stage-content');
-    if (!stage) return;
+    partyRoom = room;
+    disconnectPartyWs();
 
-    const totalPot = (room.players.length || 0) * (room.stakeAmount || 0);
+    // Establish WebSocket for live room events
+    const token = getToken();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}?party=${room.id}`;
+
+    try {
+      partyWs = new WebSocket(wsUrl);
+      partyWs.onopen = () => {
+        if (token) {
+          partyWs.send(JSON.stringify({ type: 'auth', token }));
+        }
+        partyWs.send(JSON.stringify({ action: 'join_party', partyId: room.id }));
+      };
+      partyWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleSpacePartyWsMessage(data);
+        } catch (_) {}
+      };
+      partyWs.onclose = () => {
+        partyWs = null;
+      };
+    } catch (_) {}
+
+    renderPartyLobbyView();
+  }
+
+  function handleSpacePartyWsMessage(data) {
+    if (data.type === 'party_updated' && data.room) {
+      partyRoom = data.room;
+      renderPartyLobbyView();
+    } else if (data.type === 'party_started' && data.room) {
+      partyRoom = data.room;
+      runPartyGameStartCountdown(data.countdownSec || 3);
+    } else if (data.type === 'party_player_stopped') {
+      const waitingStatus = root.querySelector('#space-party-waiting-status');
+      if (waitingStatus) {
+        waitingStatus.textContent = `${data.stoppedCount} / ${data.totalCount} ${isEn ? 'pilots finished' : 'piloter klara'}`;
+      }
+    } else if (data.type === 'party_results' && data.room) {
+      partyRoom = data.room;
+      showPartyResultsView(data.room, data.isTie, data.tiedPlayerIds);
+    }
+  }
+
+  function renderPartyLobbyView() {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage || !partyRoom) return;
+
+    const isHost = currentUser && partyRoom.hostId === currentUser.id;
+    const totalPot = (partyRoom.players.length || 0) * (partyRoom.stakeAmount || 0);
 
     stage.innerHTML = `
       <div class="card p-md animate-in">
         <div class="flex-between align-center mb-sm">
           <div>
             <span class="badge badge-accent" style="font-size: 0.7rem;">${t('arcade.blind10WaitingLobby')}</span>
-            <h4 style="color: var(--gold); margin-top: 4px;">KOD: <span style="font-family: monospace; font-size: 1.4rem; letter-spacing: 2px;">${escapeHtml(room.code)}</span></h4>
+            <h4 style="color: var(--gold); margin-top: 4px;">KOD: <span style="font-family: monospace; font-size: 1.4rem; letter-spacing: 2px;">${escapeHtml(partyRoom.code)}</span></h4>
           </div>
           <div class="text-right">
             <span style="font-size: 0.75rem; color: var(--text-muted);">${t('arcade.blind10TotalPot')}</span>
@@ -6121,85 +6112,171 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
         <div class="my-md">
           <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
-            👥 ${t('arcade.blind10PlayersJoined')} (${room.players.length}):
+            👥 ${t('arcade.blind10PlayersJoined')} (${partyRoom.players.length}):
           </label>
           <div id="space-party-lobby-players" style="display: flex; flex-direction: column; gap: 6px;">
-            ${room.players.map(p => `
+            ${partyRoom.players.map(p => `
               <div class="space-leaderboard-card">
                 <span>${escapeHtml(p.nickname || 'Spelare')} ${p.isHost ? '👑' : ''}</span>
-                <span class="badge badge-secondary">${p.score !== undefined ? `${p.score} pts` : (isEn ? 'Ready' : 'Redo')}</span>
+                <span class="badge badge-secondary">${p.score !== undefined && p.score !== null ? `${p.score} pts` : (isEn ? 'Ready' : 'Redo')}</span>
               </div>
             `).join('')}
           </div>
         </div>
 
         <div class="flex gap-sm">
-          <button type="button" class="btn btn-primary btn-block" id="btn-start-space-party-run" style="font-weight: 800;">
-            🚀 ${isEn ? 'PLAY YOUR 60S MISSION' : 'SPELA DIN 60S RUNDA!'}
-          </button>
+          ${isHost ? `
+            <button type="button" class="btn btn-primary btn-block" id="btn-start-space-party-run" style="font-weight: 800; padding: 12px; font-size: 1.05rem;">
+              🚀 ${isEn ? 'START 60S BLITZ FOR EVERYONE!' : 'STARTA 60S BLITZ FÖR ALLA!'}
+            </button>
+          ` : `
+            <div class="btn btn-secondary btn-block text-center" style="cursor: default; opacity: 0.85; font-size: 0.85rem; padding: 12px;">
+              ⏳ ${isEn ? 'Waiting for host to start...' : 'Väntar på att hosten ska starta...'}
+            </div>
+          `}
         </div>
       </div>
     `;
 
-    stage.querySelector('#btn-start-space-party-run')?.addEventListener('click', () => {
-      stage.innerHTML = renderPlayStageHtml(currentUser ? currentUser.nickname : 'Du');
-      initSpaceEngine({
-        onGameOver: async (result) => {
-          try {
-            const submitRes = await submitPartyTime(room.id, {
-              score: result.score,
-              aliensKilled: result.aliensKilled,
-              waveReached: result.wave
-            });
-            if (submitRes && submitRes.room) {
-              partyRoom = submitRes.room;
-              showPartyResultsView(partyRoom);
-            } else {
-              showSoloResults(result);
-            }
-          } catch (err) {
-            showSoloResults(result);
-          }
+    if (isHost) {
+      stage.querySelector('#btn-start-space-party-run')?.addEventListener('click', async () => {
+        const btn = stage.querySelector('#btn-start-space-party-run');
+        if (btn) btn.disabled = true;
+        try {
+          await startPartyGame(partyRoom.id);
+        } catch (err) {
+          showToast(err.message || 'Kunde inte starta spelet', 'error');
+          if (btn) btn.disabled = false;
         }
       });
-    });
+    }
   }
 
-  function showPartyResultsView(room) {
+  function runPartyGameStartCountdown(countdownSec = 3) {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+    let sec = countdownSec;
+
+    const renderCountdown = () => {
+      stage.innerHTML = `
+        <div class="card p-lg text-center animate-in" style="min-height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+          <div style="font-size: 1.1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px;">
+            ${isEn ? 'Get Ready!' : 'Gör dig redo!'}
+          </div>
+          <div style="font-size: 5rem; font-weight: 900; color: var(--gold); font-family: var(--font-heading); margin: 12px 0;">
+            ${sec > 0 ? sec : '🚀'}
+          </div>
+          <div style="font-size: 0.9rem; color: #10b981; font-weight: 700;">
+            ${isEn ? '60s Space Blitz starting...' : '60s Space Blitz startar...'}
+          </div>
+        </div>
+      `;
+    };
+
+    renderCountdown();
+    const countTimer = setInterval(() => {
+      sec--;
+      if (sec > 0) {
+        renderCountdown();
+      } else {
+        clearInterval(countTimer);
+        // Launch canvas engine for synchronized party run!
+        stage.innerHTML = renderPlayStageHtml(currentUser ? currentUser.nickname : 'Du');
+        initSpaceEngine({
+          onGameOver: async (result) => {
+            renderPartyWaitingScreen(result);
+            try {
+              const submitRes = await submitPartyScore(partyRoom.id, {
+                score: result.score,
+                aliensKilled: result.aliensKilled,
+                waveReached: result.wave
+              });
+              if (submitRes && submitRes.room) {
+                partyRoom = submitRes.room;
+                if (partyRoom.status === 'completed' || partyRoom.status === 'tie') {
+                  showPartyResultsView(partyRoom, partyRoom.status === 'tie', partyRoom.tiedPlayerIds);
+                }
+              }
+            } catch (err) {
+              showToast(err.message || 'Kunde inte skicka resultat', 'error');
+            }
+          }
+        });
+      }
+    }, 1000);
+  }
+
+  function renderPartyWaitingScreen(myResult) {
+    const stage = root.querySelector('#space-stage-content');
+    if (!stage) return;
+    stage.innerHTML = `
+      <div class="card p-lg text-center animate-in">
+        <div style="font-size: 3rem; margin-bottom: 8px;">🛸</div>
+        <h3 style="font-family: var(--font-heading); color: var(--gold);">
+          ${isEn ? 'Mission Complete!' : 'Uppdrag Slutfört!'}
+        </h3>
+        <p class="text-secondary" style="font-size: 0.85rem;">
+          ${isEn ? 'You recorded:' : 'Ditt resultat:'}
+        </p>
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 12px; margin: 12px auto; max-width: 240px;">
+          <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; font-family: monospace;">
+            ${myResult.score.toLocaleString()} PTS
+          </div>
+          <div class="text-muted" style="font-size: 0.75rem;">
+            👾 ${myResult.aliensKilled} · ${isEn ? 'Wave' : 'Våg'} ${myResult.wave}
+          </div>
+        </div>
+        <div class="my-md">
+          <div style="display: inline-block; width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--gold); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 8px;"></div>
+          <div id="space-party-waiting-status" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">
+            ${isEn ? 'Waiting for all pilots to finish their 60s mission...' : 'Väntar på att alla piloter ska landa sina skepp...'}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function showPartyResultsView(room, isTie = false, tiedPlayerIds = []) {
     const stage = root.querySelector('#space-stage-content');
     if (!stage) return;
     playWinSound();
     launchConfetti();
 
-    const sorted = [...room.players].sort((a, b) => (b.score || 0) - (a.score || 0));
+    const sorted = [...(room.results && room.results.length > 0 ? room.results : room.players)].sort((a, b) => (b.score || 0) - (a.score || 0));
     const winner = sorted[0];
     const isUserWinner = currentUser && winner && winner.id === currentUser.id;
+    const isRoomTie = isTie || room.status === 'tie';
 
     stage.innerHTML = `
       <div class="card p-md animate-in text-center">
-        <div style="font-size: 2.8rem; margin-bottom: 4px;">🏆</div>
+        <div style="font-size: 2.8rem; margin-bottom: 4px;">${isRoomTie ? '🤝' : '🏆'}</div>
         <h3 style="color: var(--gold); font-family: var(--font-heading);">
-          ${isUserWinner ? (isEn ? 'YOU WON THE POT!' : 'DU VANN HELA POTTEN!') : `${escapeHtml(winner.nickname)} ${t('arcade.blind10WinnerWins')}`}
+          ${isRoomTie 
+            ? (isEn ? 'IT\'S A TIE!' : 'DET BLEV OAVGJORT!')
+            : (isUserWinner ? (isEn ? 'YOU WON THE POT!' : 'DU VANN HELA POTTEN!') : `${escapeHtml(winner.nickname)} ${t('arcade.blind10WinnerWins')}`)}
         </h3>
         <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; margin-bottom: 12px;">
-          ${(room.players.length || 0) * (room.stakeAmount || 0)} kr
+          ${(room.players.length || 0) * (room.stakeAmount || 0)} kr ${isRoomTie ? (isEn ? '(Split / Returned)' : '(Potten delas)') : ''}
         </div>
 
         <div class="my-md text-left">
-          ${sorted.map((p, idx) => `
-            <div class="space-leaderboard-card ${idx === 0 ? 'winner' : ''}">
-              <div class="flex gap-xs align-center">
-                <span style="font-weight: 800; color: ${idx === 0 ? 'var(--gold)' : 'var(--text-muted)'}; min-width: 24px;">#${idx + 1}</span>
-                <span>${escapeHtml(p.nickname || 'Spelare')} ${idx === 0 ? '👑' : ''}</span>
+          ${sorted.map((p, idx) => {
+            const isPlayerTieWinner = isRoomTie && Array.isArray(tiedPlayerIds) && tiedPlayerIds.includes(p.id);
+            return `
+              <div class="space-leaderboard-card ${idx === 0 && !isRoomTie ? 'winner' : (isPlayerTieWinner ? 'winner' : '')}">
+                <div class="flex gap-xs align-center">
+                  <span style="font-weight: 800; color: ${idx === 0 ? 'var(--gold)' : 'var(--text-muted)'}; min-width: 24px;">#${p.rank || idx + 1}</span>
+                  <span>${escapeHtml(p.nickname || 'Spelare')} ${idx === 0 && !isRoomTie ? '👑' : (isPlayerTieWinner ? '🤝' : '')}</span>
+                </div>
+                <span style="font-family: monospace; font-weight: 700; color: #10b981;">
+                  ${(p.score || 0).toLocaleString()} PTS
+                </span>
               </div>
-              <span style="font-family: monospace; font-weight: 700; color: #10b981;">
-                ${(p.score || 0).toLocaleString()} PTS
-              </span>
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
 
-        ${room.stakeAmount > 0 && !isUserWinner && winner.swishNumber ? `
+        ${!isRoomTie && room.stakeAmount > 0 && !isUserWinner && winner.swishNumber ? `
           <div class="my-md">
             <a href="${createSwishUrl(winner.swishNumber, room.stakeAmount, `Space Blitz - ${winner.nickname}`)}" class="btn btn-primary btn-block" style="background: #10b981; font-weight: 800;">
               📱 Swisha ${winner.nickname} (${room.stakeAmount} kr)
@@ -6642,15 +6719,20 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       if (livesEl) livesEl.textContent = '❤️'.repeat(Math.max(0, lives));
     };
 
-    // 60-second Blitz countdown
+    // 60-second Blitz countdown (monotonic timestamp-based to prevent timer-throttling drift)
+    const missionDurationMs = 60000;
+    const missionStartTime = Date.now();
+    const missionEndTime = missionStartTime + missionDurationMs;
+
     timerInterval = setInterval(() => {
       if (!isRunning) return;
-      timeLeft--;
+      const remainingSec = Math.max(0, Math.ceil((missionEndTime - Date.now()) / 1000));
+      timeLeft = remainingSec;
       updateHud();
       if (timeLeft <= 0) {
         endGame();
       }
-    }, 1000);
+    }, 250);
 
     function stopEngine() {
       isRunning = false;

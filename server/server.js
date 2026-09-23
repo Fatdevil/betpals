@@ -3009,10 +3009,13 @@ app.post(['/api/duels/:id/roll', '/api/duels/:id/result'], (req, res) => {
     return res.status(400).json({ error: 'Endast aktiva dueller kan registreras' });
   }
 
-  const { creatorScore, opponentScore, winnerId } = req.body;
+  const { creatorScore, opponentScore, winnerId, score } = req.body;
 
-  const parsedCreatorScore = typeof creatorScore === 'number' ? creatorScore : Number(creatorScore) || 0;
-  const parsedOpponentScore = typeof opponentScore === 'number' ? opponentScore : Number(opponentScore) || 0;
+  const rawCreator = creatorScore ?? (user.id === duel.creator_id ? score : undefined);
+  const rawOpponent = opponentScore ?? (user.id === duel.opponent_id ? score : undefined);
+
+  const parsedCreatorScore = typeof rawCreator === 'number' && Number.isFinite(rawCreator) ? rawCreator : (Number(rawCreator) || 0);
+  const parsedOpponentScore = typeof rawOpponent === 'number' && Number.isFinite(rawOpponent) ? rawOpponent : (Number(rawOpponent) || 0);
 
   // Determine legitimate winner based on scores
   let derivedWinnerId = null;
@@ -3149,6 +3152,12 @@ app.post('/api/minigames/party/create', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { gameType, stakeAmount } = req.body;
+  const allowedGames = ['blind10', 'mafia', 'space_invaders'];
+  const finalGameType = allowedGames.includes(gameType) ? gameType : 'blind10';
+  const parsedStake = typeof stakeAmount === 'number' && Number.isFinite(stakeAmount)
+    ? Math.min(500, Math.max(0, Math.floor(stakeAmount)))
+    : 0;
+
   const roomId = crypto.randomUUID();
   let code;
   do {
@@ -3158,10 +3167,10 @@ app.post('/api/minigames/party/create', (req, res) => {
   const room = {
     id: roomId,
     code,
-    gameType: gameType || 'blind10',
+    gameType: finalGameType,
     hostId: user.id,
     hostNickname: user.nickname,
-    stakeAmount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 0,
+    stakeAmount: parsedStake,
     status: 'lobby', // 'lobby' | 'countdown' | 'running' | 'results' | 'tie'
     createdAt: new Date().toISOString(),
     players: [
@@ -3284,6 +3293,10 @@ app.post('/api/minigames/party/:id/invite', (req, res) => {
   const room = partyRooms.get(req.params.id);
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
 
+  if (!room.players.some(p => p.id === user.id)) {
+    return res.status(403).json({ error: 'Endast deltagare i rummet kan bjuda in vänner' });
+  }
+
   const { friendIds } = req.body;
   if (Array.isArray(friendIds) && friendIds.length > 0) {
     for (const fId of friendIds) {
@@ -3325,6 +3338,10 @@ app.post('/api/minigames/party/:id/start', (req, res) => {
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
   if (room.hostId !== user.id) return res.status(403).json({ error: 'Endast hosten kan starta spelet' });
 
+  if (room.stakeAmount > 0 && room.players.length < 2) {
+    return res.status(400).json({ error: 'Minst 2 deltagare krävs för att starta ett rum med insats' });
+  }
+
   const countdownSec = 3;
   room.status = 'running';
   room.countdownSec = countdownSec;
@@ -3359,7 +3376,7 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     return res.status(403).json({ error: 'Du deltar inte i detta rum' });
   }
 
-  if (room.gameType !== 'space_invaders' && room.status !== 'running') {
+  if (room.status !== 'running') {
     return res.status(400).json({ error: 'Spelet pågår inte just nu' });
   }
 
@@ -3369,11 +3386,40 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
 
   // For space_invaders, client sends { score, aliensKilled, waveReached }
   if (room.gameType === 'space_invaders') {
-    const rawScore = typeof req.body.score === 'number' ? Math.max(0, Math.floor(req.body.score)) : 0;
-    player.score = rawScore;
-    player.aliensKilled = typeof req.body.aliensKilled === 'number' ? req.body.aliensKilled : 0;
-    player.waveReached = typeof req.body.waveReached === 'number' ? req.body.waveReached : 1;
-    player.stoppedTime = Date.now(); // Mark as finished
+    const now = Date.now();
+    if (room.startTime && now < room.startTime) {
+      return res.status(400).json({ error: 'Spelet har inte startat ännu' });
+    }
+    if (room.startTime && now > room.startTime + 120000) {
+      return res.status(400).json({ error: 'Tidsfönstret för inlämning har löpt ut' });
+    }
+
+    // Support both top-level and nested stoppedTime if any client sent it
+    const reqScore = typeof req.body.score === 'number'
+      ? req.body.score
+      : (req.body.stoppedTime && typeof req.body.stoppedTime.score === 'number' ? req.body.stoppedTime.score : req.body.score);
+    const reqAliens = typeof req.body.aliensKilled === 'number'
+      ? req.body.aliensKilled
+      : (req.body.stoppedTime && typeof req.body.stoppedTime.aliensKilled === 'number' ? req.body.stoppedTime.aliensKilled : req.body.aliensKilled);
+    const reqWave = typeof req.body.waveReached === 'number'
+      ? req.body.waveReached
+      : (req.body.stoppedTime && typeof req.body.stoppedTime.waveReached === 'number' ? req.body.stoppedTime.waveReached : req.body.waveReached);
+
+    const maxAllowedScore = 5000;
+    const parsedScore = typeof reqScore === 'number' && Number.isFinite(reqScore)
+      ? Math.min(maxAllowedScore, Math.max(0, Math.floor(reqScore)))
+      : 0;
+    const parsedAliens = typeof reqAliens === 'number' && Number.isFinite(reqAliens)
+      ? Math.min(150, Math.max(0, Math.floor(reqAliens)))
+      : 0;
+    const parsedWave = typeof reqWave === 'number' && Number.isFinite(reqWave)
+      ? Math.min(10, Math.max(1, Math.floor(reqWave)))
+      : 1;
+
+    player.score = parsedScore;
+    player.aliensKilled = parsedAliens;
+    player.waveReached = parsedWave;
+    player.stoppedTime = now;
 
     broadcastToParty(room.id, {
       type: 'party_player_stopped',
@@ -3422,7 +3468,7 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
                 creatorId: winner.id,
                 opponentId: loser.id,
                 stakeAmount: room.stakeAmount,
-                mode: 'online'
+                mode: 'party'
               });
               if (duel) {
                 db.submitDuelResult({

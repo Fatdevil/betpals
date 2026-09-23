@@ -804,7 +804,7 @@ const stmts = {
         opponent_score = @opponent_score,
         winner_id = @winner_id,
         status = @status
-    WHERE id = @id AND status = 'active'
+    WHERE id = @id AND status IN ('active', 'pending')
   `),
   getPendingDuelsForUser: db.prepare(`
     SELECT d.*,
@@ -2604,7 +2604,7 @@ export function searchUsers(query, excludeUserId) {
 // ── Minigame Duels API ─────────────────────────────────
 export function createDuel({ id: customId, gameType, creatorId, opponentId, stakeAmount, mode, tournamentId = null }) {
   const id = customId || crypto.randomUUID();
-  const status = mode === 'table' ? 'active' : (opponentId ? 'pending' : 'active');
+  const status = (mode === 'table' || mode === 'party') ? 'active' : (opponentId ? 'pending' : 'active');
   stmts.insertDuel.run({
     id,
     game_type: gameType || 'dice',

@@ -8,7 +8,7 @@ import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '.
 import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush } from '../push.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
-import { openBlind10Modal, openMafiaModal } from '../components/minigames.js';
+import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from '../components/minigames.js';
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -304,6 +304,8 @@ async function checkPendingPartyJoin() {
         navigate('home');
         if (joinRes.room.gameType === 'mafia') {
           openMafiaModal(joinRes.room);
+        } else if (joinRes.room.gameType === 'space_invaders') {
+          openSpaceInvadersModal({ mode: 'party', room: joinRes.room });
         } else {
           openBlind10Modal(joinRes.room);
         }

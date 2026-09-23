@@ -4,7 +4,7 @@ import { initAds } from './components/ads.js';
 import { addFriend, getPartyRoom, joinPartyRoom, connectWebSocket } from './api.js';
 import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
-import { openBlind10Modal, openMafiaModal } from './components/minigames.js';
+import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from './components/minigames.js';
 
 // ── Global Client Error Reporting ─────────────────────
 let reportedErrorsCount = 0;
@@ -282,16 +282,19 @@ async function handlePartyRoomDeepLink(code) {
     if (isLoggedIn()) {
       const joinRes = await joinPartyRoom({ code });
       const joinedRoom = joinRes?.room || room;
-      const gameLabel = joinedRoom.gameType === 'mafia' ? 'Maffia' : 'The Blind 10.00';
+      const gameLabel = joinedRoom.gameType === 'mafia' ? 'Maffia' : (joinedRoom.gameType === 'space_invaders' ? 'Space Blitz' : 'The Blind 10.00');
       showToast(`Ansluten till ${gameLabel}! 🎉`, 'success');
       if (joinedRoom.gameType === 'mafia') {
         openMafiaModal(joinedRoom);
+      } else if (joinedRoom.gameType === 'space_invaders') {
+        openSpaceInvadersModal({ mode: 'party', room: joinedRoom });
       } else {
         openBlind10Modal(joinedRoom);
       }
     } else {
       sessionStorage.setItem('pending_party_join', code);
-      showToast(`Skapa profil eller logga in för att gå med i ${room.gameType === 'mafia' ? 'Maffia' : 'The Blind 10.00'}! 🎮`, 'info');
+      const gameLabel = room.gameType === 'mafia' ? 'Maffia' : (room.gameType === 'space_invaders' ? 'Space Blitz' : 'The Blind 10.00');
+      showToast(`Skapa profil eller logga in för att gå med i ${gameLabel}! 🎮`, 'info');
       navigate('profile');
     }
   } catch (err) {

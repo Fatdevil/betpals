@@ -312,7 +312,8 @@ export const getPartyRoom = (query) => request('/minigames/party/' + encodeURICo
 export const joinPartyRoom = (data) => request('/minigames/party/join', { method: 'POST', body: data });
 export const inviteToParty = (id, friendIds) => request('/minigames/party/' + id + '/invite', { method: 'POST', body: { friendIds } });
 export const startPartyGame = (id) => request('/minigames/party/' + id + '/start', { method: 'POST', body: {} });
-export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: { stoppedTime } });
+export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof stoppedTime === 'object' && stoppedTime !== null ? stoppedTime : { stoppedTime } });
+export const submitPartyScore = (id, data) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof data === 'object' && data !== null ? data : { score: data } });
 export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
 export const getPartyRoomQR = (query, baseUrl) => request('/minigames/party/' + encodeURIComponent(query) + '/qr' + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : ''));
 
