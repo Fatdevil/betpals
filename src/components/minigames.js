@@ -267,7 +267,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.lovenGame'),
       tag: t('arcade.lovenGameTag'),
       title: t('arcade.lovenGameTitle'),
-      iconHtml: `<img src="/loven-game.jpg" alt="${t('arcade.lovenGame')}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.6); border: 2px solid #d4af37;" />`
+      iconHtml: `<img src="/loven-game.jpg" alt="${t('arcade.lovenGame')}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: cover; box-shadow: 0 2px 6px rgba(0,0,0,0.5);" />`
     }
   ];
 
@@ -401,7 +401,7 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.lovenGame'),
       tag: t('arcade.lovenGameTag'),
       desc: t('arcade.lovenGameDesc'),
-      iconHtml: `<img src="/loven-game.jpg" alt="${t('arcade.lovenGame')}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 3px 8px rgba(0,0,0,0.6); border: 2px solid #d4af37;" />`
+      iconHtml: `<img src="/loven-game.jpg" alt="${t('arcade.lovenGame')}" style="width: 44px; height: 44px; border-radius: 8px; object-fit: cover; box-shadow: 0 3px 8px rgba(0,0,0,0.5);" />`
     }
   ];
 
@@ -8044,7 +8044,7 @@ export async function openLovenGameModal() {
   let isSubmitting = false;
 
   const { close, root } = showModal(
-    `<img src="/loven-game.jpg" alt="" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover; vertical-align: -5px; margin-right: 6px; border: 1.5px solid #d4af37;" /> LÖVEN GAME`,
+    `<img src="/loven-game.jpg" alt="" style="width: 24px; height: 24px; border-radius: 4px; object-fit: cover; vertical-align: -5px; margin-right: 6px;" /> LÖVEN GAME`,
     `<div id="loven-modal-container" style="min-height: 280px; padding: 4px 0;">
       <div class="text-center text-muted" style="padding: 30px 0;">
         <span class="spinner" style="font-size: 1.8rem; margin-bottom: 8px;">⏳</span>
@@ -8147,7 +8147,7 @@ export async function openLovenGameModal() {
           <img src="/loven-game.jpg" alt="Björklöven" class="loven-emblem-img" />
           <div class="loven-title-group" style="flex: 1 1 auto; min-width: 0;">
             <h3>LÖVEN GAME <span>🏒</span></h3>
-            <p>Björklöven Matchtips · 4-3-2p · Gängpott & Swish</p>
+            <p>Match tips / Bet the game</p>
           </div>
         </div>
 

@@ -569,7 +569,7 @@ export const sv = {
     gimmeWinnerWins: 'vann bettet och tar hem',
     gimmePaySwish: '📱 Swisha vinnaren nu',
     lovenGame: 'Löven Game',
-    lovenGameTag: 'Matchtips · 4-3-2p',
+    lovenGameTag: 'Match tips / Bet the game',
     lovenGameTitle: 'Löven Game – Björklöven Matchtips',
     lovenGameDesc: 'Gissa slutresultat (4p), sista målskytt (3p) & skott på mål (2p närmast) i gängpott!'
   }
