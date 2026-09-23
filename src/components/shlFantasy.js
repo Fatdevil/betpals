@@ -219,7 +219,7 @@ export async function openShlFantasyModal(options = {}) {
     }
   }
 
-  const modalTitle = `<img src="/hockey-gold.png" alt="" style="width: 28px; height: 28px; object-fit: contain; vertical-align: -5px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? "SHL 2026/2027 Mini Fantasy 🏒" : "SHL 2026/2027 Mini Fantasy 🏒"}`;
+  const modalTitle = `<img src="/bjorkloven-gold.png" alt="" style="width: 28px; height: 28px; object-fit: contain; vertical-align: -5px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? "SHL 2026/2027 Mini Fantasy" : "SHL 2026/2027 Mini Fantasy"}`;
 
   function getTotalSelectedCount() {
     return (myLineup.goalie ? 1 : 0) + myLineup.defenders.length + myLineup.forwards.length;

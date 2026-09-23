@@ -284,7 +284,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.shlFantasy'),
       tag: t('arcade.shlFantasyTag'),
       title: t('arcade.shlFantasyTitle'),
-      iconHtml: `<img src="/hockey-gold.png" alt="${t('arcade.shlFantasy')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+      iconHtml: `<img src="/bjorkloven-gold.png" alt="${t('arcade.shlFantasy')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     }
   ];
 
@@ -439,7 +439,7 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.shlFantasy'),
       tag: t('arcade.shlFantasyTag'),
       desc: isEn ? 'Draft 1 Goalie, 2 Defenders and 3 Forwards for tonight SHL round! Compete for the Swish pot' : 'Välj 1 Målvakt, 2 Backar och 3 Forwards inför kvällens SHL-omgång! Tävla om Swish-potten',
-      iconHtml: `<img src="/hockey-gold.png" alt="${t('arcade.shlFantasy')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
+      iconHtml: `<img src="/bjorkloven-gold.png" alt="${t('arcade.shlFantasy')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
     }
   ];
 

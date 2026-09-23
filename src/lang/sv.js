@@ -603,7 +603,7 @@ export const sv = {
     gimmeWinnerWins: 'vann bettet och tar hem',
     gimmePaySwish: '📱 Swisha vinnaren nu',
     shlFantasy: 'SHL Mini Fantasy',
-    shlFantasyTag: 'SHL · Fantasy 🏒',
+    shlFantasyTag: 'SHL · Fantasy',
     shlFantasyTitle: '🏒 SHL Mini Fantasy (1 MV + 5 Utespelare)',
     shlFantasyDesc: 'Snabb-fantasy för SHL-omgången! Välj 1 målvakt, 2 backar och 3 forwards. Tävla om Swish-potten i kompisgänget!'
   }
