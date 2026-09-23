@@ -4890,6 +4890,18 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     }
   }
 
+  const formatFlashBetTime = (s) => {
+    if (s >= 3600) {
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const rem = s % 60;
+      return `${h}h ${m < 10 ? '0' : ''}${m}m ${rem < 10 ? '0' : ''}${rem}s`;
+    }
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return `${m}:${rem < 10 ? '0' : ''}${rem}`;
+  };
+
   showModal(`<span style="margin-right: 6px;">⚡</span>${t('arcade.flashbet')}`, `
     <div id="flashbet-container" style="padding: 2px 0; min-height: 380px;">
       <p class="game-modal-subheading">${t('arcade.flashbetDesc')}</p>
@@ -5007,12 +5019,6 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     const seconds = countdowns.get(fb.id) ?? fb.secondsLeft;
     const isExpired = seconds <= 0 || fb.status !== 'open';
 
-    const formatSeconds = (s) => {
-      const m = Math.floor(s / 60);
-      const rem = s % 60;
-      return `${m}:${rem < 10 ? '0' : ''}${rem}`;
-    };
-
     return `
       <div class="card flashbet-card" data-fb-id="${fb.id}" style="border: 1.5px solid ${isExpired ? 'var(--border-light)' : 'var(--gold)'}; background: var(--bg-card); position: relative; overflow: hidden; padding: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
@@ -5024,7 +5030,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
             </div>
           </div>
           <div class="flashbet-timer-badge" id="timer-${fb.id}" style="padding: 4px 8px; border-radius: var(--radius-full); font-size: 0.8rem; font-weight: 800; font-family: monospace; letter-spacing: 0.05em; flex-shrink: 0; white-space: nowrap; text-align: center; background: ${seconds <= 15 ? 'rgba(231,76,60,0.2)' : 'rgba(245,166,35,0.15)'}; color: ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'}; border: 1px solid ${seconds <= 15 ? '#e74c3c' : 'var(--gold)'};">
-            ⏱️ ${formatSeconds(seconds)}
+            ⏱️ ${formatFlashBetTime(seconds)}
           </div>
         </div>
 
@@ -5095,9 +5101,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
 
         const badge = document.getElementById(`timer-${id}`);
         if (badge) {
-          const m = Math.floor(next / 60);
-          const rem = next % 60;
-          badge.textContent = `⏱️ ${m}:${rem < 10 ? '0' : ''}${rem}`;
+          badge.textContent = `⏱️ ${formatFlashBetTime(next)}`;
           if (next <= 15) {
             badge.style.background = 'rgba(231,76,60,0.2)';
             badge.style.color = '#e74c3c';
@@ -5162,13 +5166,23 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
   // ── Render Create Tab ──────────────────────────────
   async function renderCreateTab() {
     cleanupTimer();
-    let selectedDuration = 60;
+    let selectedDurationMinutes = 2;
+    let selectedDuration = 120;
     let selectedStake = 20;
     let selectedMyChoice = 'yes';
     let tournaments = [];
+    let friends = [];
+    let selectedFriendIds = new Set();
+    let isAllFriends = true;
 
     try {
-      tournaments = await getTournaments().catch(() => []);
+      const [fetchedTournaments, fetchedFriends] = await Promise.all([
+        getTournaments().catch(() => []),
+        getFriends().catch(() => [])
+      ]);
+      tournaments = fetchedTournaments || [];
+      friends = fetchedFriends || [];
+      selectedFriendIds = new Set(friends.map(f => f.id));
     } catch {}
 
     tabContent.innerHTML = `
@@ -5178,14 +5192,24 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
           <input type="text" class="form-input" id="fb-question-input" placeholder="${t('arcade.flashbetQuestionPlaceholder')}" required maxlength="120" style="padding: 10px 12px; font-weight: 700; font-size: 0.95rem;" />
         </div>
 
-        <!-- Duration Picker -->
+        <!-- Duration Picker (Custom minutes field + shortcuts) -->
         <div class="form-group mb-xs">
-          <label class="form-label" style="font-size: 0.8rem;">⏱️ ${t('arcade.flashbetDurationLabel')}</label>
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
-            <button type="button" class="btn btn-sm fb-duration-btn" data-sec="30" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">30s</button>
-            <button type="button" class="btn btn-sm btn-primary fb-duration-btn" data-sec="60" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">60s</button>
-            <button type="button" class="btn btn-sm fb-duration-btn" data-sec="120" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">2 min</button>
-            <button type="button" class="btn btn-sm fb-duration-btn" data-sec="300" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">5 min</button>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+            <label class="form-label" style="font-size: 0.8rem; font-weight: 700; margin-bottom: 0;">⏱️ ${t('arcade.flashbetDurationLabel') || 'Tid att rösta:'}</label>
+            <span style="font-size: 0.72rem; color: var(--text-muted);">Ange valfritt antal minuter</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+            <div style="position: relative; width: 110px;">
+              <input type="number" class="form-input" id="fb-duration-minutes-input" min="1" max="1440" step="1" value="${selectedDurationMinutes}" style="padding: 8px 12px; font-weight: 800; font-size: 1.05rem; text-align: center; border-color: var(--gold);" />
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 700;">minuter</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+            <button type="button" class="btn btn-sm fb-quick-min-btn ${selectedDurationMinutes === 1 ? 'btn-primary' : 'btn-secondary'}" data-min="1" style="padding: 6px 2px; font-size: 0.78rem; font-weight: 700;">1 min</button>
+            <button type="button" class="btn btn-sm fb-quick-min-btn ${selectedDurationMinutes === 2 ? 'btn-primary' : 'btn-secondary'}" data-min="2" style="padding: 6px 2px; font-size: 0.78rem; font-weight: 700;">2 min</button>
+            <button type="button" class="btn btn-sm fb-quick-min-btn ${selectedDurationMinutes === 5 ? 'btn-primary' : 'btn-secondary'}" data-min="5" style="padding: 6px 2px; font-size: 0.78rem; font-weight: 700;">5 min</button>
+            <button type="button" class="btn btn-sm fb-quick-min-btn ${selectedDurationMinutes === 10 ? 'btn-primary' : 'btn-secondary'}" data-min="10" style="padding: 6px 2px; font-size: 0.78rem; font-weight: 700;">10 min</button>
+            <button type="button" class="btn btn-sm fb-quick-min-btn ${selectedDurationMinutes === 30 ? 'btn-primary' : 'btn-secondary'}" data-min="30" style="padding: 6px 2px; font-size: 0.78rem; font-weight: 700;">30 min</button>
           </div>
         </div>
 
@@ -5209,6 +5233,52 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
           </div>
         </div>
 
+        <!-- Friends Selection -->
+        <div class="form-group mb-xs">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0;">👥 Välj vänner:</label>
+            ${friends && friends.length > 0 ? `
+              <label style="font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--text-secondary);">
+                <input type="checkbox" id="fb-toggle-all-friends" ${isAllFriends ? 'checked' : ''} style="cursor: pointer;" />
+                Alla vänner (${friends.length})
+              </label>
+            ` : ''}
+          </div>
+          ${friends && friends.length > 0 ? `
+            <div id="fb-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto; padding: 2px;">
+              ${friends.map(f => {
+                const checked = selectedFriendIds.has(f.id);
+                return `
+                  <div class="friend-chip fb-friend-chip" data-friend-id="${f.id}" style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    background: ${checked ? 'rgba(0, 230, 118, 0.2)' : 'rgba(255, 255, 255, 0.05)'};
+                    border: 1px solid ${checked ? '#00e676' : 'rgba(255, 255, 255, 0.15)'};
+                    border-radius: 16px;
+                    padding: 4px 10px;
+                    font-size: 0.8rem;
+                    cursor: pointer;
+                    user-select: none;
+                    transition: all 0.2s;
+                  ">
+                    <span>${escapeHtml(f.avatarEmoji || f.avatar_emoji || '🏌️')}</span>
+                    <span style="font-weight: 600; color: #fff;">${escapeHtml(f.nickname || f.realName || f.real_name || 'Vän')}</span>
+                    <span class="fb-chip-status" style="font-size: 0.75rem;">${checked ? '✓' : '+'}</span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+            <div id="fb-friends-count-hint" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+              ${isAllFriends ? 'Notis skickas till alla vänner' : `${selectedFriendIds.size} ${selectedFriendIds.size === 1 ? 'vän vald' : 'vänner valda'}`}
+            </div>
+          ` : `
+            <div style="font-size: 0.78rem; color: var(--text-muted); padding: 4px 0;">
+              💡 Tips: Lägg till vänner i menyn så kan du skicka snabb-bets direkt till deras mobiler!
+            </div>
+          `}
+        </div>
+
         <!-- Optional Tournament Link -->
         ${tournaments && tournaments.length > 0 ? `
           <div class="form-group mb-xs">
@@ -5226,12 +5296,87 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
       </form>
     `;
 
-    // Duration buttons
-    document.querySelectorAll('.fb-duration-btn').forEach(btn => {
+    // Minutes input & quick buttons
+    const minutesInput = document.getElementById('fb-duration-minutes-input');
+    const updateDurationFromMinutes = (val) => {
+      let mins = Math.max(1, Math.min(1440, Number(val) || 1));
+      selectedDurationMinutes = mins;
+      selectedDuration = Math.round(mins * 60);
+      document.querySelectorAll('.fb-quick-min-btn').forEach(b => {
+        const bMin = Number(b.dataset.min);
+        if (bMin === mins) {
+          b.className = 'btn btn-sm btn-primary fb-quick-min-btn';
+        } else {
+          b.className = 'btn btn-sm btn-secondary fb-quick-min-btn';
+        }
+      });
+    };
+
+    minutesInput?.addEventListener('input', (e) => {
+      updateDurationFromMinutes(e.target.value);
+    });
+
+    minutesInput?.addEventListener('blur', (e) => {
+      let mins = Math.max(1, Math.min(1440, Number(e.target.value) || 1));
+      e.target.value = mins;
+      updateDurationFromMinutes(mins);
+    });
+
+    document.querySelectorAll('.fb-quick-min-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.fb-duration-btn').forEach(b => b.className = 'btn btn-sm fb-duration-btn');
-        btn.className = 'btn btn-sm btn-primary fb-duration-btn';
-        selectedDuration = Number(btn.dataset.sec);
+        const mins = Number(btn.dataset.min);
+        if (minutesInput) minutesInput.value = mins;
+        updateDurationFromMinutes(mins);
+      });
+    });
+
+    // Friend selection chips & toggle
+    const updateFriendChipsUI = () => {
+      const toggleAll = document.getElementById('fb-toggle-all-friends');
+      if (toggleAll) {
+        toggleAll.checked = isAllFriends;
+      }
+      document.querySelectorAll('.fb-friend-chip').forEach(chip => {
+        const fId = chip.dataset.friendId;
+        const isSelected = selectedFriendIds.has(fId);
+        chip.style.background = isSelected ? 'rgba(0, 230, 118, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+        chip.style.borderColor = isSelected ? '#00e676' : 'rgba(255, 255, 255, 0.15)';
+        const statusSpan = chip.querySelector('.fb-chip-status');
+        if (statusSpan) statusSpan.textContent = isSelected ? '✓' : '+';
+      });
+      const hint = document.getElementById('fb-friends-count-hint');
+      if (hint) {
+        hint.textContent = isAllFriends
+          ? 'Notis skickas till alla vänner'
+          : (selectedFriendIds.size === 0
+              ? 'Inga vänner valda (endast du kan se det tills vänner bjuds in)'
+              : `${selectedFriendIds.size} ${selectedFriendIds.size === 1 ? 'vän vald' : 'vänner valda'}`);
+      }
+    };
+
+    document.getElementById('fb-toggle-all-friends')?.addEventListener('change', (e) => {
+      isAllFriends = e.target.checked;
+      if (isAllFriends) {
+        selectedFriendIds = new Set(friends.map(f => f.id));
+      } else {
+        selectedFriendIds.clear();
+      }
+      updateFriendChipsUI();
+    });
+
+    document.querySelectorAll('.fb-friend-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const fId = chip.dataset.friendId;
+        if (selectedFriendIds.has(fId)) {
+          selectedFriendIds.delete(fId);
+          isAllFriends = false;
+        } else {
+          selectedFriendIds.add(fId);
+          if (friends.length > 0 && selectedFriendIds.size === friends.length) {
+            isAllFriends = true;
+          }
+        }
+        updateFriendChipsUI();
       });
     });
 
@@ -5266,9 +5411,12 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         await createFlashBet({
           question,
           durationSeconds: selectedDuration,
+          durationMinutes: selectedDurationMinutes,
           stakeAmount: selectedStake,
           tournamentId,
-          initialChoice: selectedMyChoice
+          initialChoice: selectedMyChoice,
+          targetFriendIds: Array.from(selectedFriendIds),
+          notifyAllFriends: isAllFriends
         });
 
         showToast('⚡ BlixtBet startat! Klockan tickar!', 'success');

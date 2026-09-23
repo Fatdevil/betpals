@@ -385,6 +385,7 @@ try {
   `);
 } catch {}
 try { db.exec('ALTER TABLE anybets ADD COLUMN tournament_id TEXT'); } catch (e) { /* Column already exists – expected on existing databases */ }
+try { db.exec('ALTER TABLE flash_bets ADD COLUMN target_user_ids TEXT'); } catch (e) { /* Column already exists – expected on existing databases */ }
 
 try {
   db.exec(`
@@ -409,6 +410,7 @@ try {
       status TEXT NOT NULL DEFAULT 'open',
       winning_choice TEXT,
       stake_amount INTEGER NOT NULL DEFAULT 20,
+      target_user_ids TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE SET NULL
@@ -864,8 +866,8 @@ const stmts = {
 
   // Flash Bets
   insertFlashBet: db.prepare(`
-    INSERT INTO flash_bets (id, creator_id, tournament_id, question, duration_seconds, expires_at, status, stake_amount)
-    VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+    INSERT INTO flash_bets (id, creator_id, tournament_id, question, duration_seconds, expires_at, status, stake_amount, target_user_ids)
+    VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)
   `),
   getFlashBetById: db.prepare(`
     SELECT fb.*, u.nickname as creator_nickname, u.real_name as creator_real_name, u.avatar_emoji as creator_avatar, u.avatar_url as creator_avatar_url
@@ -2852,8 +2854,9 @@ export function getTournamentParticipantUserIds(tournamentId) {
 
 // ── Flash Bets (BlixtBet) API ────────────────────────
 
-export function createFlashBet(id, creatorId, tournamentId, question, durationSeconds, expiresAt, stakeAmount = 20) {
-  stmts.insertFlashBet.run(id, creatorId, tournamentId || null, question, durationSeconds, expiresAt, stakeAmount);
+export function createFlashBet(id, creatorId, tournamentId, question, durationSeconds, expiresAt, stakeAmount = 20, targetUserIds = null) {
+  const targetJson = (Array.isArray(targetUserIds) && targetUserIds.length > 0) ? JSON.stringify(targetUserIds) : null;
+  stmts.insertFlashBet.run(id, creatorId, tournamentId || null, question, durationSeconds, expiresAt, stakeAmount, targetJson);
   return getFlashBet(id);
 }
 
@@ -2888,6 +2891,13 @@ export function getFlashBet(id, currentUserId = null) {
         createdAt: found.created_at
       };
     }
+  }
+
+  let targetUserIds = null;
+  if (fb.target_user_ids) {
+    try {
+      targetUserIds = JSON.parse(fb.target_user_ids);
+    } catch {}
   }
 
   // Build settlement summary if bet is settled
@@ -2936,6 +2946,7 @@ export function getFlashBet(id, currentUserId = null) {
     status,
     winningChoice: fb.winning_choice,
     stakeAmount: fb.stake_amount,
+    targetUserIds,
     createdAt: fb.created_at,
     secondsLeft,
     totalPool,
@@ -2969,7 +2980,12 @@ export function getActiveFlashBets(userId = null, tournamentId = null) {
       if (!fb) return false;
       if (fb.status === 'settled' || fb.status === 'cancelled') return false;
       if (tournamentId && (fb.tournamentId || fb.tournament_id) !== tournamentId) return false;
-      // Active and time left: everyone sees it
+      // Targeted bet filter: only creator and targetUserIds can see it
+      if (fb.targetUserIds && Array.isArray(fb.targetUserIds) && fb.targetUserIds.length > 0) {
+        if (!userId) return false;
+        if (fb.creatorId !== userId && !fb.targetUserIds.includes(userId)) return false;
+      }
+      // Active and time left: everyone (or allowed target) sees it
       if (fb.status === 'open' && fb.secondsLeft > 0) return true;
       // Pending settlement (time expired or locked): creator sees it to settle, and participants who voted see it
       if (userId && (fb.creatorId === userId || fb.myEntry)) return true;
@@ -2983,6 +2999,17 @@ export function placeFlashBetEntry(id, flashBetId, userId, choice, amount) {
 
   if (fb.creator_id === userId) {
     throw new Error('Som skapare av vadet kan du inte rösta i det');
+  }
+
+  if (fb.target_user_ids) {
+    try {
+      const targets = JSON.parse(fb.target_user_ids);
+      if (Array.isArray(targets) && targets.length > 0 && !targets.includes(userId)) {
+        throw new Error('Du är inte inbjuden till detta BlixtBet');
+      }
+    } catch (err) {
+      if (err.message === 'Du är inte inbjuden till detta BlixtBet') throw err;
+    }
   }
 
   const now = new Date();

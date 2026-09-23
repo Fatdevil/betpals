@@ -4104,19 +4104,53 @@ app.post('/api/flashbets', async (req, res) => {
     return res.status(400).json({ error: 'Du behöver ange ett Swish-nummer i din profil innan du kan starta ett BlixtBet' });
   }
 
-  const { question, title, durationSeconds, stakeAmount, stake: rawStake, tournamentId, initialChoice, myChoice } = req.body || {};
+  const {
+    question,
+    title,
+    durationMinutes,
+    durationSeconds,
+    stakeAmount,
+    stake: rawStake,
+    tournamentId,
+    initialChoice,
+    myChoice,
+    targetFriendIds,
+    notifyAllFriends
+  } = req.body || {};
   const finalQuestion = (question || title || '').trim();
   if (!finalQuestion || finalQuestion.length < 3) {
     return res.status(400).json({ error: 'Ange en fråga (minst 3 tecken)' });
   }
 
-  const duration = Math.max(1, Math.min(600, Number(durationSeconds) || 60));
+  const rawDuration = Number(durationSeconds) || (Number(durationMinutes) ? Number(durationMinutes) * 60 : null) || 60;
+  const duration = Math.max(10, Math.min(86400, Math.round(rawDuration)));
   const stake = Math.max(5, Math.min(5000, Number(stakeAmount || rawStake) || 20));
   const choice = initialChoice || myChoice;
   const expiresAt = new Date(Date.now() + duration * 1000).toISOString();
 
+  // Target users for Web Push & Visibility
+  let targetUserIds = [];
+  const userFriends = db.getFriends(user.id);
+  const isTargetedSubset = !notifyAllFriends && Array.isArray(targetFriendIds) && targetFriendIds.length > 0;
+
+  if (isTargetedSubset) {
+    const friendIdSet = new Set(userFriends.map(f => f.id));
+    targetUserIds = targetFriendIds.filter(id => friendIdSet.has(id));
+  } else {
+    targetUserIds = userFriends.map(f => f.id);
+  }
+
+  if (tournamentId) {
+    const t = db.getFullTournament(tournamentId);
+    if (t && t.creatorId && !targetUserIds.includes(t.creatorId)) {
+      targetUserIds.push(t.creatorId);
+    }
+  }
+
+  const storedTargets = isTargetedSubset ? targetUserIds : null;
+
   const id = generateId();
-  db.createFlashBet(id, user.id, tournamentId, finalQuestion, duration, expiresAt, stake);
+  db.createFlashBet(id, user.id, tournamentId, finalQuestion, duration, expiresAt, stake, storedTargets);
 
   if (choice === 'yes' || choice === 'no') {
     try {
@@ -4130,26 +4164,30 @@ app.post('/api/flashbets', async (req, res) => {
   const created = db.getFlashBet(id, user.id);
 
   // Broadcast WebSocket event
-  broadcastGlobal({
-    type: 'flash_bet_created',
-    flashBet: created
-  });
-
-  // Target users for Web Push
-  let targetUserIds = [];
-  try {
-    const friends = db.getFriends(user.id);
-    targetUserIds = friends.map(f => f.id);
-    if (tournamentId) {
-      const t = db.getFullTournament(tournamentId);
-      if (t && t.creatorId && !targetUserIds.includes(t.creatorId)) {
-        targetUserIds.push(t.creatorId);
-      }
+  if (isTargetedSubset) {
+    broadcastToUser(user.id, {
+      type: 'flash_bet_created',
+      flashBet: created
+    });
+    for (const tid of targetUserIds) {
+      broadcastToUser(tid, {
+        type: 'flash_bet_created',
+        flashBet: created
+      });
     }
-  } catch {}
+  } else {
+    broadcastGlobal({
+      type: 'flash_bet_created',
+      flashBet: created
+    });
+  }
+
+  const durationLabel = duration >= 60
+    ? `${Math.round(duration / 60)} min`
+    : `${duration}s`;
 
   sendPushToUsers(targetUserIds, {
-    title: `⚡ BLIXTBET (${duration}s kvar!)`,
+    title: `⚡ BLIXTBET (${durationLabel} kvar!)`,
     body: `${user.real_name || user.nickname}: "${finalQuestion}"`,
     url: tournamentId ? `/#tournament/${tournamentId}` : `/#arcade`
   }, 'flashbets').catch(() => {});
@@ -4167,6 +4205,11 @@ app.get('/api/flashbets/:id', (req, res) => {
   const user = getUserFromToken(req);
   const fb = db.getFlashBet(req.params.id, user ? user.id : null);
   if (!fb) return res.status(404).json({ error: 'BlixtBet hittades inte' });
+  if (fb.targetUserIds && fb.targetUserIds.length > 0) {
+    if (!user || (fb.creatorId !== user.id && !fb.targetUserIds.includes(user.id))) {
+      return res.status(403).json({ error: 'Du har inte tillgång till detta BlixtBet' });
+    }
+  }
   res.json(fb);
 });
 
@@ -4189,14 +4232,28 @@ app.post('/api/flashbets/:id/bet', (req, res) => {
     const entryId = generateId();
     const updated = db.placeFlashBetEntry(entryId, fb.id, user.id, choice, fb.stakeAmount);
 
-    broadcastGlobal({
-      type: 'flash_bet_updated',
-      flashBet: updated
-    });
+    if (updated.targetUserIds && updated.targetUserIds.length > 0) {
+      broadcastToUser(updated.creatorId, {
+        type: 'flash_bet_updated',
+        flashBet: updated
+      });
+      for (const tid of updated.targetUserIds) {
+        broadcastToUser(tid, {
+          type: 'flash_bet_updated',
+          flashBet: updated
+        });
+      }
+    } else {
+      broadcastGlobal({
+        type: 'flash_bet_updated',
+        flashBet: updated
+      });
+    }
 
     res.json(updated);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const isForbidden = err.message === 'Du är inte inbjuden till detta BlixtBet';
+    res.status(isForbidden ? 403 : 400).json({ error: err.message });
   }
 });
 
@@ -4212,10 +4269,23 @@ app.post('/api/flashbets/:id/settle', (req, res) => {
   try {
     const settled = db.settleFlashBet(req.params.id, winnerChoice, user.id);
 
-    broadcastGlobal({
-      type: 'flash_bet_settled',
-      flashBet: settled
-    });
+    if (settled.targetUserIds && settled.targetUserIds.length > 0) {
+      broadcastToUser(settled.creatorId, {
+        type: 'flash_bet_settled',
+        flashBet: settled
+      });
+      for (const tid of settled.targetUserIds) {
+        broadcastToUser(tid, {
+          type: 'flash_bet_settled',
+          flashBet: settled
+        });
+      }
+    } else {
+      broadcastGlobal({
+        type: 'flash_bet_settled',
+        flashBet: settled
+      });
+    }
 
     const participantUserIds = settled.entries.map(e => e.userId).filter(uid => uid !== user.id);
     sendPushToUsers(participantUserIds, {
