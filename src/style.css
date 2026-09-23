@@ -1152,6 +1152,7 @@ select.form-input option {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 1.12rem;
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

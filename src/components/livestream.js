@@ -30,6 +30,7 @@ import {
   stopFlashLive
 } from '../api.js';
 import { getStoredUser } from '../auth.js';
+import { t, getLang } from '../i18n.js';
 
 let streamActive = false;
 let viewerCount = 1;
@@ -1268,8 +1269,9 @@ export async function openInstantLiveModal() {
   let includeBet = true;
 
   function renderModal() {
-    showModal('🔴 Starta Spontan-Live', `
+    showModal(`<span style="margin-right: 6px;">🔴</span>${t('arcade.flashliveTitle')}`, `
       <div style="padding: 4px 0;">
+        <p class="game-modal-subheading">${t('arcade.flashliveDesc')}</p>
         <!-- Live Mode Switcher (Med BlixtBet / Endast Video) -->
         <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.06); padding: 4px; border-radius: 10px; margin-bottom: 14px;">
           <button type="button" id="btn-mode-bet" class="btn btn-sm ${includeBet ? 'btn-primary' : 'btn-secondary'}" style="flex: 1; font-weight: 800; font-size: 0.82rem;">

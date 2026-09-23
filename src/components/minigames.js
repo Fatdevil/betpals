@@ -325,77 +325,77 @@ export function openAllArcadeGamesModal() {
       id: 'flashlive',
       name: t('arcade.flashlive'),
       tag: t('arcade.flashliveTag'),
-      desc: isEn ? 'Stream live video with 60s live voting bets' : 'Sänd livevideo med 60s blixtbets direkt till polarna',
+      desc: t('arcade.flashliveDesc'),
       iconHtml: `<span style="font-size: 2.4rem; line-height: 1; filter: drop-shadow(0 0 10px rgba(255, 51, 75, 0.9)); animation: pulse 1.5s infinite;">🔴</span>`
     },
     {
       id: 'coin-flip',
       name: t('arcade.coinFlip'),
       tag: t('arcade.coinFlipTag'),
-      desc: isEn ? 'Flip a coin to settle bets or make decisions' : 'Singla slant för att avgöra val eller testa din vinstsvit',
+      desc: t('arcade.coinFlipDesc'),
       iconHtml: `<img src="/coin-head.jpg" alt="${t('arcade.coinFlip')}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; box-shadow: 0 2px 8px rgba(0,0,0,0.5); border: 2px solid var(--gold);" />`
     },
     {
       id: 'slots',
       name: t('arcade.slots'),
       tag: t('arcade.slotsTag'),
-      desc: isEn ? '3-reel Vegas slot machine with free chips & jackpot' : '3-hjulig Vegas-bandit med gratismarker & jackpot',
+      desc: t('arcade.slotsDesc'),
       iconHtml: `<img src="/slots-machine.png" alt="${t('arcade.slots')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'wheel',
       name: t('arcade.wheel'),
       tag: t('arcade.wheelTag'),
-      desc: isEn ? 'Wheel of Fortune with custom stakes & party mode' : 'Lyckohjul med egna insatser & festläge',
+      desc: t('arcade.wheelDesc'),
       iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'blind10',
       name: t('arcade.blind10'),
       tag: t('arcade.blind10Tag'),
-      desc: isEn ? 'Hit exactly 10.00s blindly — nearest wins!' : 'Pricka exakt 10.00 sekunder i blindo — närmast vinner!',
+      desc: t('arcade.blind10Desc'),
       iconHtml: `<img src="/stopwatch-gold.png" alt="${t('arcade.blind10')}" style="width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'anybet',
       name: t('arcade.anybet'),
       tag: t('arcade.anybetTag'),
-      desc: isEn ? 'Create any custom bet with custom odds or pools' : 'Skapa vilket personligt vad som helst med polarna',
+      desc: t('arcade.anybetDesc'),
       iconHtml: `<img src="/handshake-gold.png" alt="${t('arcade.anybet')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'flashbet',
       name: t('arcade.flashbet'),
       tag: t('arcade.flashbetTag'),
-      desc: isEn ? 'Lightning 60s bet with instant push to friends' : 'Blixtsnabbt 60s-bet med direkt push-notis till vänner',
+      desc: t('arcade.flashbetDesc'),
       iconHtml: `<span style="font-size: 2.6rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(255,215,0,0.8));">⚡</span>`
     },
     {
       id: 'notan-roulette',
       name: t('arcade.notanRoulette'),
       tag: t('arcade.notanRouletteTag'),
-      desc: isEn ? 'Who pays the dinner bill? Live spin or Even Steven' : 'Vem tar hela notan? Spinn live eller Even Steven',
+      desc: t('arcade.notanRouletteDesc'),
       iconHtml: `<img src="/gold-card.png" alt="${t('arcade.notanRoulette')}" style="width: 44px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'space-invaders',
       name: t('arcade.spaceInvaders'),
       tag: t('arcade.spaceInvadersTag'),
-      desc: isEn ? 'Classic 80s Space Invaders blitz! Solo, 1v1 duels or multi-player highscore' : 'Klassisk 80-tals rymdinvasion i 60s blitz! Solo, 1v1 duell eller grupp-event',
+      desc: t('arcade.spaceInvadersDesc'),
       iconHtml: `<img src="/space-invaders.png" alt="${t('arcade.spaceInvaders')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'mafia',
       name: t('arcade.mafia'),
       tag: t('arcade.mafiaTag'),
-      desc: isEn ? 'Psychological party game! Secret roles, night murders, detective investigations and town square lynching' : 'Klassiskt sällskapsspel! Dolda roller, nattliga mord, detektiv och lynchning på torget',
+      desc: t('arcade.mafiaDesc'),
       iconHtml: `<img src="/mafia-gold.png" alt="${t('arcade.mafia')}" style="width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'gimme',
       name: t('arcade.gimme'),
       tag: t('arcade.gimmeTag'),
-      desc: isEn ? 'Live AR golf putt referee! Instantly settle if the ball is within the gimme circle using phone camera' : 'Live AR-domare på greenen! Avgör blixtsnabbt om bollen är inom gimme-zonen med mobilkameran',
+      desc: t('arcade.gimmeDesc'),
       iconHtml: `<img src="/golf-gimme.png" alt="${t('arcade.gimme')}" style="width: 48px; height: 44px; object-fit: contain; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.6));" />`
     }
   ];
@@ -628,6 +628,7 @@ function openCoinFlipModal() {
   function buildModalHtml() {
     return `
       <div class="text-center" style="padding: var(--space-xs) 0;">
+        <p class="game-modal-subheading">${t('arcade.coinFlipDesc')}</p>
         <!-- Side Picker -->
         <div id="coin-side-picker-box" class="mb-sm">
           <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;" id="coin-side-prompt-label">
@@ -778,9 +779,10 @@ function openSlotsModal() {
     return symbol;
   }
 
-  const slotsTitleHtml = `<img src="/slots-machine.png" alt="Slots" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.slotsTitle').replace('🎰', '').trim()}`;
+  const slotsTitleHtml = `<img src="/slots-machine.png" alt="Slots" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.slotsTitle')}`;
   const { close, root, setBusy } = showModal(slotsTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
+      <p class="game-modal-subheading">${t('arcade.slotsDesc')}</p>
       <!-- Chips & Bet Bar -->
       <div class="flex-between mb-sm" style="align-items: center; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: var(--radius-md);">
         <div>
@@ -1063,9 +1065,10 @@ function openWheelModal() {
     return t('arcade.wheelPromptBeer');
   }
 
-  const wheelTitleHtml = `<img src="/wheel-fortune.png" alt="Wheel" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle').replace('🎡', '').trim()}`;
+  const wheelTitleHtml = `<img src="/wheel-fortune.png" alt="Wheel" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle')}`;
   const { close, root, setBusy } = showModal(wheelTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
+      <p class="game-modal-subheading">${t('arcade.wheelDesc')}</p>
       <!-- Preset pills -->
       <div class="wheel-preset-pills" id="wheel-presets-container"></div>
 
@@ -1678,6 +1681,7 @@ export async function openBlind10Modal(initialRoom = null) {
 
   const { close, root, setBusy } = showModal(modalTitle, `
     <div id="blind10-container" style="padding: 4px 0; min-height: 380px;">
+      <p class="game-modal-subheading">${t('arcade.blind10Desc')}</p>
       <div class="text-center text-muted" style="padding: 40px 0;">
         <span class="spinner">⏳</span>
       </div>
@@ -2773,6 +2777,7 @@ export async function openMafiaModal(initialRoom = null) {
 
   const { close, root, setBusy } = showModal(modalTitle, `
     <div id="mafia-container" class="mafia-container">
+      <p class="game-modal-subheading">${t('arcade.mafiaDesc')}</p>
       <div class="text-center text-muted" style="padding: 40px 0;">
         <span class="spinner">⏳</span>
       </div>
@@ -3923,6 +3928,7 @@ export async function openAnyBetModal(initialBetId = null) {
 
   showModal(modalTitle, `
     <div id="anybet-container" style="padding: 4px 0; min-height: 380px;">
+      <p class="game-modal-subheading">${t('arcade.anybetDesc')}</p>
       <div class="text-center text-muted" style="padding: 40px 0;">
         <span class="spinner">⏳</span>
       </div>
@@ -4884,8 +4890,9 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     }
   }
 
-  showModal(`⚡ ${t('arcade.flashbet')}`, `
+  showModal(`<span style="margin-right: 6px;">⚡</span>${t('arcade.flashbet')}`, `
     <div id="flashbet-container" style="padding: 2px 0; min-height: 380px;">
+      <p class="game-modal-subheading">${t('arcade.flashbetDesc')}</p>
 
       <!-- Nav Tabs -->
       <div class="tab-nav mb-md" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -5765,9 +5772,10 @@ export async function openNotanRouletteModal(initialMode = 'roulette') {
       : 0;
     const customSummary = getCustomSharesSummary(participants);
 
-    const modal = showModal(`
+    const notanTitleHtml = `<img src="/gold-card.png" alt="Not-Roulette" style="width: 22px; height: 22px; object-fit: contain; vertical-align: -3px; margin-right: 6px;" />${t('arcade.notanRouletteTitle')}`;
+    const modal = showModal(notanTitleHtml, `
       <div class="notan-roulette-modal animate-in" style="max-width: 440px; margin: 0 auto; text-align: left;">
-        
+        <p class="game-modal-subheading">${t('arcade.notanRouletteDesc')}</p>
         <!-- Mode Switcher Tabs -->
         <div class="flex gap-xs mb-md" style="background: rgba(0,0,0,0.35); padding: 4px; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
           <button type="button" class="btn btn-sm btn-mode-tab ${activeMode === 'roulette' ? 'btn-primary' : 'btn-ghost'}" data-mode="roulette" style="flex: 1; font-weight: 800; font-size: 0.85rem; padding: 8px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
@@ -6691,12 +6699,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   let passCurrentIndex = 0;
   let passScores = [];
 
-  const modalTitle = t('arcade.spaceInvadersTitle');
+  const modalTitle = `<img src="/space-invaders.png" alt="Space Invaders" style="width: 24px; height: 24px; object-fit: contain; vertical-align: -3px; margin-right: 6px;" />${t('arcade.spaceInvadersTitle')}`;
   let soloGameStarted = false;
 
   function renderContent() {
     return `
       <div class="space-blitz-modal">
+        <p class="game-modal-subheading">${t('arcade.spaceInvadersDesc')}</p>
         <!-- Top Mode Tabs -->
         <div class="flex gap-xs mb-md" style="justify-content: center; flex-wrap: wrap;">
           <button type="button" class="btn ${activeMode === 'solo' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="solo">
@@ -8118,10 +8127,11 @@ export async function openGimmeModal() {
     'No free rides today! Show us what you got! 🔥'
   ];
 
-  const modalTitle = `<img src="/golf-gimme.png" alt="" style="width: 28px; height: 24px; object-fit: contain; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" /> ${isEn ? 'Is it a Gimme?' : 'Is it a Gimme?'}`;
+  const modalTitle = `<img src="/golf-gimme.png" alt="Gimme" style="width: 28px; height: 24px; object-fit: contain; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.gimmeTitle')}`;
 
   const contentHtml = `
     <div class="gimme-modal-container" style="max-width: 480px; margin: 0 auto; text-align: center; user-select: none;">
+      <p class="game-modal-subheading">${t('arcade.gimmeDesc')}</p>
       
       <!-- Top instructions & quick settings -->
       <div class="flex justify-between items-center mb-sm" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 8px 12px; flex-wrap: wrap; gap: 8px;">
