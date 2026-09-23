@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v10';
+const CACHE_NAME = 'betpals-v11';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -18,7 +18,8 @@ const STATIC_ASSETS = [
   '/mafia-gold.png',
   '/golf-gimme.png',
   '/hockey-gold.png',
-  '/bjorkloven-gold.png'
+  '/bjorkloven-gold.png',
+  '/loven-game.png'
 ];
 
 // Install — cache static assets safely
