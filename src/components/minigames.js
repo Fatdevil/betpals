@@ -237,7 +237,7 @@ export function renderMinigamesRoller() {
       name: t('arcade.wheel'),
       tag: t('arcade.wheelTag'),
       title: t('arcade.wheelTitle'),
-      iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+      iconHtml: `<img src="/tab-roulette-card.png" alt="${t('arcade.wheel')}" style="width: 44px; height: 30px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'space-invaders',
@@ -336,7 +336,7 @@ export function openAllArcadeGamesModal() {
       name: t('arcade.wheel'),
       tag: t('arcade.wheelTag'),
       desc: t('arcade.wheelDesc'),
-      iconHtml: `<img src="/wheel-fortune.png" alt="${t('arcade.wheel')}" style="width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
+      iconHtml: `<img src="/tab-roulette-card.png" alt="${t('arcade.wheel')}" style="width: 48px; height: 32px; object-fit: contain; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6));" />`
     },
     {
       id: 'blind10',
@@ -959,7 +959,7 @@ function openSlotsModal() {
 }
 
 // ────────────────────────────────────────────────────────
-// 🎡 GAME 3: LYCKOHJULET (Party & Bet Wheel)
+// 💳 GAME 3: NOT-ROULETTE / TAB-ROULETTE (Party & Wheel)
 // ────────────────────────────────────────────────────────
 function openWheelModal() {
   const isEn = getLang() === 'en';
@@ -970,8 +970,15 @@ function openWheelModal() {
   ];
 
   const PRESETS = {
+    tab: {
+      name: isEn ? 'The Tab' : 'Vem tar notan? 💳',
+      prompt: isEn ? 'Who takes the entire tab? 💳' : 'Vem tar hela krognotan? 💳',
+      items: isEn 
+        ? ['Alex 💳', 'Sam 💳', 'Chris 💳', 'You 🎯']
+        : ['Johan 💳', 'Sara 💳', 'Erik 💳', 'Du 🎯']
+    },
     beer: {
-      name: isEn ? 'Beer Round' : 'Vem bjuder på ölen?',
+      name: isEn ? 'Beer Round' : 'Vem bjuder på ölen? 🍻',
       prompt: isEn ? 'Who buys the next beer? 🍻' : 'Vem bjuder på nästa bärs? 🍻',
       items: isEn 
         ? ['Alex 🍻', 'Sam 🍺', 'Chris 🍻', 'You 🎯']
@@ -1021,32 +1028,33 @@ function openWheelModal() {
   }
 
   const lastWheel = getLastWheel();
-  let activePresetKey = lastWheel?.presetKey || 'beer';
-  // If user had legacy 'party' or 'food' preset saved, fallback to beer
+  let activePresetKey = lastWheel?.presetKey || 'tab';
+  // If user had legacy 'party' or 'food' preset saved, fallback to tab
   if (activePresetKey === 'party' || activePresetKey === 'food') {
-    activePresetKey = 'beer';
+    activePresetKey = 'tab';
   }
 
   let currentTopic = lastWheel?.topic !== undefined && activePresetKey !== 'party' && activePresetKey !== 'food'
     ? lastWheel.topic 
-    : (isEn ? 'Beer Round' : 'Vem bjuder på ölen?');
+    : (isEn ? 'The Tab' : 'Vem tar notan?');
 
   let items = (lastWheel && Array.isArray(lastWheel.items) && lastWheel.items.length >= 2 && activePresetKey !== 'party' && activePresetKey !== 'food')
     ? [...lastWheel.items]
-    : (PRESETS[activePresetKey] ? [...PRESETS[activePresetKey].items] : [...PRESETS.beer.items]);
+    : (PRESETS[activePresetKey] ? [...PRESETS[activePresetKey].items] : [...PRESETS.tab.items]);
 
   let currentRotation = 0;
   let isSpinning = false;
   let userFriends = null;
 
   function getPromptText() {
+    if (activePresetKey === 'tab') return isEn ? 'Spin to see who takes the tab! 💳' : 'Snurra för att se vem som tar notan! 💳';
     if (activePresetKey === 'beer') return t('arcade.wheelPromptBeer');
     if (activePresetKey === 'choice') return isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙';
     if (currentTopic) return `${t('arcade.wheelDecidePrompt')} ${currentTopic}! 🎯`;
-    return t('arcade.wheelPromptBeer');
+    return isEn ? 'Spin to see who takes the tab! 💳' : 'Snurra för att se vem som tar notan! 💳';
   }
 
-  const wheelTitleHtml = `<img src="/wheel-fortune.png" alt="Wheel" style="width: 24px; height: 24px; vertical-align: -4px; margin-right: 6px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle')}`;
+  const wheelTitleHtml = `<img src="/tab-roulette-card.png" alt="Not-Roulette" style="width: 32px; height: 22px; object-fit: contain; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle')}`;
   const { close, root, setBusy } = showModal(wheelTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <p class="game-modal-subheading">${t('arcade.wheelDesc')}</p>
@@ -1074,7 +1082,7 @@ function openWheelModal() {
       <div class="wheel-container">
         <div class="wheel-pointer"></div>
         <canvas id="wheel-canvas" width="280" height="280" class="wheel-canvas"></canvas>
-        <div class="wheel-center-hub">🎯</div>
+        <div class="wheel-center-hub">💳</div>
       </div>
 
       <!-- Result Banner -->
@@ -1128,10 +1136,10 @@ function openWheelModal() {
     preventBackdropClose: true,
     confirmClose: true,
     confirmTexts: {
-      title: isEn ? 'Leave Wheel of Fortune?' : 'Lämna Lyckohjulet?',
+      title: isEn ? 'Leave Tab-Roulette?' : 'Lämna Not-Roulette?',
       message: isEn 
-        ? 'Are you sure you want to leave the wheel?' 
-        : 'Vill du avsluta och lämna lyckohjulet?'
+        ? 'Are you sure you want to leave Tab-Roulette?' 
+        : 'Vill du avsluta och lämna Not-Roulette?'
     }
   });
   setBusy(() => isSpinning);
@@ -1156,6 +1164,7 @@ function openWheelModal() {
   function renderPresetPills() {
     const savedWheels = getSavedWheels();
     const builtIns = [
+      { key: 'tab', label: isEn ? '💳 The Tab' : '💳 Krognotan' },
       { key: 'beer', label: isEn ? '🍻 Beer Round' : '🍻 Ölrunda' },
       { key: 'choice', label: isEn ? '🪙 Yes / No' : '🪙 Ja / Nej' }
     ];
@@ -1188,9 +1197,9 @@ function openWheelModal() {
           setSavedWheels(updated);
           showToast(t('arcade.wheelDeletedToast'), 'info');
           if (activePresetKey === delId) {
-            activePresetKey = 'beer';
-            items = [...PRESETS.beer.items];
-            currentTopic = isEn ? 'Beer Round' : 'Vem bjuder på ölen?';
+            activePresetKey = 'tab';
+            items = [...PRESETS.tab.items];
+            currentTopic = PRESETS.tab.name;
             topicInput.value = currentTopic;
             renderTags();
             drawWheel();
@@ -1210,10 +1219,11 @@ function openWheelModal() {
           items = [...PRESETS[presetKey].items];
           currentTopic = PRESETS[presetKey].name;
           topicInput.value = currentTopic;
-          // If beer preset and user has friends, populate with friends
-          if (presetKey === 'beer' && userFriends && userFriends.length > 0) {
-            const youLabel = isEn ? 'Du 🎯' : 'Du 🎯';
-            items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
+          // If tab or beer preset and user has friends, populate with friends
+          if ((presetKey === 'tab' || presetKey === 'beer') && userFriends && userFriends.length > 0) {
+            const emoji = presetKey === 'beer' ? '🍻' : '💳';
+            const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
+            items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} ${emoji}`), youLabel];
           }
         } else {
           // Custom saved wheel
@@ -1236,12 +1246,13 @@ function openWheelModal() {
     });
   }
 
-  // Load friends and auto-populate if on default beer preset
+  // Load friends and auto-populate if on default tab or beer preset
   getFriends().then(friends => {
     userFriends = friends || [];
-    if (userFriends.length > 0 && activePresetKey === 'beer' && (!lastWheel || !lastWheel.items || lastWheel.items.length === 0)) {
-      const youLabel = isEn ? 'Du 🎯' : 'Du 🎯';
-      items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} 🍻`), youLabel];
+    if (userFriends.length > 0 && (activePresetKey === 'tab' || activePresetKey === 'beer') && (!lastWheel || !lastWheel.items || lastWheel.items.length === 0)) {
+      const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
+      const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
+      items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} ${emoji}`), youLabel];
       renderTags();
       drawWheel();
       saveLastWheel(currentTopic, items, activePresetKey);
@@ -1434,7 +1445,8 @@ function openWheelModal() {
             showToast(isEn ? 'Max 20 options!' : 'Max 20 alternativ!', 'warning');
             return;
           }
-          items.push(`${friendName} 🍻`);
+          const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
+          items.push(`${friendName} ${emoji}`);
         }
         saveLastWheel(currentTopic, items, activePresetKey);
         renderTags();
@@ -1447,12 +1459,13 @@ function openWheelModal() {
   addAllFriendsBtn?.addEventListener('click', () => {
     if (!userFriends || userFriends.length === 0) return;
     let addedCount = 0;
+    const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
     userFriends.forEach(f => {
       const name = f.nickname || f.realName;
       if (!name) return;
       if (!items.some(it => it.toLowerCase().startsWith(name.toLowerCase()))) {
         if (items.length < 20) {
-          items.push(`${name} 🍻`);
+          items.push(`${name} ${emoji}`);
           addedCount++;
         }
       }

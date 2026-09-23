@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v9';
+const CACHE_NAME = 'betpals-v10';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -10,6 +10,7 @@ const STATIC_ASSETS = [
   '/dice-gold.png',
   '/coin-head.jpg',
   '/slots-machine.png',
+  '/tab-roulette-card.png',
   '/wheel-fortune.png',
   '/stopwatch-gold.png',
   '/space-invaders.png',
