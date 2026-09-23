@@ -27,7 +27,25 @@ async function request(path, options = {}) {
 // ── WebSocket ──────────────────────────────────────────
 let ws = null;
 let wsEventCode = null;
+let activeLiveId = null;
 const wsListeners = new Set();
+const wsMessageQueue = [];
+
+export function setActiveLiveRoom(liveId) {
+  activeLiveId = liveId;
+  if (liveId && ws && ws.readyState === WebSocket.OPEN) {
+    sendWebSocketMessage({ type: 'join_live', liveId });
+  }
+}
+
+export function clearActiveLiveRoom() {
+  if (activeLiveId && ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ type: 'leave_live', liveId: activeLiveId }));
+    } catch (e) {}
+  }
+  activeLiveId = null;
+}
 
 export function connectWebSocket(eventCode = null) {
   // Disconnect previous
@@ -44,7 +62,24 @@ export function connectWebSocket(eventCode = null) {
 
     ws.onopen = () => {
       if (token) {
-        sendWebSocketMessage({ type: 'auth', token });
+        try {
+          ws.send(JSON.stringify({ type: 'auth', token }));
+        } catch (e) {}
+      }
+
+      // Automatically re-subscribe to live room upon reconnect or open
+      if (activeLiveId) {
+        try {
+          ws.send(JSON.stringify({ type: 'join_live', liveId: activeLiveId }));
+        } catch (e) {}
+      }
+
+      // Flush queued messages
+      while (wsMessageQueue.length > 0) {
+        const item = wsMessageQueue.shift();
+        try {
+          ws.send(JSON.stringify(item));
+        } catch (e) {}
       }
     };
 
@@ -79,6 +114,7 @@ export function connectWebSocket(eventCode = null) {
 
 export function disconnectWebSocket() {
   wsEventCode = null;
+  wsMessageQueue.length = 0;
   if (ws) {
     ws.onclose = null; // prevent reconnect
     ws.close();
@@ -96,7 +132,10 @@ export function sendWebSocketMessage(data) {
     if (!ws || ws.readyState === WebSocket.CLOSED) {
       connectWebSocket(wsEventCode);
     }
-    return false;
+    // Queue message so it isn't dropped while socket connects
+    wsMessageQueue.push(data);
+    if (wsMessageQueue.length > 50) wsMessageQueue.shift();
+    return true;
   }
   try {
     ws.send(JSON.stringify(data));

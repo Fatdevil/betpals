@@ -27,7 +27,9 @@ import {
   getFlashLive,
   settleFlashLive,
   attachFlashLiveBet,
-  stopFlashLive
+  stopFlashLive,
+  setActiveLiveRoom,
+  clearActiveLiveRoom
 } from '../api.js';
 import { getStoredUser } from '../auth.js';
 import { t, getLang } from '../i18n.js';
@@ -490,30 +492,35 @@ export async function openLiveStreamModal({
         onDataReceived: (data) => {
           handleIncomingLiveCommentOrReaction(data);
         }
+      }).then(() => {
+        // Broadcaster heartbeat loop only once connected
+        if (liveId) {
+          if (heartbeatInterval) clearInterval(heartbeatInterval);
+          heartbeatInterval = setInterval(() => {
+            fetch(`/api/flashlive/${liveId}/heartbeat`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-user-token': localStorage.getItem('betpals_token') || ''
+              }
+            }).catch(() => {});
+          }, 12000);
+        }
       }).catch(err => {
         console.error('LiveKit broadcaster error:', err);
-        showToast('Kunde inte koppla upp LiveKit SFU: ' + err.message, 'warning');
-        startLocalCamera(videoEl);
+        showToast('Kunde inte koppla upp LiveKit SFU: ' + err.message + '. Sändningen avbröts.', 'error');
+        if (liveId) {
+          stopFlashLive(liveId).catch(() => {});
+        }
+        closeLiveStream();
       });
     } else {
-      if (serverError) {
-        showToast(serverError, 'info');
+      showToast(serverError || 'LiveKit Cloud är inte konfigurerat. Sändningen avbröts.', 'error');
+      if (liveId) {
+        stopFlashLive(liveId).catch(() => {});
       }
-      startLocalCamera(videoEl);
-    }
-
-    // Broadcaster heartbeat loop
-    if (liveId) {
-      if (heartbeatInterval) clearInterval(heartbeatInterval);
-      heartbeatInterval = setInterval(() => {
-        fetch(`/api/flashlive/${liveId}/heartbeat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-token': localStorage.getItem('betpals_token') || ''
-          }
-        }).catch(() => {});
-      }, 12000);
+      closeLiveStream();
+      return;
     }
   } else {
     // Viewer
@@ -610,10 +617,7 @@ export async function openLiveStreamModal({
 
   // Join live stream WS room if standalone
   if (liveId) {
-    sendWebSocketMessage({
-      type: 'join_live',
-      liveId
-    });
+    setActiveLiveRoom(liveId);
   }
 
   // Chat form submit
@@ -873,13 +877,8 @@ export function closeLiveStream() {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
     }
-    if (activeLiveId) {
-      sendWebSocketMessage({
-        type: 'leave_live',
-        liveId: activeLiveId
-      });
-      activeLiveId = null;
-    }
+    clearActiveLiveRoom();
+    activeLiveId = null;
     if (wsUnsub) {
       wsUnsub();
       wsUnsub = null;
@@ -1127,29 +1126,40 @@ function renderMockActiveBlixtBet({
     </div>
   `;
 
-  // Countdown timer interval
-  const timerInterval = setInterval(() => {
-    if (!document.getElementById('live-countdown-timer')) {
+  // Countdown timer interval (dynamically calculated against absolute expiresAt)
+  const updateCountdown = () => {
+    const timerEl = document.getElementById('live-countdown-timer');
+    if (!timerEl) {
       clearInterval(timerInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
       return;
     }
-    remainingSecs = Math.max(0, remainingSecs - 1);
-    const timerEl = document.getElementById('live-countdown-timer');
-    if (timerEl) {
-      timerEl.textContent = `⏱️ ${remainingSecs}s kvar`;
-      if (remainingSecs === 0) {
-        timerEl.textContent = '⏱️ Spelstopp!';
-        timerEl.style.color = '#e74c3c';
-        // Disable voting buttons immediately upon timeout
-        document.querySelectorAll('.live-bet-option-btn').forEach(btn => {
-          btn.disabled = true;
-          btn.style.opacity = '0.5';
-          btn.style.cursor = 'not-allowed';
-        });
-        clearInterval(timerInterval);
-      }
+    const now = Date.now();
+    const end = expiresAt ? new Date(expiresAt).getTime() : (now + remainingSecs * 1000);
+    const diff = Math.max(0, Math.ceil((end - now) / 1000));
+    remainingSecs = diff;
+
+    if (diff > 0) {
+      timerEl.textContent = `⏱️ ${diff}s kvar`;
+    } else {
+      timerEl.textContent = '⏱️ Spelstopp!';
+      timerEl.style.color = '#e74c3c';
+      // Disable voting buttons immediately upon timeout
+      document.querySelectorAll('.live-bet-option-btn').forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+      clearInterval(timerInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
     }
-  }, 1000);
+  };
+
+  const handleVisibility = () => {
+    if (!document.hidden) updateCountdown();
+  };
+  document.addEventListener('visibilitychange', handleVisibility);
+  const timerInterval = setInterval(updateCountdown, 1000);
 
   // Settle buttons for broadcaster
   if (isBroadcaster) {
@@ -1391,8 +1401,14 @@ export async function openInstantLiveModal() {
           </div>
         `}
 
+        ${!isAllFriends && selectedFriendIds.size === 0 ? `
+          <div style="font-size: 0.76rem; color: #ff6b6b; background: rgba(255, 107, 107, 0.1); border: 1px solid rgba(255, 107, 107, 0.3); border-radius: 8px; padding: 6px 10px; margin-bottom: 12px; text-align: center; font-weight: 600;">
+            ⚠️ Välj minst en vän eller markera "Alla mina vänner"
+          </div>
+        ` : ''}
+
         <!-- Launch Button -->
-        <button type="button" id="btn-start-instant-live" class="btn btn-primary btn-block" style="font-weight: 800; font-size: 1rem; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <button type="button" id="btn-start-instant-live" class="btn btn-primary btn-block" ${(!isAllFriends && selectedFriendIds.size === 0) ? 'disabled style="opacity: 0.5; cursor: not-allowed; font-weight: 800; font-size: 1rem; padding: 12px;"' : 'style="font-weight: 800; font-size: 1rem; padding: 12px;"'}>
           <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ff334b; box-shadow: 0 0 8px #ff334b;"></span>
           🔴 ${includeBet ? 'Starta Live & Skicka Blixtnotis' : 'Starta Livesändning'}
         </button>
@@ -1483,6 +1499,11 @@ export async function openInstantLiveModal() {
       } else {
         const pureTitle = document.getElementById('pure-stream-title')?.value.trim();
         finalTitle = pureTitle || '18:e hålet – Avgörandet! ⛳';
+      }
+
+      if (!isAllFriends && selectedFriendIds.size === 0) {
+        showToast('Välj minst en vän eller markera "Alla mina vänner" för att sända.', 'warning');
+        return;
       }
 
       // Pre-check camera access before creating session and broadcasting notifications

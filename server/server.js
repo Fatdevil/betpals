@@ -193,15 +193,98 @@ setInterval(async () => {
   }
 }, 24 * 60 * 60 * 1000).unref();
 
-// Hydrate active streams from database on startup
+// Clean up any stale active streams from previous runs upon startup (WebRTC does not survive restart)
 try {
   const dbActiveStreams = db.getActiveFlashLiveStreams ? db.getActiveFlashLiveStreams() : [];
   for (const s of dbActiveStreams) {
-    activeFlashLiveStreams.set(s.id, s);
+    try {
+      db.updateFlashLiveStreamStatus(s.id, 'ended');
+      const betId = s.flash_bet_id || s.flashBetId;
+      if (betId) {
+        const fb = db.getFlashBet(betId);
+        if (fb && (fb.status === 'open' || fb.status === 'locked')) {
+          db.cancelFlashBet(betId, s.host_id || s.hostId, true);
+        }
+      }
+    } catch (e) {}
+  }
+  if (dbActiveStreams.length > 0) {
+    console.log(`[startup] Cleaned up ${dbActiveStreams.length} stale active flash live stream(s)`);
   }
 } catch (e) {
-  console.warn('Could not restore active flash live streams from DB:', e);
+  console.warn('Could not cleanup active flash live streams from DB:', e);
 }
+
+function endFlashLiveStream(id, session = null, reason = 'ended') {
+  if (!session) session = activeFlashLiveStreams.get(id);
+  if (!session) {
+    const dbSession = db.getFlashLiveStream(id);
+    if (dbSession) {
+      session = {
+        ...dbSession,
+        targetUserIds: dbSession.targetUserIds || []
+      };
+    }
+  }
+  if (!session) return { cancelledBet: false };
+
+  session.status = 'ended';
+  activeFlashLiveStreams.delete(id);
+  try {
+    db.updateFlashLiveStreamStatus(id, 'ended');
+  } catch (e) {}
+
+  let cancelledBet = false;
+  if (session.flashBetId) {
+    try {
+      const fb = db.getFlashBet(session.flashBetId);
+      if (fb && (fb.status === 'open' || fb.status === 'locked')) {
+        db.cancelFlashBet(session.flashBetId, session.hostId, true);
+        cancelledBet = true;
+      }
+    } catch (e) {
+      console.warn('Could not cancel flash bet on live end:', e);
+    }
+  }
+
+  const stopPayload = {
+    type: 'flashlive_stopped',
+    liveId: id,
+    reason,
+    cancelledBet
+  };
+
+  broadcastToLive(id, stopPayload);
+  if (Array.isArray(session.targetUserIds)) {
+    for (const fId of session.targetUserIds) {
+      broadcastToUser(fId, stopPayload);
+    }
+  }
+  broadcastToUser(session.hostId, stopPayload);
+  broadcastGlobal(stopPayload);
+
+  const clients = liveClients.get(id);
+  if (clients) {
+    clients.clear();
+    liveClients.delete(id);
+  }
+
+  return { ok: true, cancelledBet };
+}
+
+// Background cleanup for stale FlashLive streams (heartbeat timeout > 35s or max age > 45m)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of activeFlashLiveStreams.entries()) {
+    const isHeartbeatDead = session.lastHeartbeat && (now - session.lastHeartbeat > 35000);
+    const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
+    const isMaxAgeExceeded = baseTime + 2700000 < now;
+
+    if (isHeartbeatDead || isMaxAgeExceeded) {
+      endFlashLiveStream(id, session, isHeartbeatDead ? 'heartbeat_timeout' : 'max_age_exceeded');
+    }
+  }
+}, 15000).unref();
 
 function updateLiveViewerCount(liveId) {
   if (!liveId) return;
@@ -223,6 +306,9 @@ wss.on('connection', (ws, req) => {
   let boundUserId = null;
   let boundEventCode = eventCode || null;
   let boundLiveId = liveIdParam || null;
+  let lastLiveCommentTime = 0;
+  let liveReactionCount = 0;
+  let liveReactionResetAt = 0;
   const subscribedDuels = new Set();
   const subscribedParties = new Set();
 
@@ -295,8 +381,12 @@ wss.on('connection', (ws, req) => {
           boundUserId = user.id;
           if (!userClients.has(user.id)) userClients.set(user.id, new Set());
           userClients.get(user.id).add(ws);
+          if (boundLiveId) {
+            tryJoinLive(boundLiveId);
+          }
         }
       } else if (msg.type === 'join_live' && msg.liveId) {
+        boundLiveId = msg.liveId;
         tryJoinLive(msg.liveId);
       } else if (msg.type === 'leave_live' && msg.liveId) {
         subscribedLives.delete(msg.liveId);
@@ -361,6 +451,10 @@ wss.on('connection', (ws, req) => {
           }, ws);
         }
       } else if (msg.type === 'live_comment' && (msg.tournamentCode || msg.liveId) && msg.text) {
+        const now = Date.now();
+        if (now - lastLiveCommentTime < 500) return; // rate limit: max 2 comments/sec
+        lastLiveCommentTime = now;
+
         const cleanText = String(msg.text).slice(0, 140).trim();
         if (cleanText && boundUserId) {
           if (msg.liveId) {
@@ -383,6 +477,14 @@ wss.on('connection', (ws, req) => {
           if (msg.tournamentCode) broadcastToEvent(msg.tournamentCode, payload);
         }
       } else if (msg.type === 'live_reaction' && (msg.tournamentCode || msg.liveId) && msg.emoji && boundUserId) {
+        const now = Date.now();
+        if (now > liveReactionResetAt) {
+          liveReactionCount = 0;
+          liveReactionResetAt = now + 3000;
+        }
+        if (liveReactionCount >= 10) return; // rate limit: max 10 reactions/3s
+        liveReactionCount++;
+
         if (msg.liveId) {
           const session = activeFlashLiveStreams.get(msg.liveId);
           const isAllowed = session && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)));
@@ -4470,6 +4572,19 @@ app.post('/api/flashlive/start', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Du måste vara inloggad för att sända live' });
 
+  // Verify LiveKit Cloud configuration before starting
+  const lkConfig = getLiveKitConfig();
+  if (!lkConfig.configured) {
+    return res.status(503).json({ error: 'LiveKit Cloud är inte konfigurerat. Vänligen ange LIVEKIT_URL, LIVEKIT_API_KEY och LIVEKIT_API_SECRET i .env eller inställningar.' });
+  }
+
+  // Prevent multiple concurrent active streams from the same host
+  for (const s of activeFlashLiveStreams.values()) {
+    if (String(s.hostId) === String(user.id) && s.status === 'active') {
+      return res.status(400).json({ error: 'Du har redan en aktiv livesändning igång. Avsluta den innan du startar en ny.' });
+    }
+  }
+
   const {
     question,
     stakeAmount,
@@ -4486,6 +4601,21 @@ app.post('/api/flashlive/start', async (req, res) => {
     return res.status(400).json({ error: 'Du behöver ange ett Swish-nummer i din profil innan du kan starta ett Live Bet' });
   }
 
+  // Determine recipients strictly (Finding 1)
+  let targetUserIds = [];
+  const userFriends = db.getFriends(user.id);
+  if (notifyAllFriends) {
+    targetUserIds = userFriends.map(f => f.id);
+  } else if (Array.isArray(targetFriendIds) && targetFriendIds.length > 0) {
+    const friendIdSet = new Set(userFriends.map(f => f.id));
+    targetUserIds = targetFriendIds.filter(id => friendIdSet.has(id));
+    if (targetUserIds.length === 0) {
+      return res.status(400).json({ error: 'Inga giltiga vänner valda för sändningen' });
+    }
+  } else {
+    return res.status(400).json({ error: 'Välj minst en vän eller välj Alla mina vänner' });
+  }
+
   const finalQuestion = (question || streamTitle || (isBetting ? 'Sätter han putten?' : 'Spontansändning')).trim();
   const duration = Math.max(10, Math.min(600, Number(durationSeconds) || 60));
   const stake = Math.max(5, Math.min(5000, Number(stakeAmount) || 20));
@@ -4497,19 +4627,9 @@ app.post('/api/flashlive/start', async (req, res) => {
 
   if (isBetting) {
     flashBetId = generateId();
-    // Create underlying BlixtBet (host cannot vote in own bet)
-    db.createFlashBet(flashBetId, user.id, null, finalQuestion, duration, expiresAt, stake);
+    // Create underlying BlixtBet with targetUserIds so bet participation is restricted to the stream audience
+    db.createFlashBet(flashBetId, user.id, null, finalQuestion, duration, expiresAt, stake, targetUserIds);
     createdFlashBet = db.getFlashBet(flashBetId, user.id);
-  }
-
-  // Determine recipients
-  let targetUserIds = [];
-  const userFriends = db.getFriends(user.id);
-  if (notifyAllFriends || !targetFriendIds || targetFriendIds.length === 0) {
-    targetUserIds = userFriends.map(f => f.id);
-  } else {
-    const friendIdSet = new Set(userFriends.map(f => f.id));
-    targetUserIds = targetFriendIds.filter(id => friendIdSet.has(id));
   }
 
   const liveSession = {
@@ -4544,6 +4664,12 @@ app.post('/api/flashlive/start', async (req, res) => {
     metadata: { avatar: user.avatar_emoji || '🏌️‍♂️' },
     isPublisher: true
   });
+
+  if (!lk.token) {
+    activeFlashLiveStreams.delete(liveId);
+    try { db.updateFlashLiveStreamStatus(liveId, 'ended'); } catch (e) {}
+    return res.status(503).json({ error: lk.error || 'Kunde inte generera LiveKit-token' });
+  }
 
   // Broadcast to target friends via WebSocket
   const liveNotificationPayload = {
@@ -4588,18 +4714,14 @@ app.get('/api/flashlive/active', (req, res) => {
   for (const [id, session] of activeFlashLiveStreams.entries()) {
     // Check heartbeat timeout: if no heartbeat from publisher for 35s, mark ended
     if (session.lastHeartbeat && (now - session.lastHeartbeat > 35000)) {
-      session.status = 'ended';
-      activeFlashLiveStreams.delete(id);
-      try { db.updateFlashLiveStreamStatus(id, 'ended'); } catch (e) {}
-      broadcastGlobal({ type: 'flashlive_stopped', liveId: id });
+      endFlashLiveStream(id, session, 'heartbeat_timeout');
       continue;
     }
 
     // Keep active for up to 45 mins or until stopped
     const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
     if (baseTime + 2700000 < now) {
-      activeFlashLiveStreams.delete(id);
-      try { db.updateFlashLiveStreamStatus(id, 'ended'); } catch (e) {}
+      endFlashLiveStream(id, session, 'max_age_exceeded');
       continue;
     }
     // Check if user is host or in target audience
@@ -4616,7 +4738,21 @@ app.get('/api/flashlive/:id', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const session = activeFlashLiveStreams.get(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Livesändningen avslutad eller hittades inte' });
+  if (!session || session.status === 'ended') {
+    return res.status(404).json({ error: 'Livesändningen avslutad eller hittades inte' });
+  }
+
+  const now = Date.now();
+  if (session.lastHeartbeat && (now - session.lastHeartbeat > 35000)) {
+    endFlashLiveStream(req.params.id, session, 'heartbeat_timeout');
+    return res.status(404).json({ error: 'Livesändningen avslutades pga tappad anslutning' });
+  }
+
+  const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
+  if (baseTime + 2700000 < now) {
+    endFlashLiveStream(req.params.id, session, 'max_age_exceeded');
+    return res.status(404).json({ error: 'Livesändningen har passerat maxtiden' });
+  }
 
   // Verify that user is host or target audience
   const isAuthorized = session.hostId === user.id || (session.targetUserIds && session.targetUserIds.includes(user.id));
@@ -4701,9 +4837,12 @@ app.post('/api/flashlive/:id/settle', (req, res) => {
 app.post('/api/flashlive/:id/bet', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Ej inloggad' });
+  if (!user.swish_number) {
+    return res.status(400).json({ error: 'Du behöver ange ett Swish-nummer i din profil innan du kan starta ett Live Bet' });
+  }
 
   const session = activeFlashLiveStreams.get(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Livesändningen hittades inte' });
+  if (!session || session.status === 'ended') return res.status(404).json({ error: 'Livesändningen hittades inte eller är avslutad' });
   if (session.hostId !== user.id) return res.status(403).json({ error: 'Endast sändaren kan starta ett vad' });
 
   if (session.flashBetId) {
@@ -4720,7 +4859,8 @@ app.post('/api/flashlive/:id/bet', (req, res) => {
   const expiresAt = new Date(Date.now() + duration * 1000).toISOString();
 
   const flashBetId = generateId();
-  db.createFlashBet(flashBetId, user.id, null, finalQuestion, duration, expiresAt, stake);
+  // Pass session.targetUserIds so bet participation is restricted to the stream audience
+  db.createFlashBet(flashBetId, user.id, null, finalQuestion, duration, expiresAt, stake, session.targetUserIds);
   const createdFlashBet = db.getFlashBet(flashBetId, user.id);
 
   session.flashBetId = flashBetId;
@@ -4731,7 +4871,7 @@ app.post('/api/flashlive/:id/bet', (req, res) => {
   session.expiresAt = expiresAt;
 
   try {
-    db.updateFlashLiveStreamBet(session.id, flashBetId, stake, duration, expiresAt);
+    db.updateFlashLiveStreamBet(session.id, flashBetId, stake, duration, expiresAt, finalQuestion);
   } catch (e) {}
 
   const betPayload = {
@@ -4755,7 +4895,6 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
 
   let session = activeFlashLiveStreams.get(req.params.id);
   if (!session) {
-    // Fallback to database lookup if not present in memory map
     const dbSession = db.getFlashLiveStream(req.params.id);
     if (!dbSession) return res.status(404).json({ error: 'Livesändningen hittades inte' });
     session = {
@@ -4770,41 +4909,8 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
     return res.status(403).json({ error: 'Endast sändaren kan avsluta sändningen' });
   }
 
-  session.status = 'ended';
-  activeFlashLiveStreams.delete(req.params.id);
-  try {
-    db.updateFlashLiveStreamStatus(req.params.id, 'ended');
-  } catch (e) {}
-
-  // Cancel unsettled underlying bet if stream is terminated
-  let cancelledBet = false;
-  if (session.flashBetId) {
-    try {
-      const fb = db.getFlashBet(session.flashBetId);
-      if (fb && (fb.status === 'open' || fb.status === 'locked')) {
-        db.cancelFlashBet(session.flashBetId, user.id);
-        cancelledBet = true;
-      }
-    } catch (e) {
-      console.warn('Could not cancel flash bet on stop:', e);
-    }
-  }
-
-  const stopPayload = {
-    type: 'flashlive_stopped',
-    liveId: req.params.id,
-    cancelledBet
-  };
-
-  broadcastToLive(req.params.id, stopPayload);
-  if (Array.isArray(session.targetUserIds)) {
-    for (const fId of session.targetUserIds) {
-      broadcastToUser(fId, stopPayload);
-    }
-  }
-  broadcastToUser(user.id, stopPayload);
-
-  res.json({ ok: true, cancelledBet });
+  const result = endFlashLiveStream(req.params.id, session, isAdmin && !isHost ? 'admin_stopped' : 'host_stopped');
+  res.json({ ok: true, cancelledBet: result.cancelledBet });
 });
 
 // ── Tab Expenses (Dela utlägg / The Tab) Routes ──────
@@ -4894,6 +5000,212 @@ app.get('/api/tab/expenses/:id', (req, res) => {
   }
 
   res.json(expense);
+});
+
+// ── Löven Game (Björklöven Matchtips 4-3-2p) Routes ──
+
+app.post('/api/loven-games', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const {
+    opponentTeam,
+    isHome = true,
+    matchDate,
+    stakeAmount = 20,
+    tournamentId = null,
+    targetFriendIds = [],
+    initialPrediction = null
+  } = req.body;
+
+  if (!opponentTeam || !opponentTeam.trim()) {
+    return res.status(400).json({ error: 'Vänligen ange motståndarlag' });
+  }
+  if (!matchDate) {
+    return res.status(400).json({ error: 'Vänligen ange matchdatum och tid' });
+  }
+
+  try {
+    const game = db.createLovenGame({
+      creatorId: user.id,
+      opponentTeam: opponentTeam.trim(),
+      isHome: isHome ? 1 : 0,
+      matchDate,
+      stakeAmount: Number(stakeAmount) || 0,
+      tournamentId
+    });
+
+    if (initialPrediction && initialPrediction.predLastScorer) {
+      try {
+        db.submitLovenEntry(game.id, user.id, initialPrediction);
+      } catch (e) {
+        console.warn('Could not submit creator initial prediction:', e);
+      }
+    }
+
+    // Broadcast notification to friends if provided
+    if (Array.isArray(targetFriendIds) && targetFriendIds.length > 0) {
+      for (const fId of targetFriendIds) {
+        broadcastToUser(fId, {
+          type: 'loven_game_created',
+          gameId: game.id,
+          opponentTeam: game.opponent_team,
+          creatorName: user.real_name || user.nickname
+        });
+      }
+    } else {
+      broadcastGlobal({
+        type: 'loven_game_created',
+        gameId: game.id,
+        opponentTeam: game.opponent_team,
+        creatorName: user.real_name || user.nickname
+      });
+    }
+
+    const fullGame = db.getLovenGame(game.id);
+    res.json({ ok: true, game: fullGame });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/loven-games', (req, res) => {
+  try {
+    const games = db.getLovenGames();
+    res.json(games);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/loven-games/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  try {
+    const game = db.getLovenGame(req.params.id);
+    if (!game) return res.status(404).json({ error: 'Matchen hittades inte' });
+
+    const matchTime = new Date(game.match_date).getTime();
+    const isLockedOrStarted = game.status === 'locked' || game.status === 'settled' || Date.now() >= matchTime;
+
+    // Mask predictions of other players if match is not locked/started yet
+    const sanitizedEntries = (game.entries || []).map(e => {
+      const isSelf = user && e.user_id === user.id;
+      if (isLockedOrStarted || isSelf) {
+        return e;
+      }
+      return {
+        ...e,
+        pred_loven_goals: '🔒',
+        pred_opponent_goals: '🔒',
+        pred_last_scorer: '🔒 Dold fram till matchstart',
+        pred_shots_on_goal: '🔒'
+      };
+    });
+
+    res.json({
+      ...game,
+      isLockedOrStarted,
+      entries: sanitizedEntries
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/loven-games/:id/join', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const { predLovenGoals, predOpponentGoals, predLastScorer, predShotsOnGoal } = req.body;
+
+  try {
+    const updatedGame = db.submitLovenEntry(req.params.id, user.id, {
+      predLovenGoals,
+      predOpponentGoals,
+      predLastScorer,
+      predShotsOnGoal
+    });
+
+    broadcastGlobal({
+      type: 'loven_game_joined',
+      gameId: req.params.id,
+      userId: user.id,
+      nickname: user.nickname
+    });
+
+    res.json({ ok: true, game: updatedGame });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/loven-games/:id/lock', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const updatedGame = db.lockLovenGame(req.params.id, user.id, !!user.is_admin);
+    broadcastGlobal({
+      type: 'loven_game_locked',
+      gameId: req.params.id
+    });
+    res.json({ ok: true, game: updatedGame });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/loven-games/:id/settle', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const {
+    resultLovenGoals,
+    resultOpponentGoals,
+    resultLastScorer,
+    resultShotsOnGoal
+  } = req.body;
+
+  if (resultLovenGoals === undefined || resultOpponentGoals === undefined || !resultLastScorer || resultShotsOnGoal === undefined) {
+    return res.status(400).json({ error: 'Vänligen ange resultat, sista målskytt och skott på mål' });
+  }
+
+  try {
+    const settledGame = db.settleLovenGame(req.params.id, {
+      resultLovenGoals,
+      resultOpponentGoals,
+      resultLastScorer,
+      resultShotsOnGoal
+    }, user.id, !!user.is_admin);
+
+    broadcastGlobal({
+      type: 'loven_game_settled',
+      gameId: req.params.id,
+      game: settledGame
+    });
+
+    res.json({ ok: true, game: settledGame });
+  } catch (err) {
+    const status = (err.message.includes('Endast skaparen') || err.message.includes('Behörighet saknas')) ? 403 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/loven-games/:id/cancel', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const cancelledGame = db.cancelLovenGame(req.params.id, user.id, !!user.is_admin);
+    broadcastGlobal({
+      type: 'loven_game_cancelled',
+      gameId: req.params.id
+    });
+    res.json({ ok: true, game: cancelledGame });
+  } catch (err) {
+    const status = (err.message.includes('Endast skaparen') || err.message.includes('Behörighet saknas')) ? 403 : 400;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // ── Central Express Error Handler ─────────────────────

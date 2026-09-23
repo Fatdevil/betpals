@@ -532,6 +532,52 @@ try {
   `);
 } catch {}
 
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS loven_games (
+      id TEXT PRIMARY KEY,
+      creator_id TEXT NOT NULL,
+      opponent_team TEXT NOT NULL,
+      is_home INTEGER NOT NULL DEFAULT 1,
+      match_date TEXT NOT NULL,
+      stake_amount REAL NOT NULL DEFAULT 20,
+      status TEXT NOT NULL DEFAULT 'open',
+      tournament_id TEXT,
+      result_loven_goals INTEGER,
+      result_opponent_goals INTEGER,
+      result_last_scorer TEXT,
+      result_shots_on_goal INTEGER,
+      winner_user_ids TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      settled_at TEXT,
+      FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_loven_games_creator ON loven_games(creator_id);
+    CREATE INDEX IF NOT EXISTS idx_loven_games_status ON loven_games(status);
+
+    CREATE TABLE IF NOT EXISTS loven_game_entries (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      pred_loven_goals INTEGER NOT NULL,
+      pred_opponent_goals INTEGER NOT NULL,
+      pred_last_scorer TEXT NOT NULL,
+      pred_shots_on_goal INTEGER NOT NULL,
+      points INTEGER NOT NULL DEFAULT 0,
+      pts_result INTEGER NOT NULL DEFAULT 0,
+      pts_scorer INTEGER NOT NULL DEFAULT 0,
+      pts_shots INTEGER NOT NULL DEFAULT 0,
+      is_winner INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (game_id) REFERENCES loven_games(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(game_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_loven_entries_game ON loven_game_entries(game_id);
+    CREATE INDEX IF NOT EXISTS idx_loven_entries_user ON loven_game_entries(user_id);
+  `);
+} catch {}
+
 try { db.exec('ALTER TABLE shl_fantasy_leagues ADD COLUMN simulation_data TEXT'); } catch {}
 try { db.exec('ALTER TABLE shl_fantasy_entries ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0'); } catch {}
 
@@ -923,7 +969,7 @@ const stmts = {
     UPDATE flash_live_streams SET status = ? WHERE id = ?
   `),
   updateFlashLiveStreamBet: db.prepare(`
-    UPDATE flash_live_streams SET flash_bet_id = ?, has_bet = 1, stake_amount = ?, duration_seconds = ?, expires_at = ? WHERE id = ?
+    UPDATE flash_live_streams SET question = COALESCE(?, question), flash_bet_id = ?, has_bet = 1, stake_amount = ?, duration_seconds = ?, expires_at = ? WHERE id = ?
   `),
 
   // Tab Expenses & Even Steven
@@ -966,6 +1012,67 @@ const stmts = {
     WHERE e.payer_id = ? OR ep.user_id = ? OR e.loser_id = ?
     ORDER BY e.created_at DESC
     LIMIT 30
+  `),
+
+  // Löven Game
+  insertLovenGame: db.prepare(`
+    INSERT INTO loven_games (id, creator_id, opponent_team, is_home, match_date, stake_amount, status, tournament_id)
+    VALUES (@id, @creator_id, @opponent_team, @is_home, @match_date, @stake_amount, @status, @tournament_id)
+  `),
+  getLovenGameById: db.prepare(`
+    SELECT g.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url, c.swish_number as creator_swish
+    FROM loven_games g
+    LEFT JOIN users c ON g.creator_id = c.id
+    WHERE g.id = ?
+  `),
+  getLovenGamesList: db.prepare(`
+    SELECT DISTINCT g.*,
+           c.nickname as creator_nickname, c.real_name as creator_real_name, c.avatar_emoji as creator_avatar_emoji, c.avatar_url as creator_avatar_url,
+           (SELECT COUNT(*) FROM loven_game_entries e WHERE e.game_id = g.id) as participant_count
+    FROM loven_games g
+    LEFT JOIN users c ON g.creator_id = c.id
+    ORDER BY g.created_at DESC
+    LIMIT 50
+  `),
+  insertLovenEntry: db.prepare(`
+    INSERT OR REPLACE INTO loven_game_entries (id, game_id, user_id, pred_loven_goals, pred_opponent_goals, pred_last_scorer, pred_shots_on_goal)
+    VALUES (@id, @game_id, @user_id, @pred_loven_goals, @pred_opponent_goals, @pred_last_scorer, @pred_shots_on_goal)
+  `),
+  getLovenEntriesByGame: db.prepare(`
+    SELECT e.*,
+           u.nickname, u.real_name, u.swish_number, u.avatar_emoji, u.avatar_url
+    FROM loven_game_entries e
+    JOIN users u ON e.user_id = u.id
+    WHERE e.game_id = ?
+    ORDER BY e.points DESC, e.created_at ASC
+  `),
+  updateLovenGameStatus: db.prepare(`
+    UPDATE loven_games SET status = ? WHERE id = ?
+  `),
+  updateLovenGameResult: db.prepare(`
+    UPDATE loven_games
+    SET status = 'settled',
+        result_loven_goals = @result_loven_goals,
+        result_opponent_goals = @result_opponent_goals,
+        result_last_scorer = @result_last_scorer,
+        result_shots_on_goal = @result_shots_on_goal,
+        winner_user_ids = @winner_user_ids,
+        settled_at = datetime('now')
+    WHERE id = @id
+  `),
+  updateLovenEntryScore: db.prepare(`
+    UPDATE loven_game_entries
+    SET points = @points,
+        pts_result = @pts_result,
+        pts_scorer = @pts_scorer,
+        pts_shots = @pts_shots,
+        is_winner = @is_winner
+    WHERE id = @id
+  `),
+  insertLovenDuel: db.prepare(`
+    INSERT INTO minigame_duels (id, game_type, creator_id, opponent_id, stake_amount, mode, status, winner_id, creator_score, opponent_score, is_settled, custom_title, tournament_id)
+    VALUES (@id, 'loven_game', @creator_id, @opponent_id, @stake_amount, 'loven_game', 'completed', @winner_id, @creator_score, @opponent_score, 0, @custom_title, @tournament_id)
   `),
 };
 
@@ -3051,11 +3158,12 @@ export function placeFlashBetEntry(id, flashBetId, userId, choice, amount) {
   return getFlashBet(flashBetId, userId);
 }
 
-export function cancelFlashBet(flashBetId, userId) {
+export function cancelFlashBet(flashBetId, userId, isAdmin = false) {
   const fb = stmts.getFlashBetById.get(flashBetId);
   if (!fb) throw new Error('BlixtBet hittades inte');
-  if (fb.creator_id !== userId) throw new Error('Endast skaparen kan avbryta vadet');
+  if (fb.creator_id !== userId && !isAdmin) throw new Error('Endast skaparen kan avbryta vadet');
   if (fb.status === 'settled') throw new Error('Vadet är redan avgjort');
+  if (fb.status === 'cancelled') return getFlashBet(flashBetId, userId);
   stmts.updateFlashBetStatus.run('cancelled', fb.id);
   return getFlashBet(flashBetId, userId);
 }
@@ -3092,6 +3200,8 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
   const fb = stmts.getFlashBetById.get(flashBetId);
   if (!fb) throw new Error('BlixtBet hittades inte');
   if (fb.status === 'settled') throw new Error('Detta BlixtBet är redan avgjort');
+  if (fb.status === 'cancelled') throw new Error('Detta BlixtBet har avbrutits och kan inte avgöras');
+  if (fb.status !== 'open' && fb.status !== 'locked') throw new Error('Vadet kan inte avgöras i dess nuvarande status');
   if (winningChoice !== 'yes' && winningChoice !== 'no') {
     throw new Error('Vinnande val måste vara ja eller nej');
   }
@@ -3207,8 +3317,8 @@ export function updateFlashLiveStreamStatus(id, status) {
   stmts.updateFlashLiveStreamStatus.run(status, id);
 }
 
-export function updateFlashLiveStreamBet(id, flashBetId, stakeAmount, durationSeconds, expiresAt) {
-  stmts.updateFlashLiveStreamBet.run(flashBetId, stakeAmount, durationSeconds, expiresAt, id);
+export function updateFlashLiveStreamBet(id, flashBetId, stakeAmount, durationSeconds, expiresAt, question = null) {
+  stmts.updateFlashLiveStreamBet.run(question || null, flashBetId, stakeAmount, durationSeconds, expiresAt, id);
 }
 
 // ── Tab Expenses & Even Steven Public API ─────────────
@@ -3398,6 +3508,271 @@ export function getLatestBackup(customDir = null) {
 
   return files.length > 0 ? files[0] : null;
 }
+
+// ── Löven Game (Björklöven Matchtips 4-3-2p) ────────────
+
+export function normalizePlayerName(name) {
+  if (!name) return '';
+  return name.replace(/^#?\d+\s*/, '').trim().toLowerCase();
+}
+
+export function isScorerMatch(pred, actual) {
+  const p = normalizePlayerName(pred);
+  const a = normalizePlayerName(actual);
+  if (!p || !a) return false;
+  if (p === a) return true;
+  if ((p.includes('inga mål') || p.includes('nollade')) && (a.includes('inga mål') || a.includes('nollade'))) {
+    return true;
+  }
+  return false;
+}
+
+export function createLovenGame({
+  id = crypto.randomUUID(),
+  creatorId,
+  opponentTeam,
+  isHome = 1,
+  matchDate,
+  stakeAmount = 20,
+  tournamentId = null
+}) {
+  if (!creatorId) throw new Error('Skapare saknas');
+  if (!opponentTeam || !opponentTeam.trim()) throw new Error('Motståndare saknas');
+  if (!matchDate) throw new Error('Matchdatum saknas');
+
+  const stake = Math.max(0, Math.min(10000, Number(stakeAmount) || 0));
+
+  stmts.insertLovenGame.run({
+    id,
+    creator_id: creatorId,
+    opponent_team: opponentTeam.trim(),
+    is_home: isHome ? 1 : 0,
+    match_date: matchDate,
+    stake_amount: stake,
+    status: 'open',
+    tournament_id: tournamentId || null
+  });
+
+  return getLovenGame(id);
+}
+
+export function getLovenGame(id) {
+  if (!id) return null;
+  const game = stmts.getLovenGameById.get(id);
+  if (!game) return null;
+
+  const entries = stmts.getLovenEntriesByGame.all(id);
+
+  let winnerUserIds = [];
+  if (game.winner_user_ids) {
+    try {
+      winnerUserIds = JSON.parse(game.winner_user_ids);
+    } catch {}
+  }
+
+  return {
+    ...game,
+    is_home: Boolean(game.is_home),
+    winner_user_ids: winnerUserIds,
+    entries
+  };
+}
+
+export function getLovenGames() {
+  const games = stmts.getLovenGamesList.all();
+  return games.map(g => ({
+    ...g,
+    is_home: Boolean(g.is_home)
+  }));
+}
+
+export function submitLovenEntry(gameId, userId, {
+  predLovenGoals,
+  predOpponentGoals,
+  predLastScorer,
+  predShotsOnGoal
+}) {
+  const game = stmts.getLovenGameById.get(gameId);
+  if (!game) throw new Error('Matchen hittades inte');
+  if (game.status !== 'open') throw new Error('Matchen är inte öppen för tips');
+
+  const matchTime = new Date(game.match_date).getTime();
+  if (Date.now() >= matchTime) {
+    throw new Error('Spelstopp har passerat för denna match');
+  }
+
+  const pLoven = Math.max(0, Math.min(30, Math.floor(Number(predLovenGoals) || 0)));
+  const pOpp = Math.max(0, Math.min(30, Math.floor(Number(predOpponentGoals) || 0)));
+  const pShots = Math.max(0, Math.min(150, Math.floor(Number(predShotsOnGoal) || 0)));
+  const pScorer = (predLastScorer || '').trim();
+
+  if (!pScorer) {
+    throw new Error('Välj eller ange sista målskytt');
+  }
+
+  const entryId = crypto.randomUUID();
+  stmts.insertLovenEntry.run({
+    id: entryId,
+    game_id: gameId,
+    user_id: userId,
+    pred_loven_goals: pLoven,
+    pred_opponent_goals: pOpp,
+    pred_last_scorer: pScorer,
+    pred_shots_on_goal: pShots
+  });
+
+  return getLovenGame(gameId);
+}
+
+export function lockLovenGame(gameId, requesterId, isAdmin = false) {
+  const game = stmts.getLovenGameById.get(gameId);
+  if (!game) throw new Error('Matchen hittades inte');
+  if (game.creator_id !== requesterId && !isAdmin) {
+    throw new Error('Endast skaparen kan låsa matchen');
+  }
+  stmts.updateLovenGameStatus.run('locked', gameId);
+  return getLovenGame(gameId);
+}
+
+export function settleLovenGame(gameId, {
+  resultLovenGoals,
+  resultOpponentGoals,
+  resultLastScorer,
+  resultShotsOnGoal
+}, requesterId, isAdmin = false) {
+  const game = stmts.getLovenGameById.get(gameId);
+  if (!game) throw new Error('Matchen hittades inte');
+  if (game.creator_id !== requesterId && !isAdmin) {
+    throw new Error('Endast skaparen kan rätta matchen');
+  }
+  if (game.status === 'settled') {
+    throw new Error('Matchen är redan rättad');
+  }
+
+  const resLoven = Math.max(0, Math.floor(Number(resultLovenGoals) || 0));
+  const resOpp = Math.max(0, Math.floor(Number(resultOpponentGoals) || 0));
+  const resShots = Math.max(0, Math.floor(Number(resultShotsOnGoal) || 0));
+  const resScorer = (resultLastScorer || '').trim();
+
+  const entries = stmts.getLovenEntriesByGame.all(gameId);
+  if (entries.length === 0) {
+    stmts.updateLovenGameResult.run({
+      id: gameId,
+      result_loven_goals: resLoven,
+      result_opponent_goals: resOpp,
+      result_last_scorer: resScorer,
+      result_shots_on_goal: resShots,
+      winner_user_ids: '[]'
+    });
+    return getLovenGame(gameId);
+  }
+
+  // 1. Calculate diff for shots to find minimum diff
+  let minDiff = Infinity;
+  for (const e of entries) {
+    const diff = Math.abs(Number(e.pred_shots_on_goal) - resShots);
+    if (diff < minDiff) minDiff = diff;
+  }
+
+  // 2. Score each entry according to 4 - 3 - 2 rules:
+  // Q1: 4p for exact result
+  // Q2: 3p for last scorer
+  // Q3: 2p for closest to shots on goal (diff === minDiff)
+  const scoredEntries = entries.map(e => {
+    const ptsResult = (Number(e.pred_loven_goals) === resLoven && Number(e.pred_opponent_goals) === resOpp) ? 4 : 0;
+    const ptsScorer = isScorerMatch(e.pred_last_scorer, resScorer) ? 3 : 0;
+    const diff = Math.abs(Number(e.pred_shots_on_goal) - resShots);
+    const ptsShots = (diff === minDiff) ? 2 : 0;
+    const totalPoints = ptsResult + ptsScorer + ptsShots;
+    return {
+      ...e,
+      pts_result: ptsResult,
+      pts_scorer: ptsScorer,
+      pts_shots: ptsShots,
+      points: totalPoints
+    };
+  });
+
+  const maxPoints = Math.max(...scoredEntries.map(e => e.points));
+  const winners = scoredEntries.filter(e => e.points === maxPoints);
+  const winnerIds = winners.map(w => w.user_id);
+  const losers = scoredEntries.filter(e => e.points < maxPoints);
+
+  const settleTx = db.transaction(() => {
+    // Update each entry
+    for (const e of scoredEntries) {
+      const isWinner = e.points === maxPoints ? 1 : 0;
+      stmts.updateLovenEntryScore.run({
+        id: e.id,
+        points: e.points,
+        pts_result: e.pts_result,
+        pts_scorer: e.pts_scorer,
+        pts_shots: e.pts_shots,
+        is_winner: isWinner
+      });
+    }
+
+    // Insert duels into minigame_duels if money is on the line and there are both winners and losers
+    const stake = Number(game.stake_amount) || 0;
+    if (stake > 0 && winners.length > 0 && losers.length > 0) {
+      const numWinners = winners.length;
+      const baseCent = Math.floor((stake * 100) / numWinners) / 100;
+      const remainderCents = Math.round((stake - (baseCent * numWinners)) * 100);
+
+      for (const loser of losers) {
+        let remainingRemainder = remainderCents;
+        for (let i = 0; i < numWinners; i++) {
+          let share = baseCent;
+          if (i < remainingRemainder) {
+            share = Math.round((share + 0.01) * 100) / 100;
+          }
+          if (share <= 0) continue;
+
+          const duelId = crypto.randomUUID();
+          stmts.insertLovenDuel.run({
+            id: duelId,
+            creator_id: winners[i].user_id,
+            opponent_id: loser.user_id,
+            stake_amount: share,
+            winner_id: winners[i].user_id,
+            creator_score: winners[i].points,
+            opponent_score: loser.points,
+            custom_title: `Löven Game: Björklöven vs ${game.opponent_team}`,
+            tournament_id: game.tournament_id || null
+          });
+        }
+      }
+    }
+
+    // Update game record
+    stmts.updateLovenGameResult.run({
+      id: gameId,
+      result_loven_goals: resLoven,
+      result_opponent_goals: resOpp,
+      result_last_scorer: resScorer,
+      result_shots_on_goal: resShots,
+      winner_user_ids: JSON.stringify(winnerIds)
+    });
+  });
+
+  settleTx();
+
+  return getLovenGame(gameId);
+}
+
+export function cancelLovenGame(gameId, requesterId, isAdmin = false) {
+  const game = stmts.getLovenGameById.get(gameId);
+  if (!game) throw new Error('Matchen hittades inte');
+  if (game.creator_id !== requesterId && !isAdmin) {
+    throw new Error('Endast skaparen kan avbryta matchen');
+  }
+  if (game.status === 'settled') {
+    throw new Error('Kan inte avbryta en redan rättad match');
+  }
+  stmts.updateLovenGameStatus.run('cancelled', gameId);
+  return getLovenGame(gameId);
+}
+
 
 
 
