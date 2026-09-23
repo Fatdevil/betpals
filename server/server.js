@@ -589,14 +589,16 @@ function requireAuth(req, res, next) {
 function verifyEventAdmin(req, event) {
   // Check creator token first
   const user = getUserFromToken(req);
-  if (user && event.creator_id === user.id) return true;
+  const creatorId = event.creator_id || event.creatorId;
+  if (user && creatorId === user.id) return true;
   // If event belongs to a tournament, tournament creator is also an admin
-  if (user && event.tournament_id) {
-    const tour = db.getTournamentById(event.tournament_id);
-    if (tour && tour.creator_id === user.id) return true;
+  const tourId = event.tournament_id || event.tournamentId;
+  if (user && tourId) {
+    const tour = db.getTournamentById(tourId);
+    if (tour && (tour.creator_id === user.id || tour.creatorId === user.id)) return true;
   }
   // Fall back to PIN
-  const { pin } = req.body;
+  const { pin } = req.body || {};
   if (pin && verifyPin(pin)) return true;
   return false;
 }

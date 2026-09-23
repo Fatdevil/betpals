@@ -1,6 +1,6 @@
 // ── Page: Admin Panel ─────────────────────────────────
 import * as api from '../api.js';
-import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, formatDeadline } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
@@ -210,6 +210,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
             <h3 style="font-family: var(--font-heading); font-weight: 700;">${escapeHtml(ev.name)}</h3>
             <p class="text-secondary" style="font-size: 0.8rem;">
               ${formatDate(ev.date)} · ${t('admin.code')}: <span class="text-gold">${escapeHtml(ev.shareCode)}</span>
+              ${ev.closesAt ? ` · <span class="text-gold font-bold">⏰ ${formatDeadline(ev.closesAt)?.shortText || ''}</span>` : ''}
             </p>
           </div>
           <span class="badge ${statusBadgeClass(ev.status)}">${statusLabel(ev.status)}</span>
@@ -222,6 +223,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}">${t('admin.btnPlayers')}</button>
           <button class="btn btn-sm btn-secondary admin-cover-btn" data-id="${ev.id}" title="Byt eller lägg till match-omslag">📸 Omslag</button>
           ${ev.status === 'open' ? `
+            <button class="btn btn-sm btn-primary admin-boost-btn" data-id="${ev.id}">🚀 Boosta</button>
             <button class="btn btn-sm btn-secondary admin-lock-btn" data-id="${ev.id}">${t('admin.btnLock')}</button>
           ` : ''}
           ${ev.status === 'locked' ? `
@@ -243,6 +245,19 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
 
     list.querySelectorAll('.admin-cover-btn').forEach(btn => {
       btn.addEventListener('click', () => showCoverModal(btn.dataset.id, loggedIn, hasPinSession, user));
+    });
+
+    list.querySelectorAll('.admin-boost-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Vill du skicka en pushnotis till alla deltagare för att boosta detta spel? 🚀')) return;
+        try {
+          await api.boostEvent(btn.dataset.id);
+          launchConfetti();
+          showToast('Spelet boostat med pushnotis! 🚀', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
     });
 
     list.querySelectorAll('.admin-lock-btn').forEach(btn => {
@@ -328,6 +343,35 @@ function showCreateEventModal() {
       <div class="form-group">
         <label class="form-label">${t('admin.date')}</label>
         <input type="date" class="form-input" id="ce-date" />
+      </div>
+      <div class="form-group mb-sm">
+        <label class="form-label mb-xs">⏰ Spelstopp / Tidsgräns</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap; margin-bottom: 6px;" id="ce-deadline-buttons">
+          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn selected" data-min="0" style="font-size: 0.7rem; padding: 3px 8px; border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);">
+            ♾️ Ingen
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="15" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 15m
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="30" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 30m
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="60" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 1h
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="120" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 2h
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="custom" style="font-size: 0.7rem; padding: 3px 8px;">
+            📅 Kalender
+          </button>
+        </div>
+        <div id="ce-custom-dl-container" style="display: none; margin-top: 4px;">
+          <input type="datetime-local" class="form-input" id="ce-custom-dl-input" style="font-size: 0.82rem;" />
+        </div>
+        <div id="ce-dl-preview" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
+          Ingen tidsgräns vald — spelet stängs manuellt.
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -552,6 +596,55 @@ function showCreateEventModal() {
     }
   });
 
+  // Deadline handling
+  let selectedClosesAt = null;
+  const ceDlBtns = document.querySelectorAll('.ce-dl-btn');
+  const ceCustomCont = document.getElementById('ce-custom-dl-container');
+  const ceCustomInp = document.getElementById('ce-custom-dl-input');
+  const cePreview = document.getElementById('ce-dl-preview');
+
+  ceDlBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      ceDlBtns.forEach(b => {
+        b.style.border = '1px solid var(--border-light)';
+        b.style.background = 'var(--bg-card)';
+      });
+      btn.style.border = '1.5px solid var(--gold)';
+      btn.style.background = 'rgba(245,166,35,0.12)';
+
+      const min = btn.dataset.min;
+      if (min === '0') {
+        selectedClosesAt = null;
+        if (ceCustomCont) ceCustomCont.style.display = 'none';
+        if (cePreview) cePreview.textContent = 'Ingen tidsgräns vald — spelet stängs manuellt.';
+      } else if (min === 'custom') {
+        if (ceCustomCont) ceCustomCont.style.display = 'block';
+        if (ceCustomInp) {
+          if (!ceCustomInp.value) {
+            const d = new Date(Date.now() + 60 * 60 * 1000);
+            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+            ceCustomInp.value = d.toISOString().slice(0, 16);
+          }
+          selectedClosesAt = new Date(ceCustomInp.value).toISOString();
+          if (cePreview) cePreview.textContent = `Spelstopp: ${new Date(ceCustomInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+        }
+      } else {
+        const minNum = Number(min);
+        const target = new Date(Date.now() + minNum * 60 * 1000);
+        selectedClosesAt = target.toISOString();
+        if (ceCustomCont) ceCustomCont.style.display = 'none';
+        if (cePreview) cePreview.textContent = `Spelstopp ställs till kl ${target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (om ${minNum} min) ⏱️`;
+      }
+    });
+  });
+
+  ceCustomInp?.addEventListener('input', () => {
+    if (ceCustomInp.value) {
+      selectedClosesAt = new Date(ceCustomInp.value).toISOString();
+      if (cePreview) cePreview.textContent = `Spelstopp: ${new Date(ceCustomInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+    }
+  });
+
   document.getElementById('create-event-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     addCurrentPlayer();
@@ -585,6 +678,7 @@ function showCreateEventModal() {
         pin: getPin(),
         name,
         date: document.getElementById('ce-date').value,
+        closesAt: selectedClosesAt,
         minBet,
         maxBet,
         payoutPercent: Number(payoutSlider.value),

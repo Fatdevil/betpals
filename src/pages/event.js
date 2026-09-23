@@ -1,6 +1,6 @@
-import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
-import { showModal } from '../components/modal.js';
+import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl } from '../utils.js';
+import { showModal, closeModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
@@ -9,6 +9,7 @@ import { t } from '../i18n.js';
 
 let wsUnsubscribe = null;
 let eventSponsorCarouselCleanup = null;
+let countdownInterval = null;
 
 function renderSettlementSection(event, payoutInfo) {
   if (event.status === 'cancelled') {
@@ -177,6 +178,9 @@ export async function renderEvent(params = {}) {
       } else if (msg.type === 'event_reopened') {
         showToast(t('notifications.eventReopened'), 'info');
         setTimeout(() => renderEvent(params), 500);
+      } else if (msg.type === 'event_deadline_updated') {
+        showToast('⏰ Spelstopp uppdaterat!', 'info');
+        setTimeout(() => renderEvent(params), 500);
       }
     });
   } catch (err) {
@@ -189,7 +193,9 @@ export async function renderEvent(params = {}) {
 }
 
 function renderEventContent(event, content, code) {
-  const isOpen = event.status === 'open';
+  const dl = event.closesAt ? formatDeadline(event.closesAt) : null;
+  const isLockedOrExpired = event.status === 'locked' || (dl && dl.isExpired);
+  const isOpen = event.status === 'open' && (!dl || !dl.isExpired);
   const isFinished = event.status === 'finished';
   const winner = isFinished ? event.players.find(p => p.id === event.winnerId) : null;
 
@@ -232,6 +238,8 @@ function renderEventContent(event, content, code) {
   const hasPlayerImages = event.players.some(p => p.imageUrl);
   const loggedIn = isLoggedIn();
   const currentUser = getStoredUser();
+  const hasPinSession = !!sessionStorage.getItem('betpals_pin');
+  const isCreatorOrAdmin = (currentUser && event.creatorId === currentUser.id) || hasPinSession;
 
   content.innerHTML = `
     <div class="animate-in">
@@ -258,11 +266,100 @@ function renderEventContent(event, content, code) {
             <button type="button" class="btn btn-secondary btn-sm" id="event-share-modal-btn" style="font-size: 0.72rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
               📱 Dela
             </button>
+            ${!event.closesAt ? `
+              <button type="button" class="btn btn-secondary btn-sm" id="calendar-export-btn" style="font-size: 0.72rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                📅 Kalender
+              </button>
+            ` : ''}
             ${isOpen ? '<span class="live-indicator"><span class="live-dot"></span>LIVE</span>' : ''}
             <span class="badge ${statusBadgeClass(event.status)}">${statusLabel(event.status)}</span>
           </div>
         </div>
       </div>
+
+      ${event.closesAt && !dl.isExpired ? `
+        <!-- Active Deadline Banner -->
+        <div class="card mb-md" id="deadline-banner" style="border: 1.5px solid var(--gold); background: linear-gradient(135deg, rgba(245,166,35,0.12) 0%, rgba(20,24,39,0.8) 100%); padding: 12px 16px;">
+          <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.6rem;">⏱️</span>
+              <div>
+                <div style="font-size: 0.72rem; color: var(--gold); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Spelstopp / Tidsgräns
+                </div>
+                <div id="countdown-text-el" style="font-size: 0.95rem; font-weight: 800; color: #fff;">
+                  ${dl.text}
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-muted);">
+                  Stänger: ${new Date(event.closesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${new Date(event.closesAt).toLocaleDateString([], { month: 'short', day: 'numeric' })})
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="calendar-export-btn" style="font-size: 0.75rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
+              📅 Lägg till i kalender
+            </button>
+          </div>
+        </div>
+      ` : event.closesAt && dl.isExpired && !isFinished && event.status !== 'cancelled' ? `
+        <!-- Expired Deadline Banner -->
+        <div class="card mb-md" style="border: 1.5px solid #e74c3c; background: rgba(231,76,60,0.1); padding: 12px 16px;">
+          <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.6rem;">⌛</span>
+              <div>
+                <div style="font-size: 0.72rem; color: #e74c3c; font-weight: 700; text-transform: uppercase;">
+                  Spelstopp passerat
+                </div>
+                <div style="font-size: 0.92rem; font-weight: 800; color: #fff;">
+                  Bettningen är stängd för detta spel
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-xs" style="align-items: center;">
+              <button type="button" class="btn btn-secondary btn-sm" id="calendar-export-btn" style="font-size: 0.75rem; padding: 6px 12px;">
+                📅 Kalender
+              </button>
+              ${isCreatorOrAdmin ? `
+                <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn" style="font-size: 0.75rem; padding: 6px 12px;">
+                  🔓 Öppna igen
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${isCreatorOrAdmin && !isFinished && event.status !== 'cancelled' ? `
+        <!-- Spelledarkontroll -->
+        <div class="card mb-md" style="border: 1.5px solid rgba(245,166,35,0.3); background: rgba(255,255,255,0.03); padding: 10px 14px;">
+          <div class="flex-between mb-xs" style="align-items: center;">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold); display: flex; align-items: center; gap: 4px;">
+              👑 Spelledarkontroll
+            </span>
+            <span style="font-size: 0.7rem; color: var(--text-muted);">
+              ${isOpen ? '🟢 Öppet för bets' : '🔒 Stängt för bets'}
+            </span>
+          </div>
+          <div class="flex gap-xs" style="flex-wrap: wrap;">
+            ${isOpen ? `
+              <button type="button" class="btn btn-primary btn-sm" id="creator-boost-btn" style="flex: 1; min-width: 120px; font-size: 0.75rem; font-weight: 700; padding: 6px 10px;">
+                🚀 Boosta spelet
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="creator-lock-btn" style="flex: 1; min-width: 120px; font-size: 0.75rem; padding: 6px 10px;">
+                🔒 Stäng bettning nu
+              </button>
+            ` : ''}
+            ${isLockedOrExpired ? `
+              <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn" style="flex: 1; min-width: 120px; font-size: 0.75rem; padding: 6px 10px;">
+                🔓 Öppna bettning
+              </button>
+            ` : ''}
+            <button type="button" class="btn btn-secondary btn-sm" id="creator-deadline-btn" style="font-size: 0.75rem; padding: 6px 10px;">
+              ⏰ Ändra spelstopp
+            </button>
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Stats -->
       <div class="stats-row">
@@ -407,6 +504,17 @@ function renderEventContent(event, content, code) {
             </form>
           </div>
         `}
+      ` : (!isFinished && event.status !== 'cancelled' && (event.status === 'locked' || (dl && dl.isExpired))) ? `
+        <div class="section-header">
+          <h2 class="section-title">🎯 ${t('event.placePrediction')}</h2>
+        </div>
+        <div class="card text-center" style="padding: 24px 16px; border: 1.5px solid rgba(231,76,60,0.3); background: rgba(231,76,60,0.05);">
+          <div style="font-size: 2.2rem; margin-bottom: 6px;">${dl && dl.isExpired ? '⌛' : '🔒'}</div>
+          <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 4px; color: ${dl && dl.isExpired ? '#e74c3c' : 'var(--gold)'};">
+            ${dl && dl.isExpired ? 'Spelstopp har passerat' : 'Bettning är stängd'}
+          </h3>
+          <p class="text-muted" style="font-size: 0.82rem; margin-bottom: 0;">Det går inte längre att lägga nya bets på detta spel.</p>
+        </div>
       ` : ''}
 
       ${isFinished && payoutInfo ? `
@@ -560,6 +668,74 @@ function renderEventContent(event, content, code) {
     });
   });
 
+  // Calendar export
+  document.querySelectorAll('#calendar-export-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openCalendarModal(event);
+    });
+  });
+
+  // Creator Controls
+  document.getElementById('creator-boost-btn')?.addEventListener('click', async () => {
+    if (!confirm(`🚀 Boosta "${event.name}"?\n\nDetta skickar en pushnotis till alla deltagare i eventet för att påminna dem om att lägga sina bets!`)) return;
+    try {
+      await boostEvent(event.id);
+      launchConfetti();
+      showToast('Spelet boostat med pushnotis! 🚀', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('creator-lock-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Vill du stänga bettningen för "${event.name}" nu? Inga fler bets kommer tas emot.`)) return;
+    try {
+      const pin = sessionStorage.getItem('betpals_pin') || '';
+      await lockEvent(event.id, pin);
+      showToast('Bettning stängd! 🔒', 'info');
+      const updated = await getEvent(code);
+      renderEventContent(updated, content, code);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('creator-reopen-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Vill du öppna bettningen för "${event.name}" igen?`)) return;
+    try {
+      const pin = sessionStorage.getItem('betpals_pin') || '';
+      await reopenEvent(event.id, pin);
+      showToast('Bettningen är öppen igen! 🔓', 'success');
+      const updated = await getEvent(code);
+      renderEventContent(updated, content, code);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('creator-deadline-btn')?.addEventListener('click', () => {
+    openDeadlineModal(event, content, code);
+  });
+
+  // Countdown ticking interval
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+  if (event.closesAt && dl && !dl.isExpired) {
+    countdownInterval = setInterval(() => {
+      const curDl = formatDeadline(event.closesAt);
+      if (!curDl || curDl.isExpired) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+        getEvent(code).then(updated => renderEventContent(updated, content, code));
+        return;
+      }
+      const textEl = document.getElementById('countdown-text-el');
+      if (textEl) textEl.textContent = curDl.text;
+    }, 1000);
+  }
+
   // Initialize sponsor carousel auto-roll if banners present
   if (event.banners && event.banners.length > 0) {
     if (eventSponsorCarouselCleanup) {
@@ -573,6 +749,145 @@ function renderEventContent(event, content, code) {
       }
     });
   }
+}
+
+function openCalendarModal(event) {
+  const startDate = event.closesAt ? new Date(event.closesAt) : (event.date ? new Date(event.date) : new Date());
+  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+  const title = `BetPals: ${event.name}`;
+  const description = `Spela och lägg dina bets på "${event.name}" i BetPals!\nKod: ${event.shareCode}\nLänk: ${window.location.origin}/?page=event&code=${event.shareCode}`;
+  const icsUrl = generateIcsDataUrl({
+    title,
+    description,
+    startDate,
+    endDate,
+    url: `${window.location.origin}/?page=event&code=${event.shareCode}`
+  });
+  const googleCalUrl = generateGoogleCalendarUrl({
+    title,
+    description,
+    startDate,
+    endDate,
+    location: 'BetPals'
+  });
+
+  showModal('📅 Lägg till i kalender', `
+    <div class="text-center" style="padding: 10px 0;">
+      <div style="font-size: 2.2rem; margin-bottom: 8px;">📅</div>
+      <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 6px;">${escapeHtml(event.name)}</h3>
+      <p class="text-muted" style="font-size: 0.82rem; margin-bottom: 18px;">
+        Glöm inte matchen och spelstoppet! Lägg till i din mobilkalender.
+      </p>
+      <div class="flex gap-sm" style="flex-direction: column;">
+        <a href="${icsUrl}" download="${encodeURIComponent(event.name)}.ics" class="btn btn-primary btn-block" style="text-decoration: none; padding: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          🍏 Apple Kalender / Outlook (.ics)
+        </a>
+        <a href="${googleCalUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-block" style="text-decoration: none; padding: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          📱 Google Kalender
+        </a>
+      </div>
+    </div>
+  `);
+}
+
+function openDeadlineModal(event, content, code) {
+  showModal('⏰ Ändra spelstopp / Tidsgräns', `
+    <form id="edit-deadline-form">
+      <div class="form-group mb-sm">
+        <label class="form-label mb-xs">Välj ny tidsgräns för "${escapeHtml(event.name)}"</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap; margin-bottom: 8px;" id="modal-deadline-buttons">
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn selected" data-min="0" style="font-size: 0.72rem; padding: 4px 8px; border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);">
+            ♾️ Ingen tidsgräns
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="15" style="font-size: 0.72rem; padding: 4px 8px;">
+            ⏱️ 15 min
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="30" style="font-size: 0.72rem; padding: 4px 8px;">
+            ⏱️ 30 min
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="60" style="font-size: 0.72rem; padding: 4px 8px;">
+            ⏱️ 1 timme
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="120" style="font-size: 0.72rem; padding: 4px 8px;">
+            ⏱️ 2 timmar
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="custom" style="font-size: 0.72rem; padding: 4px 8px;">
+            📅 Kalender
+          </button>
+        </div>
+        <div id="modal-custom-dl-container" style="display: none; margin-top: 6px;">
+          <input type="datetime-local" class="form-input" id="modal-custom-dl-input" style="font-size: 0.85rem;" />
+        </div>
+        <div id="modal-dl-preview" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">
+          Spelet kommer vara öppet tills det stängs manuellt.
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" style="padding: 10px; font-weight: 700;">
+        Spara spelstopp 💾
+      </button>
+    </form>
+  `);
+
+  let newClosesAt = null;
+  const dlBtns = document.querySelectorAll('.modal-dl-btn');
+  const customCont = document.getElementById('modal-custom-dl-container');
+  const customInp = document.getElementById('modal-custom-dl-input');
+  const preview = document.getElementById('modal-dl-preview');
+
+  dlBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      dlBtns.forEach(b => {
+        b.style.border = '1px solid var(--border-light)';
+        b.style.background = 'var(--bg-card)';
+      });
+      btn.style.border = '1.5px solid var(--gold)';
+      btn.style.background = 'rgba(245,166,35,0.12)';
+
+      const min = btn.dataset.min;
+      if (min === '0') {
+        newClosesAt = null;
+        if (customCont) customCont.style.display = 'none';
+        if (preview) preview.textContent = 'Spelet kommer vara öppet tills det stängs manuellt.';
+      } else if (min === 'custom') {
+        if (customCont) customCont.style.display = 'block';
+        if (customInp) {
+          if (!customInp.value) {
+            const d = new Date(Date.now() + 60 * 60 * 1000);
+            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+            customInp.value = d.toISOString().slice(0, 16);
+          }
+          newClosesAt = new Date(customInp.value).toISOString();
+          if (preview) preview.textContent = `Nytt spelstopp: ${new Date(customInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+        }
+      } else {
+        const minNum = Number(min);
+        const target = new Date(Date.now() + minNum * 60 * 1000);
+        newClosesAt = target.toISOString();
+        if (customCont) customCont.style.display = 'none';
+        if (preview) preview.textContent = `Nytt spelstopp: kl ${target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (om ${minNum} min) ⏱️`;
+      }
+    });
+  });
+
+  customInp?.addEventListener('input', () => {
+    if (customInp.value) {
+      newClosesAt = new Date(customInp.value).toISOString();
+      if (preview) preview.textContent = `Nytt spelstopp: ${new Date(customInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+    }
+  });
+
+  document.getElementById('edit-deadline-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await updateEventDeadline(event.id, newClosesAt);
+      closeModal();
+      showToast('Spelstopp uppdaterat! ⏰', 'success');
+      const updated = await getEvent(code);
+      renderEventContent(updated, content, code);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 async function openEventShareModal(code, eventName) {
@@ -630,5 +945,9 @@ export function cleanupEvent() {
   if (eventSponsorCarouselCleanup) {
     eventSponsorCarouselCleanup();
     eventSponsorCarouselCleanup = null;
+  }
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
   }
 }

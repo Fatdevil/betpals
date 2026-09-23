@@ -1278,6 +1278,37 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         <p class="text-muted mt-xs" id="game-amount-help" style="font-size: 0.72rem; margin: 2px 0 0 0;">Minsta insats för poolspel.</p>
       </div>
 
+      <!-- Deadline / Closes At -->
+      <div class="form-group mb-sm">
+        <label class="form-label mb-xs">⏰ Spelstopp / Tidsgräns</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap; margin-bottom: 6px;" id="game-deadline-buttons">
+          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn selected" data-minutes="0" style="font-size: 0.7rem; padding: 3px 8px; border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);">
+            ♾️ Ingen tidsgräns
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="15" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 15 min
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="30" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 30 min
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="60" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 1 timme
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="120" style="font-size: 0.7rem; padding: 3px 8px;">
+            ⏱️ 2 timmar
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="custom" style="font-size: 0.7rem; padding: 3px 8px;">
+            📅 Välj i kalender
+          </button>
+        </div>
+        <div id="custom-deadline-container" style="display: none; margin-top: 6px;">
+          <input type="datetime-local" class="form-input" id="custom-deadline-input" style="font-size: 0.85rem; padding: 6px 10px;" />
+        </div>
+        <div id="deadline-summary-badge" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
+          Ingen tidsgräns vald — spelet stängs manuellt av arrangören.
+        </div>
+      </div>
+
       <div class="form-group mb-sm">
         <div class="flex-between mb-xs">
           <label class="form-label" style="margin: 0;">Spelare / Svarsalternativ</label>
@@ -1400,6 +1431,64 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     }
   });
 
+  // Deadline handling
+  let selectedClosesAt = null;
+  const deadlineButtons = document.querySelectorAll('.deadline-quick-btn');
+  const customDeadlineCont = document.getElementById('custom-deadline-container');
+  const customDeadlineInput = document.getElementById('custom-deadline-input');
+  const deadlineSummary = document.getElementById('deadline-summary-badge');
+
+  function updateDeadlineUI(btn, minutes) {
+    deadlineButtons.forEach(b => {
+      b.style.border = '1px solid var(--border-light)';
+      b.style.background = 'var(--bg-card)';
+    });
+    btn.style.border = '1.5px solid var(--gold)';
+    btn.style.background = 'rgba(245,166,35,0.12)';
+
+    if (minutes === '0') {
+      selectedClosesAt = null;
+      if (customDeadlineCont) customDeadlineCont.style.display = 'none';
+      if (deadlineSummary) deadlineSummary.textContent = 'Ingen tidsgräns vald — spelet stängs manuellt av arrangören.';
+    } else if (minutes === 'custom') {
+      if (customDeadlineCont) customDeadlineCont.style.display = 'block';
+      if (customDeadlineInput) {
+        if (!customDeadlineInput.value) {
+          const d = new Date(Date.now() + 60 * 60 * 1000);
+          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+          customDeadlineInput.value = d.toISOString().slice(0, 16);
+        }
+        selectedClosesAt = new Date(customDeadlineInput.value).toISOString();
+        if (deadlineSummary) {
+          deadlineSummary.textContent = `Spelstopp: ${new Date(customDeadlineInput.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+        }
+      }
+    } else {
+      const minNum = Number(minutes);
+      const target = new Date(Date.now() + minNum * 60 * 1000);
+      selectedClosesAt = target.toISOString();
+      if (customDeadlineCont) customDeadlineCont.style.display = 'none';
+      if (deadlineSummary) {
+        deadlineSummary.textContent = `Spelstopp ställs till kl ${target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (om ${minNum} min) ⏱️`;
+      }
+    }
+  }
+
+  deadlineButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      updateDeadlineUI(btn, btn.dataset.minutes);
+    });
+  });
+
+  customDeadlineInput?.addEventListener('input', () => {
+    if (customDeadlineInput.value) {
+      selectedClosesAt = new Date(customDeadlineInput.value).toISOString();
+      if (deadlineSummary) {
+        deadlineSummary.textContent = `Spelstopp: ${new Date(customDeadlineInput.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+      }
+    }
+  });
+
   // Submit
   document.getElementById('add-game-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1433,6 +1522,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         players,
         betMode,
         betAmount,
+        closesAt: selectedClosesAt,
         pin
       });
       closeModal();

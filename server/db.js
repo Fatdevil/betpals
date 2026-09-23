@@ -568,7 +568,7 @@ const stmts = {
   updateEventWinner: db.prepare('UPDATE events SET winner_id = ?, winner_image_url = COALESCE(?, winner_image_url), status = \'finished\' WHERE id = ?'),
   updateEventImage: db.prepare('UPDATE events SET image_url = ? WHERE id = ?'),
   updateEventClosesAt: db.prepare('UPDATE events SET closes_at = ? WHERE id = ?'),
-  updateEventLastBoosted: db.prepare("UPDATE events SET last_boosted_at = datetime('now') WHERE id = ?"),
+  updateEventLastBoosted: db.prepare('UPDATE events SET last_boosted_at = ? WHERE id = ?'),
   resetEvent: db.prepare('UPDATE events SET status = ?, winner_id = NULL WHERE id = ?'),
   deleteEvent: db.prepare('DELETE FROM events WHERE id = ?'),
 
@@ -1212,7 +1212,7 @@ export function updateEventClosesAt(eventId, closesAt) {
 }
 
 export function updateEventLastBoosted(eventId) {
-  stmts.updateEventLastBoosted.run(eventId);
+  stmts.updateEventLastBoosted.run(new Date().toISOString(), eventId);
 }
 
 export function deleteEvent(eventId) {
