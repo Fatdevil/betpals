@@ -2897,13 +2897,37 @@ app.post('/api/duels', (req, res) => {
   const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1;
   const duelMode = mode === 'table' ? 'table' : 'online';
 
+  const rawTournamentId = tournamentId ? String(tournamentId).trim() : null;
+  let validatedTournamentId = null;
+  if (rawTournamentId) {
+    const tournament = db.getFullTournament(rawTournamentId);
+    if (!tournament) {
+      return res.status(404).json({ error: 'Turneringen hittades inte' });
+    }
+    if (tournament.status === 'settled') {
+      return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att spela turneringsdueller.' });
+    }
+    if (!db.canUserAccessTournament(tournament, user.id)) {
+      return res.status(403).json({ error: 'Du har inte tillgång till denna turnering' });
+    }
+    const participantUserIds = db.getTournamentParticipantUserIds(tournament.id);
+    const isCallerParticipant = tournament.creatorId === user.id || participantUserIds.includes(user.id);
+    if (!isCallerParticipant) {
+      return res.status(403).json({ error: 'Endast deltagare eller skapare kan spela dueller i turneringen' });
+    }
+    if (opponentId && String(opponentId) !== tournament.creatorId && !participantUserIds.includes(String(opponentId))) {
+      return res.status(400).json({ error: 'Motståndaren måste delta i turneringen' });
+    }
+    validatedTournamentId = tournament.id;
+  }
+
   const duel = db.createDuel({
     gameType: gameType || 'dice',
     creatorId: user.id,
     opponentId: opponentId || null,
     stakeAmount: stake,
     mode: duelMode,
-    tournamentId: tournamentId || null
+    tournamentId: validatedTournamentId
   });
 
   if (opponentId && duelMode === 'online') {
@@ -3086,6 +3110,10 @@ app.post('/api/duels/:id/settle', (req, res) => {
   const duel = db.getDuelById(req.params.id);
   if (!duel) return res.status(404).json({ error: 'Duell hittades inte' });
 
+  if (duel.tournament_id) {
+    return res.status(400).json({ error: 'Denna duell ingår i en turnering och avräknas samlat under THE TAB' });
+  }
+
   if (user.id !== duel.creator_id && user.id !== duel.opponent_id) {
     return res.status(403).json({ error: 'Du deltar inte i denna duell' });
   }
@@ -3125,8 +3153,13 @@ app.post('/api/duels/settle-with/:friendId', (req, res) => {
   const summary = db.getDuelSettlementSummary(user.id);
   const friendSummary = (summary.friends || []).find(f => f.friendId === friendId);
 
+  // If there are no unsettled duels between these users in Swishlistan:
+  if (!friendSummary) {
+    return res.status(400).json({ error: 'Det finns inga okvitterade dueller att kvittera med denna vän' });
+  }
+
   // If user is debtor (netAmount < 0), reject! Only creditor or even balance can settle.
-  if (friendSummary && friendSummary.netAmount < 0) {
+  if (friendSummary.netAmount < 0) {
     return res.status(403).json({ error: 'Endast mottagaren/borgenären kan kvittera denna skuld' });
   }
 
@@ -5117,6 +5150,32 @@ app.post('/api/tab/expenses', async (req, res) => {
       return res.status(400).json({ error: 'Minst 2 personer krävs för att dela ett utlägg' });
     }
 
+    const rawTournamentId = req.body?.tournamentId ? String(req.body.tournamentId).trim() : null;
+    let validatedTournamentId = null;
+    if (rawTournamentId) {
+      const tournament = db.getFullTournament(rawTournamentId);
+      if (!tournament) {
+        return res.status(404).json({ error: 'Turneringen hittades inte' });
+      }
+      if (tournament.status === 'settled') {
+        return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att lägga till utlägg.' });
+      }
+      if (!db.canUserAccessTournament(tournament, user.id)) {
+        return res.status(403).json({ error: 'Du har inte tillgång till denna turnering' });
+      }
+      const participantUserIds = db.getTournamentParticipantUserIds(tournament.id);
+      const isCallerParticipant = tournament.creatorId === user.id || participantUserIds.includes(user.id);
+      if (!isCallerParticipant) {
+        return res.status(403).json({ error: 'Endast deltagare eller skapare kan lägga till utlägg i turneringen' });
+      }
+      for (const pid of allParticipants) {
+        if (pid !== tournament.creatorId && !participantUserIds.includes(pid)) {
+          return res.status(400).json({ error: 'Alla deltagare på ett turneringsutlägg måste delta i turneringen' });
+        }
+      }
+      validatedTournamentId = tournament.id;
+    }
+
     const expense = db.createTabExpense({
       payerId: user.id,
       title,
@@ -5127,7 +5186,7 @@ app.post('/api/tab/expenses', async (req, res) => {
       loserId: null,
       receiptImage,
       customShares,
-      tournamentId: req.body?.tournamentId || null
+      tournamentId: validatedTournamentId
     });
 
     const payerName = user.real_name || user.nickname || 'En vän';

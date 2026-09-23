@@ -847,6 +847,9 @@ const stmts = {
     WHERE ((creator_id = ? AND opponent_id = ?) OR (creator_id = ? AND opponent_id = ?))
       AND status = 'completed'
       AND is_settled = 0
+      AND (tournament_id IS NULL OR tournament_id = '')
+      AND stake_amount > 0
+      AND winner_id != 'tie'
   `),
 
   // AnyBets

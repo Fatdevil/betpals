@@ -942,20 +942,30 @@ function renderHistoryTab(container, pastTournaments) {
         </h3>
       </div>
       <div class="past-tournaments-list">
-        ${pastTournaments.map(t => `
-          <div class="card flex-between align-center mb-sm card-clickable btn-tab-open-tour" data-code="${escapeHtml(t.shareCode)}" style="padding: 12px 14px; cursor: pointer;">
-            <div>
-              <div style="font-weight: 700; font-size: 0.9rem;">
-                🏆 ${escapeHtml(t.name)}
+        ${pastTournaments.map(tItem => `
+          <div class="card mb-sm" style="padding: 12px 14px;">
+            <div class="flex-between align-center">
+              <div>
+                <div style="font-weight: 700; font-size: 0.9rem;">
+                  🏆 ${escapeHtml(tItem.name)}
+                </div>
+                <div class="text-muted" style="font-size: 0.75rem;">
+                  ${tItem.roundCount} ${isEn ? 'games' : 'spel'} · ${tItem.createdAt ? new Date(tItem.createdAt).toLocaleDateString() : ''}
+                </div>
               </div>
-              <div class="text-muted" style="font-size: 0.75rem;">
-                ${t.roundCount} ronder · ${t.createdAt ? new Date(t.createdAt).toLocaleDateString() : ''}
+              <div class="flex align-center gap-xs">
+                <span class="badge badge-success" style="font-size: 0.7rem;">${isEn ? 'Settled ✅' : 'Avräknad ✅'}</span>
               </div>
             </div>
-            <div class="flex align-center gap-xs">
-              <span class="badge badge-success" style="font-size: 0.7rem;">Avräknad ✅</span>
-              <span class="text-muted">➜</span>
+            <div class="flex gap-xs mt-xs" style="margin-top: 8px;">
+              <button type="button" class="btn btn-secondary btn-xs btn-toggle-history-settlement" data-code="${escapeHtml(tItem.shareCode)}" style="font-size: 0.75rem; padding: 4px 10px;">
+                📊 ${isEn ? 'View Settlement' : 'Visa slutavräkning'}
+              </button>
+              <button type="button" class="btn btn-ghost btn-xs btn-tab-open-tour" data-code="${escapeHtml(tItem.shareCode)}" style="font-size: 0.75rem; padding: 4px 10px;">
+                ➜ ${isEn ? 'Open Event' : 'Öppna event'}
+              </button>
             </div>
+            <div class="history-settlement-drawer" id="history-settle-${escapeHtml(tItem.shareCode)}" style="display: none; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;"></div>
           </div>
         `).join('')}
       </div>
@@ -966,6 +976,75 @@ function renderHistoryTab(container, pastTournaments) {
       const code = el.getAttribute('data-code');
       if (code) {
         window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code } }));
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-toggle-history-settlement').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const code = btn.getAttribute('data-code');
+      if (!code) return;
+      const drawer = container.querySelector(`#history-settle-${code}`);
+      if (!drawer) return;
+
+      if (drawer.style.display !== 'none') {
+        drawer.style.display = 'none';
+        btn.innerHTML = `📊 ${isEn ? 'View Settlement' : 'Visa slutavräkning'}`;
+        return;
+      }
+
+      drawer.style.display = 'block';
+      btn.innerHTML = `▲ ${isEn ? 'Hide Settlement' : 'Dölj avräkning'}`;
+      drawer.innerHTML = `<div class="text-center text-muted" style="padding: 12px 0;"><span class="spinner" style="font-size: 1.1rem; margin-right: 6px;">⏳</span> ${isEn ? 'Loading...' : 'Hämtar avräkning...'}</div>`;
+
+      try {
+        const fullTour = await getTournament(code);
+        const settlement = fullTour.settlement || {};
+        const balances = settlement.balances || [];
+        const transfers = settlement.transfers || [];
+
+        let html = '';
+        if (balances.length === 0) {
+          html = `<p class="text-muted text-center" style="font-size: 0.8rem; margin: 4px 0;">${isEn ? 'No settlement data recorded.' : 'Ingen avräkningsdata registrerad.'}</p>`;
+        } else {
+          html += `
+            <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--gold);">
+              📈 ${isEn ? 'Final Standings' : 'Slutställning'}:
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;">
+              ${balances.map(b => {
+                const isWinner = b.net > 0;
+                const isEven = b.net === 0;
+                const badgeClass = isWinner ? 'badge-success' : (isEven ? 'badge-neutral' : 'badge-danger');
+                const netFormatted = isWinner ? `+${b.net} kr` : `${b.net} kr`;
+                return `
+                  <div class="flex-between align-center" style="font-size: 0.8rem; padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <span>${escapeHtml(b.name)}</span>
+                    <span class="badge ${badgeClass}" style="font-size: 0.7rem; font-weight: 700;">${netFormatted}</span>
+                  </div>`;
+              }).join('')}
+            </div>`;
+
+          if (transfers.length > 0) {
+            html += `
+              <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">
+                📱 ${isEn ? 'Swish Transfers' : 'Swish-överföringar'}:
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                ${transfers.map(tr => `
+                  <div class="flex-between align-center" style="font-size: 0.75rem; padding: 4px 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                    <span><strong>${escapeHtml(tr.from)}</strong> ➜ <strong>${escapeHtml(tr.to)}</strong></span>
+                    <span style="font-weight: 700; color: #fff;">${tr.amount} kr</span>
+                  </div>
+                `).join('')}
+              </div>`;
+          } else {
+            html += `<p class="text-muted" style="font-size: 0.75rem; margin: 4px 0;">${isEn ? 'All debts settled! 🟢' : 'Alla skulder kvittade! 🟢'}</p>`;
+          }
+        }
+        drawer.innerHTML = html;
+      } catch (err) {
+        drawer.innerHTML = `<p class="text-danger text-center" style="font-size: 0.75rem;">${escapeHtml(err.message)}</p>`;
       }
     });
   });

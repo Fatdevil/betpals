@@ -87,7 +87,7 @@ test('Tournament Sponsor Banner: getFullEvent includes parent tournament banners
 
   // Add round (match/game) to tournament
   const roundEventId = 'ev_round_' + r();
-  const roundCode = 'RND' + crypto.randomInt(1000, 9999);
+  const roundCode = 'RND' + Date.now().toString(36) + crypto.randomInt(1000, 9999);
   db.createEvent({
     id: roundEventId,
     name: 'Final Match 18 Hål',
