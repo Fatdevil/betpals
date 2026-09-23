@@ -329,6 +329,8 @@ export const getAnyBets = () => request('/anybets');
 export const getAnyBet = (id) => request('/anybets/' + id);
 export const joinAnyBet = (id, choice) => request('/anybets/' + id + '/join', { method: 'POST', body: { choice } });
 export const acceptAnyBet = (id) => request('/anybets/' + id + '/join', { method: 'POST', body: { choice: 'participant' } });
+export const declineAnyBet = (id) => request('/anybets/' + id + '/decline', { method: 'POST' });
+export const cancelAnyBet = (id) => request('/anybets/' + id + '/cancel', { method: 'POST' });
 export const settleAnyBet = (id, data) => request('/anybets/' + id + '/settle', { method: 'POST', body: data });
 
 // ── Web Push API ──────────────────────────────────────

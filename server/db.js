@@ -880,6 +880,12 @@ const stmts = {
   updateAnyBetParticipantChoice: db.prepare(`
     UPDATE anybet_participants SET choice = ?, status = 'accepted' WHERE bet_id = ? AND user_id = ?
   `),
+  declineAnyBetParticipant: db.prepare(`
+    UPDATE anybet_participants SET status = 'declined' WHERE bet_id = ? AND user_id = ?
+  `),
+  cancelAnyBet: db.prepare(`
+    UPDATE anybets SET status = 'cancelled' WHERE id = ? AND creator_id = ?
+  `),
   settleAnyBet: db.prepare(`
     UPDATE anybets
     SET status = 'completed', winner_id = @winner_id, winning_side = @winning_side, proof_image_url = @proof_image_url
@@ -895,7 +901,8 @@ const stmts = {
     LEFT JOIN users j ON b.judge_id = j.id
     LEFT JOIN users w ON b.winner_id = w.id
     LEFT JOIN anybet_participants p ON b.id = p.bet_id
-    WHERE b.creator_id = ? OR b.judge_id = ? OR p.user_id = ?
+    WHERE (b.creator_id = ? OR b.judge_id = ? OR (p.user_id = ? AND p.status != 'declined'))
+      AND b.status != 'cancelled'
     ORDER BY b.created_at DESC
     LIMIT 50
   `),
@@ -2732,19 +2739,84 @@ export function settleDuelsBetweenUsers(userId, friendId) {
 
 // ── AnyBet Public API ─────────────────────────────────
 
+export function isDeadlinePassed(deadline) {
+  if (!deadline) return false;
+  let deadlineTime;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
+    deadlineTime = new Date(`${deadline}T23:59:59.999`).getTime();
+  } else {
+    deadlineTime = new Date(deadline).getTime();
+  }
+  if (isNaN(deadlineTime)) return false;
+  return Date.now() > deadlineTime;
+}
+
 export function createAnyBet({ title, description, creatorId, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId = null }) {
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    throw new Error('Ange vad bettet handlar om');
+  }
+  const cleanTitle = title.trim();
+  if (cleanTitle.length > 120) {
+    throw new Error('Rubriken får vara högst 120 tecken');
+  }
+
+  const cleanDescription = description && typeof description === 'string' ? description.trim() : null;
+  if (cleanDescription && cleanDescription.length > 500) {
+    throw new Error('Beskrivningen får vara högst 500 tecken');
+  }
+
+  const validTypes = ['winner_takes_all', 'yes_no'];
+  const normalizedType = betType || 'winner_takes_all';
+  if (!validTypes.includes(normalizedType)) {
+    throw new Error(`Ogiltig vadtyp: ${betType}. Måste vara winner_takes_all eller yes_no`);
+  }
+
+  let stake = 0;
+  if (stakeAmount !== undefined && stakeAmount !== null) {
+    const parsed = typeof stakeAmount === 'number' ? stakeAmount : parseFloat(stakeAmount);
+    if (!Number.isFinite(parsed) || isNaN(parsed) || parsed < 0) {
+      throw new Error('Insatsen måste vara ett giltigt positivt tal');
+    }
+    if (parsed > 10000) {
+      throw new Error('Insatsen får vara högst 10 000 kr');
+    }
+    stake = Math.round(parsed * 100) / 100;
+  }
+
+  let cleanDeadline = null;
+  if (deadline) {
+    let dlTime = /^\d{4}-\d{2}-\d{2}$/.test(deadline)
+      ? new Date(`${deadline}T23:59:59.999`).getTime()
+      : new Date(deadline).getTime();
+    if (isNaN(dlTime)) {
+      throw new Error('Ogiltigt datumformat för deadline');
+    }
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    if (dlTime < startOfToday.getTime()) {
+      throw new Error('Deadline kan inte vara i dåtid');
+    }
+    cleanDeadline = deadline;
+  }
+
+  if (tournamentId) {
+    const t = stmts.getTournamentById.get(tournamentId);
+    if (!t) {
+      throw new Error('Turneringen hittades inte');
+    }
+  }
+
   const betId = crypto.randomUUID();
-  const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : (parseFloat(stakeAmount) || 0);
 
   stmts.insertAnyBet.run({
     id: betId,
-    title: title.trim(),
-    description: description ? description.trim() : null,
+    title: cleanTitle,
+    description: cleanDescription,
     creator_id: creatorId,
     judge_id: judgeId || creatorId,
     stake_amount: stake,
-    bet_type: betType || 'winner_takes_all',
-    deadline: deadline || null,
+    bet_type: normalizedType,
+    deadline: cleanDeadline,
     status: 'open',
     tournament_id: tournamentId || null
   });
@@ -2765,14 +2837,100 @@ export function createAnyBet({ title, description, creatorId, judgeId, stakeAmou
     });
   }
 
-  return getAnyBetById(betId);
+  return getAnyBetById(betId, creatorId);
 }
 
-export function getAnyBetById(id) {
+export function getAnyBetSettlement(bet, userId) {
+  if (!bet || bet.status !== 'completed') return null;
+
+  const currentPart = (bet.participants || []).find(p => String(p.user_id) === String(userId));
+  const isAccepted = currentPart?.status === 'accepted';
+  const isDeclined = currentPart?.status === 'declined';
+
+  if (!currentPart || isDeclined) {
+    return { outcome: 'declined', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+  }
+  if (!isAccepted) {
+    return { outcome: 'not_accepted', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+  }
+
+  const accepted = (bet.participants || []).filter(p => p.status === 'accepted');
+  const stake = bet.stake_amount || 0;
+
+  if (bet.bet_type === 'winner_takes_all') {
+    const isWinner = String(bet.winner_id) === String(userId);
+    if (isWinner) {
+      const losers = accepted.filter(p => String(p.user_id) !== String(bet.winner_id));
+      const totalWon = losers.length * stake;
+      const debtors = losers.map(l => ({
+        userId: l.user_id,
+        nickname: l.nickname,
+        realName: l.real_name,
+        amount: stake
+      }));
+      return { outcome: 'winner', amountOwed: 0, amountWon: totalWon, creditors: [], debtors };
+    } else {
+      // Current user is loser
+      const winner = accepted.find(p => String(p.user_id) === String(bet.winner_id));
+      const creditors = (stake > 0 && winner) ? [{
+        userId: winner.user_id,
+        nickname: winner.nickname,
+        realName: winner.real_name,
+        swishNumber: winner.swish_number || null,
+        amount: stake
+      }] : [];
+      return { outcome: 'loser', amountOwed: stake, amountWon: 0, creditors, debtors: [] };
+    }
+  } else if (bet.bet_type === 'yes_no') {
+    const winningSide = bet.winning_side;
+    const opposingSide = winningSide === 'yes' ? 'no' : 'yes';
+    const winners = accepted.filter(p => p.choice === winningSide);
+    const losers = accepted.filter(p => p.choice === opposingSide);
+
+    const isWinner = currentPart.choice === winningSide;
+    const isLoser = currentPart.choice === opposingSide;
+
+    if (isWinner) {
+      if (losers.length === 0 || winners.length === 0 || stake <= 0) {
+        return { outcome: 'winner', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+      }
+      const perWinnerStake = Math.round((stake / winners.length) * 100) / 100;
+      const totalWon = Math.round(perWinnerStake * losers.length * 100) / 100;
+      const debtors = losers.map(l => ({
+        userId: l.user_id,
+        nickname: l.nickname,
+        realName: l.real_name,
+        amount: perWinnerStake
+      }));
+      return { outcome: 'winner', amountOwed: 0, amountWon: totalWon, creditors: [], debtors };
+    } else if (isLoser) {
+      if (winners.length === 0 || stake <= 0) {
+        return { outcome: 'loser', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+      }
+      const perWinnerStake = Math.round((stake / winners.length) * 100) / 100;
+      const creditors = winners.map(w => ({
+        userId: w.user_id,
+        nickname: w.nickname,
+        realName: w.real_name,
+        swishNumber: w.swish_number || null,
+        amount: perWinnerStake
+      }));
+      const totalOwed = Math.round(perWinnerStake * winners.length * 100) / 100;
+      return { outcome: 'loser', amountOwed: totalOwed, amountWon: 0, creditors, debtors: [] };
+    } else {
+      // Neutral (never chose yes or no)
+      return { outcome: 'neutral', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+    }
+  }
+
+  return { outcome: 'neutral', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+}
+
+export function getAnyBetById(id, currentUserId = null) {
   const bet = stmts.getAnyBetById.get(id);
   if (!bet) return null;
   const participants = stmts.getAnyBetParticipants.all(id);
-  return {
+  const fullBet = {
     ...bet,
     tournamentId: bet.tournament_id || null,
     participants: participants.map(p => ({
@@ -2782,13 +2940,28 @@ export function getAnyBetById(id) {
       avatarUrl: p.avatar_url
     }))
   };
+  if (currentUserId) {
+    fullBet.settlement = getAnyBetSettlement(fullBet, currentUserId);
+  }
+  return fullBet;
 }
 
 export function getAnyBetsForUser(userId) {
   const bets = stmts.getAnyBetsForUser.all(userId, userId, userId);
   return bets.map(b => {
     const participants = stmts.getAnyBetParticipants.all(b.id);
-    return { ...b, participants };
+    const fullBet = {
+      ...b,
+      tournamentId: b.tournament_id || null,
+      participants: participants.map(p => ({
+        ...p,
+        realName: p.real_name,
+        avatarEmoji: p.avatar_emoji,
+        avatarUrl: p.avatar_url
+      }))
+    };
+    fullBet.settlement = getAnyBetSettlement(fullBet, userId);
+    return fullBet;
   });
 }
 
@@ -2797,12 +2970,76 @@ export function updateAnyBetChoice(betId, userId, choice) {
   if (!bet) throw new Error('Bettet hittades inte');
   if (bet.status !== 'open' && bet.status !== 'active') throw new Error('Bettet är inte aktivt');
 
-  const normalizedChoice = (choice === 'yes' || choice === 'no') ? choice : 'participant';
-  const info = stmts.updateAnyBetParticipantChoice.run(normalizedChoice, betId, userId);
+  if (isDeadlinePassed(bet.deadline)) {
+    throw new Error('Deadlinen för att delta eller ändra val i detta vad har passerat');
+  }
+
+  const existingPart = (bet.participants || []).find(p => String(p.user_id) === String(userId));
+  if (!existingPart) {
+    throw new Error('Du är inte inbjuden till detta AnyBet');
+  }
+  if (existingPart.status === 'declined') {
+    throw new Error('Du har tidigare avböjt detta vad');
+  }
+
+  let normalizedChoice;
+  if (bet.bet_type === 'yes_no') {
+    if (choice !== 'yes' && choice !== 'no') {
+      if (existingPart.choice === 'yes' || existingPart.choice === 'no') {
+        throw new Error('Du har redan valt sida och kan inte återgå till neutral deltagare');
+      }
+      normalizedChoice = 'participant';
+    } else {
+      normalizedChoice = choice;
+    }
+  } else {
+    normalizedChoice = 'participant';
+  }
+
+  const info = stmts.updateAnyBetParticipantChoice.run(normalizedChoice, betId, String(userId));
   if (info.changes === 0) {
     throw new Error('Du är inte inbjuden till detta AnyBet');
   }
-  return getAnyBetById(betId);
+  return getAnyBetById(betId, userId);
+}
+
+export function declineAnyBet(betId, userId) {
+  const bet = getAnyBetById(betId);
+  if (!bet) throw new Error('Bettet hittades inte');
+  if (bet.status !== 'open' && bet.status !== 'active') {
+    throw new Error('Bettet är inte längre öppet');
+  }
+
+  const part = (bet.participants || []).find(p => String(p.user_id) === String(userId));
+  if (!part) {
+    throw new Error('Du är inte inbjuden till detta AnyBet');
+  }
+  if (String(bet.creator_id) === String(userId)) {
+    throw new Error('Skaparen kan inte avböja sitt eget vad. Du kan avbryta det istället.');
+  }
+  if (part.status === 'accepted') {
+    throw new Error('Du har redan accepterat detta vad');
+  }
+
+  stmts.declineAnyBetParticipant.run(betId, String(userId));
+  return getAnyBetById(betId, userId);
+}
+
+export function cancelAnyBet(betId, userId) {
+  const bet = getAnyBetById(betId);
+  if (!bet) throw new Error('Bettet hittades inte');
+  if (String(bet.creator_id) !== String(userId)) {
+    throw new Error('Endast skaparen kan avbryta bettet');
+  }
+  if (bet.status === 'completed') {
+    throw new Error('Bettet är redan avgjort och kan inte avbrytas');
+  }
+  if (bet.status === 'cancelled') {
+    throw new Error('Bettet är redan avbrutet');
+  }
+
+  stmts.cancelAnyBet.run(betId, String(userId));
+  return getAnyBetById(betId, userId);
 }
 
 export function acceptAnyBet(betId, userId) {
@@ -2812,14 +3049,17 @@ export function acceptAnyBet(betId, userId) {
 export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImageUrl }) {
   const bet = getAnyBetById(betId);
   if (!bet) throw new Error('Bettet hittades inte');
-  if (bet.judge_id !== judgeId && bet.creator_id !== judgeId) {
-    throw new Error('Endast domaren kan avgöra bettet');
+  if (String(bet.judge_id) !== String(judgeId)) {
+    throw new Error('Endast utsedd domare kan avgöra bettet');
   }
   if (bet.status === 'completed') {
     throw new Error('Bettet är redan avgjort');
   }
+  if (bet.status === 'cancelled') {
+    throw new Error('Bettet är avbrutet och kan inte avgöras');
+  }
 
-  const acceptedParticipants = bet.participants.filter(p => p.status === 'accepted');
+  const acceptedParticipants = (bet.participants || []).filter(p => p.status === 'accepted');
 
   if (bet.bet_type === 'winner_takes_all') {
     if (!winnerId) throw new Error('Vinnare måste anges');
@@ -2831,6 +3071,8 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
     if (winningSide !== 'yes' && winningSide !== 'no') {
       throw new Error('Vinnande sida måste vara ja eller nej');
     }
+  } else {
+    throw new Error(`Okänd vadtyp: ${bet.bet_type}`);
   }
 
   const settleTx = db.transaction(() => {
@@ -2902,7 +3144,7 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
 
   settleTx();
 
-  return getAnyBetById(betId);
+  return getAnyBetById(betId, judgeId);
 }
 
 // ── Push Subscriptions API ───────────────────────────

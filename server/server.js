@@ -4145,42 +4145,120 @@ app.post('/api/anybets/create', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { title, description, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId } = req.body;
-  if (!title || !title.trim()) {
+
+  if (!title || typeof title !== 'string' || !title.trim()) {
     return res.status(400).json({ error: 'Ange vad bettet handlar om' });
+  }
+  const cleanTitle = title.trim();
+  if (cleanTitle.length > 120) {
+    return res.status(400).json({ error: 'Rubriken får vara högst 120 tecken' });
+  }
+
+  const cleanDescription = description && typeof description === 'string' ? description.trim() : null;
+  if (cleanDescription && cleanDescription.length > 500) {
+    return res.status(400).json({ error: 'Beskrivningen får vara högst 500 tecken' });
+  }
+
+  const validTypes = ['winner_takes_all', 'yes_no'];
+  const normalizedType = betType || 'winner_takes_all';
+  if (!validTypes.includes(normalizedType)) {
+    return res.status(400).json({ error: `Ogiltig vadtyp: ${betType}. Måste vara winner_takes_all eller yes_no` });
+  }
+
+  let stake = 0;
+  if (stakeAmount !== undefined && stakeAmount !== null) {
+    const parsed = typeof stakeAmount === 'number' ? stakeAmount : parseFloat(stakeAmount);
+    if (!Number.isFinite(parsed) || isNaN(parsed) || parsed < 0) {
+      return res.status(400).json({ error: 'Insatsen måste vara ett giltigt positivt tal' });
+    }
+    if (parsed > 10000) {
+      return res.status(400).json({ error: 'Insatsen får vara högst 10 000 kr' });
+    }
+    stake = Math.round(parsed * 100) / 100;
+  }
+
+  if (deadline) {
+    let dlTime = /^\d{4}-\d{2}-\d{2}$/.test(deadline)
+      ? new Date(`${deadline}T23:59:59.999`).getTime()
+      : new Date(deadline).getTime();
+    if (isNaN(dlTime)) {
+      return res.status(400).json({ error: 'Ogiltigt datumformat för deadline' });
+    }
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    if (dlTime < startOfToday.getTime()) {
+      return res.status(400).json({ error: 'Deadline kan inte vara i dåtid' });
+    }
+  }
+
+  const userFriends = db.getFriends(user.id);
+  const friendIdSet = new Set(userFriends.map(f => String(f.id)));
+
+  const selectedJudgeId = judgeId ? String(judgeId) : String(user.id);
+  if (selectedJudgeId !== String(user.id) && !friendIdSet.has(selectedJudgeId)) {
+    return res.status(400).json({ error: 'Domaren måste vara du själv eller en av dina vänner' });
+  }
+
+  if (participantIds !== undefined && !Array.isArray(participantIds)) {
+    return res.status(400).json({ error: 'participantIds måste vara en lista' });
+  }
+  const rawParticipantIds = Array.isArray(participantIds) ? participantIds : [];
+  if (rawParticipantIds.length > 50) {
+    return res.status(400).json({ error: 'Max 50 deltagare kan bjudas in' });
+  }
+
+  const validParticipantIds = [];
+  for (const pid of rawParticipantIds) {
+    const sId = String(pid);
+    if (sId === String(user.id)) continue;
+    if (!friendIdSet.has(sId)) {
+      return res.status(400).json({ error: 'Du kan bara bjuda in användare som finns i din vänlista' });
+    }
+    if (!validParticipantIds.includes(sId)) {
+      validParticipantIds.push(sId);
+    }
+  }
+
+  if (tournamentId) {
+    const t = db.getTournamentById ? db.getTournamentById(tournamentId) : null;
+    if (!t) {
+      return res.status(400).json({ error: 'Turneringen hittades inte' });
+    }
+    const participantUserIds = db.getTournamentParticipantUserIds ? db.getTournamentParticipantUserIds(tournamentId) : [];
+    const isAuthorized = t.creator_id === user.id || t.creatorId === user.id || participantUserIds.includes(user.id);
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Du deltar inte i denna turnering' });
+    }
   }
 
   try {
     const bet = db.createAnyBet({
-      title,
-      description,
+      title: cleanTitle,
+      description: cleanDescription,
       creatorId: user.id,
-      judgeId: judgeId || user.id,
-      stakeAmount: typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : (parseFloat(stakeAmount) || 0),
-      betType: betType || 'winner_takes_all',
+      judgeId: selectedJudgeId,
+      stakeAmount: stake,
+      betType: normalizedType,
       deadline: deadline || null,
-      participantIds: Array.isArray(participantIds) ? participantIds : [],
+      participantIds: validParticipantIds,
       tournamentId: tournamentId || null
     });
 
-    if (Array.isArray(participantIds)) {
-      for (const pId of participantIds) {
-        if (pId !== user.id) {
-          broadcastToUser(pId, {
-            type: 'anybet_invitation',
-            bet: {
-              id: bet.id,
-              title: bet.title,
-              creatorNickname: user.nickname,
-              stakeAmount: bet.stake_amount
-            }
-          });
+    for (const pId of validParticipantIds) {
+      broadcastToUser(pId, {
+        type: 'anybet_invitation',
+        bet: {
+          id: bet.id,
+          title: bet.title,
+          creatorNickname: user.nickname,
+          stakeAmount: bet.stake_amount
         }
-      }
+      });
     }
 
-    res.json({ ok: true, bet });
+    res.json({ ok: true, bet: sanitizeAnyBet(bet, user.id) });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Kunde inte skapa bettet' });
+    res.status(400).json({ error: err.message || 'Kunde inte skapa bettet' });
   }
 });
 
@@ -4198,16 +4276,30 @@ app.get('/api/anybets', (req, res) => {
 
 function sanitizeAnyBet(bet, currentUserId) {
   if (!bet) return null;
+  const isCompleted = bet.status === 'completed' && bet.stake_amount > 0;
+  const myPart = (bet.participants || []).find(p => p.user_id === currentUserId);
+  const isMyPartLoserWTA = isCompleted && bet.bet_type === 'winner_takes_all' && myPart?.status === 'accepted' && currentUserId !== bet.winner_id;
+  const isMyPartLoserYesNo = isCompleted && bet.bet_type === 'yes_no' && myPart?.status === 'accepted' && myPart?.choice && (
+    (bet.winning_side === 'yes' && myPart.choice === 'no') ||
+    (bet.winning_side === 'no' && myPart.choice === 'yes')
+  );
+
   const sanitizedParticipants = (bet.participants || []).map(p => {
     if (p.user_id === currentUserId) return p;
-    // Only allow other participants' swish if bet is completed and this other participant is the winner
-    if (bet.status === 'completed' && bet.winner_id === p.user_id) {
+    // Expose winner's swish to WTA losers:
+    if (isMyPartLoserWTA && p.user_id === bet.winner_id) {
+      return p;
+    }
+    // Expose winning participants' swish to Ja/Nej losers:
+    if (isMyPartLoserYesNo && p.status === 'accepted' && p.choice === bet.winning_side) {
       return p;
     }
     const { swish_number, ...safeP } = p;
     return safeP;
   });
-  return { ...bet, participants: sanitizedParticipants };
+
+  const settlement = bet.settlement || db.getAnyBetSettlement(bet, currentUserId);
+  return { ...bet, participants: sanitizedParticipants, settlement };
 }
 
 app.get('/api/anybets/:id', (req, res) => {
@@ -4215,7 +4307,7 @@ app.get('/api/anybets/:id', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   try {
-    const bet = db.getAnyBetById(req.params.id);
+    const bet = db.getAnyBetById(req.params.id, user.id);
     if (!bet) return res.status(404).json({ error: 'Bettet hittades inte' });
 
     const isParticipant = bet.creator_id === user.id ||
@@ -4245,6 +4337,40 @@ app.post('/api/anybets/:id/join', (req, res) => {
   }
 });
 
+app.post('/api/anybets/:id/decline', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const bet = db.declineAnyBet(req.params.id, user.id);
+    res.json({ ok: true, bet: sanitizeAnyBet(bet, user.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/anybets/:id/cancel', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const bet = db.cancelAnyBet(req.params.id, user.id);
+    if (bet && bet.participants) {
+      for (const p of bet.participants) {
+        if (p.user_id !== user.id) {
+          broadcastToUser(p.user_id, {
+            type: 'anybet_cancelled',
+            bet: { id: bet.id, title: bet.title }
+          });
+        }
+      }
+    }
+    res.json({ ok: true, bet: sanitizeAnyBet(bet, user.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post('/api/anybets/:id/settle', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
@@ -4257,6 +4383,10 @@ app.post('/api/anybets/:id/settle', (req, res) => {
 
   const existingBet = db.getAnyBetById(req.params.id);
   if (!existingBet) return res.status(404).json({ error: 'Bettet hittades inte' });
+
+  if (String(existingBet.judge_id) !== String(user.id)) {
+    return res.status(403).json({ error: 'Endast den utsedda domaren kan avgöra bettet' });
+  }
 
   if (existingBet.bet_type === 'winner_takes_all') {
     if (!winnerId) return res.status(400).json({ error: 'Vinnare måste anges' });
