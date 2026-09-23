@@ -220,7 +220,8 @@ test('Operations: GET /api/health returns 200 OK and database status', async () 
       status(c) { code = c; return this; },
       json(body) { resolve({ status: code, body }); },
       setHeader() {},
-      getHeader() {}
+      getHeader() {},
+      removeHeader() {}
     });
     app.handle(req, res);
   });
@@ -264,7 +265,8 @@ test('Operations: POST /api/client-errors accepts frontend error reports', async
       status(c) { code = c; return this; },
       json(body) { resolve({ status: code, body }); },
       setHeader() {},
-      getHeader() {}
+      getHeader() {},
+      removeHeader() {}
     });
     app.handle(req, res);
   });
