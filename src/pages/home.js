@@ -1,9 +1,9 @@
 // ── Page: Home / Dashboard ────────────────────────────
-import { getEvents, getTournaments, getActiveFlashLives, getActiveLotto } from '../api.js';
+import { getEvents, getTournaments, getActiveFlashLives } from '../api.js';
 import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
-import { renderMinigamesRoller, attachMinigamesListeners, openMegaLottoModal } from '../components/minigames.js';
+import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
 import { openLiveStreamModal } from '../components/livestream.js';
 import { getStoredUser } from '../auth.js';
 import { openAppQrModal } from '../components/appQrModal.js';
@@ -21,7 +21,6 @@ export async function renderHome() {
       </div>
     </div>
     ${renderMinigamesRoller()}
-    <div id="home-lotto-jackpot-banner-container"></div>
     <div id="home-push-banner-container"></div>
     <div id="tournaments-list"></div>
     <div id="events-list">
@@ -41,7 +40,6 @@ export async function renderHome() {
 
   attachMinigamesListeners();
   initHomeLiveBanners();
-  initHomeLottoBanner();
   initHomePushBanner(isEn);
 
   try {
@@ -265,93 +263,6 @@ async function initHomeLiveBanners() {
       renderActiveStreams(active);
     } catch {}
   });
-}
-
-// ── Kompis-Lotto Home Screen Ticker Banner ───────────────
-let homeLottoTimerInterval = null;
-
-async function initHomeLottoBanner() {
-  const container = document.getElementById('home-lotto-jackpot-banner-container');
-  if (!container) return;
-
-  if (homeLottoTimerInterval) {
-    clearInterval(homeLottoTimerInterval);
-    homeLottoTimerInterval = null;
-  }
-
-  const isEn = getLang() === 'en';
-
-  function formatTimeRemaining(targetIso) {
-    if (!targetIso) return '00:00:00';
-    const diff = new Date(targetIso).getTime() - Date.now();
-    if (diff <= 0) return isEn ? 'DUE NOW' : 'DAGS FÖR DRAGNING!';
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }
-
-  function renderLottoBanner(lotto) {
-    if (homeLottoTimerInterval) {
-      clearInterval(homeLottoTimerInterval);
-      homeLottoTimerInterval = null;
-    }
-
-    if (!lotto || lotto.status !== 'open') {
-      // Empty or finished: remove banner completely until someone starts one from Arcade
-      container.innerHTML = '';
-      return;
-    }
-
-    // Active Malta Jackpot: sleek, compact, and minimized for mobile
-    const pot = lotto.jackpot_amount || (lotto.stake_amount || 25);
-
-    container.innerHTML = `
-      <div class="home-lotto-banner animate-in" id="home-lotto-clickable-banner">
-        <div class="home-lotto-compact-wrap">
-          <div class="home-lotto-left-group">
-            <span class="home-lotto-badge"><img src="/malta-jackpot.png" alt="" style="width: 14px; height: 14px; object-fit: contain;" /> Malta Jackpot</span>
-            <span class="home-lotto-pot" id="home-lotto-pot-val">${pot.toLocaleString()} kr</span>
-          </div>
-          <div class="home-lotto-right-group">
-            <span class="home-lotto-timer" id="home-lotto-timer-val">⏳ ${formatTimeRemaining(lotto.draw_time)}</span>
-            <button type="button" class="btn btn-primary btn-sm home-lotto-btn">
-              ${lotto.has_participated ? (isEn ? 'Följ 🔮' : 'Följ 🔮') : (isEn ? 'Spela 🎟️' : 'Spela 🎟️')}
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    container.querySelector('#home-lotto-clickable-banner')?.addEventListener('click', () => {
-      openMegaLottoModal({ tab: lotto.has_participated ? 'draw' : 'play' });
-    });
-
-    // Live countdown update
-    homeLottoTimerInterval = setInterval(() => {
-      const timerValEl = document.getElementById('home-lotto-timer-val');
-      if (timerValEl && lotto.draw_time) {
-        timerValEl.textContent = `⏳ ${formatTimeRemaining(lotto.draw_time)}`;
-      }
-    }, 1000);
-  }
-
-  try {
-    const data = await getActiveLotto();
-    renderLottoBanner(data?.lotto);
-  } catch (_) {
-    renderLottoBanner(null);
-  }
-
-  // Real-time listener for lotto events
-  const handleLottoUpdate = async () => {
-    try {
-      const data = await getActiveLotto();
-      renderLottoBanner(data?.lotto);
-    } catch (_) {}
-  };
-
-  window.addEventListener('lotto-updated', handleLottoUpdate);
 }
 
 // ── Push Notification Reminder Banner ────────────────────
