@@ -472,5 +472,59 @@ test('Löven Game — Lifecycle, 4-3-2p Scoring, Tie-Splitting & THE TAB Integra
     assert.equal(sP1After.totalNet, 0, 'Winner 1 is fully settled');
     assert.equal(sLoserAfter.totalNet, -20, 'Loser now owes remaining 20 kr (10 kr to p2, 10 kr to p3)');
   });
-});
 
+  await t.test('12. settleLovenGame avvisar ogiltiga resultatvärden', () => {
+    const creator = makeUser('Creator12_' + Date.now(), 'Test Krea', '07012test');
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    const game = db.createLovenGame({
+      creatorId: creator.id,
+      opponentTeam: 'Ogiltighets HC',
+      isHome: 1,
+      matchDate: futureDate,
+      stakeAmount: 0
+    });
+    assert.throws(() => db.settleLovenGame(game.id, {
+      resultLovenGoals: 'abc', resultOpponentGoals: 1, resultLastScorer: 'X', resultShotsOnGoal: 20
+    }, creator.id), /heltal/, 'Sträng som mål ska ge valideringsfel');
+    assert.throws(() => db.settleLovenGame(game.id, {
+      resultLovenGoals: -1, resultOpponentGoals: 1, resultLastScorer: 'X', resultShotsOnGoal: 20
+    }, creator.id), /heltal|mellan/, 'Negativt mål ska ge valideringsfel');
+    assert.throws(() => db.settleLovenGame(game.id, {
+      resultLovenGoals: Infinity, resultOpponentGoals: 1, resultLastScorer: 'X', resultShotsOnGoal: 20
+    }, creator.id), /heltal/, 'Infinity ska ge valideringsfel');
+    assert.throws(() => db.settleLovenGame(game.id, {
+      resultLovenGoals: 2.5, resultOpponentGoals: 1, resultLastScorer: 'X', resultShotsOnGoal: 20
+    }, creator.id), /heltal/, 'Decimaltal ska ge valideringsfel');
+    assert.throws(() => db.settleLovenGame(game.id, {
+      resultLovenGoals: 999, resultOpponentGoals: 1, resultLastScorer: 'X', resultShotsOnGoal: 20
+    }, creator.id), /mellan/, 'Värde utanför intervall ska ge valideringsfel');
+    assert.throws(() => db.settleLovenGame(game.id, {
+      resultLovenGoals: 3, resultOpponentGoals: 1, resultLastScorer: null, resultShotsOnGoal: 20
+    }, creator.id), /målskytt/, 'Null-scorer ska ge valideringsfel');
+  });
+
+  await t.test('13. submitLovenEntry rådata saknar swish_number efter SQL-fix', () => {
+    const creator = makeUser('Creator13_' + Date.now(), 'Skapare Tre', '070013x');
+    const playerA = makeUser('PlayerA13_' + Date.now(), 'Spelare A13', '070013a');
+    const playerB = makeUser('PlayerB13_' + Date.now(), 'Spelare B13', '070013b');
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    const game = db.createLovenGame({
+      creatorId: creator.id,
+      opponentTeam: 'Maskeringstest HC',
+      isHome: 1,
+      matchDate: futureDate,
+      stakeAmount: 10
+    });
+    db.submitLovenEntry(game.id, playerA.id, {
+      predLovenGoals: 3, predOpponentGoals: 1, predLastScorer: 'Hemligt Wallmark', predShotsOnGoal: 30
+    });
+    const rawFromDb = db.submitLovenEntry(game.id, playerB.id, {
+      predLovenGoals: 2, predOpponentGoals: 0, predLastScorer: 'Mitt Eget Tips', predShotsOnGoal: 25
+    });
+    const entryA = rawFromDb.entries.find(e => e.user_id === playerA.id);
+    assert.ok(entryA, 'Entry för playerA finns i råsvaret från db-lagret');
+    assert.ok(!('swish_number' in entryA), 'swish_number ska inte finnas i entry-objektet efter SQL-fix');
+    assert.ok(typeof entryA.pred_loven_goals === 'number', 'DB-lagret exponerar rådata: maskeringen sker i server.js/sanitizeLovenGame');
+  });
+
+});

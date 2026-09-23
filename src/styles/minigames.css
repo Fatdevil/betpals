@@ -459,54 +459,35 @@
 
 .wheel-preset-pills {
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .wheel-preset-pill {
-  flex: 0 0 auto;
-  font-size: 0.75rem;
-  padding: 4px 10px;
+  font-size: 0.8rem;
+  padding: 6px 14px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border-glass);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
+  font-weight: 600;
+}
+
+.wheel-preset-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
 }
 
 .wheel-preset-pill.active {
   background: var(--gold);
   color: #000;
-  font-weight: 700;
+  font-weight: 800;
   border-color: var(--gold);
-}
-
-.wheel-preset-pill.custom-preset {
-  border-color: rgba(255, 215, 0, 0.4);
-}
-
-.wheel-preset-del {
-  margin-left: 5px;
-  font-size: 0.68rem;
-  opacity: 0.6;
-  border-radius: 50%;
-  padding: 0 4px;
-  display: inline-block;
-  line-height: 1;
-  transition: all 0.2s;
-}
-
-.wheel-preset-pill:hover .wheel-preset-del {
-  opacity: 0.9;
-}
-
-.wheel-preset-del:hover {
-  opacity: 1 !important;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.2);
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.4);
 }
 
 .wheel-tags-wrap {

@@ -1,6 +1,6 @@
 // ── Components: Minigames Arcade ────────────────────────
 import { showModal, closeModal } from './modal.js';
-import { launchConfetti, escapeHtml, showToast, createSwishUrl } from '../utils.js';
+import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl } from '../utils.js';
 import { 
   getFriends, 
   createDuel, 
@@ -987,118 +987,72 @@ function openSlotsModal() {
 // ────────────────────────────────────────────────────────
 function openWheelModal() {
   const isEn = getLang() === 'en';
+  const currentUser = getStoredUser();
   const PALETTE = [
     '#e63946', '#f59e0b', '#10b981', '#3b82f6', 
     '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', 
     '#f97316', '#6366f1', '#14b8a6', '#d946ef'
   ];
 
-  const PRESETS = {
-    tab: {
-      name: isEn ? 'The Tab' : 'Vem tar notan? 💳',
-      prompt: isEn ? 'Who takes the entire tab? 💳' : 'Vem tar hela krognotan? 💳',
-      items: isEn 
-        ? ['Alex 💳', 'Sam 💳', 'Chris 💳', 'You 🎯']
-        : ['Johan 💳', 'Sara 💳', 'Erik 💳', 'Du 🎯']
-    },
-    beer: {
-      name: isEn ? 'Beer Round' : 'Vem bjuder på ölen? 🍻',
-      prompt: isEn ? 'Who buys the next beer? 🍻' : 'Vem bjuder på nästa bärs? 🍻',
-      items: isEn 
-        ? ['Alex 🍻', 'Sam 🍺', 'Chris 🍻', 'You 🎯']
-        : ['Johan 🍻', 'Sara 🍺', 'Erik 🍻', 'Du 🎯']
-    },
-    choice: {
-      name: isEn ? 'Yes or No' : 'Ja eller Nej?',
-      prompt: isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙',
-      items: isEn
-        ? ['YES! 🟢', 'NO! 🔴']
-        : ['JA! 🟢', 'NEJ! 🔴']
-    }
-  };
-
-  function getSavedWheels() {
+  function getSavedParticipants() {
     try {
-      const raw = localStorage.getItem('betpals_saved_wheels');
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function setSavedWheels(arr) {
-    try {
-      localStorage.setItem('betpals_saved_wheels', JSON.stringify(arr));
-    } catch (e) {}
-  }
-
-  function getLastWheel() {
-    try {
-      const raw = localStorage.getItem('betpals_last_wheel');
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
+      const raw = localStorage.getItem('betpals_wheel_participants');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : null;
+    } catch {
       return null;
     }
   }
 
-  function saveLastWheel(topic, itemsList, presetKey) {
+  function saveParticipants(list) {
     try {
-      localStorage.setItem('betpals_last_wheel', JSON.stringify({
-        topic: topic || '',
-        items: itemsList || [],
-        presetKey: presetKey || 'custom'
-      }));
-    } catch (e) {}
+      localStorage.setItem('betpals_wheel_participants', JSON.stringify(list || []));
+    } catch {}
   }
 
-  const lastWheel = getLastWheel();
-  let activePresetKey = lastWheel?.presetKey || 'tab';
-  // If user had legacy 'party' or 'food' preset saved, fallback to tab
-  if (activePresetKey === 'party' || activePresetKey === 'food') {
-    activePresetKey = 'tab';
-  }
-
-  let currentTopic = lastWheel?.topic !== undefined && activePresetKey !== 'party' && activePresetKey !== 'food'
-    ? lastWheel.topic 
-    : (isEn ? 'The Tab' : 'Vem tar notan?');
-
-  let items = (lastWheel && Array.isArray(lastWheel.items) && lastWheel.items.length >= 2 && activePresetKey !== 'party' && activePresetKey !== 'food')
-    ? [...lastWheel.items]
-    : (PRESETS[activePresetKey] ? [...PRESETS[activePresetKey].items] : [...PRESETS.tab.items]);
-
+  const savedMode = localStorage.getItem('betpals_wheel_mode');
+  let activePresetKey = (savedMode === 'beer' || savedMode === 'choice') ? savedMode : 'tab';
+  let participants = getSavedParticipants() || [];
   let currentRotation = 0;
   let isSpinning = false;
   let userFriends = null;
 
+  function getActiveItems() {
+    if (activePresetKey === 'choice') {
+      return isEn ? ['YES! 🟢', 'NO! 🔴'] : ['JA! 🟢', 'NEJ! 🔴'];
+    }
+    const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
+    return participants.map(p => `${p} ${emoji}`);
+  }
+
   function getPromptText() {
-    if (activePresetKey === 'tab') return isEn ? 'Spin to see who takes the tab! 💳' : 'Snurra för att se vem som tar notan! 💳';
-    if (activePresetKey === 'beer') return t('arcade.wheelPromptBeer');
-    if (activePresetKey === 'choice') return isEn ? 'Let the wheel decide: Yes or No? 🪙' : 'Låt hjulet avgöra: Ja eller Nej? 🪙';
-    if (currentTopic) return `${t('arcade.wheelDecidePrompt')} ${currentTopic}! 🎯`;
-    return isEn ? 'Spin to see who takes the tab! 💳' : 'Snurra för att se vem som tar notan! 💳';
+    if (activePresetKey === 'choice') {
+      return t('arcade.wheelPromptChoice');
+    }
+    if (participants.length < 2) {
+      return t('arcade.wheelEmpty');
+    }
+    return activePresetKey === 'beer' 
+      ? t('arcade.wheelPromptBeer') 
+      : t('arcade.wheelPromptTab');
   }
 
   const wheelTitleHtml = `<img src="/tab-roulette-card.png" alt="Not-Roulette" style="width: 32px; height: 22px; object-fit: contain; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle')}`;
   const { close, root, setBusy } = showModal(wheelTitleHtml, `
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <p class="game-modal-subheading">${t('arcade.wheelDesc')}</p>
-      <!-- Preset pills -->
-      <div class="wheel-preset-pills" id="wheel-presets-container"></div>
 
-      <!-- Topic Input & Save Button -->
-      <div class="flex gap-xs" style="margin-bottom: 8px; align-items: center;">
-        <div style="position: relative; flex: 1;">
-          <input type="text" id="wheel-topic-input" class="form-input" 
-            placeholder="${t('arcade.wheelTopicPlaceholder')}" 
-            value="${escapeHtml(currentTopic)}"
-            maxlength="32" 
-            style="padding: 7px 10px 7px 30px; font-size: 0.84rem; width: 100%; border-radius: var(--radius-sm);" />
-          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.85rem; pointer-events: none; opacity: 0.75;">🎯</span>
-        </div>
-        <button type="button" class="btn btn-secondary btn-sm" id="wheel-save-preset-btn" 
-          title="${t('arcade.wheelSaveBtn')}" 
-          style="padding: 7px 12px; font-size: 0.8rem; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
-          💾 <span>${isEn ? 'Save' : 'Spara'}</span>
+      <!-- Preset pills: 💳 Krognotan | 🍻 Ölrunda | 🪙 Ja / Nej -->
+      <div class="wheel-preset-pills" id="wheel-presets-container">
+        <button type="button" class="wheel-preset-pill ${activePresetKey === 'tab' ? 'active' : ''}" data-preset="tab">
+          💳 ${isEn ? 'The Tab' : 'Krognotan'}
+        </button>
+        <button type="button" class="wheel-preset-pill ${activePresetKey === 'beer' ? 'active' : ''}" data-preset="beer">
+          🍻 ${isEn ? 'Beer Round' : 'Ölrunda'}
+        </button>
+        <button type="button" class="wheel-preset-pill ${activePresetKey === 'choice' ? 'active' : ''}" data-preset="choice">
+          🪙 ${isEn ? 'Yes / No' : 'Ja / Nej'}
         </button>
       </div>
 
@@ -1106,7 +1060,7 @@ function openWheelModal() {
       <div class="wheel-container">
         <div class="wheel-pointer"></div>
         <canvas id="wheel-canvas" width="280" height="280" class="wheel-canvas"></canvas>
-        <div class="wheel-center-hub">💳</div>
+        <div class="wheel-center-hub" id="wheel-center-hub">💳</div>
       </div>
 
       <!-- Result Banner -->
@@ -1115,33 +1069,33 @@ function openWheelModal() {
       </div>
 
       <!-- Spin button -->
-      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-spin-wheel" style="font-size: 1.1rem; padding: 12px;">
+      <button type="button" class="btn btn-primary btn-block mb-md" id="btn-spin-wheel" style="font-size: 1.1rem; padding: 12px; font-weight: 800; letter-spacing: 0.05em;">
         ${t('arcade.wheelBtn')}
       </button>
 
-      <!-- Customization Box -->
-      <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; text-align: left;">
+      <!-- Participants Box (Hidden in Ja / Nej mode) -->
+      <div id="wheel-participants-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; text-align: left; display: ${activePresetKey === 'choice' ? 'none' : 'block'};">
         <div class="flex-between mb-xs" style="align-items: center;">
           <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">
-            ${t('arcade.wheelItemsCount')} (<span id="wheel-items-count">${items.length}</span> ${isEn ? 'pcs' : 'st'})
+            ${t('arcade.wheelItemsCount')} (<span id="wheel-items-count">${participants.length}</span>)
           </span>
           <button type="button" class="btn btn-ghost btn-xs" id="wheel-clear-btn" style="color: var(--text-muted); font-size: 0.72rem; padding: 2px 6px;">
             ${t('arcade.wheelClearAll')}
           </button>
         </div>
 
-        <!-- Tags wrap -->
+        <!-- Tags wrap (Selected participants) -->
         <div id="wheel-tags-wrap" class="wheel-tags-wrap" style="justify-content: flex-start; margin-bottom: 8px;"></div>
 
-        <!-- Input & Add Controls -->
-        <div class="flex gap-xs" style="margin-bottom: 8px;">
+        <!-- Manual Name Input & Add Button -->
+        <div class="flex gap-xs" style="margin-bottom: 10px;">
           <input type="text" id="wheel-new-item-input" class="form-input" placeholder="${t('arcade.wheelInputPlaceholder')}" maxlength="20" style="padding: 6px 10px; font-size: 0.85rem; flex: 1;" />
-          <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
+          <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap; font-weight: 700;">
             ${t('arcade.wheelAddBtn')}
           </button>
         </div>
 
-        <!-- Friends Quick-Picker (Directly visible) -->
+        <!-- Friends Quick-Picker -->
         <div id="wheel-friends-drawer" style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,215,0,0.2); border-radius: var(--radius-sm); padding: 8px 10px;">
           <div class="flex-between mb-xs" style="align-items: center;">
             <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">${t('arcade.wheelFriendsDrawerTitle')}</span>
@@ -1174,178 +1128,46 @@ function openWheelModal() {
   const spinBtn = document.getElementById('btn-spin-wheel');
   const tagsWrap = document.getElementById('wheel-tags-wrap');
   const countSpan = document.getElementById('wheel-items-count');
-  const topicInput = document.getElementById('wheel-topic-input');
-  const savePresetBtn = document.getElementById('wheel-save-preset-btn');
   const itemInput = document.getElementById('wheel-new-item-input');
   const addBtn = document.getElementById('wheel-add-item-btn');
   const clearBtn = document.getElementById('wheel-clear-btn');
-  const friendsDrawer = document.getElementById('wheel-friends-drawer');
   const friendsList = document.getElementById('wheel-friends-list');
   const addAllFriendsBtn = document.getElementById('wheel-add-all-friends-btn');
   const presetsContainer = document.getElementById('wheel-presets-container');
+  const participantsBox = document.getElementById('wheel-participants-box');
+  const hubEl = document.getElementById('wheel-center-hub');
 
-  // Render preset pills (built-in + saved custom wheels)
-  function renderPresetPills() {
-    const savedWheels = getSavedWheels();
-    const builtIns = [
-      { key: 'tab', label: isEn ? '💳 The Tab' : '💳 Krognotan' },
-      { key: 'beer', label: isEn ? '🍻 Beer Round' : '🍻 Ölrunda' },
-      { key: 'choice', label: isEn ? '🪙 Yes / No' : '🪙 Ja / Nej' }
-    ];
-
-    let html = builtIns.map(p => `
-      <button type="button" class="wheel-preset-pill ${activePresetKey === p.key ? 'active' : ''}" data-preset="${p.key}">
-        ${p.label}
-      </button>
-    `).join('');
-
-    if (savedWheels.length > 0) {
-      html += savedWheels.map(w => `
-        <button type="button" class="wheel-preset-pill custom-preset ${activePresetKey === w.id ? 'active' : ''}" data-preset="${w.id}" title="${escapeHtml(w.title)}">
-          ⭐ ${escapeHtml(w.title.length > 14 ? w.title.slice(0, 13) + '…' : w.title)}
-          <span class="wheel-preset-del" data-del-id="${w.id}" title="${isEn ? 'Delete' : 'Ta bort'}">✕</span>
-        </button>
-      `).join('');
-    }
-
-    presetsContainer.innerHTML = html;
-
-    // Attach click handlers to preset pills
-    presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(pill => {
-      pill.addEventListener('click', (e) => {
-        // If delete button was clicked on a custom pill
-        if (e.target.classList.contains('wheel-preset-del')) {
-          e.stopPropagation();
-          const delId = e.target.getAttribute('data-del-id');
-          const updated = getSavedWheels().filter(w => w.id !== delId);
-          setSavedWheels(updated);
-          showToast(t('arcade.wheelDeletedToast'), 'info');
-          if (activePresetKey === delId) {
-            activePresetKey = 'tab';
-            items = [...PRESETS.tab.items];
-            currentTopic = PRESETS.tab.name;
-            topicInput.value = currentTopic;
-            renderTags();
-            drawWheel();
-            banner.textContent = getPromptText();
-            banner.style.color = 'var(--gold)';
-            saveLastWheel(currentTopic, items, activePresetKey);
-          }
-          renderPresetPills();
-          return;
-        }
-
-        if (isSpinning) return;
-        const presetKey = pill.getAttribute('data-preset');
-        activePresetKey = presetKey;
-
-        if (PRESETS[presetKey]) {
-          items = [...PRESETS[presetKey].items];
-          currentTopic = PRESETS[presetKey].name;
-          topicInput.value = currentTopic;
-          // If tab or beer preset and user has friends, populate with friends
-          if ((presetKey === 'tab' || presetKey === 'beer') && userFriends && userFriends.length > 0) {
-            const emoji = presetKey === 'beer' ? '🍻' : '💳';
-            const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
-            items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} ${emoji}`), youLabel];
-          }
-        } else {
-          // Custom saved wheel
-          const saved = getSavedWheels().find(w => w.id === presetKey);
-          if (saved) {
-            items = [...saved.items];
-            currentTopic = saved.title;
-            topicInput.value = currentTopic;
-          }
-        }
-
-        saveLastWheel(currentTopic, items, activePresetKey);
-        renderPresetPills();
-        renderTags();
-        drawWheel();
-        if (userFriends) renderFriendsList();
-        banner.textContent = getPromptText();
-        banner.style.color = 'var(--gold)';
-      });
-    });
-  }
-
-  // Load friends and auto-populate if on default tab or beer preset
-  getFriends().then(friends => {
-    userFriends = friends || [];
-    if (userFriends.length > 0 && (activePresetKey === 'tab' || activePresetKey === 'beer') && (!lastWheel || !lastWheel.items || lastWheel.items.length === 0)) {
-      const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
-      const youLabel = isEn ? 'You 🎯' : 'Du 🎯';
-      items = [...userFriends.slice(0, 10).map(f => `${f.nickname || f.realName} ${emoji}`), youLabel];
-      renderTags();
-      drawWheel();
-      saveLastWheel(currentTopic, items, activePresetKey);
-    }
-    renderFriendsList();
-  }).catch(() => {
-    userFriends = [];
-    renderFriendsList();
-  });
-
-  // Topic input typing handler
-  topicInput?.addEventListener('input', () => {
-    currentTopic = topicInput.value.trim();
-    saveLastWheel(currentTopic, items, activePresetKey);
-    banner.textContent = getPromptText();
-    banner.style.color = 'var(--gold)';
-  });
-
-  // Save Wheel preset button
-  savePresetBtn?.addEventListener('click', () => {
-    if (isSpinning) return;
-    const title = (topicInput.value || '').trim() || (isEn ? 'Custom Wheel' : 'Mitt hjul');
-    if (items.length < 2) {
-      showToast(t('arcade.wheelMinWarning'), 'warning');
-      return;
-    }
-
-    const currentSaved = getSavedWheels();
-    const existingIdx = currentSaved.findIndex(w => w.title.toLowerCase() === title.toLowerCase());
-    const wheelId = existingIdx >= 0 ? currentSaved[existingIdx].id : 'custom_' + Date.now();
-    const newWheel = {
-      id: wheelId,
-      title: title,
-      items: [...items],
-      updatedAt: Date.now()
-    };
-
-    if (existingIdx >= 0) {
-      currentSaved[existingIdx] = newWheel;
+  function updateHub() {
+    if (!hubEl) return;
+    if (activePresetKey === 'choice') {
+      hubEl.textContent = '🪙';
+    } else if (activePresetKey === 'beer') {
+      hubEl.textContent = '🍻';
     } else {
-      currentSaved.unshift(newWheel);
-      if (currentSaved.length > 10) currentSaved.pop(); // keep up to 10 custom wheels
+      hubEl.textContent = '💳';
     }
-
-    setSavedWheels(currentSaved);
-    activePresetKey = wheelId;
-    currentTopic = title;
-    saveLastWheel(currentTopic, items, activePresetKey);
-    showToast(`${t('arcade.wheelSavedToast')} (${title})`, 'success');
-    renderPresetPills();
-    banner.textContent = getPromptText();
-    banner.style.color = 'var(--gold)';
-  });
+  }
 
   // Draw wheel on canvas
   function drawWheel() {
+    const items = getActiveItems();
     const numSectors = items.length;
     ctx.clearRect(0, 0, 280, 280);
 
     if (numSectors === 0) {
       ctx.beginPath();
-      ctx.fillStyle = '#1f2937';
+      ctx.fillStyle = '#161622';
       ctx.arc(140, 140, 140, 0, 2 * Math.PI);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255,215,0,0.3)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
       ctx.fillStyle = '#9ca3af';
-      ctx.font = '13px sans-serif';
+      ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(isEn ? 'Add options!' : 'Lägg till alternativ!', 140, 140);
+      ctx.fillText(isEn ? 'Add participants below! 👇' : 'Lägg till deltagare nedan! 👇', 140, 140);
       return;
     }
 
@@ -1354,7 +1176,9 @@ function openWheelModal() {
 
     items.forEach((label, i) => {
       const angle = i * arc;
-      const color = PALETTE[i % PALETTE.length];
+      const color = activePresetKey === 'choice' 
+        ? (i === 0 ? '#10b981' : '#ef4444')
+        : PALETTE[i % PALETTE.length];
 
       // Wedge slice
       ctx.beginPath();
@@ -1365,7 +1189,7 @@ function openWheelModal() {
       ctx.fill();
 
       // Divider line
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
@@ -1394,10 +1218,11 @@ function openWheelModal() {
 
   // Render tag badges
   function renderTags() {
-    countSpan.textContent = items.length;
-    tagsWrap.innerHTML = items.map((item, idx) => `
+    if (!tagsWrap || !countSpan) return;
+    countSpan.textContent = participants.length;
+    tagsWrap.innerHTML = participants.map((name, idx) => `
       <span class="wheel-tag">
-        ${escapeHtml(item)}
+        ${escapeHtml(name)}
         <button type="button" class="wheel-tag-remove" data-index="${idx}" title="${isEn ? 'Remove' : 'Ta bort'}">✕</button>
       </span>
     `).join('');
@@ -1406,34 +1231,43 @@ function openWheelModal() {
       btn.addEventListener('click', (e) => {
         if (isSpinning) return;
         const idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
-        items.splice(idx, 1);
-        saveLastWheel(currentTopic, items, activePresetKey);
+        participants.splice(idx, 1);
+        saveParticipants(participants);
         renderTags();
         drawWheel();
         if (userFriends) renderFriendsList();
+        banner.textContent = getPromptText();
+        banner.style.color = participants.length >= 2 ? 'var(--gold)' : 'var(--text-muted)';
       });
     });
   }
 
-  // Add an item
+  // Add a manual participant
   function addItem(rawName) {
     const name = (rawName || '').trim();
     if (!name) return;
-    if (items.length >= 20) {
-      showToast(isEn ? 'Max 20 options on the wheel!' : 'Max 20 alternativ på hjulet!', 'warning');
+    if (participants.length >= 20) {
+      showToast(isEn ? 'Max 20 participants on the wheel!' : 'Max 20 deltagare på hjulet!', 'warning');
       return;
     }
-    items.push(name);
-    saveLastWheel(currentTopic, items, activePresetKey);
+    if (participants.some(p => p.toLowerCase() === name.toLowerCase())) {
+      showToast(isEn ? 'Participant already on the wheel!' : 'Deltagaren finns redan på hjulet!', 'info');
+      return;
+    }
+    participants.push(name);
+    saveParticipants(participants);
     renderTags();
     drawWheel();
     if (userFriends) renderFriendsList();
+    banner.textContent = getPromptText();
+    banner.style.color = 'var(--gold)';
     itemInput.value = '';
     itemInput.focus();
   }
 
-  // Render friends list directly inside picker
+  // Render friends list directly inside drawer
   function renderFriendsList() {
+    if (!friendsList) return;
     if (!userFriends || userFriends.length === 0) {
       friendsList.innerHTML = `
         <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0; width: 100%;">
@@ -1447,7 +1281,7 @@ function openWheelModal() {
 
     friendsList.innerHTML = userFriends.map(f => {
       const name = f.nickname || f.realName || (isEn ? 'Friend' : 'Vän');
-      const isAlreadyIn = items.some(it => it.toLowerCase().startsWith(name.toLowerCase()));
+      const isAlreadyIn = participants.some(it => it.toLowerCase() === name.toLowerCase());
       return `
         <button type="button" class="wheel-friend-pick-btn" data-friend="${escapeHtml(name)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isAlreadyIn ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isAlreadyIn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.06)'}; color: ${isAlreadyIn ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer; transition: all 0.2s;">
           ${f.avatarUrl ? `<img src="${sanitizeUrl(f.avatarUrl)}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (escapeHtml(f.avatarEmoji) || '👤')}
@@ -1461,51 +1295,112 @@ function openWheelModal() {
       btn.addEventListener('click', () => {
         if (isSpinning) return;
         const friendName = btn.getAttribute('data-friend');
-        const existingIdx = items.findIndex(it => it.toLowerCase().startsWith(friendName.toLowerCase()));
+        const existingIdx = participants.findIndex(it => it.toLowerCase() === friendName.toLowerCase());
         if (existingIdx >= 0) {
-          items.splice(existingIdx, 1);
+          participants.splice(existingIdx, 1);
         } else {
-          if (items.length >= 20) {
-            showToast(isEn ? 'Max 20 options!' : 'Max 20 alternativ!', 'warning');
+          if (participants.length >= 20) {
+            showToast(isEn ? 'Max 20 participants!' : 'Max 20 deltagare!', 'warning');
             return;
           }
-          const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
-          items.push(`${friendName} ${emoji}`);
+          participants.push(friendName);
         }
-        saveLastWheel(currentTopic, items, activePresetKey);
+        saveParticipants(participants);
         renderTags();
         drawWheel();
         renderFriendsList();
+        banner.textContent = getPromptText();
+        banner.style.color = participants.length >= 2 ? 'var(--gold)' : 'var(--text-muted)';
       });
     });
   }
 
+  // Switch preset pill
+  presetsContainer?.querySelectorAll('.wheel-preset-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      if (isSpinning) return;
+      const key = pill.getAttribute('data-preset');
+      if (key === activePresetKey) return;
+      activePresetKey = key;
+      try {
+        localStorage.setItem('betpals_wheel_mode', key);
+      } catch {}
+
+      presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(p => {
+        p.classList.toggle('active', p.getAttribute('data-preset') === key);
+      });
+
+      updateHub();
+      if (participantsBox) {
+        participantsBox.style.display = key === 'choice' ? 'none' : 'block';
+      }
+
+      drawWheel();
+      banner.textContent = getPromptText();
+      banner.style.color = (key === 'choice' || participants.length >= 2) ? 'var(--gold)' : 'var(--text-muted)';
+    });
+  });
+
+  // Load friends and auto-populate if no participants saved yet
+  getFriends().then(friends => {
+    userFriends = friends || [];
+    // If user has no participants saved yet, populate with currentUser + friends
+    if (participants.length === 0) {
+      const initial = [];
+      const myName = currentUser?.nickname || currentUser?.realName;
+      if (myName) initial.push(myName);
+      if (userFriends.length > 0) {
+        userFriends.slice(0, 6).forEach(f => {
+          const fn = f.nickname || f.realName;
+          if (fn && !initial.some(n => n.toLowerCase() === fn.toLowerCase())) {
+            initial.push(fn);
+          }
+        });
+      }
+      if (initial.length > 0) {
+        participants = initial;
+        saveParticipants(participants);
+      }
+    }
+    renderTags();
+    drawWheel();
+    renderFriendsList();
+    banner.textContent = getPromptText();
+    banner.style.color = (activePresetKey === 'choice' || participants.length >= 2) ? 'var(--gold)' : 'var(--text-muted)';
+  }).catch(() => {
+    userFriends = [];
+    renderFriendsList();
+  });
+
+  // Add all friends button
   addAllFriendsBtn?.addEventListener('click', () => {
     if (!userFriends || userFriends.length === 0) return;
     let addedCount = 0;
-    const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
     userFriends.forEach(f => {
       const name = f.nickname || f.realName;
       if (!name) return;
-      if (!items.some(it => it.toLowerCase().startsWith(name.toLowerCase()))) {
-        if (items.length < 20) {
-          items.push(`${name} ${emoji}`);
+      if (!participants.some(it => it.toLowerCase() === name.toLowerCase())) {
+        if (participants.length < 20) {
+          participants.push(name);
           addedCount++;
         }
       }
     });
     if (addedCount > 0) {
-      saveLastWheel(currentTopic, items, activePresetKey);
+      saveParticipants(participants);
       renderTags();
       drawWheel();
       renderFriendsList();
+      banner.textContent = getPromptText();
+      banner.style.color = 'var(--gold)';
     }
   });
 
+  // Clear all button
   clearBtn?.addEventListener('click', () => {
     if (isSpinning) return;
-    items = [];
-    saveLastWheel(currentTopic, items, activePresetKey);
+    participants = [];
+    saveParticipants(participants);
     renderTags();
     drawWheel();
     if (userFriends) renderFriendsList();
@@ -1513,23 +1408,25 @@ function openWheelModal() {
     banner.style.color = 'var(--text-muted)';
   });
 
-  addBtn?.addEventListener('click', () => addItem(itemInput.value));
+  // Add button & Enter key
+  addBtn?.addEventListener('click', () => addItem(itemInput?.value));
   itemInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      addItem(itemInput.value);
+      addItem(itemInput?.value);
     }
   });
 
   // Initial renders
-  renderPresetPills();
+  updateHub();
   renderTags();
   drawWheel();
 
   // Spin wheel handler
   spinBtn?.addEventListener('click', () => {
     if (isSpinning) return;
-    if (items.length < 2) {
+    const currentItems = getActiveItems();
+    if (currentItems.length < 2) {
       showToast(t('arcade.wheelMinWarning'), 'warning');
       return;
     }
@@ -1539,7 +1436,7 @@ function openWheelModal() {
     banner.textContent = t('arcade.wheelSpinning');
     banner.style.color = 'var(--text-secondary)';
 
-    const numSectors = items.length;
+    const numSectors = currentItems.length;
     const extraRotations = 5 + Math.floor(Math.random() * 3); // 5-7 full turns
     const winningIndex = Math.floor(Math.random() * numSectors);
 
@@ -1564,47 +1461,33 @@ function openWheelModal() {
       isSpinning = false;
       spinBtn.disabled = false;
 
-      const winner = items[winningIndex];
-      const cleanName = winner.replace(/[🍻🍺🍕🎯🪙]/g, '').trim();
-      const topicLower = (currentTopic || '').toLowerCase();
+      const winner = currentItems[winningIndex];
 
-      if (activePresetKey === 'beer' || (!currentTopic && (winner.includes('🍻') || winner.includes('🍺')))) {
-        banner.innerHTML = isEn
-          ? `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> buys the next round! 🍻`
-          : `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> bjuder på nästa runda! 🍻`;
-        playWinSound();
-        launchConfetti();
-      } else if (currentTopic && (activePresetKey.startsWith('custom_') || !PRESETS[activePresetKey])) {
-        // Custom wheel result!
-        let verb = isEn ? 'takes' : 'tar';
-        let emoji = '🎯';
-        if (topicLower.includes('bjuder') || topicLower.includes('middag') || topicLower.includes('middan') || topicLower.includes('lunch') || topicLower.includes('fika') || topicLower.includes('notan') || topicLower.includes('drink') || topicLower.includes('öl') || topicLower.includes('bärs')) {
-          verb = isEn ? 'buys' : 'bjuder på';
-          emoji = (topicLower.includes('öl') || topicLower.includes('bärs')) ? '🍻' : '🍽️';
-        } else if (topicLower.includes('diska') || topicLower.includes('disken') || topicLower.includes('städ') || topicLower.includes('tvätt')) {
-          verb = isEn ? 'handles' : 'fixar';
-          emoji = '🧹';
+      if (activePresetKey === 'choice') {
+        const isYes = winner.includes('JA') || winner.includes('YES');
+        if (isYes) {
+          banner.innerHTML = isEn
+            ? `🎉 Result: <span style="color: #4ade80; font-size: 1.25rem; font-weight: 800;">YES! 🟢</span>`
+            : `🎉 Resultat: <span style="color: #4ade80; font-size: 1.25rem; font-weight: 800;">JA! 🟢</span>`;
+          playWinSound();
+          launchConfetti();
+        } else {
+          banner.innerHTML = isEn
+            ? `💀 Result: <span style="color: #ef4444; font-size: 1.25rem; font-weight: 800;">NO! 🔴</span>`
+            : `💀 Resultat: <span style="color: #ef4444; font-size: 1.25rem; font-weight: 800;">NEJ! 🔴</span>`;
+          playTone(300, 'sawtooth', 0.25, 0.1);
         }
-        banner.innerHTML = isEn
-          ? `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> ${verb} ${escapeHtml(currentTopic)}! ${emoji}`
-          : `🎉 <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(cleanName)}</span> ${verb} ${escapeHtml(currentTopic)}! ${emoji}`;
-        playWinSound();
-        launchConfetti();
-      } else if (winner.includes('JACKPOT') || winner.includes('Dubbla') || winner.includes('Double')) {
-        banner.innerHTML = isEn
-          ? `👑 <span style="color: #fbbf24;">${escapeHtml(winner)}</span>! BIG WIN! ✨`
-          : `👑 <span style="color: #fbbf24;">${escapeHtml(winner)}</span>! STORVINST! ✨`;
-        playWinSound();
-        launchConfetti();
-      } else if (winner.includes('Nollad') || winner.includes('Bust') || winner.includes('💀')) {
-        banner.innerHTML = isEn
-          ? `💀 <span style="color: #ef4444;">${escapeHtml(winner)}</span>! Better luck next time!`
-          : `💀 <span style="color: #ef4444;">${escapeHtml(winner)}</span>! Bättre lycka nästa gång!`;
-        playTone(300, 'sawtooth', 0.25, 0.1);
       } else {
-        banner.innerHTML = isEn
-          ? `🎉 Result: <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(winner)}</span>! 🎯`
-          : `🎉 Resultat: <span style="color: #4ade80; font-size: 1.15rem;">${escapeHtml(winner)}</span>! 🎯`;
+        const cleanName = winner.replace(/[💳🍻🍺🪙🟢🔴!]/g, '').trim();
+        if (activePresetKey === 'beer') {
+          banner.innerHTML = isEn
+            ? `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerBeer')}! 🍻`
+            : `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerBeer')}! 🍻`;
+        } else {
+          banner.innerHTML = isEn
+            ? `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerTab')}! 💳`
+            : `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerTab')}! 💳`;
+        }
         playWinSound();
         launchConfetti();
       }
