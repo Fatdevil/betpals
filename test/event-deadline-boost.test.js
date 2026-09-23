@@ -195,3 +195,65 @@ test('Event Boost: Creator can boost open event; enforces 10 min cooldown', asyn
   assert.equal(resBoost2.status, 429, 'Second boost within 10 min rejected with 429');
   assert.match(resBoost2.body.error, /nyligen/i);
 });
+
+test('Access Control: Only event creator can finish/close event and tournament', async () => {
+  const creator = createTestUser('u-ac-creator', 'AccessHost');
+  const stranger = createTestUser('u-ac-stranger', 'AccessGuest');
+
+  // 1. Create a tournament and a round
+  const resTour = await invoke('POST', '/api/tournaments', {
+    headers: { Authorization: `Bearer ${creator.token}` },
+    body: { name: 'Master Tour', accessLevel: 'friends' }
+  });
+  assert.equal(resTour.status, 200);
+  const tour = resTour.body;
+
+  const resRound = await invoke('POST', `/api/tournaments/${tour.id}/rounds`, {
+    headers: { Authorization: `Bearer ${creator.token}` },
+    body: {
+      name: 'Rond 1 Final',
+      players: ['Player A', 'Player B']
+    }
+  });
+  assert.equal(resRound.status, 200);
+  const round = resRound.body.rounds[0];
+  const pA = round.players[0].id;
+
+  // 2. Stranger tries to finish the event -> 403 Forbidden
+  const resStrangerFinish = await invoke('POST', `/api/events/${round.id}/finish`, {
+    headers: { Authorization: `Bearer ${stranger.token}` },
+    body: { winnerId: pA }
+  });
+  assert.equal(resStrangerFinish.status, 403, 'Stranger cannot finish event');
+  assert.match(resStrangerFinish.body.error, /behörighet/i);
+
+  // 3. Stranger tries to cancel the event -> 403 Forbidden
+  const resStrangerCancel = await invoke('POST', `/api/events/${round.id}/cancel`, {
+    headers: { Authorization: `Bearer ${stranger.token}` }
+  });
+  assert.equal(resStrangerCancel.status, 403, 'Stranger cannot cancel event');
+  assert.match(resStrangerCancel.body.error, /behörighet/i);
+
+  // 4. Stranger tries to settle tournament -> 403 Forbidden
+  const resStrangerSettle = await invoke('POST', `/api/tournaments/${tour.id}/settle`, {
+    headers: { Authorization: `Bearer ${stranger.token}` }
+  });
+  assert.equal(resStrangerSettle.status, 403, 'Stranger cannot settle tournament');
+  assert.match(resStrangerSettle.body.error, /behörighet/i);
+
+  // 5. Creator finishes the event -> 200 OK
+  const resCreatorFinish = await invoke('POST', `/api/events/${round.id}/finish`, {
+    headers: { Authorization: `Bearer ${creator.token}` },
+    body: { winnerId: pA }
+  });
+  assert.equal(resCreatorFinish.status, 200, 'Creator can finish event');
+  assert.equal(resCreatorFinish.body.status, 'finished');
+
+  // 6. Creator settles the tournament -> 200 OK
+  const resCreatorSettle = await invoke('POST', `/api/tournaments/${tour.id}/settle`, {
+    headers: { Authorization: `Bearer ${creator.token}` }
+  });
+  assert.equal(resCreatorSettle.status, 200, 'Creator can settle tournament');
+  assert.equal(resCreatorSettle.body.ok, true);
+});
+
