@@ -1,5 +1,5 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
-import { formatCurrency, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
+import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, lockEvent, reopenEvent, boostEvent, updateEventDeadline, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
+import { formatCurrency, formatDeadline, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
@@ -141,30 +141,53 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
   const renderSideBetBadge = (sb) => {
     const modeBadge = sb.betMode === 'self' ? '🦅' : '🎲';
-    return sb.status === 'finished'
-      ? `<span class="badge badge-success" style="font-size: 0.6rem;">${sb.isTie ? '🤝 Delad seger: ' : '✅ '}${escapeHtml(sb.winnerName || 'Klar')}</span>`
-      : sb.status === 'cancelled'
-        ? `<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>`
-        : sb.status === 'locked'
-          ? `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 Låst</span>`
-          : `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
+    const dl = sb.closesAt ? formatDeadline(sb.closesAt) : null;
+    if (sb.status === 'finished') {
+      return `<span class="badge badge-success" style="font-size: 0.6rem;">${sb.isTie ? '🤝 Delad seger: ' : '✅ '}${escapeHtml(sb.winnerName || 'Klar')}</span>`;
+    }
+    if (sb.status === 'cancelled') {
+      return `<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>`;
+    }
+    if (sb.status === 'locked' || (dl && dl.isExpired)) {
+      return `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 ${dl && dl.isExpired ? 'Tid ute' : 'Låst'}</span>`;
+    }
+    if (dl) {
+      return `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} ${dl.shortText}</span>`;
+    }
+    return `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
   };
 
-  const renderSideBetCard = (sb, isNested = false) => `
-    <div class="bet-item card-clickable round-link" data-code="${escapeHtml(sb.shareCode)}" style="${isNested ? 'border-left: 3px solid var(--accent); margin-left: var(--space-sm);' : ''}">
-      <div style="flex: 1;">
-        <div class="bet-item-name">${isNested ? '🎯 ' : ''}${escapeHtml(sb.name)}</div>
-        <div class="bet-item-player">${sb.players.map(p => escapeHtml(p.name)).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
-      </div>
-      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-        <div class="bet-item-amount">${formatCurrency(sb.totalPool)}</div>
-        <div class="flex gap-xs" style="align-items: center;">
-          ${renderSideBetBadge(sb)}
-          ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
+  const renderSideBetCard = (sb, isNested = false) => {
+    const dl = sb.closesAt ? formatDeadline(sb.closesAt) : null;
+    const isLockedOrExpired = sb.status === 'locked' || (dl && dl.isExpired);
+    const isOpenAndActive = sb.status === 'open' && (!dl || !dl.isExpired);
+
+    return `
+      <div class="bet-item card-clickable round-link" data-code="${escapeHtml(sb.shareCode)}" style="${isNested ? 'border-left: 3px solid var(--accent); margin-left: var(--space-sm);' : ''}">
+        <div style="flex: 1; min-width: 0;">
+          <div class="bet-item-name" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span>${isNested ? '🎯 ' : ''}${escapeHtml(sb.name)}</span>
+            ${dl && !dl.isExpired ? `<span style="font-size: 0.68rem; color: var(--gold); font-weight: 700; white-space: nowrap;">⏱️ ${dl.shortText}</span>` : ''}
+          </div>
+          <div class="bet-item-player">${sb.players.map(p => escapeHtml(p.name)).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
+        </div>
+        <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <div class="bet-item-amount">${formatCurrency(sb.totalPool)}</div>
+          <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+            ${renderSideBetBadge(sb)}
+            ${isCreator && isOpenAndActive ? `
+              <button type="button" class="btn btn-sm btn-secondary boost-game-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Boosta spelet med pushnotis">🚀</button>
+              <button type="button" class="btn btn-sm btn-secondary lock-game-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Stäng bettning nu">🔒</button>
+            ` : ''}
+            ${isCreator && isLockedOrExpired && sb.status !== 'finished' && sb.status !== 'cancelled' ? `
+              <button type="button" class="btn btn-sm btn-secondary reopen-game-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Öppna bettning igen">🔓</button>
+            ` : ''}
+            ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
+          </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
+  };
 
   const top3 = [...t.settlement.balances].sort((a, b) => b.net - a.net).slice(0, 3);
 

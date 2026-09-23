@@ -109,3 +109,93 @@ export function createSwishUrl({ phone, amount, message }) {
   });
   return 'swish://payment?data=' + encodeURIComponent(swishData);
 }
+
+export function formatDeadline(closesAt) {
+  if (!closesAt) return null;
+  const target = new Date(closesAt).getTime();
+  if (isNaN(target)) return null;
+  const diff = target - Date.now();
+  if (diff <= 0) {
+    return {
+      isExpired: true,
+      remainingMs: 0,
+      text: t('event.deadlineExpired') || 'Spelstopp har passerat ⌛',
+      shortText: 'Tid ute ⌛'
+    };
+  }
+  if (diff < 60 * 1000) {
+    return {
+      isExpired: false,
+      remainingMs: diff,
+      text: '<1 min kvar ⏱️',
+      shortText: '<1m kvar ⏱️'
+    };
+  }
+  if (diff < 60 * 60 * 1000) {
+    const mins = Math.ceil(diff / (60 * 1000));
+    return {
+      isExpired: false,
+      remainingMs: diff,
+      text: `${mins} min kvar ⏱️`,
+      shortText: `${mins}m kvar ⏱️`
+    };
+  }
+  if (diff < 24 * 60 * 60 * 1000) {
+    const hrs = Math.floor(diff / (3600 * 1000));
+    const mins = Math.floor((diff % (3600 * 1000)) / (60 * 1000));
+    return {
+      isExpired: false,
+      remainingMs: diff,
+      text: `${hrs}h ${mins}m kvar ⏱️`,
+      shortText: `${hrs}h ${mins}m kvar`
+    };
+  }
+  const days = Math.floor(diff / (86400 * 1000));
+  return {
+    isExpired: false,
+    remainingMs: diff,
+    text: `${days} dgr kvar 📅`,
+    shortText: `${days}d kvar`
+  };
+}
+
+export function generateIcsDataUrl({ title, description, startDate, endDate, url }) {
+  const formatIcsDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const start = formatIcsDate(new Date(startDate || Date.now()));
+  const end = formatIcsDate(new Date(endDate || (new Date(startDate || Date.now()).getTime() + 60 * 60 * 1000)));
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//BetPals//Game Event//SV',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${Date.now()}@betpals.app`,
+    `DTSTAMP:${formatIcsDate(new Date())}`,
+    `DTSTART:${start}`,
+    `DTEND:${end}`,
+    `SUMMARY:${title}`,
+    `DESCRIPTION:${description || ''}`,
+    url ? `URL:${url}` : '',
+    'STATUS:CONFIRMED',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].filter(Boolean).join('\r\n');
+
+  return 'data:text/calendar;charset=utf8,' + encodeURIComponent(ics);
+}
+
+export function generateGoogleCalendarUrl({ title, description, startDate, endDate, location }) {
+  const formatGDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const start = formatGDate(new Date(startDate || Date.now()));
+  const end = formatGDate(new Date(endDate || (new Date(startDate || Date.now()).getTime() + 60 * 60 * 1000)));
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: title,
+    dates: `${start}/${end}`,
+    details: description || '',
+    location: location || ''
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+

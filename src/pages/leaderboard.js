@@ -770,12 +770,48 @@ function renderSwishlistTab(container, duelSettlement, user) {
                 <div class="friend-duels-breakdown" id="duels-for-${f.friendId}" style="display: none; margin-top: 8px; padding: 8px 10px; background: rgba(0,0,0,0.25); border-radius: 6px; font-size: 0.75rem;">
                   ${f.duels.map(d => {
                     const gameIcons = {
-                      dice: '🎲', coin: '🪙', darts: '🎯', beerpong: '🍺', quiz: '❓',
-                      rockpaperscissors: '✂️', arcade: '👾', blitz: '⚡', mafia: '🕵️',
-                      anybet: '🤝', flashbet: '⚡', even_steven: '🧾', not_roulette: '💳', shl_fantasy: '🏒'
+                      flashbet: '⚡',
+                      anybet: '🤝',
+                      even_steven: '🧾',
+                      gimme: '🏌️',
+                      'coin-flip': '🪙',
+                      coin: '🪙',
+                      flashlive: '🔴',
+                      mafia: '🕵️',
+                      blind10: '⏱️',
+                      wheel: '🎡',
+                      space_invaders: '👾',
+                      'space-invaders': '👾',
+                      slots: '🎰',
+                      shl_fantasy: '🏒',
+                      // Bakåtkompatibilitet för äldre historik
+                      dice: '🎲',
+                      darts: '🎯',
+                      beerpong: '🍺',
+                      quiz: '❓',
+                      rockpaperscissors: '✂️',
+                      curling: '🥌',
+                      arcade: '👾',
+                      blitz: '⚡'
+                    };
+                    const gameTitles = {
+                      flashbet: 'BlixtBet',
+                      anybet: 'AnyBet',
+                      even_steven: isEn ? 'Split Expense' : 'Dela utlägg',
+                      gimme: 'Gimme',
+                      'coin-flip': isEn ? 'Coin Flip' : 'Krona/Klave',
+                      coin: isEn ? 'Coin Flip' : 'Krona/Klave',
+                      flashlive: 'FlashLive',
+                      mafia: isEn ? 'Mafia' : 'Maffia',
+                      blind10: 'Blind 10',
+                      wheel: isEn ? 'Lucky Wheel' : 'Lyckohjul',
+                      space_invaders: 'Space Invaders',
+                      'space-invaders': 'Space Invaders',
+                      slots: isEn ? 'Slots' : 'Enarmad bandit',
+                      shl_fantasy: 'SHL Fantasy'
                     };
                     const icon = gameIcons[d.gameType] || '🎲';
-                    const title = d.customTitle || (d.gameType.charAt(0).toUpperCase() + d.gameType.slice(1));
+                    const title = d.customTitle || gameTitles[d.gameType] || (d.gameType.charAt(0).toUpperCase() + d.gameType.slice(1));
                     const won = d.youWon;
                     const sign = won ? '+' : '-';
                     const color = won ? '#4ade80' : '#f87171';

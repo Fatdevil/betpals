@@ -28,10 +28,10 @@ function isValidImageUrl(str) {
 test('Tournament Sponsor Banner: validation and persistence', () => {
   const r = () => crypto.randomUUID();
   const creatorId = 'u_creator_' + r();
-  db.createUser(creatorId, 'Org_' + r().slice(0, 6), 'tok_' + r(), '🏌️', 'Organizer', '0701000001');
+  db.createUser(creatorId, 'Org_' + r().slice(0, 6), 'tok_' + r(), '🏌️', 'Organizer', '070' + Math.floor(1000000 + Math.random() * 9000000));
 
   const tourId = 'tour_spon_' + r();
-  const shareCode = 'SPON' + crypto.randomInt(1000, 9999);
+  const shareCode = 'SP' + r().replace(/-/g, '').slice(0, 8).toUpperCase();
   db.createTournament(tourId, 'Sponsor Test Tournament', shareCode, creatorId, 'friends');
 
   // Simulated compressed mobile camera image (e.g. 150KB JPEG in base64)
@@ -71,10 +71,10 @@ test('Tournament Sponsor Banner: validation and persistence', () => {
 test('Tournament Sponsor Banner: getFullEvent includes parent tournament banners for betting page', () => {
   const r = () => crypto.randomUUID();
   const creatorId = 'u_creator_' + r();
-  db.createUser(creatorId, 'Org_' + r().slice(0, 6), 'tok_' + r(), '🏌️', 'Organizer', '0701000001');
+  db.createUser(creatorId, 'Org_' + r().slice(0, 6), 'tok_' + r(), '🏌️', 'Organizer', '070' + Math.floor(1000000 + Math.random() * 9000000));
 
   const tourId = 'tour_spon_' + r();
-  const shareCode = 'SPON' + crypto.randomInt(1000, 9999);
+  const shareCode = 'SP' + r().replace(/-/g, '').slice(0, 8).toUpperCase();
   db.createTournament(tourId, 'Sponsor Event Test', shareCode, creatorId, 'friends');
 
   const bannerId1 = 'ban_' + r();

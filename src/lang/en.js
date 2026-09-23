@@ -74,7 +74,19 @@ export const en = {
     loginOrRegister: 'Log in / Create Profile',
     swishMissingTitle: 'Swish number missing',
     swishMissingDesc: 'You need to add your Swish phone number in your profile before placing bets so settlements can be completed.',
-    goToProfileSwish: 'Go to Profile & add Swish ⚙️'
+    goToProfileSwish: 'Go to Profile & add Swish ⚙️',
+    deadline: 'Betting deadline',
+    deadlineClosesAt: 'Betting closes',
+    deadlineExpired: 'Betting closed ⏱️',
+    timeRemaining: 'left to bet',
+    lockBettingNow: '🔒 Lock betting now',
+    reopenBettingNow: '🔓 Reopen betting',
+    boostGameBtn: '🚀 Boost game',
+    boostConfirmPrompt: 'Send a push notification reminder to all participants to place their bets now?',
+    boostSuccessToast: 'Game boosted! 🚀 Push notification sent to participants.',
+    addToCalendar: '📅 Add to Calendar',
+    addToGoogleCalendar: 'Google Calendar',
+    downloadIcs: 'Apple / Outlook (.ics)'
   },
   admin: {
     title: 'Admin',
@@ -312,7 +324,14 @@ export const en = {
     restrictedFriendsOfFriends: 'This event is open to friends and friends of friends of',
     restrictedLoginRequired: 'Please log in to verify access.',
     addFriendBtn: 'Add {creator} as friend',
-    connectedCrew: 'In this event'
+    connectedCrew: 'In this event',
+    gameDeadlineLabel: '⏱️ Betting Deadline & Calendar (optional):',
+    deadlineNone: 'No deadline (open until you close it)',
+    deadlineQuick: 'Shortcuts',
+    deadlineCalendar: '📅 Calendar (Date & Time)',
+    lockGame: 'Lock',
+    reopenGame: 'Reopen',
+    boostGame: 'Boost'
   },
   notifications: {
     title: 'Notifications',

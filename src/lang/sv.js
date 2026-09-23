@@ -76,7 +76,19 @@ export const sv = {
     paid: 'Betald',
     markPaid: 'Markera som betald',
     swish: 'Swisha',
-    swishMessage: 'BetPals — vinstutbetalning'
+    swishMessage: 'BetPals — vinstutbetalning',
+    deadline: 'Tidsgräns för bettning',
+    deadlineClosesAt: 'Bettning stänger',
+    deadlineExpired: 'Bettning stängd ⏱️',
+    timeRemaining: 'kvar att betta',
+    lockBettingNow: '🔒 Stäng bettning nu',
+    reopenBettingNow: '🔓 Öppna bettning igen',
+    boostGameBtn: '🚀 Boosta spelet',
+    boostConfirmPrompt: 'Skicka en pushnotis till alla deltagare med påminnelse om att lägga sina bets nu?',
+    boostSuccessToast: 'Spelet har boostats! 🚀 Pushnotis skickad till deltagarna.',
+    addToCalendar: '📅 Lägg till i kalender',
+    addToGoogleCalendar: 'Google Kalender',
+    downloadIcs: 'Apple / Outlook (.ics)'
   },
   admin: {
     title: 'Admin',
@@ -313,7 +325,14 @@ export const sv = {
     restrictedFriendsOfFriends: 'Detta event är öppet för vänner och vänners vänner till',
     restrictedLoginRequired: 'Logga in för att se om du har tillträde till eventet.',
     addFriendBtn: 'Bli vän med',
-    connectedCrew: 'Med i eventet'
+    connectedCrew: 'Med i eventet',
+    gameDeadlineLabel: '⏱️ Tidsgräns & Kalender (valfritt):',
+    deadlineNone: 'Ingen tidsgräns (öppen tills du stänger)',
+    deadlineQuick: 'Snabbval',
+    deadlineCalendar: '📅 Kalender (Datum & Klockslag)',
+    lockGame: 'Lås',
+    reopenGame: 'Öppna',
+    boostGame: 'Boosta'
   },
   notifications: {
     title: 'Notiser',

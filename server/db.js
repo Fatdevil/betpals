@@ -122,6 +122,8 @@ db.exec(`
     bet_mode TEXT NOT NULL DEFAULT 'open',
     image_url TEXT,
     winner_image_url TEXT,
+    closes_at TEXT,
+    last_boosted_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE SET NULL
@@ -177,6 +179,8 @@ try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN image_url TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN winner_image_url TEXT'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN closes_at TEXT'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN last_boosted_at TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN image_url TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN swish_number TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN real_name TEXT'); } catch {}
@@ -553,8 +557,8 @@ const stmts = {
 
   // Events
   insertEvent: db.prepare(`
-    INSERT INTO events (id, name, date, status, min_bet, max_bet, payout_percent, share_code, creator_id, swish_number, tournament_id, is_side_bet, linked_round_id, bet_mode, image_url, winner_image_url)
-    VALUES (@id, @name, @date, COALESCE(@status, 'open'), @minBet, @maxBet, @payoutPercent, @shareCode, @creatorId, @swishNumber, @tournamentId, @isSideBet, @linkedRoundId, @betMode, @imageUrl, @winnerImageUrl)
+    INSERT INTO events (id, name, date, status, min_bet, max_bet, payout_percent, share_code, creator_id, swish_number, tournament_id, is_side_bet, linked_round_id, bet_mode, image_url, winner_image_url, closes_at, last_boosted_at)
+    VALUES (@id, @name, @date, COALESCE(@status, 'open'), @minBet, @maxBet, @payoutPercent, @shareCode, @creatorId, @swishNumber, @tournamentId, @isSideBet, @linkedRoundId, @betMode, @imageUrl, @winnerImageUrl, @closesAt, @lastBoostedAt)
   `),
   getEventById: db.prepare('SELECT * FROM events WHERE id = ?'),
   getEventByCode: db.prepare('SELECT * FROM events WHERE share_code = ?'),
@@ -563,6 +567,8 @@ const stmts = {
   updateEventStatus: db.prepare('UPDATE events SET status = ? WHERE id = ?'),
   updateEventWinner: db.prepare('UPDATE events SET winner_id = ?, winner_image_url = COALESCE(?, winner_image_url), status = \'finished\' WHERE id = ?'),
   updateEventImage: db.prepare('UPDATE events SET image_url = ? WHERE id = ?'),
+  updateEventClosesAt: db.prepare('UPDATE events SET closes_at = ? WHERE id = ?'),
+  updateEventLastBoosted: db.prepare("UPDATE events SET last_boosted_at = datetime('now') WHERE id = ?"),
   resetEvent: db.prepare('UPDATE events SET status = ?, winner_id = NULL WHERE id = ?'),
   deleteEvent: db.prepare('DELETE FROM events WHERE id = ?'),
 
@@ -1000,6 +1006,8 @@ export function getEventSummaries(includeTournamentEvents = false) {
     tournamentId: e.tournament_id,
     imageUrl: e.image_url || null,
     winnerImageUrl: e.winner_image_url || null,
+    closesAt: e.closes_at || null,
+    lastBoostedAt: e.last_boosted_at || null,
     playerCount: stmts.getPlayerCount.get(e.id).count,
     betCount: stmts.getBetCount.get(e.id).count,
     totalPool: stmts.getTotalPool.get(e.id).total
@@ -1072,6 +1080,8 @@ export function getFullEvent(idOrCode) {
     betMode: event.bet_mode || 'open',
     imageUrl: event.image_url || null,
     winnerImageUrl: event.winner_image_url || null,
+    closesAt: event.closes_at || null,
+    lastBoostedAt: event.last_boosted_at || null,
     players: mappedPlayers,
     bets: bets.map(b => ({
       id: b.id,
@@ -1124,6 +1134,8 @@ export const createEvent = db.transaction((eventData, playerNames) => {
     betMode: 'open',
     imageUrl: null,
     winnerImageUrl: null,
+    closesAt: null,
+    lastBoostedAt: null,
     ...eventData,
     date: eventData.date || new Date().toISOString().split('T')[0],
     status: eventData.status || 'open',
@@ -1137,7 +1149,9 @@ export const createEvent = db.transaction((eventData, playerNames) => {
     linkedRoundId: eventData.linkedRoundId ?? eventData.linked_round_id ?? null,
     betMode: eventData.betMode ?? eventData.bet_mode ?? 'open',
     imageUrl: eventData.imageUrl || null,
-    winnerImageUrl: eventData.winnerImageUrl || null
+    winnerImageUrl: eventData.winnerImageUrl || null,
+    closesAt: eventData.closesAt ?? eventData.closes_at ?? null,
+    lastBoostedAt: eventData.lastBoostedAt ?? eventData.last_boosted_at ?? null
   });
   for (const p of playerNames) {
     const pId = typeof p === 'string' ? crypto.randomUUID() : (p.id || crypto.randomUUID());
@@ -1182,6 +1196,7 @@ export function lockEvent(eventId) {
 
 export function reopenEvent(eventId) {
   stmts.resetEvent.run('open', eventId);
+  stmts.updateEventClosesAt.run(null, eventId);
 }
 
 export function cancelEvent(eventId) {
@@ -1190,6 +1205,14 @@ export function cancelEvent(eventId) {
 
 export function finishEvent(eventId, winnerId, winnerImageUrl = null) {
   stmts.updateEventWinner.run(winnerId, winnerImageUrl, eventId);
+}
+
+export function updateEventClosesAt(eventId, closesAt) {
+  stmts.updateEventClosesAt.run(closesAt || null, eventId);
+}
+
+export function updateEventLastBoosted(eventId) {
+  stmts.updateEventLastBoosted.run(eventId);
 }
 
 export function deleteEvent(eventId) {
@@ -1781,7 +1804,9 @@ export function getFullTournament(idOrCode) {
       linkedRoundId: e.linked_round_id,
       betMode: e.bet_mode || 'open',
       minBet: e.min_bet,
-      maxBet: e.max_bet
+      maxBet: e.max_bet,
+      closesAt: e.closes_at || null,
+      lastBoostedAt: e.last_boosted_at || null
     };
   };
 

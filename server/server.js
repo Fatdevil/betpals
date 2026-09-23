@@ -1583,6 +1583,12 @@ app.post('/api/events', (req, res) => {
   const payout = payoutPercent !== undefined ? Math.min(100, Math.max(0, Number(payoutPercent))) : 100;
   const swish = swishNumber ? swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
+  let validClosesAt = null;
+  if (req.body.closesAt) {
+    const d = new Date(req.body.closesAt);
+    if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
+  }
+
   const eventData = {
     id: generateId(),
     name: finalName,
@@ -1598,7 +1604,8 @@ app.post('/api/events', (req, res) => {
     isSideBet: 0,
     linkedRoundId: null,
     betMode: 'open',
-    imageUrl: imageUrl || null
+    imageUrl: imageUrl || null,
+    closesAt: validClosesAt
   };
 
   db.createEvent(eventData, playerData);
@@ -1737,6 +1744,10 @@ app.post('/api/events/:idOrCode/bets', (req, res) => {
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (event.status !== 'open') {
     return res.status(400).json({ error: 'Bettning är stängd för detta event' });
+  }
+
+  if (event.closesAt && new Date() > new Date(event.closesAt)) {
+    return res.status(400).json({ error: 'Tiden har gått ut! Bettning är stängd för detta spel' });
   }
 
   if (event.tournamentId) {
@@ -1901,6 +1912,114 @@ app.post('/api/events/:id/reopen', (req, res) => {
   }
 
   res.json({ ok: true, status: 'open' });
+});
+
+app.post('/api/events/:id/boost', async (req, res) => {
+  const event = db.getFullEvent(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  if (event.status !== 'open') {
+    return res.status(400).json({ error: 'Endast öppna spel kan boostas' });
+  }
+
+  // Cooldown check (max 1 boost per 10 minutes)
+  if (event.lastBoostedAt) {
+    const lastBoostTime = new Date(event.lastBoostedAt).getTime();
+    const elapsedMinutes = (Date.now() - lastBoostTime) / (1000 * 60);
+    if (elapsedMinutes < 10) {
+      const waitMin = Math.ceil(10 - elapsedMinutes);
+      return res.status(429).json({ error: `Spelet boostades nyligen. Vänta ${waitMin} minuter innan nästa boost.` });
+    }
+  }
+
+  const user = getUserFromToken(req);
+  let targetUserIds = [];
+  let tourShareCode = null;
+
+  if (event.tournamentId) {
+    const tournament = db.getFullTournament(event.tournamentId);
+    if (tournament) {
+      tourShareCode = tournament.shareCode;
+      targetUserIds = db.getTournamentParticipantUserIds(event.tournamentId)
+        .filter(uid => !user || uid !== user.id);
+    }
+  } else {
+    const bettorUserIds = (event.bets || []).map(b => b.userId).filter(Boolean);
+    const friendIds = user ? db.getFriends(user.id).map(f => f.id) : [];
+    targetUserIds = [...new Set([...bettorUserIds, ...friendIds])].filter(uid => !user || uid !== user.id);
+  }
+
+  let durationText = '';
+  if (event.closesAt) {
+    try {
+      const closesDate = new Date(event.closesAt);
+      const diffMs = closesDate.getTime() - Date.now();
+      if (diffMs > 0) {
+        const diffMin = Math.round(diffMs / (1000 * 60));
+        if (diffMin < 60) {
+          durationText = ` (${diffMin} min kvar!)`;
+        } else {
+          const hours = Math.floor(diffMin / 60);
+          const mins = diffMin % 60;
+          durationText = ` (${hours}t ${mins > 0 ? mins + 'm ' : ''}kvar!)`;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const poolText = event.totalPool > 0 ? `Pott: ${event.totalPool} kr. ` : '';
+  const pushPayload = {
+    title: `🔥 Spelboost: "${event.name}"!`,
+    body: `${poolText}Bettningen stänger snart${durationText}! Lägg ditt tips nu.`,
+    url: tourShareCode ? `/#tournament/${tourShareCode}` : `/#event/${event.shareCode}`
+  };
+
+  sendPushToUsers(targetUserIds, pushPayload, 'tournaments').catch(() => {});
+
+  db.updateEventLastBoosted(event.id);
+
+  broadcastToEvent(event.shareCode, {
+    type: 'event_boosted',
+    eventCode: event.shareCode,
+    eventId: event.id,
+    eventName: event.name
+  });
+
+  if (event.tournamentId && tourShareCode) {
+    broadcastToEvent(tourShareCode, {
+      type: 'tournament_updated',
+      tournamentCode: tourShareCode
+    });
+  }
+
+  res.json({ ok: true, lastBoostedAt: new Date().toISOString() });
+});
+
+app.put('/api/events/:id/deadline', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  let validClosesAt = null;
+  if (req.body.closesAt) {
+    const d = new Date(req.body.closesAt);
+    if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
+  }
+
+  db.updateEventClosesAt(event.id, validClosesAt);
+
+  broadcastToEvent(event.share_code, {
+    type: 'event_deadline_updated',
+    eventCode: event.share_code,
+    closesAt: validClosesAt
+  });
+
+  if (event.tournament_id) {
+    const t = db.getTournamentById(event.tournament_id);
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  }
+
+  res.json({ ok: true, closesAt: validClosesAt });
 });
 
 app.put('/api/events/:id/image', (req, res) => {
@@ -2356,6 +2475,12 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
   const max = Math.max(min, Number(req.body.maxBet) || lastRound?.maxBet || 10000);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (lastRound?.swishNumber || user?.swish_number || null);
 
+  let validClosesAt = null;
+  if (req.body.closesAt) {
+    const d = new Date(req.body.closesAt);
+    if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
+  }
+
   const eventData = {
     id: generateId(),
     name: (req.body.name || '').trim() || ('Rond ' + roundNumber),
@@ -2370,7 +2495,8 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
     tournamentId: tournament.id,
     isSideBet: 0,
     linkedRoundId: null,
-    betMode: 'open'
+    betMode: 'open',
+    closesAt: validClosesAt
   };
 
   const playerData = cleanPlayers.map(name => ({ id: generateId(), name }));
@@ -2406,7 +2532,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att lägga till nya sido-spel.' });
   }
 
-  const { name, players, linkedRoundId, betMode, betAmount, imageUrl } = req.body;
+  const { name, players, linkedRoundId, betMode, betAmount, imageUrl, closesAt } = req.body;
   const finalName = (name || '').trim();
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
@@ -2427,6 +2553,12 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   const amount = Math.max(1, Number(betAmount) || 100);
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
+  let validClosesAt = null;
+  if (closesAt) {
+    const d = new Date(closesAt);
+    if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
+  }
+
   const eventId = generateId();
   const eventData = {
     id: eventId,
@@ -2443,7 +2575,8 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     isSideBet: 1,
     linkedRoundId: linkedRoundId || null,
     betMode: betMode || 'open',
-    imageUrl: imageUrl || null
+    imageUrl: imageUrl || null,
+    closesAt: validClosesAt
   };
 
   const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));

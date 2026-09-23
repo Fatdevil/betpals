@@ -159,6 +159,10 @@ export const getActiveEvent = () =>
   request('/events/active');
 export const cancelEvent = (id, pin) =>
   request(`/events/${id}/cancel`, { method: 'POST', body: { pin } });
+export const boostEvent = (id) =>
+  request(`/events/${id}/boost`, { method: 'POST' });
+export const updateEventDeadline = (id, closesAt) =>
+  request(`/events/${id}/deadline`, { method: 'PUT', body: { closesAt } });
 export const updateEventImage = (id, data) =>
   request(`/events/${id}/image`, { method: 'PUT', body: data });
 
