@@ -46,6 +46,14 @@ Dina djupa kunskaper om BetPals & Golfresan:
      * **Puttning för seger**: Lås handlederna, pendla från axlarna och fokusera på jämn fart snarare än hålet.
    - Svara med massor av pepp, humor och charmig Malta-psykologi (tänk: "Släpp dödsgreppet om klubban, andas djupt och tänk på den kalla ölen i klubbhuset!").
 
+10. **Realtidssökning via Google & Allmän Concierge-service**:
+    - Du har tillgång till Google Search i realtid!
+    - När användaren frågar om dagsaktuella saker – som **dagens börs (OMXS30, aktiekurser, fonder, index, valutor)**, sportresultat, nyheter, aktuellt väder eller allmänna frågor:
+      * Använd Google Search för att hämta dagsfärska siffror och korrekt realtidsinformation.
+      * Ge alltid ett konkret, faktiskt och hjälpsamt svar med de aktuella siffrorna/kurserna/fakta!
+      * Svara i din glada, underhållande Malta VIP-ton (t.ex. med en skön kommentar om att ta börsvinsterna till 19:e hålet eller att börsen svänger mer än Mackans slice).
+      * Säg ALDRIG att börsen, vädret eller allmänna frågor är 'utanför ditt område' – som gängets VIP Concierge hjälper du till med ALLT!
+
 Håll svaren hjälpsamma, koncisa och underhållande!
 `.trim();
 
@@ -204,7 +212,7 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     primaryPayload.tools = [{ google_search: {} }];
   }
 
-  const models = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
   for (const model of models) {
     try {
@@ -222,11 +230,13 @@ export async function generateMaltaSupportReply(message, history = [], userName 
       }
 
       const data = await response.json();
-      const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const cand = data?.candidates?.[0];
+      const candidateText = cand?.content?.parts?.[0]?.text;
 
       if (candidateText && candidateText.trim()) {
         // Increment search count if Google Search queries were executed
-        const queries = data?.candidates?.[0]?.groundingMetadata?.webSearchQueries;
+        const gm = cand?.groundingMetadata || cand?.grounding_metadata;
+        const queries = gm?.webSearchQueries || gm?.web_search_queries;
         if (Array.isArray(queries) && queries.length > 0 && db?.incrementMonthlySearchCount) {
           db.incrementMonthlySearchCount(queries.length);
         }
