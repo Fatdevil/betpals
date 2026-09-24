@@ -114,36 +114,85 @@ body::before {
   right: 0;
   z-index: 100;
   height: var(--header-height);
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: center;
+  padding: 0 var(--space-md);
   background: rgba(10, 10, 15, 0.85);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-glass);
 }
 
+.top-header-left {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+}
+
 .top-header-logo {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 1rem;
-  letter-spacing: 0.14em;
+  font-size: 0.88rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent);
+  justify-self: center;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.2s var(--ease-out);
 }
 
-.top-header-left,
+.top-header-logo:hover {
+  opacity: 0.85;
+}
+
 .top-header-right {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  justify-self: end;
+  gap: 6px;
 }
 
-.top-header-left { left: var(--space-md); }
-.top-header-right { right: var(--space-md); }
+.malta-header-btn {
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  padding: 4px 8px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 700;
+  transition: all 0.2s var(--ease-out);
+  flex-shrink: 0;
+}
+
+.malta-header-btn:hover {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.6);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+  transform: translateY(-1px);
+}
+
+.malta-header-btn:active {
+  transform: scale(0.95);
+}
+
+.malta-header-chip {
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 3px rgba(255, 215, 0, 0.5));
+}
 
 .lang-toggle-btn {
   background: var(--bg-card);
@@ -153,13 +202,16 @@ body::before {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.5px;
-  padding: 4px 10px;
+  padding: 4px 8px;
+  height: 28px;
   border-radius: var(--radius-full);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
   transition: all 0.2s var(--ease-out);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .lang-toggle-btn:hover {
@@ -167,6 +219,42 @@ body::before {
   border-color: var(--accent);
   color: var(--accent);
   box-shadow: 0 0 10px var(--accent-glow);
+}
+
+@media (max-width: 520px) {
+  .top-header {
+    padding: 0 10px;
+  }
+  .top-header-logo {
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+  }
+  .malta-header-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+  }
+  .malta-header-label {
+    display: none;
+  }
+  .lang-toggle-btn {
+    padding: 4px 7px;
+    font-size: 0.68rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .top-header {
+    padding: 0 6px;
+  }
+  .top-header-logo {
+    font-size: 0.70rem;
+    letter-spacing: 0.03em;
+  }
+  .top-header-right {
+    gap: 4px;
+  }
 }
 
 /* ── Bottom Navigation (SWING_AI pill style) ──────── */
