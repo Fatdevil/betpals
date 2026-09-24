@@ -136,13 +136,14 @@ function toggleDropdown() {
 
   document.body.appendChild(dropdown);
 
-  // Position below bell (bell is on the left)
+  // Position below bell (bell is in top right header)
   const bell = document.getElementById('notif-bell');
   if (bell) {
     const rect = bell.getBoundingClientRect();
     dropdown.style.top = `${rect.bottom + 8}px`;
-    dropdown.style.left = `${Math.max(10, rect.left)}px`;
-    dropdown.style.right = 'auto';
+    const rightOffset = Math.max(10, window.innerWidth - rect.right);
+    dropdown.style.right = `${rightOffset}px`;
+    dropdown.style.left = 'auto';
   }
 
   document.getElementById('notif-clear-btn')?.addEventListener('click', () => {

@@ -114,8 +114,8 @@ body::before {
   right: 0;
   z-index: 100;
   height: var(--header-height);
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: 0 var(--space-md);
   background: rgba(10, 10, 15, 0.85);
@@ -127,35 +127,39 @@ body::before {
 .top-header-left {
   display: flex;
   align-items: center;
-  justify-self: start;
+  min-width: 0;
+  flex: 1;
 }
 
 .top-header-logo {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 0.88rem;
-  letter-spacing: 0.1em;
+  font-size: 1.38rem;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--accent);
-  justify-self: center;
-  text-align: center;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   user-select: none;
-  transition: opacity 0.2s var(--ease-out);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 
 .top-header-logo:hover {
-  opacity: 0.85;
+  opacity: 0.88;
+}
+
+.top-header-logo:active {
+  transform: scale(0.98);
 }
 
 .top-header-right {
   display: flex;
   align-items: center;
-  justify-self: end;
-  gap: 6px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .malta-header-btn {
@@ -163,12 +167,12 @@ body::before {
   border: 1px solid rgba(255, 215, 0, 0.35);
   border-radius: var(--radius-full);
   cursor: pointer;
-  padding: 4px 8px;
-  height: 28px;
+  padding: 4px 9px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--gold);
   font-size: 0.72rem;
   font-weight: 700;
@@ -188,8 +192,8 @@ body::before {
 }
 
 .malta-header-chip {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
   filter: drop-shadow(0 1px 3px rgba(255, 215, 0, 0.5));
 }
@@ -226,31 +230,69 @@ body::before {
     padding: 0 10px;
   }
   .top-header-logo {
-    font-size: 0.80rem;
-    letter-spacing: 0.06em;
+    font-size: 1.22rem;
+    letter-spacing: 0.02em;
+  }
+  .malta-header-chip,
+  .notif-bell svg {
+    width: 18px;
+    height: 18px;
   }
   .malta-header-btn {
     padding: 4px 8px;
     font-size: 0.70rem;
+    height: 28px;
+  }
+  .notif-bell {
+    width: 28px;
+    height: 28px;
   }
 }
 
-@media (max-width: 360px) {
+@media (max-width: 390px) {
+  .top-header {
+    padding: 0 8px;
+  }
+  .top-header-logo {
+    font-size: 1.10rem;
+    letter-spacing: 0.01em;
+  }
+  .malta-header-chip,
+  .notif-bell svg {
+    width: 17px;
+    height: 17px;
+  }
+  .malta-header-btn {
+    padding: 3px 6px;
+    font-size: 0.66rem;
+    gap: 4px;
+    height: 26px;
+  }
+  .notif-bell {
+    width: 26px;
+    height: 26px;
+  }
+  .top-header-right {
+    gap: 5px;
+  }
+}
+
+@media (max-width: 350px) {
   .top-header {
     padding: 0 6px;
   }
   .top-header-logo {
-    font-size: 0.72rem;
-    letter-spacing: 0.03em;
-  }
-  .malta-header-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border-radius: 50%;
+    font-size: 1.00rem;
+    letter-spacing: 0;
   }
   .malta-header-label {
     display: none;
+  }
+  .malta-header-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 50%;
   }
 }
 
@@ -276,18 +318,27 @@ body::before {
 /* ── Notification Bell ─────────────────────────────── */
 .notif-bell {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   color: var(--text-muted);
-  transition: color 0.2s var(--ease-out);
+  transition: color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.notif-bell svg {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
 .notif-bell:hover {
-  color: var(--accent);
+  color: var(--gold);
+  transform: scale(1.08);
 }
 
 .notif-badge {
@@ -1913,11 +1964,9 @@ select.form-input option {
 
 /* ── Notifications ─────────────────────────────────── */
 .notif-bell {
-  position: absolute;
-  top: 8px;
-  right: 16px;
-  width: 36px;
-  height: 36px;
+  position: relative;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1925,17 +1974,24 @@ select.form-input option {
   color: var(--text-muted);
   transition: color 0.2s, transform 0.2s;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.notif-bell svg {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
 .notif-bell:hover {
   color: var(--gold);
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 
 .notif-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: -1px;
+  right: -2px;
   width: 16px;
   height: 16px;
   border-radius: 50%;

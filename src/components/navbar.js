@@ -41,14 +41,14 @@ export function renderNavbar(activePage) {
   return `
     <div class="top-header">
       <div class="top-header-left">
-        ${renderBell()}
+        <span class="top-header-logo" id="top-header-logo-btn" title="${currentLang === 'sv' ? 'Dela app / QR-kod 📱' : 'Share app / QR code 📱'}">THE SOCIAL BETWORK</span>
       </div>
-      <span class="top-header-logo" id="top-header-logo-btn" title="${currentLang === 'sv' ? 'Dela app / QR-kod 📱' : 'Share app / QR code 📱'}">THE SOCIAL BETWORK</span>
       <div class="top-header-right">
         <button class="malta-header-btn" id="malta-header-support-btn" title="Malta AI Kundtjänst 🇲🇹" aria-label="Malta AI Kundtjänst">
           <img src="/chip-malta-transparent.png" alt="Malta AI" class="malta-header-chip" />
           <span class="malta-header-label">Malta AI</span>
         </button>
+        ${renderBell()}
       </div>
     </div>
     <div class="navbar">

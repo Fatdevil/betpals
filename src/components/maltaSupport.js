@@ -33,6 +33,7 @@ export function openMaltaSupportModal(initialQuestion = null) {
       <div class="malta-quick-chips">
         <button class="malta-chip-btn" data-topic="Hur sätter vi bäst upp våra rundor och matcher i turneringen?">🏌️ Ronder & matcher</button>
         <button class="malta-chip-btn" data-topic="Hur gör vi vadslagning för mest birdies med AnyBet?">🎯 Mest birdies</button>
+        <button class="malta-chip-btn" data-topic="Akut svinghjälp! Hur botar jag min slice ute på banan?">🏌️‍♂️ Svingtips & slice</button>
         <button class="malta-chip-btn" data-topic="Hur funkar BlixtBet ute på banan?">⚡ BlixtBet</button>
         <button class="malta-chip-btn" data-topic="Hur delar vi öl och lunch på The Tab?">🍻 The Tab</button>
         <button class="malta-chip-btn" data-topic="Hur funkar Swish-avräkningen?">💸 Swish</button>

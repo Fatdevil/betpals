@@ -35,6 +35,15 @@ Dina djupa kunskaper om BetPals & Golfresan:
    - OBS! Löven-game i appen är hårdkodat för ishockeylaget Björklöven (mål, skott etc.). Använd INTE det för golf! Använd vanliga Turneringsevent eller AnyBet för golftips.
 8. **Minispel (Space Blitz, Mafia etc.)**:
    - Spelas bäst på hotellrummet eller klubbhuset över WiFi på kvällen.
+9. **Golfcoach, Svingtips & Mental Caddie (Akut svinghjälp på banan)**:
+   - Du är inte bara supportagent utan också gängets inofficiella PGA-coach och mentala caddie!
+   - Du ger skarpa, enkla och pedagogiska råd om golfsvingen ute på banan:
+     * **Slice**: Vrid vänsterhanden så 2–3 knogar syns (starkare grepp), lossa grepptrycket och svinga inifrån-och-ut mot klockan 13:00.
+     * **Duff / Fet träff**: Sluta skopa! Flytta vikten till främre foten och behåll ryggradsvinkeln genom träffen.
+     * **Toppad boll**: Lita på klubbans loft istället för att resa på kroppen för att "hjälpa bollen upp".
+     * **Shank**: Kliv bak 2–3 cm från bollen och låt armarna hänga ledigt under axlarna.
+     * **Puttning för seger**: Lås handlederna, pendla från axlarna och fokusera på jämn fart snarare än hålet.
+   - Svara med massor av pepp, humor och charmig Malta-psykologi (tänk: "Släpp dödsgreppet om klubban, andas djupt och tänk på den kalla ölen i klubbhuset!").
 
 Håll svaren hjälpsamma, koncisa och underhållande!
 `.trim();
@@ -90,14 +99,23 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
 4. När sista rundan spelats klickar ni **"Avsluta Turnering"** så koras totalsegraren och alla skulder kvittas automatiskt! 🏆🇲🇹`;
   }
 
-  if (q.includes('putt') || q.includes('slice') || q.includes('duff') || q.includes('vatten') || q.includes('ruff')) {
-    return `Ojojoj ${userName}... 🏌️‍♂️💨 Slicade någon ut i skogen igen? På Malta har vi en gyllene regel: En dålig drive kan alltid räddas av en iskall öl i baren och ett välplacerat AnyBet på nästa hål! Släpp prestigen, fokusera på nästa putt och låt BetPals hålla koll på insatserna! 🍻`;
+  if (q.includes('sving') || q.includes('slice') || q.includes('hook') || q.includes('shank') || q.includes('duff') || q.includes('grepp')) {
+    return `Halloj mästaren ${userName}! 🏌️‍♂️⛳ Akut svinghjälp från Malta Pro Desk:
+1. **Slicar du ut i tallarna?** Vrid vänsterhanden så du ser 2–3 knogar vid adressering (starkare grepp) och tänk att du svingar inifrån-och-ut mot klockan 13:00!
+2. **Duffar eller toppar du?** Flytta vikten till främre foten i nersvingen och behåll ryggradsvinkeln genom träffen. Lita på klubbans loft – du behöver inte hjälpa bollen upp!
+3. **Shankar du mot skaftfästet?** Kliv bak 2 cm från bollen och låt armarna hänga ledigt rakt under axlarna.
+4. **Den gyllene Malta-regeln:** Släpp dödsgreppet om klubban (grepptryck 4 av 10) och svinga i 80% tempo. Bollen flyger både rakare och längre, och ölen på 19:e smakar dubbelt så gott! 🚀🍻`;
+  }
+
+  if (q.includes('putt') || q.includes('vatten') || q.includes('ruff')) {
+    return `Ojojoj ${userName}... 🏌️‍♂️💨 På Malta har vi en gyllene regel: En missad putt eller boll i vattnet kan alltid räddas av ett iskallt AnyBet på nästa hål och en kall lager i baren! Släpp prestigen, fokusera på nästa slag och låt BetPals hålla koll på ställningen! 🍻⛳`;
   }
 
   return `Morn morn ${userName}! 🇲🇹 Solen skiner över St. Julian's och Malta Support står redo!
 Hur kan jag hjälpa dig med golfresan och era rundor idag?
-- 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & rundorna)
+- 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & delmatcher)
 - 🎯 **Mest birdies** (Tips för AnyBet-potter)
+- 🏌️‍♀️ **Svingtips & Akut slice-hjälp** (PGA-råd ute på banan)
 - ⚡ **BlixtBet** (Realtidsbets på puttar och drives)
 - 🍻 **The Tab** (Dela golfbilar, lunch och bira)
 - 💸 **Swish & Saldon** (Hur avräkningen fungerar)
