@@ -114,7 +114,7 @@ test('AnyBet 3 — Deadline enforcement: rejects choice updates after deadline',
     judgeId: creator.id,
     stakeAmount: 50,
     betType: 'yes_no',
-    deadline: '2026-09-24', // Tomorrow or future
+    deadline: '2099-12-31', // Far future date so test never expires
     participantIds: [friend1.id]
   });
 

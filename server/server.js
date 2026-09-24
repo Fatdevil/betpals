@@ -2660,9 +2660,11 @@ app.post('/api/tournaments/from-template', (req, res) => {
       // In 'self' mode, register bets on each participant
       if (sbMode === 'self') {
         const createdSbPlayers = db.getFullEvent(sideBetId).players;
+        // Fas 2: Use tournament participant list for user_id instead of name-guessing
+        const participants = db.getTournamentParticipants(id);
         for (const p of createdSbPlayers) {
-          const bettorUser = db.getUserByNickname(p.name);
-          db.addBet(generateId(), sideBetId, p.name, p.id, sbAmount, bettorUser ? bettorUser.id : null);
+          const participant = participants.find(tp => tp.name === p.name && tp.user_id);
+          db.addBet(generateId(), sideBetId, p.name, p.id, sbAmount, participant ? participant.user_id : null);
         }
       }
     }
@@ -2845,9 +2847,11 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   // For 'self' mode: auto-create bets — each player bets on themselves
   if (betMode === 'self') {
     const createdPlayers = db.getFullEvent(eventId).players;
+    // Fas 2: Use tournament participant list for user_id instead of name-guessing
+    const participants = db.getTournamentParticipants(tournament.id);
     for (const p of createdPlayers) {
-      const bettorUser = db.getUserByNickname(p.name);
-      db.addBet(generateId(), eventId, p.name, p.id, amount, bettorUser ? bettorUser.id : null);
+      const participant = participants.find(tp => tp.name === p.name && tp.user_id);
+      db.addBet(generateId(), eventId, p.name, p.id, amount, participant ? participant.user_id : null);
     }
   }
 
@@ -2997,7 +3001,11 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
       return res.status(404).json({ error: 'Kvittot hittades inte i denna turnering' });
     }
 
-    const isReceiptCreditor = user && ((existing.to_user_id && user.id === existing.to_user_id) || user.nickname === existing.to_name || user.real_name === existing.to_name);
+    // Fas 2: Prioritize userId — name fallback only for legacy receipts without to_user_id
+    const isReceiptCreditor = user && (
+      (existing.to_user_id && user.id === existing.to_user_id) ||
+      (!existing.to_user_id && (user.nickname === existing.to_name || user.real_name === existing.to_name))
+    );
     if (!isCreator && !isReceiptCreditor && !hasPin()) {
       return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan ta bort detta kvitto' });
     }
@@ -3011,10 +3019,11 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     return res.status(400).json({ error: 'Avsändare och mottagare krävs' });
   }
 
-  const parsedAmount = Math.round(Number(amount));
-  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+  const numAmount = Number(amount);
+  if (!Number.isFinite(numAmount) || numAmount <= 0 || !Number.isInteger(numAmount)) {
     return res.status(400).json({ error: 'Belopp måste vara ett positivt heltal' });
   }
+  const parsedAmount = numAmount;
 
   // Calculate current settlement first to find the authoritative server transfer
   const currentSettlement = db.getTournamentNetSettlement(tournament.id);
@@ -3027,7 +3036,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     return res.status(400).json({ error: 'Ingen giltig oreglerad överföring hittades mellan angivna parter' });
   }
 
-  // Enforce creditor authorization exclusively against matchingTransfer (NEVER trust client-supplied toUserId!)
+  // Fas 2: Enforce creditor authorization — userId first, name fallback ONLY for legacy transfers without userId
   const isCreditor = user && (
     (matchingTransfer.toUserId && user.id === matchingTransfer.toUserId) ||
     (!matchingTransfer.toUserId && (user.nickname === matchingTransfer.to || user.real_name === matchingTransfer.to))
@@ -3157,6 +3166,48 @@ app.get('/api/settlements/overview', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   const overview = db.getUnifiedSettlementOverview(user.id);
   res.json(overview);
+});
+
+// ── Atomic Settlement Clearing ──────────────────────────
+app.post('/api/settlement/clear-with/:friendId', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const friendId = req.params.friendId;
+  if (!friendId || friendId === user.id) {
+    return res.status(400).json({ error: 'Ogiltig vän angiven' });
+  }
+
+  const { expectedAmount, idempotencyKey } = req.body || {};
+  if (!expectedAmount || typeof expectedAmount !== 'number' || expectedAmount <= 0) {
+    return res.status(400).json({ error: 'expectedAmount krävs och måste vara ett positivt heltal' });
+  }
+  if (!idempotencyKey || typeof idempotencyKey !== 'string') {
+    return res.status(400).json({ error: 'idempotencyKey krävs' });
+  }
+
+  try {
+    const result = db.atomicSettleWithFriend(user.id, friendId, expectedAmount, idempotencyKey);
+
+    // Broadcast and push AFTER successful commit
+    broadcastToUser(friendId, {
+      type: 'settlement_cleared',
+      friendId: user.id,
+      totalCleared: result.totalCleared
+    });
+
+    const settlerName = user.nickname || user.real_name || 'En vän';
+    sendPushToUsers([friendId], {
+      title: '✅ Skulder kvitterade!',
+      body: `${settlerName} har kvitterat alla era gemensamma skulder (${result.totalCleared} kr)!`,
+      url: '/#the-tab'
+    }, 'settlement').catch(() => {});
+
+    res.json(result);
+  } catch (err) {
+    const statusCode = err.statusCode || 400;
+    res.status(statusCode).json({ error: err.message });
+  }
 });
 
 app.get('/api/duels/history', (req, res) => {

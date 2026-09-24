@@ -316,6 +316,11 @@ export const respondDuel = (id, accept) => request('/duels/' + id + '/respond', 
 export const submitDuelRoll = (id, data) => request('/duels/' + id + '/roll', { method: 'POST', body: data });
 export const settleDuel = (id) => request('/duels/' + id + '/settle', { method: 'POST', body: {} });
 export const settleDuelsWithFriend = (friendId) => request('/duels/settle-with/' + friendId, { method: 'POST', body: {} });
+export const clearSettlementWithFriend = (friendId, expectedAmount) =>
+  request('/settlement/clear-with/' + friendId, {
+    method: 'POST',
+    body: { expectedAmount, idempotencyKey: crypto.randomUUID() }
+  });
 
 // ── Minigame Party Rooms (The Blind 10.00 etc.) ───────
 export const createPartyRoom = (data) => request('/minigames/party/create', { method: 'POST', body: data });

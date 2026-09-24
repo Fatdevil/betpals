@@ -196,6 +196,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN notify_duels INTEGER DEFAULT 1'); } 
 try { db.exec('ALTER TABLE users ADD COLUMN notify_tournaments INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_support INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN token_created_at TEXT'); } catch { /* Column already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN is_guest INTEGER DEFAULT 0'); } catch {}
 
 // Rate limiting table (persistent across restarts)
 try {
@@ -240,6 +241,21 @@ try {
 } catch {}
 try { db.exec('ALTER TABLE tournament_settlement_receipts ADD COLUMN from_user_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE tournament_settlement_receipts ADD COLUMN to_user_id TEXT'); } catch {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS atomic_clearings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      friend_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      expected_amount INTEGER NOT NULL,
+      total_cleared INTEGER NOT NULL,
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, idempotency_key)
+    );
+  `);
+} catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS friends (
@@ -778,6 +794,7 @@ const stmts = {
   // Settlement Receipts
   getSettlementReceipts: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? ORDER BY paid_at ASC'),
   getSettlementReceipt: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
+  getSettlementReceiptByUserIds: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_user_id = ? AND to_user_id = ?'),
   getSettlementReceiptById: db.prepare('SELECT * FROM tournament_settlement_receipts WHERE id = ?'),
   insertSettlementReceipt: db.prepare('INSERT INTO tournament_settlement_receipts (id, tournament_id, from_name, to_name, amount, from_user_id, to_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   deleteSettlementReceipt: db.prepare('DELETE FROM tournament_settlement_receipts WHERE tournament_id = ? AND from_name = ? AND to_name = ?'),
@@ -2075,11 +2092,12 @@ export function getTournamentNetSettlement(tournamentId) {
     if (userId) {
       const uKey = `user:${userId}`;
       if (players[uKey]) return uKey;
+      // userId exists but no player entry yet — check if any guest entry has this userId
+      for (const p of Object.values(players)) {
+        if (p.userId === userId) return p.key;
+      }
     }
-    if (name) {
-      const match = Object.values(players).find(p => p.name === name || (p.userId && userId === p.userId));
-      if (match) return match.key;
-    }
+    // No userId match found — create/find by key (never merge by name alone)
     return ensurePlayer(name, userId);
   };
 
@@ -2365,10 +2383,7 @@ export function getTournamentNetSettlement(tournamentId) {
         const user = stmts.getUserById.get(creditor.userId);
         if (user) swishNumber = user.swish_number;
       }
-      if (!swishNumber && creditor.name) {
-        const userByNick = stmts.getUserByNickname.get(creditor.name);
-        if (userByNick) swishNumber = userByNick.swish_number;
-      }
+      // Fas 2: Removed name-based Swish lookup — never guess Swish number by name
 
       transfers.push({
         from: debtor.name,
@@ -2442,9 +2457,16 @@ export function createSettlementReceipt(id, tournamentId, fromName, toName, amou
 }
 
 export function toggleSettlementReceipt(id, tournamentId, fromName, toName, amount, fromUserId = null, toUserId = null) {
-  const existing = stmts.getSettlementReceipt.get(tournamentId, fromName, toName);
+  // Fas 2: Prefer userId-based lookup, fallback to name for legacy data
+  let existing = null;
+  if (fromUserId && toUserId) {
+    existing = stmts.getSettlementReceiptByUserIds.get(tournamentId, fromUserId, toUserId);
+  }
+  if (!existing) {
+    existing = stmts.getSettlementReceipt.get(tournamentId, fromName, toName);
+  }
   if (existing) {
-    stmts.deleteSettlementReceipt.run(tournamentId, fromName, toName);
+    stmts.deleteSettlementReceiptById.run(existing.id);
     return { isPaid: false, deletedId: existing.id };
   } else {
     stmts.insertSettlementReceipt.run(id, tournamentId, fromName, toName, amount, fromUserId, toUserId);
@@ -2932,8 +2954,8 @@ export function getUnifiedSettlementOverview(userId) {
     for (const tr of settlement.transfers) {
       if (tr.isPaid) continue;
 
-      const isMeFrom = tr.fromUserId === userId || (myNick && tr.from === myNick) || (myName && tr.from === myName);
-      const isMeTo = tr.toUserId === userId || (myNick && tr.to === myNick) || (myName && tr.to === myName);
+      const isMeFrom = tr.fromUserId === userId || (!tr.fromUserId && myNick && tr.from === myNick) || (!tr.fromUserId && myName && tr.from === myName);
+      const isMeTo = tr.toUserId === userId || (!tr.toUserId && myNick && tr.to === myNick) || (!tr.toUserId && myName && tr.to === myName);
 
       if (!isMeFrom && !isMeTo) continue;
 
@@ -2945,10 +2967,8 @@ export function getUnifiedSettlementOverview(userId) {
       if (!key) continue;
 
       if (!friendsMap.has(key)) {
+        // Fas 2: Only look up counterparty by userId — never guess by name
         let otherUser = otherUserId ? getUserById(otherUserId) : null;
-        if (!otherUser && otherName) {
-          otherUser = getUserByNicknameOrSwish(otherName);
-        }
 
         friendsMap.set(key, {
           friendId: otherUser ? otherUser.id : key,
@@ -2994,6 +3014,147 @@ export function getUnifiedSettlementOverview(userId) {
   }
 
   return { friends, totalNet, totalOwed, totalDue };
+}
+
+/**
+ * Atomisk Saldo-clearing: settlar alla skulder mellan userId och friendId
+ * i en enda transaktion. Hanterar bilateral nettning korrekt.
+ *
+ * @param {string} userId - Den inloggade användaren (måste vara borgenär)
+ * @param {string} friendId - Motpartens userId (måste finnas)
+ * @param {number} expectedAmount - Förväntat nettosaldo (stale-state-skydd)
+ * @param {string} idempotencyKey - Klient-genererad UUID (idempotens)
+ * @returns {{ clearedDuels, clearedTournaments, totalCleared, receiptsCreated }}
+ */
+export function atomicSettleWithFriend(userId, friendId, expectedAmount, idempotencyKey) {
+  if (!userId || !friendId) throw new Error('userId och friendId krävs');
+  if (userId === friendId) throw new Error('Kan inte cleara med dig själv');
+
+  // Idempotency check — look for existing clearing with this key
+  const existingClearing = db.prepare(
+    `SELECT * FROM atomic_clearings WHERE user_id = ? AND idempotency_key = ?`
+  ).get(userId, idempotencyKey);
+  if (existingClearing) {
+    return JSON.parse(existingClearing.result_json);
+  }
+
+  // Get current unified overview to verify stale state and authorization
+  const overview = getUnifiedSettlementOverview(userId);
+  const friendEntry = (overview.friends || []).find(f => f.friendId === friendId);
+
+  if (!friendEntry || friendEntry.totalNet === 0) {
+    throw new Error('Inga öppna skulder med denna person');
+  }
+
+  // Must be creditor (totalNet > 0 means friend owes you)
+  if (friendEntry.totalNet <= 0) {
+    throw new Error('Endast borgenären kan kvittera en skuld');
+  }
+
+  // Stale state protection
+  const actualAmount = Math.round(friendEntry.totalNet);
+  if (Math.abs(actualAmount - expectedAmount) > 1) {
+    const err = new Error(`Saldot har ändrats. Förväntat: ${expectedAmount} kr, aktuellt: ${actualAmount} kr. Ladda om och försök igen.`);
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // Check that friend has a real userId (no guest clearing)
+  const friendUser = getUserById(friendId);
+  if (!friendUser) {
+    throw new Error('Motparten måste vara en registrerad användare för atomisk clearing');
+  }
+
+  const currentUser = getUserById(userId);
+  const myNick = currentUser ? currentUser.nickname : null;
+  const myName = currentUser ? currentUser.real_name : null;
+
+  // Execute atomic clearing in a single transaction
+  const result = db.transaction(() => {
+    let clearedDuels = 0;
+    let clearedTournaments = 0;
+    let receiptsCreated = [];
+
+    // Step 1: Settle ALL standalone duels between the two users (both directions)
+    const duelResult = stmts.settleDuelsBetweenUsers.run(userId, friendId, friendId, userId);
+    clearedDuels = duelResult.changes;
+
+    // Step 2: For each tournament, create receipts for transfers between us
+    const userTournaments = getAllTournaments(userId);
+
+    for (const t of userTournaments) {
+      let settlement;
+      try {
+        settlement = getTournamentNetSettlement(t.id);
+      } catch {
+        continue;
+      }
+      if (!settlement || !Array.isArray(settlement.transfers)) continue;
+
+      for (const tr of settlement.transfers) {
+        if (tr.isPaid) continue;
+
+        const isMeFrom = tr.fromUserId === userId || (myNick && tr.from === myNick) || (myName && tr.from === myName);
+        const isMeTo = tr.toUserId === userId || (myNick && tr.to === myNick) || (myName && tr.to === myName);
+
+        if (!isMeFrom && !isMeTo) continue;
+
+        const otherUserId = isMeFrom ? tr.toUserId : tr.fromUserId;
+        const otherName = isMeFrom ? tr.to : tr.from;
+
+        // Only process transfers involving our friend
+        if (otherUserId !== friendId) {
+          // Fallback name match only if userId missing
+          if (otherUserId || !otherName) continue;
+          const otherUser = getUserByNicknameOrSwish(otherName);
+          if (!otherUser || otherUser.id !== friendId) continue;
+        }
+
+        // Create receipt for this transfer
+        const receiptId = `ac-${crypto.randomUUID()}`;
+        stmts.insertSettlementReceipt.run(
+          receiptId,
+          t.id,
+          tr.from,
+          tr.to,
+          tr.amount,
+          tr.fromUserId || null,
+          tr.toUserId || null
+        );
+
+        receiptsCreated.push({
+          receiptId,
+          tournamentId: t.id,
+          tournamentName: t.name,
+          from: tr.from,
+          to: tr.to,
+          amount: tr.amount
+        });
+        clearedTournaments++;
+      }
+    }
+
+    const totalCleared = actualAmount;
+    const resultData = { clearedDuels, clearedTournaments, totalCleared, receiptsCreated };
+
+    // Store for idempotency
+    db.prepare(
+      `INSERT INTO atomic_clearings (id, user_id, friend_id, idempotency_key, expected_amount, total_cleared, result_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).run(
+      `ac-${crypto.randomUUID()}`,
+      userId,
+      friendId,
+      idempotencyKey,
+      expectedAmount,
+      totalCleared,
+      JSON.stringify(resultData)
+    );
+
+    return resultData;
+  })();
+
+  return result;
 }
 
 // ── AnyBet Public API ─────────────────────────────────
@@ -4008,7 +4169,7 @@ export function removeTabExpenseForUser(expenseId, userId) {
 
   if (isPayer) {
     const participantIds = db.prepare('SELECT user_id FROM tab_expense_participants WHERE expense_id = ?').all(expenseId).map(r => r.user_id);
-    if (duels.some(d => d.is_settled) || hasTournamentReceiptFor(participantIds)) {
+    if (duels.some(d => d.is_settled)) {
       throw new Error('Någon har redan kvitterat sin del. Notan kan inte tas bort.');
     }
     const tx = db.transaction(() => {
@@ -4024,12 +4185,16 @@ export function removeTabExpenseForUser(expenseId, userId) {
   if (!isParticipant) throw new Error('Du deltar inte i denna nota');
 
   const myDuels = duels.filter(d => String(d.opponent_id) === String(userId));
-  if (myDuels.some(d => d.is_settled) || hasTournamentReceiptFor([userId])) {
+  if (myDuels.some(d => d.is_settled)) {
     throw new Error('Din del är redan kvitterad och kan inte bestridas');
   }
+  const disputedShare = myDuels.reduce((sum, d) => sum + Number(d.stake_amount), 0);
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM minigame_duels WHERE expense_id = ? AND opponent_id = ?').run(expenseId, String(userId));
     db.prepare('DELETE FROM tab_expense_participants WHERE expense_id = ? AND user_id = ?').run(expenseId, String(userId));
+    if (disputedShare > 0) {
+      db.prepare('UPDATE tab_expenses SET total_amount = total_amount - ? WHERE id = ?').run(disputedShare, expenseId);
+    }
   });
   tx();
   return { removed: 'share', expense };

@@ -5,7 +5,8 @@ import {
   toggleSettlementReceipt, 
   getDuelSettlements, 
   getSettlementsOverview,
-  settleDuelsWithFriend 
+  settleDuelsWithFriend,
+  clearSettlementWithFriend
 } from '../api.js';
 import { formatCurrency, showToast, escapeHtml, createSwishUrl } from '../utils.js';
 import { t, getLang } from '../i18n.js';
@@ -85,13 +86,54 @@ export async function renderLeaderboard(params = {}) {
 
   // Attach Hero Dela på notan listener
   content.querySelector('#btn-hero-dela-notan')?.addEventListener('click', async () => {
+    const isEn = getLang() === 'en';
     try {
       const allTours = await getTournaments().catch(() => []);
       const activeTours = (allTours || []).filter(t => t.status === 'active');
-      const activeTour = activeTours.length > 0 ? activeTours[0] : null;
 
-      if (activeTab === 'tournaments' && activeTour) {
-        const fullTour = await getTournament(activeTour.shareCode).catch(() => activeTour);
+      // On the tournaments tab with a selected tournament, use that tournament directly
+      if (activeTab === 'tournaments' && activeTours.length > 0) {
+        const selectedCode = currentTournamentCode || activeTours[0].shareCode;
+        const selectedTour = activeTours.find(t => t.shareCode === selectedCode) || activeTours[0];
+        const fullTour = await getTournament(selectedTour.shareCode).catch(() => selectedTour);
+        const balances = (fullTour.settlement && fullTour.settlement.balances) || [];
+        const participants = balances.map(b => ({
+          id: b.userId || b.name,
+          name: b.name,
+          nickname: b.name
+        }));
+        openDelaUtlaggModal({
+          tournamentId: fullTour.id,
+          tournamentName: fullTour.name,
+          participants: participants.length > 0 ? participants : undefined,
+          onSaved: () => renderLeaderboard()
+        });
+        return;
+      }
+
+      // No active tournaments — open standalone
+      if (activeTours.length === 0) {
+        openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
+        return;
+      }
+
+      // 1+ active tournaments on non-tournament tabs — let user choose
+      const standaloneLabel = isEn ? '📝 Standalone tab (no event)' : '📝 Fristående nota (inget event)';
+      const options = [standaloneLabel, ...activeTours.map(t => `🏆 ${t.name}`)];
+      const promptMsg = isEn
+        ? `Link this tab to an event?\n\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n\nEnter number (1 = standalone):`
+        : `Koppla notan till ett event?\n\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n\nAnge nummer (1 = fristående):`;
+
+      const choice = prompt(promptMsg, '1');
+      if (choice === null) return; // Cancelled
+
+      const idx = parseInt(choice, 10) - 1;
+      if (idx <= 0 || isNaN(idx)) {
+        // Standalone
+        openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
+      } else if (idx <= activeTours.length) {
+        const chosenTour = activeTours[idx - 1];
+        const fullTour = await getTournament(chosenTour.shareCode).catch(() => chosenTour);
         const balances = (fullTour.settlement && fullTour.settlement.balances) || [];
         const participants = balances.map(b => ({
           id: b.userId || b.name,
@@ -105,11 +147,7 @@ export async function renderLeaderboard(params = {}) {
           onSaved: () => renderLeaderboard()
         });
       } else {
-        openDelaUtlaggModal({
-          tournamentId: activeTour?.id,
-          tournamentName: activeTour?.name,
-          onSaved: () => renderLeaderboard()
-        });
+        openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
       }
     } catch {
       openDelaUtlaggModal({
@@ -130,14 +168,16 @@ export async function renderLeaderboard(params = {}) {
     // Fetch settlements if logged in
     let overviewData = { friends: [], totalNet: 0, totalOwed: 0, totalDue: 0 };
     let duelSettlement = { friends: [], totalNet: 0, totalOwed: 0, totalDue: 0 };
+    let overviewError = false;
     if (loggedIn) {
       try {
         const [rawOverview, rawDuels] = await Promise.all([
-          getSettlementsOverview().catch(() => null),
+          getSettlementsOverview().catch(() => { overviewError = true; return null; }),
           getDuelSettlements().catch(() => null)
         ]);
         if (rawOverview) {
           overviewData = rawOverview;
+          overviewError = false;
         }
         if (rawDuels) {
           const friends = rawDuels.friends || [];
@@ -165,13 +205,13 @@ export async function renderLeaderboard(params = {}) {
     if (!tabBody) return;
 
     if (activeTab === 'overview') {
-      renderOverviewTab(tabBody, overviewData, user);
+      renderOverviewTab(tabBody, overviewData, user, overviewError);
     } else if (activeTab === 'tournaments') {
       await renderTournamentTab(tabBody, activeTournaments, user);
     } else if (activeTab === 'swishlist') {
       renderSwishlistTab(tabBody, duelSettlement, user);
     } else {
-      renderHistoryTab(tabBody, pastTournaments);
+      renderHistoryTab(tabBody, pastTournaments, user);
     }
   } catch (err) {
     const tabBody = document.getElementById('tab-body');
@@ -186,7 +226,7 @@ export async function renderLeaderboard(params = {}) {
 }
 
 // ── 0. Unified "Who Owes Who" Tab ────────────────────
-function renderOverviewTab(container, overview, user) {
+function renderOverviewTab(container, overview, user, overviewError = false) {
   const isEn = getLang() === 'en';
   if (!user) {
     container.innerHTML = `
@@ -200,6 +240,28 @@ function renderOverviewTab(container, overview, user) {
   const { friends = [], totalNet = 0, totalOwed = 0, totalDue = 0 } = overview || {};
 
   if (friends.length === 0) {
+    if (overviewError) {
+      container.innerHTML = `
+        <div class="empty-state card text-center" style="padding: 32px 16px;">
+          <div style="font-size: 3rem; margin-bottom: 8px;">⚠️</div>
+          <h3 class="font-heading" style="color: #f59e0b; margin-bottom: 6px;">
+            ${isEn ? 'Could not load balance' : 'Kunde inte hämta saldo'}
+          </h3>
+          <p class="text-muted" style="font-size: 0.85rem; max-width: 340px; margin: 0 auto 16px;">
+            ${isEn ? 'There was a problem loading your settlements. Please try again.' : 'Det gick inte att hämta dina skulder just nu. Försök igen.'}
+          </p>
+          <div class="flex gap-sm justify-center">
+            <button type="button" class="btn btn-primary btn-sm btn-overview-retry" style="font-weight: 700;">
+              🔄 ${isEn ? 'Try Again' : 'Försök igen'}
+            </button>
+          </div>
+        </div>
+      `;
+      container.querySelector('.btn-overview-retry')?.addEventListener('click', () => {
+        renderLeaderboard();
+      });
+      return;
+    }
     container.innerHTML = `
       <div class="empty-state card text-center" style="padding: 32px 16px;">
         <div style="font-size: 3rem; margin-bottom: 8px;">🥂</div>
@@ -297,6 +359,9 @@ function renderOverviewTab(container, overview, user) {
                   <button type="button" class="btn btn-ghost btn-xs btn-remind-unified" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" style="color: var(--gold); padding: 6px 10px;">
                     💬 Påminn
                   </button>
+                  <button type="button" class="btn btn-primary btn-xs btn-clear-all" data-friend-id="${escapeHtml(f.friendId)}" data-friend-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" data-duels="${f.duelsCount || 0}" data-tournaments="${(f.details || []).filter(d => d.type === 'tournament').length}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 6px 10px; font-size: 0.75rem;">
+                    ✅ Kvittera allt
+                  </button>
                 ` : ''}
                 <button type="button" class="btn btn-secondary btn-xs btn-toggle-unified-details" data-target="details-${i}" title="Visa specifikation" style="padding: 6px 8px; font-size: 0.75rem;">
                   🔍
@@ -353,6 +418,46 @@ function renderOverviewTab(container, overview, user) {
         navigator.clipboard.writeText(text).then(() => {
           showToast(isEn ? 'Reminder copied! 📋' : 'Påminnelsetext kopierad till urklipp! 📋', 'success');
         });
+      }
+    });
+  });
+
+  // Attach atomic clearing listener
+  container.querySelectorAll('.btn-clear-all').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const friendId = btn.getAttribute('data-friend-id');
+      const friendName = btn.getAttribute('data-friend-name');
+      const amount = Number(btn.getAttribute('data-amount')) || 0;
+      const duels = btn.getAttribute('data-duels') || '0';
+      const tournaments = btn.getAttribute('data-tournaments') || '0';
+
+      const confirmMsg = isEn
+        ? `Mark ALL debts from ${friendName} as settled?\n\n${amount} kr total (${duels} duels, ${tournaments} tournaments)\n\nThis action cannot be undone.`
+        : `Kvittera ALLA skulder från ${friendName}?\n\n${amount} kr totalt (${duels} dueller, ${tournaments} turneringar)\n\nDetta kan inte ångras.`;
+
+      if (!confirm(confirmMsg)) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '⏳';
+
+      try {
+        const result = await clearSettlementWithFriend(friendId, amount);
+        showToast(
+          isEn
+            ? `All settled! ✅ ${result.totalCleared} kr cleared (${result.clearedDuels} duels, ${result.clearedTournaments} tournaments)`
+            : `Allt kvitterat! ✅ ${result.totalCleared} kr clearades (${result.clearedDuels} dueller, ${result.clearedTournaments} turneringar)`,
+          'success'
+        );
+        renderLeaderboard();
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = '✅ Kvittera allt';
+        if (err.message && err.message.includes('ändrats')) {
+          showToast(isEn ? 'Balance changed — reloading...' : 'Saldot har ändrats — laddar om...', 'warning');
+          renderLeaderboard();
+        } else {
+          showToast(err.message || 'Något gick fel', 'error');
+        }
       }
     });
   });
@@ -1128,7 +1233,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
 }
 
 // ── 3. History & Archive Tab ───────────────────────────
-function renderHistoryTab(container, pastTournaments) {
+function renderHistoryTab(container, pastTournaments, user = null) {
   const isEn = getLang() === 'en';
 
   if (!pastTournaments || pastTournaments.length === 0) {
@@ -1166,7 +1271,7 @@ function renderHistoryTab(container, pastTournaments) {
               </div>
             </div>
             <div class="flex gap-xs mt-xs" style="margin-top: 8px;">
-              <button type="button" class="btn btn-secondary btn-xs btn-toggle-history-settlement" data-code="${escapeHtml(tItem.shareCode)}" style="font-size: 0.75rem; padding: 4px 10px;">
+              <button type="button" class="btn btn-secondary btn-xs btn-toggle-history-settlement" data-code="${escapeHtml(tItem.shareCode)}" data-tour-id="${escapeHtml(tItem.id)}" data-creator-id="${escapeHtml(tItem.creatorId || '')}" style="font-size: 0.75rem; padding: 4px 10px;">
                 📊 ${isEn ? 'View Settlement' : 'Visa slutavräkning'}
               </button>
               <button type="button" class="btn btn-ghost btn-xs btn-tab-open-tour" data-code="${escapeHtml(tItem.shareCode)}" style="font-size: 0.75rem; padding: 4px 10px;">
@@ -1191,6 +1296,8 @@ function renderHistoryTab(container, pastTournaments) {
   container.querySelectorAll('.btn-toggle-history-settlement').forEach(btn => {
     btn.addEventListener('click', async () => {
       const code = btn.getAttribute('data-code');
+      const tourId = btn.getAttribute('data-tour-id');
+      const creatorId = btn.getAttribute('data-creator-id');
       if (!code) return;
       const drawer = container.querySelector(`#history-settle-${code}`);
       if (!drawer) return;
@@ -1210,6 +1317,7 @@ function renderHistoryTab(container, pastTournaments) {
         const settlement = fullTour.settlement || {};
         const balances = settlement.balances || [];
         const transfers = settlement.transfers || [];
+        const isHost = user && fullTour.creatorId === user.id;
 
         let html = '';
         if (balances.length === 0) {
@@ -1238,19 +1346,107 @@ function renderHistoryTab(container, pastTournaments) {
               <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">
                 📱 ${isEn ? 'Swish Transfers' : 'Swish-överföringar'}:
               </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
-                ${transfers.map(tr => `
-                  <div class="flex-between align-center" style="font-size: 0.75rem; padding: 4px 8px; background: rgba(0,0,0,0.2); border-radius: 4px;">
-                    <span><strong>${escapeHtml(tr.from)}</strong> ➜ <strong>${escapeHtml(tr.to)}</strong></span>
-                    <span style="font-weight: 700; color: #fff;">${tr.amount} kr</span>
-                  </div>
-                `).join('')}
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                ${transfers.map(tr => {
+                  const isMeFrom = user && (tr.from === user.nickname || tr.from === user.realName || (tr.fromUserId && tr.fromUserId === user.id));
+                  const isMeTo = user && (tr.to === user.nickname || tr.to === user.realName || (tr.toUserId && tr.toUserId === user.id));
+
+                  let swishUrl = '#';
+                  if (isMeFrom && tr.toSwish) {
+                    swishUrl = createSwishUrl({
+                      phone: tr.toSwish,
+                      amount: tr.amount,
+                      message: `${fullTour.name} - Malta Betting`
+                    });
+                  }
+
+                  return `
+                  <div class="flex-between align-center" style="font-size: 0.75rem; padding: 6px 8px; background: rgba(0,0,0,0.2); border-radius: 4px; border-left: 3px solid ${isMeFrom ? '#ef4444' : isMeTo ? '#4ade80' : 'var(--gold)'};">
+                    <div>
+                      <span class="${isMeFrom ? 'text-red' : ''}"><strong>${escapeHtml(tr.from)}</strong></span>
+                      <span class="text-muted" style="margin: 0 4px;">➜</span>
+                      <span class="${isMeTo ? 'text-green' : ''}"><strong>${escapeHtml(tr.to)}</strong></span>
+                    </div>
+                    <div class="flex align-center gap-xs">
+                      <span style="font-weight: 700; color: ${isMeFrom ? '#ef4444' : '#4ade80'};">${tr.amount} kr</span>
+                      ${isMeFrom && tr.toSwish ? `
+                        <a href="${swishUrl}" target="_blank" class="btn btn-primary btn-xs" style="background: #2ecc71; border: none; font-weight: 700; padding: 4px 8px; font-size: 0.7rem;">
+                          📱 Swish
+                        </a>
+                      ` : ''}
+                      ${isMeTo ? `
+                        <button type="button" class="btn btn-secondary btn-xs btn-history-remind" data-from="${escapeHtml(tr.from)}" data-amount="${tr.amount}" data-tour-name="${escapeHtml(fullTour.name)}" style="padding: 4px 8px; font-size: 0.7rem;">
+                          ${t('tab.remindBtn')}
+                        </button>
+                      ` : ''}
+                      ${(isMeTo || isHost) ? `
+                        <button type="button" class="btn btn-secondary btn-xs btn-history-settle" 
+                          data-tour-id="${escapeHtml(fullTour.id)}"
+                          data-from="${escapeHtml(tr.from)}" 
+                          data-to="${escapeHtml(tr.to)}" 
+                          data-from-user-id="${escapeHtml(tr.fromUserId || '')}"
+                          data-to-user-id="${escapeHtml(tr.toUserId || '')}"
+                          data-amount="${tr.amount}" 
+                          style="padding: 4px 8px; font-size: 0.7rem; font-weight: 700;">
+                          ${t('tab.settleBtn')}
+                        </button>
+                      ` : ''}
+                    </div>
+                  </div>`;
+                }).join('')}
               </div>`;
           } else {
             html += `<p class="text-muted" style="font-size: 0.75rem; margin: 4px 0;">${isEn ? 'All debts settled! 🟢' : 'Alla skulder kvittade! 🟢'}</p>`;
           }
         }
         drawer.innerHTML = html;
+
+        // Attach settle listeners for archived tournament transfers
+        drawer.querySelectorAll('.btn-history-settle').forEach(settleBtn => {
+          settleBtn.addEventListener('click', async () => {
+            const tId = settleBtn.getAttribute('data-tour-id');
+            const fromName = settleBtn.getAttribute('data-from');
+            const toName = settleBtn.getAttribute('data-to');
+            const fromUserId = settleBtn.getAttribute('data-from-user-id') || undefined;
+            const toUserId = settleBtn.getAttribute('data-to-user-id') || undefined;
+            const amount = Number(settleBtn.getAttribute('data-amount')) || 0;
+
+            const confirmMsg = isEn
+              ? `Mark transfer of ${amount} kr from ${fromName} to ${toName} as settled?`
+              : `Kvittera att ${fromName} har swishat ${amount} kr till ${toName}?`;
+
+            if (confirm(confirmMsg)) {
+              try {
+                await toggleSettlementReceipt(tId, { fromName, toName, fromUserId, toUserId, amount });
+                showToast(isEn ? 'Transfer settled! ✅' : 'Överföring kvitterad! ✅', 'success');
+                // Re-render the drawer to show updated state
+                btn.click(); // close
+                btn.click(); // re-open with fresh data
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            }
+          });
+        });
+
+        // Attach remind listeners for archived tournament transfers
+        drawer.querySelectorAll('.btn-history-remind').forEach(remindBtn => {
+          remindBtn.addEventListener('click', () => {
+            const fromName = remindBtn.getAttribute('data-from');
+            const amount = remindBtn.getAttribute('data-amount');
+            const tourName = remindBtn.getAttribute('data-tour-name');
+            const text = isEn
+              ? `Hey ${fromName}! Friendly reminder to settle ${amount} kr for ${tourName} on Malta Betting 📱🤝`
+              : `Tjena ${fromName}! Vänlig påminnelse att swisha ${amount} kr för ${tourName} på Malta Betting 📱🤝`;
+
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(text).then(() => {
+                showToast(isEn ? 'Reminder copied to clipboard! 📋' : 'Påminnelsetext kopierad till urklipp! 📋', 'success');
+              });
+            }
+          });
+        });
+
       } catch (err) {
         drawer.innerHTML = `<p class="text-danger text-center" style="font-size: 0.75rem;">${escapeHtml(err.message)}</p>`;
       }

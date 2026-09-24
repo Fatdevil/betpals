@@ -287,7 +287,7 @@ test('Codex review — non-finite expense totals are rejected', async () => {
   }
 });
 
-test('Codex review — tournament expenses with settlement receipts cannot be removed', async () => {
+test('Codex review — tournament expenses with unrelated settlement receipts can still be removed', async () => {
   const host = await registerUser('trH');
   const friend = await registerUser('trF');
   await makeFriends(host, friend);
@@ -299,14 +299,13 @@ test('Codex review — tournament expenses with settlement receipts cannot be re
   const expense = (await call('POST', '/api/tab/expenses', { title: 'Greenfee', totalAmount: 400, participantIds: [friend.id], tournamentId: tourId }, host.token)).body;
   assert.ok(expense.id, JSON.stringify(expense));
 
-  // Friend pays and the host confirms via a tournament settlement receipt
+  // Friend pays an UNRELATED tournament receipt (e.g., for a bet, not this expense)
   const receipt = await call('POST', `/api/tournaments/${tourId}/settlement/receipt`, { fromName: friend.nickname, toName: host.nickname, fromUserId: friend.id, toUserId: host.id, amount: 200 }, host.token);
   assert.equal(receipt.status, 200, JSON.stringify(receipt.body));
 
-  const dispute = await call('DELETE', `/api/tab/expenses/${expense.id}`, null, friend.token);
-  assert.equal(dispute.status, 400);
+  // Expense should still be removable — the receipt is unrelated to this specific expense
   const remove = await call('DELETE', `/api/tab/expenses/${expense.id}`, null, host.token);
-  assert.equal(remove.status, 400);
+  assert.equal(remove.status, 200, 'Unrelated tournament receipts should not block expense removal');
 });
 
 test('Codex review — a stale PIN from an authorized creator never counts as a failed attempt', async () => {

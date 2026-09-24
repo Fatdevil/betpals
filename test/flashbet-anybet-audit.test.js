@@ -45,7 +45,7 @@ test('Finding 1 — AnyBet with status "open" allows invited users to pick side'
     judgeId: testCreator.id,
     stakeAmount: 50,
     betType: 'yes_no',
-    deadline: '2026-09-30',
+    deadline: '2099-12-31',
     participantIds: [testUser1.id, testUser2.id]
   });
 
@@ -66,7 +66,7 @@ test('Finding 4 — Winner-takes-all AnyBet accepts invitations cleanly', () => 
     judgeId: testCreator.id,
     stakeAmount: 100,
     betType: 'winner_takes_all',
-    deadline: '2026-09-30',
+    deadline: '2099-12-31',
     participantIds: [testUser1.id, testUser2.id]
   });
 

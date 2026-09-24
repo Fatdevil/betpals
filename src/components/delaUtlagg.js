@@ -112,9 +112,9 @@ export async function openDelaUtlaggModal(options = {}) {
     });
     allocatedSum = Math.round(allocatedSum * 100) / 100;
     const remaining = Math.round((totalAmount - allocatedSum) * 100) / 100;
-    const isPerfect = totalAmount > 0 && Math.abs(remaining) <= 0.5;
-    const isExceeded = remaining < -0.5;
-    const isUnder = remaining > 0.5;
+    const isPerfect = totalAmount > 0 && Math.abs(remaining) < 0.01;
+    const isExceeded = remaining < -0.01;
+    const isUnder = remaining > 0.01;
     return { allocatedSum, remaining, isPerfect, isExceeded, isUnder };
   }
 
