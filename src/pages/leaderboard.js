@@ -373,7 +373,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
         swishUrl = createSwishUrl({
           phone: tr.toSwish,
           amount: tr.amount,
-          message: `${tour.name} - Betpals`
+          message: `${tour.name} - Malta Betting`
         });
       }
 
@@ -546,7 +546,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
         swishDeepLink = createSwishUrl({
           phone: toSwish,
           amount,
-          message: `${tour.name} - Betpals`
+          message: `${tour.name} - Malta Betting`
         });
       }
 
@@ -617,8 +617,8 @@ async function renderTournamentTab(container, activeTournaments, user) {
       const fromName = btn.getAttribute('data-from');
       const amount = btn.getAttribute('data-amount');
       const text = isEn 
-        ? `Hey ${fromName}! Friendly reminder to settle ${amount} kr for ${tour.name} on Betpals 📱🤝`
-        : `Tjena ${fromName}! Vänlig påminnelse att swisha ${amount} kr för ${tour.name} på Betpals 📱🤝`;
+        ? `Hey ${fromName}! Friendly reminder to settle ${amount} kr for ${tour.name} on Malta Betting 📱🤝`
+        : `Tjena ${fromName}! Vänlig påminnelse att swisha ${amount} kr för ${tour.name} på Malta Betting 📱🤝`;
 
       if (navigator.clipboard) {
         navigator.clipboard.writeText(text).then(() => {
@@ -707,7 +707,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
         const swishUrl = f.friendSwish ? createSwishUrl({
           phone: f.friendSwish,
           amount: absAmount,
-          message: 'Betpals Duell'
+          message: 'Malta Betting Duell'
         }) : '#';
 
         const hasExpenseReceipt = (f.expenseIds && f.expenseIds.length > 0) || (f.duels && f.duels.some(d => d.expenseId || d.hasReceipt));
@@ -892,8 +892,8 @@ function renderSwishlistTab(container, duelSettlement, user) {
       const name = btn.getAttribute('data-name');
       const amount = btn.getAttribute('data-amount');
       const text = isEn
-        ? `Hey ${name}! Friendly reminder to Swish ${amount} kr for our Betpals duels 🎲📱`
-        : `Tjena ${name}! Vänlig påminnelse att swisha ${amount} kr för våra Betpals-dueller 🎲📱`;
+        ? `Hey ${name}! Friendly reminder to Swish ${amount} kr for our Malta Betting duels 🎲📱`
+        : `Tjena ${name}! Vänlig påminnelse att swisha ${amount} kr för våra Malta Betting-dueller 🎲📱`;
 
       if (navigator.clipboard) {
         navigator.clipboard.writeText(text).then(() => {

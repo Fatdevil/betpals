@@ -4780,7 +4780,7 @@ export async function openSwishlistModal() {
           const swishUrl = createSwishUrl({
             phone: f.friendSwish,
             amount: absAmount,
-            message: 'Betpals Duell'
+            message: 'Malta Betting Duell'
           });
 
           return `
@@ -4844,8 +4844,8 @@ export async function openSwishlistModal() {
         const name = btn.getAttribute('data-name');
         const amount = btn.getAttribute('data-amount');
         const text = isEn
-          ? `Hey ${name}! You owe me ${amount} kr from Betpals Dice Duel 🎲`
-          : `Tjena ${name}! Du är skyldig mig ${amount} kr från Betpals Tärningsduell 🎲`;
+          ? `Hey ${name}! You owe me ${amount} kr from Malta Betting Dice Duel 🎲`
+          : `Tjena ${name}! Du är skyldig mig ${amount} kr från Malta Betting Tärningsduell 🎲`;
         if (navigator.share) {
           navigator.share({ text }).catch(() => {});
         } else if (navigator.clipboard) {
@@ -7578,8 +7578,8 @@ export async function openGimmeModal() {
           </div>
           <p style="font-size:0.82rem;color:rgba(255,255,255,0.85);line-height:1.5;margin-bottom:14px;">
             ${isEn
-              ? 'BetPals AR Referee uses camera analysis which may be inaccurate depending on lighting, angle and distance from the hole.<br><br>Swish payment is <strong>voluntary and at your own risk</strong>. This is a party game — not a certified measurement tool.'
-              : 'BetPals AR-domare använder kameraanalys som kan vara unexakt beroende på ljus, vinkel och avstånd från hålet.<br><br>Swish-betalning sker <strong>frivilligt och på eget ansvar</strong>. Det här är ett sällskapsspel – inte en certifierad mätmetod.'}
+              ? 'Malta Betting AR Referee uses camera analysis which may be inaccurate depending on lighting, angle and distance from the hole.<br><br>Swish payment is <strong>voluntary and at your own risk</strong>. This is a party game — not a certified measurement tool.'
+              : 'Malta Betting AR-domare använder kameraanalys som kan vara unexakt beroende på ljus, vinkel och avstånd från hålet.<br><br>Swish-betalning sker <strong>frivilligt och på eget ansvar</strong>. Det här är ett sällskapsspel – inte en certifierad mätmetod.'}
           </p>
           <div style="display:flex;gap:10px;">
             <button id="gimme-disclaimer-cancel" class="btn btn-secondary btn-sm" style="flex:1;font-size:0.82rem;">
@@ -8159,7 +8159,7 @@ export async function openGimmeModal() {
               const swishUrl = createSwishUrl({
                 phone: winnerPhone,
                 amount: activeBet.stake,
-                message: `BetPals Gimme (${winner} ${isEn ? 'won' : 'vann'})`
+                message: `Malta Betting Gimme (${winner} ${isEn ? 'won' : 'vann'})`
               });
               betSwishLink.href = swishUrl;
             }
@@ -8270,11 +8270,11 @@ export async function openGimmeModal() {
       : '';
     let text = isApproved
       ? (isEn
-          ? `⛳️ BetPals Gimme Referee: Ball is APPROVED as Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}${methodLabel}\nPick up the ball!`
-          : `⛳️ BetPals Gimme Domare: Bollen är GODKÄND som Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}${methodLabel}\nPlocka upp bollen!`)
+          ? `⛳️ Malta Betting Gimme Referee: Ball is APPROVED as Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}${methodLabel}\nPick up the ball!`
+          : `⛳️ Malta Betting Gimme Domare: Bollen är GODKÄND som Gimme (≤ ${limitUsed} cm)! 🏆${distLabel}${methodLabel}\nPlocka upp bollen!`)
       : (isEn
-          ? `⛳️ BetPals Gimme Referee: NOT A GIMME (> ${limitUsed} cm)! 😈${distLabel}${methodLabel}\nPutt it, coward!`
-          : `⛳️ BetPals Gimme Domare: ICKE GODKÄND Gimme (> ${limitUsed} cm)! 😈${distLabel}${methodLabel}\nPutta din fegis!`);
+          ? `⛳️ Malta Betting Gimme Referee: NOT A GIMME (> ${limitUsed} cm)! 😈${distLabel}${methodLabel}\nPutt it, coward!`
+          : `⛳️ Malta Betting Gimme Domare: ICKE GODKÄND Gimme (> ${limitUsed} cm)! 😈${distLabel}${methodLabel}\nPutta din fegis!`);
 
     if (activeBet) {
       const winner = isApproved ? activeBet.p1 : activeBet.p2;

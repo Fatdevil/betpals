@@ -1126,10 +1126,10 @@ function showAddFriendModal(currentFriends = []) {
   const currentUser = getStoredUser();
   const myNick = currentUser?.nickname || '';
   let inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(myNick)}`;
-  let inviteText = `Tja! Häng med på BetPals och betta med oss: ${inviteUrl}`;
+  let inviteText = `Tja! Häng med på Malta Betting och betta med oss: ${inviteUrl}`;
   buildFriendInviteUrl().then(url => {
     inviteUrl = url;
-    inviteText = `Tja! Häng med på BetPals och betta med oss: ${inviteUrl}`;
+    inviteText = `Tja! Häng med på Malta Betting och betta med oss: ${inviteUrl}`;
   }).catch(() => {});
 
   showModal('👥 Lägg till vän', `
@@ -1206,7 +1206,7 @@ function showAddFriendModal(currentFriends = []) {
           document.getElementById('btn-native-share-invite')?.addEventListener('click', async () => {
             try {
               await navigator.share({
-                title: 'BetPals Inbjudan',
+                title: 'Malta Betting Inbjudan',
                 text: inviteText,
                 url: inviteUrl
               });

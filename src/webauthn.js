@@ -35,7 +35,7 @@ export async function enableBiometricAuth() {
   const cred = await navigator.credentials.create({
     publicKey: {
       challenge: challengeBuffer,
-      rp: { name: 'BetPals' },
+      rp: { name: 'Malta Betting' },
       user: {
         id: userIdBuffer,
         name: options.nickname,

@@ -117,7 +117,7 @@ export function createSwishUrl({ phone, amount, message }) {
     version: 1,
     payee: { value: cleanPhone },
     amount: { value: Math.max(1, Math.round(Number(amount) || 1)) },
-    message: { value: message || 'Betpals' }
+    message: { value: message || 'Malta Betting' }
   });
   return 'swish://payment?data=' + encodeURIComponent(swishData);
 }
@@ -178,11 +178,11 @@ export function generateIcsDataUrl({ title, description, startDate, endDate, url
   const ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//BetPals//Game Event//SV',
+    'PRODID:-//Malta Betting//Game Event//SV',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `UID:${Date.now()}@betpals.app`,
+    `UID:${Date.now()}@maltabetting.app`,
     `DTSTAMP:${formatIcsDate(new Date())}`,
     `DTSTART:${start}`,
     `DTEND:${end}`,

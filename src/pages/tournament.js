@@ -69,7 +69,7 @@ export async function renderTournament(params = {}) {
             <p class="text-secondary" style="font-size: 0.9rem; line-height: 1.5; margin-bottom: 20px;">
               ${isFof 
                 ? `Detta event är öppet för <strong>${creatorName}</strong> och dennes vänner samt deras vänner.`
-                : `Detta event är endast öppet för personer som är vän med <strong>${creatorName}</strong> i BetPals.`
+                : `Detta event är endast öppet för personer som är vän med <strong>${creatorName}</strong> i Malta Betting.`
               }
             </p>
             ${currentUser ? `

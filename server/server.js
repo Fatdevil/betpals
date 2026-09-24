@@ -1699,7 +1699,7 @@ app.post('/api/friends', (req, res) => {
   broadcastToUser(target.id, { type: 'friend_request', from: publicFriend(user) });
   sendPushToUsers([target.id], {
     title: '👥 Ny vänförfrågan',
-    body: `${requesterName} vill bli vän med dig i BetPals.`,
+    body: `${requesterName} vill bli vän med dig i Malta Betting.`,
     url: '/#profile'
   }).catch(() => {});
 
@@ -2855,7 +2855,7 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
     .filter(uid => !user || uid !== user.id);
   sendPushToUsers(participantIds, {
     title: `🏆 ${tournament.name} är avgjord!`,
-    body: `Slutresultatet är fastställt! Se prispallen och nettavräkningen i BetPals.`,
+    body: `Slutresultatet är fastställt! Se prispallen och nettavräkningen i Malta Betting.`,
     url: `/#tournament/${tournament.shareCode}`
   }, 'tournaments').catch(() => {});
 

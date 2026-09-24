@@ -754,8 +754,8 @@ function renderEventContent(event, content, code) {
 function openCalendarModal(event) {
   const startDate = event.closesAt ? new Date(event.closesAt) : (event.date ? new Date(event.date) : new Date());
   const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
-  const title = `BetPals: ${event.name}`;
-  const description = `Spela och lägg dina bets på "${event.name}" i BetPals!\nKod: ${event.shareCode}\nLänk: ${window.location.origin}/?page=event&code=${event.shareCode}`;
+  const title = `Malta Betting: ${event.name}`;
+  const description = `Spela och lägg dina bets på "${event.name}" i Malta Betting!\nKod: ${event.shareCode}\nLänk: ${window.location.origin}/?page=event&code=${event.shareCode}`;
   const icsUrl = generateIcsDataUrl({
     title,
     description,
@@ -768,7 +768,7 @@ function openCalendarModal(event) {
     description,
     startDate,
     endDate,
-    location: 'BetPals'
+    location: 'Malta Betting'
   });
 
   showModal('📅 Lägg till i kalender', `
@@ -895,7 +895,7 @@ async function openEventShareModal(code, eventName) {
     const baseUrl = window.location.origin;
     const data = await getEventQR(code, baseUrl);
     const shareUrl = `${baseUrl}/?page=event&code=${code}`;
-    const shareMsg = `🎲 Häng på och lägg dina bets på "${eventName || 'spelet'}" i BetPals! Länk: ${shareUrl}`;
+    const shareMsg = `🎲 Häng på och lägg dina bets på "${eventName || 'spelet'}" i Malta Betting! Länk: ${shareUrl}`;
 
     showModal('📱 Dela spel', `
       <div class="text-center">
@@ -928,7 +928,7 @@ async function openEventShareModal(code, eventName) {
 
     document.getElementById('event-native-share-btn')?.addEventListener('click', async () => {
       try {
-        await navigator.share({ title: eventName || 'BetPals', text: shareMsg, url: shareUrl });
+        await navigator.share({ title: eventName || 'Malta Betting', text: shareMsg, url: shareUrl });
       } catch {}
     });
   } catch (err) {

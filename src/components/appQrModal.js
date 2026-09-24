@@ -22,8 +22,8 @@ export async function openAppQrModal(customUrl) {
 
       <p style="font-size: 0.88rem; color: var(--text-secondary); margin: 0 auto 16px; max-width: 320px; line-height: 1.4;">
         ${isEn 
-          ? 'Scan the QR code with your phone camera to open BetPals directly on your device — no download needed!' 
-          : 'Scanna QR-koden med mobilkameran för att öppna BetPals direkt i mobilen — ingen nedladdning behövs!'}
+          ? 'Scan the QR code with your phone camera to open Malta Betting directly on your device — no download needed!' 
+          : 'Scanna QR-koden med mobilkameran för att öppna Malta Betting direkt i mobilen — ingen nedladdning behövs!'}
       </p>
 
       <!-- QR Code Display Area -->
@@ -134,10 +134,10 @@ export async function openAppQrModal(customUrl) {
   // Native Share Button
   root.querySelector('#btn-share-app-native')?.addEventListener('click', async () => {
     const shareData = {
-      title: 'BetPals - Malta Betting',
+      title: 'Malta Betting',
       text: isEn 
-        ? 'Join BetPals! Play minigames, social betting and duels with friends 🎲📱'
-        : 'Häng med i BetPals! Spela minispel, betta och utmana kompisarna 🎲📱',
+        ? 'Join Malta Betting! Play minigames, social betting and duels with friends 🎲📱'
+        : 'Häng med i Malta Betting! Spela minispel, betta och utmana kompisarna 🎲📱',
       url: targetUrl
     };
 
