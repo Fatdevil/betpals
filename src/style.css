@@ -2778,3 +2778,240 @@ select.form-input option {
   box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
 
+/* ── Malta AI Support Widget & Chat ──────────────────── */
+.malta-fab-btn {
+  position: fixed;
+  bottom: 74px;
+  right: 14px;
+  z-index: 990;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 18, 28, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(255, 215, 0, 0.5);
+  border-radius: 999px;
+  padding: 8px 14px 8px 10px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 215, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+  user-select: none;
+}
+
+.malta-fab-btn:hover {
+  transform: translateY(-2px) scale(1.03);
+  border-color: var(--gold);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7), 0 0 18px rgba(255, 215, 0, 0.45);
+}
+
+.malta-fab-btn:active {
+  transform: scale(0.96);
+}
+
+.malta-fab-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(255, 215, 0, 0.6));
+}
+
+.malta-fab-label {
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.malta-fab-dot {
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.malta-chat-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.malta-chat-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--gold);
+  font-weight: 600;
+  background: rgba(255, 215, 0, 0.07);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin: 0 auto;
+}
+
+.malta-live-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.malta-quick-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.malta-quick-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.malta-chip-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  padding: 5px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.malta-chip-btn:hover {
+  background: rgba(255, 215, 0, 0.12);
+  border-color: var(--gold);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.malta-chat-box {
+  background: rgba(10, 10, 18, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+  min-height: 220px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+
+.malta-msg {
+  display: flex;
+  gap: 8px;
+  max-width: 88%;
+}
+
+.malta-msg-bot {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.malta-msg-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.malta-msg-avatar {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.malta-msg-bubble {
+  border-radius: 14px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.malta-msg-bot .malta-msg-bubble {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+}
+
+.malta-msg-user .malta-msg-bubble {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.85), rgba(217, 119, 6, 0.95));
+  color: #000;
+  font-weight: 500;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+}
+
+.malta-typing-dots {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.malta-typing-dots span {
+  width: 5px;
+  height: 5px;
+  background: var(--gold);
+  border-radius: 50%;
+  animation: typing-dot 1.2s infinite ease-in-out;
+}
+
+.malta-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.malta-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-dot {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1.1); opacity: 1; }
+}
+
+.malta-chat-input-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.malta-chat-field {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.malta-chat-field:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+}
+
+.malta-send-btn {
+  white-space: nowrap;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-radius: 12px;
+}
+
+

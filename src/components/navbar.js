@@ -13,6 +13,7 @@ const icons = {
 };
 
 import { openAppQrModal } from './appQrModal.js';
+import { openMaltaSupportModal } from './maltaSupport.js';
 
 export function renderNavbar(activePage) {
   const user = getStoredUser();
@@ -36,6 +37,9 @@ export function renderNavbar(activePage) {
     document.getElementById('top-header-logo-btn')?.addEventListener('click', () => {
       openAppQrModal();
     });
+    document.getElementById('malta-header-support-btn')?.addEventListener('click', () => {
+      openMaltaSupportModal();
+    });
   }, 0);
 
   return `
@@ -44,7 +48,11 @@ export function renderNavbar(activePage) {
         ${renderBell()}
       </div>
       <span class="top-header-logo" id="top-header-logo-btn" style="letter-spacing: 0.12em; font-size: 0.85rem; font-weight: 800; cursor: pointer;" title="${currentLang === 'sv' ? 'Dela app / QR-kod 📱' : 'Share app / QR code 📱'}">THE SOCIAL BETWORK</span>
-      <div class="top-header-right">
+      <div class="top-header-right" style="display: flex; align-items: center; gap: 6px;">
+        <button class="top-header-btn" id="malta-header-support-btn" title="Malta AI Kundtjänst 🇲🇹" style="background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3); border-radius: 999px; cursor: pointer; padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px; color: var(--gold); font-size: 0.72rem; font-weight: 700;">
+          <img src="/chip-malta-transparent.png" alt="Malta Support" style="width: 16px; height: 16px; object-fit: contain; filter: drop-shadow(0 1px 4px rgba(255,215,0,0.5));" />
+          <span>Malta AI</span>
+        </button>
         <button class="lang-toggle-btn" id="lang-toggle-btn" title="${currentLang === 'sv' ? 'Switch to English' : 'Byt till svenska'}">
           ${currentLang === 'sv' ? '🇸🇪 SV' : '🇬🇧 EN'}
         </button>

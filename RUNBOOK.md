@@ -13,11 +13,15 @@ Ställs in i driftmiljön (t.ex. **Railway → Settings → Variables**):
 | `NODE_ENV` | `production` | Sätt alltid till `production` i skarp drift. |
 | `PORT` | `3001` | Porten Express lyssnar på (Railway sätter detta automatiskt). |
 | `BETPALS_INVITE_CODE` | *Ingen (öppen)* | **Viktig för betan:** Sätt en hemlig kod (t.ex. `BETAPALS2025`) så kan endast inbjudna kompisar registrera sig. |
-| `ADMIN_PIN` | *Ingen* | Fyrsiffrig PIN för Superadmin. Om den inte är satt kan den sättas vid första besöket på `/admin`. |
+| `ADMIN_PIN` | *Ingen* | Fyrsiffrig PIN för Superadmin. Servern initierar databasen automatiskt med denna PIN vid start om den inte redan är konfigurerad. |
 | `RAILWAY_VOLUME_MOUNT_PATH` | `/data` | Sökväg till persistent disk. Säkerställer att SQLite-databasen överlever omstarter och deploys. |
 | `DB_PATH` | `/data/betpals.db` | Alternativ explicit sökväg till databasfilen. |
-| `CLOUDINARY_URL` | *Valfri* | För molnlagring av profil- och turneringsfoton. |
-| `LIVEKIT_URL` / `API_KEY` / `API_SECRET` | *Valfri* | För livesänd betting och video. |
+| `CLOUDINARY_CLOUD_NAME` | *Valfri* | Cloudinary cloud name för mobil- och turneringsfoton. |
+| `CLOUDINARY_API_KEY` | *Valfri* | Cloudinary API Key. |
+| `CLOUDINARY_API_SECRET` | *Valfri* | Cloudinary API Secret. |
+| `LIVEKIT_URL` | *Valfri* | WebSocket-URL till LiveKit Cloud (t.ex. `wss://xxx.livekit.cloud`). |
+| `LIVEKIT_API_KEY` | *Valfri* | LiveKit Cloud API Key. |
+| `LIVEKIT_API_SECRET` | *Valfri* | LiveKit Cloud API Secret. |
 
 ---
 

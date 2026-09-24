@@ -12,6 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken } from 'livekit-server-sdk';
+import { generateMaltaSupportReply, getMaltaFallbackReply } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -87,9 +88,9 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "blob:", "https://res.cloudinary.com"],
-      connectSrc: ["'self'", "wss:"],
+      connectSrc: ["'self'", "wss:", "https:"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
     }
   },
@@ -192,6 +193,20 @@ setInterval(async () => {
     console.error('Error creating daily backup:', err);
   }
 }, 24 * 60 * 60 * 1000).unref();
+
+// Run startup database backup snapshot (delayed by 5s to allow DB init)
+if (process.env.NODE_ENV !== 'test') {
+  setTimeout(async () => {
+    try {
+      if (db.backupDatabase) {
+        const res = await db.backupDatabase();
+        console.log(`[backup] Startup automated database backup created: ${res.filename} (${Math.round(res.sizeBytes / 1024)} KB)`);
+      }
+    } catch (err) {
+      console.error('Error creating startup backup:', err);
+    }
+  }, 5000).unref();
+}
 
 // Clean up any stale active streams from previous runs upon startup (WebRTC does not survive restart)
 try {
@@ -661,9 +676,29 @@ function hashPin(pin) {
   return crypto.createHash('sha256').update(pin).digest('hex');
 }
 
+// Auto-seed superadmin PIN from environment variable if set and DB has no PIN yet
+if (process.env.ADMIN_PIN) {
+  const envPin = String(process.env.ADMIN_PIN).trim();
+  if (/^\d{4}$/.test(envPin)) {
+    if (!db.getAdminPin()) {
+      db.setAdminPin(hashPin(envPin));
+      console.log('[admin] Superadmin PIN initialized from process.env.ADMIN_PIN');
+    }
+  } else {
+    console.warn('[admin] ADMIN_PIN is set in environment but is not a 4-digit number');
+  }
+}
+
 function verifyPin(pin) {
+  if (!pin) return false;
   const stored = db.getAdminPin();
-  return stored && hashPin(pin) === stored;
+  if (stored) {
+    return hashPin(pin) === stored;
+  }
+  if (process.env.ADMIN_PIN && String(process.env.ADMIN_PIN).trim() === String(pin).trim()) {
+    return true;
+  }
+  return false;
 }
 
 // Get user from request token
@@ -769,6 +804,10 @@ app.get('/api/admin/status', (req, res) => {
 });
 
 app.get('/api/admin/livekit', (req, res) => {
+  const pin = req.query.pin || req.headers['x-admin-pin'];
+  if (!pin || !verifyPin(pin)) {
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
   const cfg = getLiveKitConfig();
   res.json({
     configured: cfg.configured,
@@ -5481,6 +5520,37 @@ app.post('/api/loven-games/:id/cancel', (req, res) => {
   }
 });
 
+// ── Malta AI Support Chat ────────────────────────────
+app.post('/api/support/chat', async (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const limit = db.checkRateLimit ? db.checkRateLimit('support_chat:' + ip) : { allowed: true };
+  if (!limit.allowed) {
+    return res.status(429).json({
+      error: `Malta Support tar en kort espressopaus! För många anrop. Försök igen om ${limit.minutesLeft} minuter.`
+    });
+  }
+  if (db.recordFailedAttempt) {
+    db.recordFailedAttempt('support_chat:' + ip, 40, 5);
+  }
+
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'Meddelande krävs' });
+  }
+
+  const user = getUserFromToken(req);
+  const userName = user ? (user.nickname || user.realName || 'Kompis') : 'Kompis';
+
+  try {
+    const reply = await generateMaltaSupportReply(message.trim(), history || [], userName);
+    res.json({ ok: true, reply });
+  } catch (err) {
+    console.error('Malta Support Chat error:', err);
+    const fallback = getMaltaFallbackReply(message.trim(), userName);
+    res.json({ ok: true, reply: fallback });
+  }
+});
+
 // ── Central Express Error Handler ─────────────────────
 app.use((err, req, res, next) => {
   console.error(`💥 [EXPRESS-ERROR] ${req.method} ${req.url}:`, err);
@@ -5491,9 +5561,8 @@ app.use((err, req, res, next) => {
 });
 
 // ── SPA fallback (must be after all API routes) ──────
-import { existsSync } from 'fs';
 const indexHtml = path.join(distPath, 'index.html');
-if (existsSync(indexHtml)) {
+if (fs.existsSync(indexHtml)) {
   app.get('{*path}', (req, res) => {
     res.sendFile(indexHtml);
   });

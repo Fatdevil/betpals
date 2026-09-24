@@ -5,6 +5,7 @@ import { addFriend, getPartyRoom, joinPartyRoom, connectWebSocket } from './api.
 import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from './components/minigames.js';
+import { initMaltaSupportWidget } from './components/maltaSupport.js';
 
 // ── Global Client Error Reporting ─────────────────────
 let reportedErrorsCount = 0;
@@ -125,8 +126,41 @@ async function renderApp() {
   }
 }
 
+// ── PWA & Service Worker Initialization ──────────────────
+function initPwa() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+
+  let deferredPrompt;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) banner.style.display = 'flex';
+  });
+
+  document.getElementById('pwa-install-btn')?.addEventListener('click', async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      const banner = document.getElementById('pwa-install-banner');
+      if (banner) banner.style.display = 'none';
+    }
+  });
+
+  document.getElementById('pwa-dismiss-btn')?.addEventListener('click', () => {
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) banner.style.display = 'none';
+  });
+}
+
 // ── Init ──────────────────────────────────────────────
 function init() {
+  initPwa();
   const url = new URL(window.location);
   const page = url.searchParams.get('page') || 'home';
   const code = url.searchParams.get('code');
@@ -197,6 +231,7 @@ function init() {
   });
 
   initAds();
+  initMaltaSupportWidget();
   renderApp();
 
   // Handle friend invite link ?addFriend=nickname

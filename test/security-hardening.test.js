@@ -234,6 +234,7 @@ test('Operations: GET /api/health returns 200 OK and database status', async () 
 
 // ── Test 10: Client error reporting endpoint ────────────────
 test('Operations: POST /api/client-errors accepts frontend error reports', async () => {
+  db.clearRateLimit('client_err:127.0.0.1');
   const { app } = await import('../server/server.js');
   const { EventEmitter } = await import('events');
 
