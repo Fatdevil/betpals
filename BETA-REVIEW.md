@@ -8,7 +8,7 @@
 
 ## Utlåtande
 
-**Rekommendation (uppdaterad):** Punkt 1–6 är nu åtgärdade. Fixa helst även Space Blitz och Blind 10 (punkt 7–8) eller kör dem utan insats i betan. Därefter är appen redo för 20 testare.
+**Rekommendation (uppdaterad):** Punkt 1–11 är åtgärdade, inklusive Space Blitz och Blind 10 med insats. Appen är redo för betan med 20 testare.
 
 Grunden är bra för en app mellan kompisar: tokens rullas vid inloggning, PIN-koder hashas med salt (PBKDF2), avräkningen i THE TAB summerar exakt till noll med Hamilton-avrundning, SQLite körs med backup och det finns en strikt CSP. Den som skrivit koden har uppenbart tänkt på säkerhet.
 
@@ -28,6 +28,20 @@ Problemet är att flera spel och avräkningar i praktiken **litar blint på klie
 | 6 | Om en avgjord match öppnas igen hamnar den i `locked` (resultatet kan rättas, men det går inte att betta). Det gäller även vid upprepad återöppning. En inställd match kan inte avgöras. I AnyBet går det inte att byta sida efter att man valt ja eller nej. |
 
 Varje punkt verifieras av `test/beta-review-fixes.test.js` (12 tester). Hela sviten: 146 av 146 gröna.
+
+## ✅ Status: Space Blitz och Blind 10 med insats (punkt 7–11)
+
+| # | Åtgärd |
+|---|---|
+| 7 | **Space Blitz:** servern kontrollerar att poäng, antal träffar, våg och speltid går ihop med spelets regler (skottakt 220 ms, 28 invasörer per våg med 30/20/10 poäng, UFO tidigast efter 12 s och sedan högst var 18:e s). Ett omöjligt resultat räknas som **0 poäng** och markeras "Ogiltigt resultat". |
+| 8 | **Blind 10:** tiden mäts **av servern** och klientens siffra ignoreras. Varje spelares nätverksfördröjning mäts med WebSocket-ping, som webbläsarens JavaScript inte kan fejka, och dras av (max 400 ms) så att dåligt nät inte ger nackdel. Klientklockan startar nu exakt vid "KÖR!", i takt med servern, och spelaren ser den officiella tiden. |
+| 9 | Nya spelare kan bara gå med i lobbyn, inte mitt i en omgång eller ett skiljeomspel. Den som redan är med kan ansluta igen. |
+| 10 | Hosten kan inte starta om en pågående omgång. Omgången avgörs automatiskt vid timeout (Blind 10: 30 s, Space Blitz: 70 s). Den som inte blev klar markeras "Ej klar" och förlorar sin insats. Om ingen blev klar blir det inga skulder, och i ett skiljeomspel delas potten. Oavgjort kan bara avgöras när rundan faktiskt är oavgjord. |
+| 11 | Swish-knappen till vinnaren fungerar i båda spelen (tidigare felaktiga fältnamn och fel anrop till `createSwishUrl`). |
+
+Varje punkt verifieras av `test/party-integrity.test.js` (13 tester).
+
+**Kvarvarande begränsning:** Resultatet räknas fortfarande ut i spelarens egen mobil. Den som skriver ett eget skript kan därför skicka in ett resultat som följer reglerna men som hen inte spelat till sig, och i Blind 10 kan ett skript trycka exakt vid 10,000 s. Att helt stänga detta kräver att servern spelar om hela Space Blitz-matchen från spelarens knapptryckningar, vilket är en större ombyggnad. Mellan kompisar, med maxinsats 500 kr, bedömer jag nivån som rimlig.
 
 **Att göra vid deploy:** Sätt `ADMIN_PIN` i Railway till ett lösenord på **minst 8 tecken**. En gammal 4-siffrig PIN ignoreras.
 
