@@ -5561,7 +5561,7 @@ app.get('/api/support/health', async (req, res) => {
   };
 
   const results = {};
-  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+  for (const model of ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
@@ -5583,8 +5583,17 @@ app.get('/api/support/health', async (req, res) => {
     }
   }
 
+  let availableModels = [];
+  try {
+    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      availableModels = (listData.models || []).map(m => m.name.replace('models/', ''));
+    }
+  } catch (e) { /* ignore */ }
+
   const isLive = Object.values(results).some(r => r.ok);
-  res.json({ live: isLive, results });
+  res.json({ live: isLive, results, availableModels });
 });
 
 app.post('/api/support/chat', async (req, res) => {
