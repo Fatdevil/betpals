@@ -1,5 +1,5 @@
 // ── Page: Profile ─────────────────────────────────────
-import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
+import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getFriendRequests, acceptFriendRequest, declineFriendRequest, buildFriendInviteUrl, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
 import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -283,13 +283,19 @@ function renderAuthScreen(content) {
 async function checkPendingFriendInvite() {
   const pending = sessionStorage.getItem('pending_friend_invite');
   if (pending) {
+    sessionStorage.removeItem('pending_friend_invite');
+    let invite;
     try {
-      await addFriend({ nickname: pending });
-      showToast(`Du och @${pending} är nu vänner! 👥🎉`, 'success');
+      invite = JSON.parse(pending);
+    } catch {
+      invite = { nickname: pending };
+    }
+    try {
+      const res = await addFriend(invite);
+      showToast(res.message || `Du och @${invite.nickname} är nu vänner! 👥🎉`, res.status === 'pending' ? 'info' : 'success');
     } catch {
       // ignore
     }
-    sessionStorage.removeItem('pending_friend_invite');
   }
 }
 
@@ -472,6 +478,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             </button>
           </div>
         </div>
+
+        <div id="friend-requests-slot"></div>
 
         ${friends.length === 0 ? `
           <div class="text-center text-muted" style="padding: var(--space-md) 0; font-size: 0.85rem;">
@@ -960,9 +968,17 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     showAddFriendModal(friends);
   });
 
+  loadFriendRequests();
+
   // Friends: Share friend invite link
   document.getElementById('btn-share-friend-link')?.addEventListener('click', async () => {
-    const inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(user.nickname)}`;
+    let inviteUrl;
+    try {
+      inviteUrl = await buildFriendInviteUrl();
+    } catch (err) {
+      showToast(err.message, 'error');
+      return;
+    }
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(inviteUrl);
@@ -1037,12 +1053,84 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   setupPinToggles(content);
 }
 
+async function loadFriendRequests() {
+  const slot = document.getElementById('friend-requests-slot');
+  if (!slot) return;
+  let requests;
+  try {
+    requests = await getFriendRequests();
+  } catch {
+    return;
+  }
+  const incoming = requests.incoming || [];
+  const outgoing = requests.outgoing || [];
+  if (incoming.length === 0 && outgoing.length === 0) {
+    slot.innerHTML = '';
+    return;
+  }
+
+  slot.innerHTML = `
+    ${incoming.length > 0 ? `
+      <div style="font-size: 0.75rem; font-weight: 700; color: var(--gold); margin: 4px 0 6px;">📨 Vänförfrågningar (${incoming.length})</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
+        ${incoming.map(r => `
+          <div class="flex-between" style="padding: 8px 12px; background: rgba(245,166,35,0.06); border: 1px solid rgba(245,166,35,0.3); border-radius: var(--radius-md); align-items: center; gap: 8px;">
+            <div style="min-width: 0;">
+              <div style="font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(r.avatarEmoji || '👤')} ${escapeHtml(r.realName || r.nickname)}</div>
+              <div class="text-muted" style="font-size: 0.72rem;">@${escapeHtml(r.nickname)}</div>
+            </div>
+            <div class="flex gap-xs" style="flex-shrink: 0;">
+              <button class="btn btn-sm btn-primary friend-request-accept" data-id="${escapeHtml(r.id)}" style="font-size: 0.72rem; padding: 3px 10px;">Godkänn</button>
+              <button class="btn btn-sm btn-secondary friend-request-decline" data-id="${escapeHtml(r.id)}" style="font-size: 0.72rem; padding: 3px 8px;">Neka</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+    ${outgoing.length > 0 ? `
+      <div class="text-muted" style="font-size: 0.72rem; margin-bottom: 8px;">
+        ⏳ Väntar på svar från: ${outgoing.map(r => '@' + escapeHtml(r.nickname)).join(', ')}
+      </div>
+    ` : ''}
+  `;
+
+  slot.querySelectorAll('.friend-request-accept').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await acceptFriendRequest(btn.dataset.id);
+        showToast('Ni är nu vänner! 👥🎉', 'success');
+        renderProfile();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+  slot.querySelectorAll('.friend-request-decline').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await declineFriendRequest(btn.dataset.id);
+        loadFriendRequests();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 function showAddFriendModal(currentFriends = []) {
   const friendIdSet = new Set(currentFriends.map(f => f.id));
   const currentUser = getStoredUser();
   const myNick = currentUser?.nickname || '';
-  const inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(myNick)}`;
-  const inviteText = `Tja! Häng med på BetPals och betta med oss: ${inviteUrl}`;
+  let inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(myNick)}`;
+  let inviteText = `Tja! Häng med på BetPals och betta med oss: ${inviteUrl}`;
+  buildFriendInviteUrl().then(url => {
+    inviteUrl = url;
+    inviteText = `Tja! Häng med på BetPals och betta med oss: ${inviteUrl}`;
+  }).catch(() => {});
 
   showModal('👥 Lägg till vän', `
     <div>
@@ -1189,7 +1277,13 @@ function showAddFriendModal(currentFriends = []) {
           btn.disabled = true;
           btn.textContent = 'Lägger till...';
           try {
-            await addFriend({ friendId: fid });
+            const res = await addFriend({ friendId: fid });
+            if (res.status === 'pending') {
+              showToast(`Vänförfrågan skickad till @${fnick}! 📨`, 'success');
+              btn.parentElement.innerHTML = `<span class="badge" style="font-size: 0.7rem;">Förfrågan skickad ⏳</span>`;
+              loadFriendRequests();
+              return;
+            }
             showToast(`Lade till @${fnick} som vän! 🎉`, 'success');
             friendIdSet.add(fid);
             btn.parentElement.innerHTML = `<span class="badge badge-success" style="font-size: 0.7rem;">Redan vän ✓</span>`;

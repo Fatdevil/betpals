@@ -234,26 +234,22 @@ function init() {
   initMaltaSupportWidget();
   renderApp();
 
-  // Handle friend invite link ?addFriend=nickname
+  // Handle friend invite link ?addFriend=nickname&ft=token
   const addFriendParam = url.searchParams.get('addFriend');
   if (addFriendParam) {
+    const invite = { nickname: addFriendParam, inviteToken: url.searchParams.get('ft') || undefined };
     if (isLoggedIn()) {
-      addFriend({ nickname: addFriendParam })
+      addFriend(invite)
         .then((res) => {
-          showToast(`Du och @${res.friend?.nickname || addFriendParam} är nu vänner! 👥🎉`, 'success');
+          showToast(res.message || `Du och @${res.friend?.nickname || addFriendParam} är nu vänner! 👥🎉`, res.status === 'pending' ? 'info' : 'success');
         })
-        .catch((err) => {
-          if (err.message && (err.message.includes('redan') || err.message.includes('already'))) {
-            showToast(`Du och @${addFriendParam} är redan vänner! 👥`, 'info');
-          } else {
-            showToast(err.message, 'error');
-          }
-        });
+        .catch((err) => showToast(err.message, 'error'));
     } else {
-      sessionStorage.setItem('pending_friend_invite', addFriendParam);
+      sessionStorage.setItem('pending_friend_invite', JSON.stringify(invite));
       showToast(`Logga in eller skapa profil för att bli vän med @${addFriendParam}! 👋`, 'info');
     }
     url.searchParams.delete('addFriend');
+    url.searchParams.delete('ft');
     window.history.replaceState({}, '', url);
   }
 

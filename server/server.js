@@ -676,29 +676,64 @@ function hashPin(pin) {
   return crypto.createHash('sha256').update(pin).digest('hex');
 }
 
-// Auto-seed superadmin PIN from environment variable if set and DB has no PIN yet
+const MIN_ADMIN_PIN_LENGTH = 8;
+
+function isValidAdminPinFormat(pin) {
+  return typeof pin === 'string' && pin.trim().length >= MIN_ADMIN_PIN_LENGTH && pin.trim().length <= 128;
+}
+
+// ADMIN_PIN from the environment is the source of truth: it is (re)synced into the DB on start
 if (process.env.ADMIN_PIN) {
   const envPin = String(process.env.ADMIN_PIN).trim();
-  if (/^\d{4}$/.test(envPin)) {
-    if (!db.getAdminPin()) {
+  if (isValidAdminPinFormat(envPin)) {
+    if (db.getAdminPin() !== hashPin(envPin)) {
       db.setAdminPin(hashPin(envPin));
-      console.log('[admin] Superadmin PIN initialized from process.env.ADMIN_PIN');
+      console.log('[admin] Superadmin PIN synced from process.env.ADMIN_PIN');
     }
   } else {
-    console.warn('[admin] ADMIN_PIN is set in environment but is not a 4-digit number');
+    console.warn(`[admin] ADMIN_PIN is set but shorter than ${MIN_ADMIN_PIN_LENGTH} characters — ignored. Use a longer secret.`);
   }
 }
 
-function verifyPin(pin) {
-  if (!pin) return false;
+function getClientIp(req) {
+  return (req && (req.ip || req.socket?.remoteAddress)) || 'unknown';
+}
+
+function safeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+}
+
+// Every admin PIN check goes through here and is rate limited per IP, so the PIN
+// cannot be brute forced through any endpoint that accepts it.
+function verifyPin(pin, req) {
+  if (!pin || typeof pin !== 'string') return false;
   const stored = db.getAdminPin();
-  if (stored) {
-    return hashPin(pin) === stored;
-  }
-  if (process.env.ADMIN_PIN && String(process.env.ADMIN_PIN).trim() === String(pin).trim()) {
+  if (!stored) return false;
+
+  const key = 'admin:' + getClientIp(req);
+  if (!db.checkRateLimit(key).allowed) return false;
+
+  if (safeEqualHex(hashPin(pin.trim()), stored)) {
+    db.clearRateLimit(key);
     return true;
   }
+  db.recordFailedAttempt(key, 5, 15);
   return false;
+}
+
+function requireAdminPin(req, res) {
+  const limitCheck = db.checkRateLimit('admin:' + getClientIp(req));
+  if (!limitCheck.allowed) {
+    res.status(429).json({ error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.` });
+    return false;
+  }
+  const pin = req.body?.pin || req.headers['x-admin-pin'];
+  if (!verifyPin(pin, req)) {
+    res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+    return false;
+  }
+  return true;
 }
 
 // Get user from request token
@@ -736,7 +771,7 @@ function verifyEventAdmin(req, event) {
   }
   // Fall back to PIN
   const { pin } = req.body || {};
-  if (pin && verifyPin(pin)) return true;
+  if (pin && verifyPin(pin, req)) return true;
   return false;
 }
 
@@ -750,52 +785,33 @@ app.post('/api/admin/setup', (req, res) => {
   if (db.getAdminPin()) {
     return res.status(403).json({ error: 'PIN är redan satt' });
   }
-  const { pin } = req.body;
-  if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
-    return res.status(400).json({ error: 'PIN måste vara exakt 4 siffror' });
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Superadmin-PIN sätts via miljövariabeln ADMIN_PIN i produktion' });
   }
-  db.setAdminPin(hashPin(pin));
+  const { pin } = req.body || {};
+  if (!isValidAdminPinFormat(pin)) {
+    return res.status(400).json({ error: `Admin-PIN måste vara minst ${MIN_ADMIN_PIN_LENGTH} tecken` });
+  }
+  db.setAdminPin(hashPin(pin.trim()));
   res.json({ ok: true });
 });
 
-// Admin PIN Rate Limiter (IP based, SQLite backed)
-function checkAdminRateLimit(ip) {
-  return db.checkRateLimit('admin:' + ip);
-}
-
-function recordFailedAdminAttempt(ip) {
-  return db.recordFailedAttempt('admin:' + ip, 5, 15);
-}
-
-function clearAdminAttempts(ip) {
-  db.clearRateLimit('admin:' + ip);
-}
-
 app.post('/api/admin/verify', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
+  const limitCheck = db.checkRateLimit('admin:' + getClientIp(req));
   if (!limitCheck.allowed) {
     return res.status(429).json({
       error: `För många felaktiga PIN-försök. Admin-inloggning spärrad i ${limitCheck.minutesLeft} minuter.`
     });
   }
 
-  const { pin } = req.body;
-  const stored = db.getAdminPin();
-  if (!stored) return res.json({ verified: false, needsSetup: true });
+  const { pin } = req.body || {};
+  if (!db.getAdminPin()) return res.json({ verified: false, needsSetup: true });
 
-  const ok = hashPin(pin) === stored;
-  if (!ok) {
-    const rec = recordFailedAdminAttempt(ip);
-    if (rec.count >= 5) {
-      return res.status(429).json({
-        error: 'För många felaktiga PIN-försök. Admin-inloggning har spärrats i 15 minuter.'
-      });
-    }
+  if (!verifyPin(pin, req)) {
     return res.status(401).json({ verified: false, error: 'Felaktig PIN-kod' });
   }
 
-  clearAdminAttempts(ip);
+  db.clearRateLimit('admin:' + getClientIp(req));
   res.json({ verified: true });
 });
 
@@ -809,10 +825,7 @@ app.get('/api/admin/status', (req, res) => {
 });
 
 app.get('/api/admin/gemini', (req, res) => {
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
   const key = (process.env.GEMINI_API_KEY || db.getSetting('gemini_api_key') || '').trim();
   res.json({
     live: Boolean(key),
@@ -824,10 +837,8 @@ app.get('/api/admin/gemini', (req, res) => {
 });
 
 app.post('/api/admin/gemini', (req, res) => {
-  const { pin, apiKey } = req.body || {};
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
+  const { apiKey } = req.body || {};
   if (apiKey !== undefined) {
     db.setSetting('gemini_api_key', String(apiKey).trim());
   }
@@ -835,10 +846,7 @@ app.post('/api/admin/gemini', (req, res) => {
 });
 
 app.get('/api/admin/livekit', (req, res) => {
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
   const cfg = getLiveKitConfig();
   res.json({
     configured: cfg.configured,
@@ -849,10 +857,8 @@ app.get('/api/admin/livekit', (req, res) => {
 });
 
 app.post('/api/admin/livekit', (req, res) => {
-  const { pin, url, apiKey, apiSecret } = req.body || {};
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
+  const { url, apiKey, apiSecret } = req.body || {};
   if (url !== undefined) db.setSetting('livekit_url', String(url).trim());
   if (apiKey !== undefined) db.setSetting('livekit_api_key', String(apiKey).trim());
   if (apiSecret !== undefined) db.setSetting('livekit_api_secret', String(apiSecret).trim());
@@ -861,45 +867,20 @@ app.post('/api/admin/livekit', (req, res) => {
 
 // Get all users (Superadmin only)
 app.post('/api/admin/users', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const { pin } = req.body;
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
   const users = db.getAllUsers();
   res.json(users);
 });
 
 // Reset user PIN (Superadmin only)
 app.post('/api/admin/users/:id/reset-pin', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const { pin } = req.body;
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
   const targetUser = db.getUserById(req.params.id);
   if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
 
   const resetCode = String(crypto.randomInt(100000, 1000000));
   db.resetUserPin(targetUser.id, resetCode);
+  db.clearRateLimit('pinreset:' + targetUser.id);
   res.json({
     ok: true,
     resetCode,
@@ -909,20 +890,7 @@ app.post('/api/admin/users/:id/reset-pin', (req, res) => {
 
 // ── Admin Database Backup Operations ─────────────────
 app.post('/api/admin/backup', async (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const { pin } = req.body || {};
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
 
   try {
     const backupResult = await db.backupDatabase();
@@ -934,40 +902,14 @@ app.post('/api/admin/backup', async (req, res) => {
 });
 
 app.get('/api/admin/backup/latest', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
 
   const latest = db.getLatestBackup();
   res.json({ ok: true, backup: latest });
 });
 
 app.get('/api/admin/backup/download', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
 
   const latest = db.getLatestBackup();
   if (!latest || !fs.existsSync(latest.path)) {
@@ -1193,7 +1135,23 @@ app.post('/api/users/reset-pin', (req, res) => {
     return res.status(400).json({ error: 'Kontot är inte i återställningsläge' });
   }
 
-  if (!user.reset_code || user.reset_code !== cleanCode) {
+  // Limit guesses per account and per IP so the 6-digit code cannot be brute forced
+  const resetKey = 'pinreset:' + user.id;
+  const resetIpKey = 'pinreset_ip:' + getClientIp(req);
+  const resetLimit = db.checkRateLimit(resetKey);
+  const resetIpLimit = db.checkRateLimit(resetIpKey);
+  if (!resetLimit.allowed || !resetIpLimit.allowed) {
+    const minutesLeft = Math.max(resetLimit.minutesLeft || 0, resetIpLimit.minutesLeft || 0);
+    return res.status(429).json({
+      error: `För många felaktiga försök. Vänta ${minutesLeft} minuter eller be admin om en ny engångskod.`
+    });
+  }
+
+  const codeMatches = typeof user.reset_code === 'string' && user.reset_code.length === cleanCode.length &&
+    crypto.timingSafeEqual(Buffer.from(user.reset_code), Buffer.from(cleanCode));
+  if (!codeMatches) {
+    db.recordFailedAttempt(resetKey, 5, 15);
+    db.recordFailedAttempt(resetIpKey, 10, 15);
     return res.status(401).json({ error: 'Felaktig 6-siffrig engångskod' });
   }
 
@@ -1204,6 +1162,7 @@ app.post('/api/users/reset-pin', (req, res) => {
   const newToken = crypto.randomUUID();
   db.setUserPin(user.id, cleanPin, newToken);
   clearPinAttempts(user.id);
+  db.clearRateLimit(resetKey);
   const updated = db.getUserById(user.id);
   res.json({
     id: updated.id,
@@ -1579,7 +1538,7 @@ app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   // Verify ownership or super admin
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
   if (!user && !hasPin) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const isCreator = (user && tournament.creatorId === user.id) || hasPin;
@@ -1640,11 +1599,50 @@ app.get('/api/friends', (req, res) => {
   res.json(db.getFriends(user.id));
 });
 
+// Signed personal invite link: whoever shares their link has consented up front,
+// so opening someone's link creates the friendship directly.
+function getFriendInviteSecret() {
+  let secret = db.getSetting('friend_invite_secret');
+  if (!secret) {
+    secret = crypto.randomBytes(32).toString('hex');
+    db.setSetting('friend_invite_secret', secret);
+  }
+  return secret;
+}
+
+function friendInviteToken(userId) {
+  return crypto.createHmac('sha256', getFriendInviteSecret()).update(String(userId)).digest('hex').slice(0, 32);
+}
+
+function isValidFriendInviteToken(userId, token) {
+  if (typeof token !== 'string') return false;
+  const expected = friendInviteToken(userId);
+  return token.length === expected.length && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+}
+
+function publicFriend(target) {
+  return {
+    id: target.id,
+    nickname: target.nickname,
+    realName: target.real_name,
+    avatarEmoji: target.avatar_emoji,
+    avatarUrl: target.avatar_url
+  };
+}
+
+app.get('/api/friends/invite-token', requireAuth, (req, res) => {
+  res.json({ token: friendInviteToken(req.user.id), nickname: req.user.nickname });
+});
+
+app.get('/api/friends/requests', requireAuth, (req, res) => {
+  res.json(db.getFriendRequests(req.user.id));
+});
+
 app.post('/api/friends', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Ej inloggad' });
 
-  const { friendId, nickname } = req.body || {};
+  const { friendId, nickname, inviteToken } = req.body || {};
   let target = null;
   if (friendId) {
     target = db.getUserById(friendId);
@@ -1660,18 +1658,53 @@ app.post('/api/friends', (req, res) => {
     return res.status(400).json({ error: 'Du kan inte lägga till dig själv som vän' });
   }
 
-  db.addFriend(user.id, target.id);
+  if (db.isFriend(user.id, target.id)) {
+    return res.json({ ok: true, status: 'already_friends', message: `Du och ${target.nickname} är redan vänner! 👥`, friend: publicFriend(target) });
+  }
+
+  if (inviteToken && isValidFriendInviteToken(target.id, inviteToken)) {
+    db.addFriend(user.id, target.id);
+    db.declineFriendRequest(user.id, target.id);
+    db.declineFriendRequest(target.id, user.id);
+    broadcastToUser(target.id, { type: 'friend_added', friend: publicFriend(user) });
+    return res.json({ ok: true, status: 'accepted', message: `${target.nickname} har lagts till som vän! 👥`, friend: publicFriend(target) });
+  }
+
+  const result = db.requestFriend(user.id, target.id);
+  if (result.status === 'accepted') {
+    broadcastToUser(target.id, { type: 'friend_added', friend: publicFriend(user) });
+    return res.json({ ok: true, status: 'accepted', message: `Du och ${target.nickname} är nu vänner! 👥`, friend: publicFriend(target) });
+  }
+
+  const requesterName = user.nickname || user.real_name || 'Någon';
+  broadcastToUser(target.id, { type: 'friend_request', from: publicFriend(user) });
+  sendPushToUsers([target.id], {
+    title: '👥 Ny vänförfrågan',
+    body: `${requesterName} vill bli vän med dig i BetPals.`,
+    url: '/#profile'
+  }).catch(() => {});
+
   res.json({
     ok: true,
-    message: `${target.nickname} har lagts till som vän! 👥`,
-    friend: {
-      id: target.id,
-      nickname: target.nickname,
-      realName: target.real_name,
-      avatarEmoji: target.avatar_emoji,
-      avatarUrl: target.avatar_url
-    }
+    status: 'pending',
+    message: `Vänförfrågan skickad till ${target.nickname}! 📨`,
+    friend: publicFriend(target)
   });
+});
+
+app.post('/api/friends/requests/:fromUserId/accept', requireAuth, (req, res) => {
+  const ok = db.acceptFriendRequest(req.params.fromUserId, req.user.id);
+  if (!ok) return res.status(404).json({ error: 'Vänförfrågan hittades inte' });
+  broadcastToUser(req.params.fromUserId, { type: 'friend_added', friend: publicFriend(req.user) });
+  res.json({ ok: true });
+});
+
+app.post('/api/friends/requests/:fromUserId/decline', requireAuth, (req, res) => {
+  // Also lets the sender withdraw their own outgoing request
+  const declined = db.declineFriendRequest(req.params.fromUserId, req.user.id) ||
+    db.declineFriendRequest(req.user.id, req.params.fromUserId);
+  if (!declined) return res.status(404).json({ error: 'Vänförfrågan hittades inte' });
+  res.json({ ok: true });
 });
 
 app.delete('/api/friends/:friendId', (req, res) => {
@@ -1704,7 +1737,7 @@ app.post('/api/events', (req, res) => {
 
   // Allow creation with user token OR admin PIN
   const user = getUserFromToken(req);
-  const hasPin = pin && verifyPin(pin);
+  const hasPin = pin && verifyPin(pin, req);
   if (!user && !hasPin) {
     return res.status(403).json({ error: 'Logga in eller ange admin-PIN för att skapa match' });
   }
@@ -2077,15 +2110,19 @@ app.post('/api/events/:id/reopen', (req, res) => {
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
-  db.reopenEvent(req.params.id);
-  broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code });
+  const newStatus = db.reopenEvent(req.params.id);
+  broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code, status: newStatus });
 
   if (event.tournament_id) {
     const t = db.getTournamentById(event.tournament_id);
     if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
   }
 
-  res.json({ ok: true, status: 'open' });
+  res.json({
+    ok: true,
+    status: newStatus,
+    message: newStatus === 'locked' ? 'Resultatet är upplåst för rättning. Bettningen förblir stängd eftersom resultatet redan har visats.' : undefined
+  });
 });
 
 app.post('/api/events/:id/boost', async (req, res) => {
@@ -2230,6 +2267,10 @@ app.post('/api/events/:id/finish', (req, res) => {
     }
   }
 
+  if (event.status === 'cancelled') {
+    return res.status(400).json({ error: 'Matchen är inställd och kan inte avgöras' });
+  }
+
   if (winnerImageUrl && !isValidImageUrl(winnerImageUrl)) {
     return res.status(400).json({ error: 'Ogiltig bild-URL för vinnaren' });
   }
@@ -2356,7 +2397,7 @@ app.get('/api/tournaments', (req, res) => {
 app.post('/api/tournaments', (req, res) => {
   const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = body.pin && verifyPin(body.pin);
+  const hasPin = body.pin && verifyPin(body.pin, req);
   if (!user && !hasPin) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
@@ -2415,7 +2456,7 @@ app.post('/api/tournaments/:id/invite', (req, res) => {
   const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
   const isCreator = user && tournament.creator_id === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Endast arrangören kan bjuda in vänner' });
   }
@@ -2456,7 +2497,7 @@ app.post('/api/tournaments/:id/participants', (req, res) => {
   const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
   const isCreator = user && tournament.creator_id === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Endast spelledaren kan lägga till deltagare' });
   }
@@ -2477,7 +2518,7 @@ app.get('/api/tournament-templates', (req, res) => {
 app.post('/api/tournaments/from-template', (req, res) => {
   const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = body.pin && verifyPin(body.pin);
+  const hasPin = body.pin && verifyPin(body.pin, req);
   if (!user && !hasPin) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
@@ -2590,7 +2631,7 @@ app.get('/api/tournaments/:code', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const hasPin = req.query.pin && verifyPin(req.query.pin);
+  const hasPin = req.headers['x-admin-pin'] && verifyPin(req.headers['x-admin-pin'], req);
 
   if (!hasPin && !db.canUserAccessTournament(tournament, user ? user.id : null)) {
     const creator = tournament.creatorId ? db.getUserById(tournament.creatorId) : null;
@@ -2620,7 +2661,7 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
@@ -2697,7 +2738,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
@@ -2776,7 +2817,7 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
@@ -2808,7 +2849,7 @@ app.post('/api/tournaments/:id/reopen', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
@@ -2826,7 +2867,7 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
+  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
@@ -2858,7 +2899,7 @@ app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
@@ -2875,7 +2916,7 @@ app.delete('/api/tournaments/:id', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
   if (!isCreator && !hasPin) {
     return res.status(403).json({ error: 'Ingen behörighet att radera turneringen' });
   }
@@ -2892,7 +2933,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   const user = getUserFromToken(req);
   const { fromName, toName, fromUserId, toUserId, amount, receiptId } = req.body;
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
 
   if (receiptId) {
     const existing = db.getSettlementReceiptById(receiptId);
@@ -2959,12 +3000,19 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
 });
 
 // ── Minigame Duels API ──────────────────────────────
+const MAX_DUEL_STAKE = 10000;
 app.post('/api/duels', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { gameType, opponentId, stakeAmount, mode, tournamentId } = req.body;
-  const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1;
+  if (stakeAmount !== undefined && (typeof stakeAmount !== 'number' || !Number.isFinite(stakeAmount) || stakeAmount < 0)) {
+    return res.status(400).json({ error: 'Ogiltig insats' });
+  }
+  if (typeof stakeAmount === 'number' && stakeAmount > MAX_DUEL_STAKE) {
+    return res.status(400).json({ error: `Insatsen får vara högst ${MAX_DUEL_STAKE} kr` });
+  }
+  const stake = typeof stakeAmount === 'number' ? Math.round(stakeAmount * 100) / 100 : 1;
   const duelMode = mode === 'table' ? 'table' : 'online';
 
   const rawTournamentId = tournamentId ? String(tournamentId).trim() : null;
@@ -3126,12 +3174,37 @@ app.post(['/api/duels/:id/roll', '/api/duels/:id/result'], (req, res) => {
 
   const effectiveWinnerId = derivedWinnerId;
 
-  const updated = db.submitDuelResult({
+  // The result only counts once the other participant confirms it (or the reporter concedes)
+  const report = db.reportDuelResult({
     duelId: req.params.id,
+    reporterId: user.id,
     creatorScore: parsedCreatorScore,
     opponentScore: parsedOpponentScore,
     winnerId: effectiveWinnerId
   });
+
+  if (report.error === 'mismatch') {
+    return res.status(409).json({ error: 'Resultatet matchar inte motståndarens rapport. Kom överens och rapportera igen.' });
+  }
+  if (report.error) {
+    return res.status(404).json({ error: 'Duell hittades inte' });
+  }
+
+  const updated = report.duel;
+
+  if (!report.confirmed) {
+    const otherId = user.id === duel.creator_id ? duel.opponent_id : duel.creator_id;
+    const reporterName = user.nickname || user.real_name || 'Motståndaren';
+    if (otherId) {
+      broadcastToUser(otherId, { type: 'duel_result_reported', duel: updated });
+      sendPushToUsers([otherId], {
+        title: '⚔️ Bekräfta duellresultat',
+        body: `${reporterName} har rapporterat resultatet. Bekräfta det i Arcade.`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+    }
+    return res.json({ duel: updated, awaitingConfirmation: true });
+  }
 
   broadcastToDuel(req.params.id, {
     type: 'duel_finished',
@@ -5193,11 +5266,18 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
 });
 
 // ── Tab Expenses (Dela utlägg / The Tab) Routes ──────
+const MAX_TAB_EXPENSE = 50000;
+
 app.post('/api/tab/expenses', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { title, notes, totalAmount, participantIds, receiptImage, customShares } = req.body || {};
+
+  const parsedTotal = parseFloat(totalAmount);
+  if (Number.isFinite(parsedTotal) && parsedTotal > MAX_TAB_EXPENSE) {
+    return res.status(400).json({ error: `En nota får vara högst ${MAX_TAB_EXPENSE.toLocaleString('sv-SE')} kr` });
+  }
 
   if (receiptImage && !isValidImageUrl(receiptImage)) {
     return res.status(400).json({ error: 'Ogiltig bild-URL för kvitto' });
@@ -5305,6 +5385,33 @@ app.get('/api/tab/expenses/:id', (req, res) => {
   }
 
   res.json(expense);
+});
+
+// Payer deletes the whole expense; a participant disputes (removes) their own share
+app.delete('/api/tab/expenses/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const result = db.removeTabExpenseForUser(req.params.id, user.id);
+    const actorName = user.real_name || user.nickname || 'En vän';
+    if (result.removed === 'expense') {
+      for (const uid of result.participantIds || []) {
+        if (uid !== user.id) broadcastToUser(uid, { type: 'tab_expense_removed', expenseId: req.params.id });
+      }
+    } else {
+      broadcastToUser(result.expense.payer_id, { type: 'tab_expense_disputed', expenseId: req.params.id, userId: user.id });
+      sendPushToUsers([result.expense.payer_id], {
+        title: '⚠️ Nota bestriden',
+        body: `${actorName} har bestridit sin del av "${result.expense.title}".`,
+        url: '/#leaderboard'
+      }, 'duels').catch(() => {});
+    }
+    res.json({ ok: true, removed: result.removed });
+  } catch (err) {
+    const status = err.message.includes('hittades inte') ? 404 : (err.message.includes('deltar inte') ? 403 : 400);
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // ── Löven Game (Björklöven Matchtips 4-3-2p) Routes ──

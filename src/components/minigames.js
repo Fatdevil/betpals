@@ -35,6 +35,7 @@ import {
   getTournaments,
   getActiveEvent,
   getTabExpense,
+  deleteTabExpense,
   startMafiaGame,
   getMyMafiaRole,
   submitMafiaNightAction,
@@ -5476,6 +5477,9 @@ export async function openReceiptModal(expenseId) {
     }) : '';
 
     const payerName = expense.payer_real_name || expense.payer_nickname || (isEn ? 'A friend' : 'En vän');
+    const receiptViewerId = getStoredUser()?.id;
+    const isReceiptPayer = Boolean(receiptViewerId) && expense.payer_id === receiptViewerId;
+    const isReceiptParticipant = !isReceiptPayer && (expense.participants || []).some(p => p.user_id === receiptViewerId);
 
     showModal(`
       <div class="notan-receipt-viewer animate-in" style="max-width: 420px; margin: 0 auto; text-align: left;">
@@ -5557,6 +5561,16 @@ export async function openReceiptModal(expenseId) {
           </div>
         </div>
 
+        ${isReceiptPayer ? `
+          <button type="button" class="btn btn-block mb-sm" id="btn-remove-tab-expense" style="padding: 10px; font-weight: 700; background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.4);">
+            🗑️ ${isEn ? 'Delete expense' : 'Ta bort notan'}
+          </button>
+        ` : isReceiptParticipant ? `
+          <button type="button" class="btn btn-block mb-sm" id="btn-remove-tab-expense" style="padding: 10px; font-weight: 700; background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.4);">
+            ⚠️ ${isEn ? 'Dispute my share' : 'Bestrid min del'}
+          </button>
+        ` : ''}
+
         <button type="button" class="btn btn-secondary btn-block" id="btn-close-receipt-modal" style="padding: 10px; font-weight: 700;">
           ${isEn ? 'Close' : 'Stäng'}
         </button>
@@ -5565,6 +5579,21 @@ export async function openReceiptModal(expenseId) {
 
     document.getElementById('btn-close-receipt-modal')?.addEventListener('click', () => {
       closeModal();
+    });
+
+    document.getElementById('btn-remove-tab-expense')?.addEventListener('click', async () => {
+      const question = isReceiptPayer
+        ? (isEn ? 'Delete this expense for everyone?' : 'Ta bort notan för alla deltagare?')
+        : (isEn ? 'Dispute your share? It will be removed from your debts and the payer is notified.' : 'Bestrida din del? Den tas bort från dina skulder och den som lade ut får en notis.');
+      if (!confirm(question)) return;
+      try {
+        await deleteTabExpense(expenseId);
+        showToast(isReceiptPayer ? (isEn ? 'Expense deleted' : 'Notan är borttagen') : (isEn ? 'Your share was disputed' : 'Din del är bestriden'), 'success');
+        closeModal();
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard' } }));
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     });
 
     // Zoom receipt modal

@@ -491,6 +491,31 @@ try {
 } catch {}
 try { db.exec('ALTER TABLE tab_expenses ADD COLUMN tournament_id TEXT'); } catch (e) { /* Column already exists – expected on existing databases */ }
 
+// Duel results require both parties to agree: first report is stored here until confirmed
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_by TEXT'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_creator_score INTEGER'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_opponent_score INTEGER'); } catch {}
+try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_winner_id TEXT'); } catch {}
+
+// Once a result has been revealed, an event may never be opened for betting again
+try { db.exec('ALTER TABLE events ADD COLUMN was_finished INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec("UPDATE events SET was_finished = 1 WHERE status = 'finished'"); } catch {}
+
+// Friendships require consent: requests live here until accepted
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS friend_requests (
+      from_user_id TEXT NOT NULL,
+      to_user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (from_user_id, to_user_id),
+      FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_user_id);
+  `);
+} catch {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS shl_fantasy_leagues (
@@ -611,7 +636,7 @@ const stmts = {
   getAllEvents: db.prepare('SELECT * FROM events ORDER BY created_at DESC'),
   getOpenEvents: db.prepare('SELECT * FROM events WHERE status = \'open\' ORDER BY created_at DESC'),
   updateEventStatus: db.prepare('UPDATE events SET status = ? WHERE id = ?'),
-  updateEventWinner: db.prepare('UPDATE events SET winner_id = ?, winner_image_url = COALESCE(?, winner_image_url), status = \'finished\' WHERE id = ?'),
+  updateEventWinner: db.prepare('UPDATE events SET winner_id = ?, winner_image_url = COALESCE(?, winner_image_url), status = \'finished\', was_finished = 1 WHERE id = ?'),
   updateEventImage: db.prepare('UPDATE events SET image_url = ? WHERE id = ?'),
   updateEventClosesAt: db.prepare('UPDATE events SET closes_at = ? WHERE id = ?'),
   updateEventLastBoosted: db.prepare('UPDATE events SET last_boosted_at = ? WHERE id = ?'),
@@ -770,6 +795,20 @@ const stmts = {
     ORDER BY u.nickname ASC
   `),
   insertFriend: db.prepare('INSERT OR IGNORE INTO friends (id, user_id, friend_id) VALUES (?, ?, ?)'),
+  insertFriendRequest: db.prepare('INSERT OR IGNORE INTO friend_requests (from_user_id, to_user_id) VALUES (?, ?)'),
+  getFriendRequest: db.prepare('SELECT * FROM friend_requests WHERE from_user_id = ? AND to_user_id = ?'),
+  deleteFriendRequest: db.prepare('DELETE FROM friend_requests WHERE from_user_id = ? AND to_user_id = ?'),
+  deleteFriendRequestsBetween: db.prepare('DELETE FROM friend_requests WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)'),
+  getIncomingFriendRequests: db.prepare(`
+    SELECT u.id, u.nickname, u.real_name, u.avatar_emoji, u.avatar_url, r.created_at
+    FROM friend_requests r JOIN users u ON r.from_user_id = u.id
+    WHERE r.to_user_id = ? ORDER BY r.created_at DESC
+  `),
+  getOutgoingFriendRequests: db.prepare(`
+    SELECT u.id, u.nickname, u.real_name, u.avatar_emoji, u.avatar_url, r.created_at
+    FROM friend_requests r JOIN users u ON r.to_user_id = u.id
+    WHERE r.from_user_id = ? ORDER BY r.created_at DESC
+  `),
   deleteFriend: db.prepare('DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)'),
   searchUsers: db.prepare(`
     SELECT id, nickname, real_name, avatar_emoji, avatar_url
@@ -798,6 +837,14 @@ const stmts = {
     WHERE d.id = ?
   `),
   updateDuelStatus: db.prepare('UPDATE minigame_duels SET status = ? WHERE id = ?'),
+  updateDuelReport: db.prepare(`
+    UPDATE minigame_duels
+    SET reported_by = @reported_by,
+        reported_creator_score = @reported_creator_score,
+        reported_opponent_score = @reported_opponent_score,
+        reported_winner_id = @reported_winner_id
+    WHERE id = @id
+  `),
   updateDuelResult: db.prepare(`
     UPDATE minigame_duels
     SET creator_score = @creator_score,
@@ -1336,9 +1383,14 @@ export function lockEvent(eventId) {
   stmts.updateEventStatus.run('locked', eventId);
 }
 
+// Reopening an event whose result has been revealed only unlocks the result for
+// correction; betting stays closed so nobody can bet on a known outcome.
 export function reopenEvent(eventId) {
-  stmts.resetEvent.run('open', eventId);
-  stmts.updateEventClosesAt.run(null, eventId);
+  const event = stmts.getEventById.get(eventId);
+  const newStatus = event && (event.was_finished || event.status === 'finished') ? 'locked' : 'open';
+  stmts.resetEvent.run(newStatus, eventId);
+  if (newStatus === 'open') stmts.updateEventClosesAt.run(null, eventId);
+  return newStatus;
 }
 
 export function cancelEvent(eventId) {
@@ -2603,6 +2655,48 @@ export function addFriend(userId, friendId) {
   return true;
 }
 
+// Friend requests: a friendship is only created when the receiver accepts
+// (or when both users have requested each other).
+export function requestFriend(fromUserId, toUserId) {
+  if (!fromUserId || !toUserId || fromUserId === toUserId) return { status: 'invalid' };
+  if (isFriend(fromUserId, toUserId)) return { status: 'already_friends' };
+  if (stmts.getFriendRequest.get(toUserId, fromUserId)) {
+    acceptFriendRequest(toUserId, fromUserId);
+    return { status: 'accepted' };
+  }
+  stmts.insertFriendRequest.run(fromUserId, toUserId);
+  return { status: 'pending' };
+}
+
+export function acceptFriendRequest(fromUserId, toUserId) {
+  if (!stmts.getFriendRequest.get(fromUserId, toUserId)) return false;
+  const tx = db.transaction(() => {
+    addFriend(fromUserId, toUserId);
+    stmts.deleteFriendRequestsBetween.run(fromUserId, toUserId, toUserId, fromUserId);
+  });
+  tx();
+  return true;
+}
+
+export function declineFriendRequest(fromUserId, toUserId) {
+  return stmts.deleteFriendRequest.run(fromUserId, toUserId).changes > 0;
+}
+
+export function getFriendRequests(userId) {
+  const mapUser = u => ({
+    id: u.id,
+    nickname: u.nickname,
+    realName: u.real_name,
+    avatarEmoji: u.avatar_emoji,
+    avatarUrl: u.avatar_url,
+    createdAt: u.created_at
+  });
+  return {
+    incoming: stmts.getIncomingFriendRequests.all(userId).map(mapUser),
+    outgoing: stmts.getOutgoingFriendRequests.all(userId).map(mapUser)
+  };
+}
+
 export function removeFriend(userId, friendId) {
   if (!userId || !friendId) return false;
   stmts.deleteFriend.run(userId, friendId, friendId, userId);
@@ -2654,6 +2748,38 @@ export function respondDuel(id, opponentId, accept) {
   const newStatus = accept ? 'active' : 'declined';
   stmts.updateDuelStatus.run(newStatus, id);
   return stmts.getDuelById.get(id);
+}
+
+// Records one participant's result report. The duel only completes when the other
+// participant confirms the same result, or when the reporter concedes the loss.
+export function reportDuelResult({ duelId, reporterId, creatorScore, opponentScore, winnerId }) {
+  const duel = stmts.getDuelById.get(duelId);
+  if (!duel) return { error: 'not_found' };
+
+  const loserId = winnerId ? (winnerId === duel.creator_id ? duel.opponent_id : duel.creator_id) : null;
+  const reporterConcedes = Boolean(winnerId) && reporterId === loserId;
+  const hasOtherReport = duel.reported_by && duel.reported_by !== reporterId;
+
+  if (hasOtherReport) {
+    const matches = duel.reported_creator_score === creatorScore &&
+      duel.reported_opponent_score === opponentScore &&
+      (duel.reported_winner_id || null) === (winnerId || null);
+    if (!matches) return { error: 'mismatch', duel };
+  }
+
+  if (hasOtherReport || reporterConcedes) {
+    const completed = submitDuelResult({ duelId, creatorScore, opponentScore, winnerId });
+    return { duel: completed, confirmed: true };
+  }
+
+  stmts.updateDuelReport.run({
+    id: duelId,
+    reported_by: reporterId,
+    reported_creator_score: creatorScore,
+    reported_opponent_score: opponentScore,
+    reported_winner_id: winnerId || null
+  });
+  return { duel: stmts.getDuelById.get(duelId), confirmed: false };
 }
 
 export function submitDuelResult({ duelId, creatorScore, opponentScore, winnerId }) {
@@ -3013,6 +3139,9 @@ export function updateAnyBetChoice(betId, userId, choice) {
       }
       normalizedChoice = 'participant';
     } else {
+      if ((existingPart.choice === 'yes' || existingPart.choice === 'no') && existingPart.choice !== choice) {
+        throw new Error('Du har redan valt sida och kan inte byta');
+      }
       normalizedChoice = choice;
     }
   } else {
@@ -3706,6 +3835,51 @@ export function getTabExpenseById(id) {
       avatarUrl: p.avatar_url
     }))
   };
+}
+
+// Payer removes the whole expense; any other participant disputes (removes) only
+// their own share. Shares that are already settled (paid) cannot be removed.
+export function removeTabExpenseForUser(expenseId, userId) {
+  const expense = stmts.getTabExpenseById.get(expenseId);
+  if (!expense) throw new Error('Notan hittades inte');
+
+  if (expense.tournament_id) {
+    const t = stmts.getTournamentById.get(expense.tournament_id);
+    if (t && t.status === 'settled') {
+      throw new Error('Turneringen är avslutad. Återöppna den för att ändra notan.');
+    }
+  }
+
+  const duels = db.prepare('SELECT * FROM minigame_duels WHERE expense_id = ?').all(expenseId);
+  const isPayer = String(expense.payer_id) === String(userId);
+
+  if (isPayer) {
+    if (duels.some(d => d.is_settled)) {
+      throw new Error('Någon har redan kvitterat sin del. Notan kan inte tas bort.');
+    }
+    const participantIds = db.prepare('SELECT user_id FROM tab_expense_participants WHERE expense_id = ?').all(expenseId).map(r => r.user_id);
+    const tx = db.transaction(() => {
+      db.prepare('DELETE FROM minigame_duels WHERE expense_id = ?').run(expenseId);
+      db.prepare('DELETE FROM tab_expense_participants WHERE expense_id = ?').run(expenseId);
+      db.prepare('DELETE FROM tab_expenses WHERE id = ?').run(expenseId);
+    });
+    tx();
+    return { removed: 'expense', expense, participantIds };
+  }
+
+  const isParticipant = db.prepare('SELECT 1 FROM tab_expense_participants WHERE expense_id = ? AND user_id = ?').get(expenseId, String(userId));
+  if (!isParticipant) throw new Error('Du deltar inte i denna nota');
+
+  const myDuels = duels.filter(d => String(d.opponent_id) === String(userId));
+  if (myDuels.some(d => d.is_settled)) {
+    throw new Error('Din del är redan kvitterad och kan inte bestridas');
+  }
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM minigame_duels WHERE expense_id = ? AND opponent_id = ?').run(expenseId, String(userId));
+    db.prepare('DELETE FROM tab_expense_participants WHERE expense_id = ? AND user_id = ?').run(expenseId, String(userId));
+  });
+  tx();
+  return { removed: 'share', expense };
 }
 
 export function getTabExpensesForUser(userId) {

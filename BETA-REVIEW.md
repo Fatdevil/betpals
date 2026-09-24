@@ -8,7 +8,7 @@
 
 ## Utlåtande
 
-**Rekommendation: Gå inte ut med betan än. Åtgärda först de 6 punkterna under "Måste fixas", det räknar jag till ungefär 1–2 dagars arbete.**
+**Rekommendation (uppdaterad):** Punkt 1–6 är nu åtgärdade. Fixa helst även Space Blitz och Blind 10 (punkt 7–8) eller kör dem utan insats i betan. Därefter är appen redo för 20 testare.
 
 Grunden är bra för en app mellan kompisar: tokens rullas vid inloggning, PIN-koder hashas med salt (PBKDF2), avräkningen i THE TAB summerar exakt till noll med Hamilton-avrundning, SQLite körs med backup och det finns en strikt CSP. Den som skrivit koden har uppenbart tänkt på säkerhet.
 
@@ -16,7 +16,24 @@ Problemet är att flera spel och avräkningar i praktiken **litar blint på klie
 
 ---
 
-## 🔴 Måste fixas före beta
+## ✅ Status: punkt 1–6 är åtgärdade
+
+| # | Åtgärd |
+|---|---|
+| 1 | Ett duellresultat räknas först när **motståndaren bekräftar samma resultat**. Undantaget är när den som rapporterar själv erkänner förlust. Om rapporterna skiljer sig åt avvisas resultatet (409) och ingen skuld skapas. |
+| 2 | Insatsen i dueller är max 10 000 kr. Negativa och ogiltiga belopp avvisas. |
+| 3 | Vänskap kräver **vänförfrågan och godkännande** (syns under "Mina Vänner" i profilen). Den personliga inbjudningslänken är signerad och ger direkt vänskap, eftersom den som delar länken redan har godkänt. En nota får vara max 50 000 kr. Den som lagt ut kan **ta bort notan** och deltagare kan **bestrida sin del** (knappar i kvittovyn). Redan kvitterade delar går inte att ta bort. |
+| 4 | Admin-PIN kontrolleras på ett enda ställe med spärr per IP-adress (5 fel ger 15 min spärr) på **alla** vägar in. Lösenordet ska vara minst 8 tecken och sätts via `ADMIN_PIN`, som synkas in i databasen vid varje start. `/api/admin/setup` är avstängd i produktion. PIN skickas aldrig i en URL, och backup laddas ned med header. |
+| 5 | Engångskoden för PIN-återställning spärras efter 5 fel per konto (och 10 per IP). En ny kod från admin nollställer spärren. |
+| 6 | Om en avgjord match öppnas igen hamnar den i `locked` (resultatet kan rättas, men det går inte att betta). Det gäller även vid upprepad återöppning. En inställd match kan inte avgöras. I AnyBet går det inte att byta sida efter att man valt ja eller nej. |
+
+Varje punkt verifieras av `test/beta-review-fixes.test.js` (12 tester). Hela sviten: 146 av 146 gröna.
+
+**Att göra vid deploy:** Sätt `ADMIN_PIN` i Railway till ett lösenord på **minst 8 tecken**. En gammal 4-siffrig PIN ignoreras.
+
+---
+
+## 🔴 Måste fixas före beta (ursprungliga fynd)
 
 ### 1. Duellresultat bestäms helt av klienten ✅ *verifierat*
 `server/server.js:3091` (`POST /api/duels/:id/result`)
