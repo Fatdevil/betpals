@@ -30,10 +30,6 @@ export function renderNavbar(activePage) {
 
   setTimeout(() => {
     initBellListeners();
-    document.getElementById('lang-toggle-btn')?.addEventListener('click', () => {
-      const next = getLang() === 'sv' ? 'en' : 'sv';
-      setLang(next);
-    });
     document.getElementById('top-header-logo-btn')?.addEventListener('click', () => {
       openAppQrModal();
     });
@@ -52,9 +48,6 @@ export function renderNavbar(activePage) {
         <button class="malta-header-btn" id="malta-header-support-btn" title="Malta AI Kundtjänst 🇲🇹" aria-label="Malta AI Kundtjänst">
           <img src="/chip-malta-transparent.png" alt="Malta AI" class="malta-header-chip" />
           <span class="malta-header-label">Malta AI</span>
-        </button>
-        <button class="lang-toggle-btn" id="lang-toggle-btn" title="${currentLang === 'sv' ? 'Switch to English' : 'Byt till svenska'}">
-          ${currentLang === 'sv' ? '🇸🇪 SV' : '🇬🇧 EN'}
         </button>
       </div>
     </div>

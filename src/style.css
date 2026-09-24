@@ -226,8 +226,22 @@ body::before {
     padding: 0 10px;
   }
   .top-header-logo {
-    font-size: 0.78rem;
-    letter-spacing: 0.05em;
+    font-size: 0.80rem;
+    letter-spacing: 0.06em;
+  }
+  .malta-header-btn {
+    padding: 4px 8px;
+    font-size: 0.70rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .top-header {
+    padding: 0 6px;
+  }
+  .top-header-logo {
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
   }
   .malta-header-btn {
     width: 28px;
@@ -237,23 +251,6 @@ body::before {
   }
   .malta-header-label {
     display: none;
-  }
-  .lang-toggle-btn {
-    padding: 4px 7px;
-    font-size: 0.68rem;
-  }
-}
-
-@media (max-width: 360px) {
-  .top-header {
-    padding: 0 6px;
-  }
-  .top-header-logo {
-    font-size: 0.70rem;
-    letter-spacing: 0.03em;
-  }
-  .top-header-right {
-    gap: 4px;
   }
 }
 
@@ -1963,6 +1960,7 @@ select.form-input option {
   position: fixed;
   z-index: 200;
   width: 300px;
+  max-width: calc(100vw - 20px);
   max-height: 400px;
   background: rgba(15, 15, 30, 0.96);
   backdrop-filter: blur(20px);
