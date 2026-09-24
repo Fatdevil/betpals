@@ -91,11 +91,11 @@ self.addEventListener('push', (event) => {
     try {
       data = event.data.json();
     } catch {
-      data = { title: '⚡ BlixtBet i BetPals!', body: event.data.text() };
+      data = { title: 'Malta Betting 🇲🇹', body: event.data.text() };
     }
   }
 
-  const title = data.title || '⚡ BlixtBet i BetPals!';
+  const title = data.title || 'Malta Betting 🇲🇹';
   const options = {
     body: data.body || 'Ett nytt BlixtBet har startats!',
     icon: '/favicon.png',

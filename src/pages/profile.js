@@ -27,7 +27,7 @@ export async function renderProfile() {
       getMyStats(),
       getMyCredentials().catch(() => ({ hasBiometric: false })),
       getFriends().catch(() => []),
-      getNotificationPrefs().catch(() => ({ notifyFlashbets: true, notifyDuels: true, notifyTournaments: true })),
+      getNotificationPrefs().catch(() => ({ notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true })),
       getMyPhotos().catch(() => [])
     ]);
     renderProfileContent(content, user, bets, stats, creds, friends, notifPrefs, photos);
@@ -42,7 +42,7 @@ export async function renderProfile() {
       renderAuthScreen(content);
     } else {
       showToast('Kunde inte nå servern just nu. Visar sparad profil.', 'info');
-      renderProfileContent(content, user, [], null, { hasBiometric: false }, [], { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }, []);
+      renderProfileContent(content, user, [], null, { hasBiometric: false }, [], { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true }, []);
     }
   }
 }
@@ -392,7 +392,7 @@ function showPinResetUI(identifier, nickname) {
   });
 }
 
-function renderProfileContent(content, user, bets, stats, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true }, photos = []) {
+function renderProfileContent(content, user, bets, stats, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true }, photos = []) {
   // Group photos by tournament
   const albumsMap = new Map();
   photos.forEach(p => {
@@ -618,6 +618,15 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
                 <span>🏆 <strong>Events: Nya spel & Resultat</strong></span>
                 <input type="checkbox" id="pref-notify-tournaments" ${notifPrefs.notifyTournaments ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
               </label>
+              <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; cursor: pointer; padding: 4px 0;">
+                <span>🇲🇹 <strong>Malta Support (Pepp, syrliga pikar & skuldpåminnelser)</strong></span>
+                <input type="checkbox" id="pref-notify-support" ${notifPrefs.notifySupport !== false ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer;" />
+              </label>
+            </div>
+            <div style="margin-top: 10px;">
+              <button id="btn-test-malta-push" class="btn btn-secondary btn-sm" style="width: 100%; font-size: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px;">
+                🔔 Testa push-notis från Malta Support
+              </button>
             </div>
           </div>
         ` : ''}
@@ -880,8 +889,9 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     const notifyFlashbets = document.getElementById('pref-notify-flashbets')?.checked ?? true;
     const notifyDuels = document.getElementById('pref-notify-duels')?.checked ?? true;
     const notifyTournaments = document.getElementById('pref-notify-tournaments')?.checked ?? true;
+    const notifySupport = document.getElementById('pref-notify-support')?.checked ?? true;
     try {
-      await updateNotificationPrefs({ notifyFlashbets, notifyDuels, notifyTournaments });
+      await updateNotificationPrefs({ notifyFlashbets, notifyDuels, notifyTournaments, notifySupport });
       showToast('Notis-inställningar sparade! ⚙️', 'success');
     } catch (err) {
       showToast(err.message, 'error');
@@ -891,6 +901,35 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   document.getElementById('pref-notify-flashbets')?.addEventListener('change', handlePrefChange);
   document.getElementById('pref-notify-duels')?.addEventListener('change', handlePrefChange);
   document.getElementById('pref-notify-tournaments')?.addEventListener('change', handlePrefChange);
+  document.getElementById('pref-notify-support')?.addEventListener('change', handlePrefChange);
+
+  // Test push button
+  const testPushBtn = document.getElementById('btn-test-malta-push');
+  testPushBtn?.addEventListener('click', async () => {
+    testPushBtn.disabled = true;
+    const originalText = testPushBtn.innerHTML;
+    testPushBtn.textContent = '⏳ Skickar testnotis...';
+    try {
+      const res = await fetch('/api/support/test-push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-token': localStorage.getItem('betpals_token') || ''
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Kunde inte skicka notis', 'error');
+      } else {
+        showToast(data.message || 'Notis skickad till din telefon! 🌴☕', 'success');
+      }
+    } catch (e) {
+      showToast('Kunde inte nå servern för testnotis', 'error');
+    } finally {
+      testPushBtn.disabled = false;
+      testPushBtn.innerHTML = originalText;
+    }
+  });
 
   // Avatar Upload Interaction
   const avatarBtn = document.getElementById('profile-picture-btn');

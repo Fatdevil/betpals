@@ -194,6 +194,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN reset_code_expires TEXT'); } catch {
 try { db.exec('ALTER TABLE users ADD COLUMN notify_flashbets INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_duels INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN notify_tournaments INTEGER DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN notify_support INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN token_created_at TEXT'); } catch { /* Column already exists */ }
 
 // Rate limiting table (persistent across restarts)
@@ -970,8 +971,8 @@ const stmts = {
   deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
   deletePushSubscriptionsByUser: db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?'),
   getPushSubscriptionsByUser: db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?'),
-  getUserNotificationPrefs: db.prepare('SELECT notify_flashbets, notify_duels, notify_tournaments FROM users WHERE id = ?'),
-  updateUserNotificationPrefs: db.prepare('UPDATE users SET notify_flashbets = ?, notify_duels = ?, notify_tournaments = ? WHERE id = ?'),
+  getUserNotificationPrefs: db.prepare('SELECT notify_flashbets, notify_duels, notify_tournaments, notify_support FROM users WHERE id = ?'),
+  updateUserNotificationPrefs: db.prepare('UPDATE users SET notify_flashbets = ?, notify_duels = ?, notify_tournaments = ?, notify_support = ? WHERE id = ?'),
 
   // Flash Bets
   insertFlashBet: db.prepare(`
@@ -3410,8 +3411,15 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
 
 // ── Push Subscriptions API ───────────────────────────
 
-export function savePushSubscription(id, userId, endpoint, p256dh, auth) {
-  stmts.insertPushSubscription.run(id, userId, endpoint, p256dh, auth);
+export function savePushSubscription(idOrUserId, userIdOrSub, endpoint, p256dh, auth) {
+  if (typeof userIdOrSub === 'object' && userIdOrSub !== null) {
+    const userId = idOrUserId;
+    const sub = userIdOrSub;
+    const id = crypto.randomUUID();
+    stmts.insertPushSubscription.run(id, userId, sub.endpoint, sub.keys?.p256dh || '', sub.keys?.auth || '');
+    return;
+  }
+  stmts.insertPushSubscription.run(idOrUserId, userIdOrSub, endpoint, p256dh, auth);
 }
 
 export function deletePushSubscriptionByEndpoint(endpoint) {
@@ -3421,12 +3429,13 @@ export function deletePushSubscriptionByEndpoint(endpoint) {
 export function getUserNotificationPrefs(userId) {
   const row = stmts.getUserNotificationPrefs.get(userId);
   if (!row) {
-    return { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true };
+    return { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true };
   }
   return {
     notifyFlashbets: row.notify_flashbets !== 0,
     notifyDuels: row.notify_duels !== 0,
-    notifyTournaments: row.notify_tournaments !== 0
+    notifyTournaments: row.notify_tournaments !== 0,
+    notifySupport: row.notify_support !== 0
   };
 }
 
@@ -3435,8 +3444,23 @@ export function updateUserNotificationPrefs(userId, prefs = {}) {
   const flash = prefs.notifyFlashbets !== undefined ? (prefs.notifyFlashbets ? 1 : 0) : (current.notifyFlashbets ? 1 : 0);
   const duels = prefs.notifyDuels !== undefined ? (prefs.notifyDuels ? 1 : 0) : (current.notifyDuels ? 1 : 0);
   const tourneys = prefs.notifyTournaments !== undefined ? (prefs.notifyTournaments ? 1 : 0) : (current.notifyTournaments ? 1 : 0);
-  stmts.updateUserNotificationPrefs.run(flash, duels, tourneys, userId);
+  const support = prefs.notifySupport !== undefined ? (prefs.notifySupport ? 1 : 0) : (current.notifySupport ? 1 : 0);
+  stmts.updateUserNotificationPrefs.run(flash, duels, tourneys, support, userId);
   return getUserNotificationPrefs(userId);
+}
+
+const supportPushCooldowns = new Map();
+const SUPPORT_PUSH_COOLDOWN_MS = 3 * 60 * 1000; // 3 min throttle to prevent spam
+
+export function canSendSupportPush(userId, force = false) {
+  if (force) return true;
+  const last = supportPushCooldowns.get(userId);
+  if (!last) return true;
+  return (Date.now() - last) >= SUPPORT_PUSH_COOLDOWN_MS;
+}
+
+export function recordSupportPushSent(userId) {
+  supportPushCooldowns.set(userId, Date.now());
 }
 
 export function getPushSubscriptionsForUsers(userIds = [], category = null) {
@@ -3448,6 +3472,7 @@ export function getPushSubscriptionsForUsers(userIds = [], category = null) {
       if (category === 'flashbets' && !prefs.notifyFlashbets) continue;
       if (category === 'duels' && !prefs.notifyDuels) continue;
       if (category === 'tournaments' && !prefs.notifyTournaments) continue;
+      if (category === 'support' && !prefs.notifySupport) continue;
     }
     const userSubs = stmts.getPushSubscriptionsByUser.all(uid);
     subs.push(...userSubs);

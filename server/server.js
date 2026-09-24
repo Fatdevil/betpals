@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken } from 'livekit-server-sdk';
-import { generateMaltaSupportReply, getMaltaFallbackReply, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
+import { generateMaltaSupportReply, getMaltaFallbackReply, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -669,6 +669,32 @@ async function sendPushToUsers(userIds, payload, category = null) {
         db.deletePushSubscriptionByEndpoint(sub.endpoint);
       }
     }
+  }
+}
+
+async function sendMaltaSupportNotification(userId, { eventType, details = {}, force = false, url = null }) {
+  if (!userId) return;
+  if (!db.canSendSupportPush(userId, force)) return;
+
+  const user = db.getUserById(userId);
+  if (!user) return;
+
+  try {
+    const pushData = await generateMaltaSupportPush({
+      eventType,
+      user,
+      details,
+      apiKey: process.env.GEMINI_API_KEY
+    });
+
+    if (url) {
+      pushData.url = url;
+    }
+
+    await sendPushToUsers([userId], pushData, 'support');
+    db.recordSupportPushSent(userId);
+  } catch (err) {
+    console.warn('[malta-support-push] Error sending push notification:', err.message);
   }
 }
 
@@ -2859,6 +2885,17 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
     url: `/#tournament/${tournament.shareCode}`
   }, 'tournaments').catch(() => {});
 
+  for (const pid of participantIds) {
+    sendMaltaSupportNotification(pid, {
+      eventType: 'tournament_settled',
+      details: {
+        tournamentName: tournament.name,
+        netAmount: 0
+      },
+      url: '/leaderboard'
+    }).catch(() => {});
+  }
+
   res.json({ ok: true });
 });
 
@@ -3086,6 +3123,16 @@ app.post('/api/duels', (req, res) => {
       body: `${creatorName} utmanar dig (${stake} kr)! Anta utmaningen i Arcade.`,
       url: '/#arcade'
     }, 'duels').catch(() => {});
+
+    sendMaltaSupportNotification(opponentId, {
+      eventType: 'duel_challenge',
+      details: {
+        opponentName: creatorName,
+        gameType: gameName,
+        stakeAmount: stake
+      },
+      url: '/#arcade'
+    }).catch(() => {});
   }
 
   res.json({ duel });
@@ -3260,6 +3307,16 @@ app.post(['/api/duels/:id/roll', '/api/duels/:id/result'], (req, res) => {
         body: `${winnerName} vann duellen (${updated.stake_amount} kr). Bättre lycka nästa gång!`,
         url: '/#arcade'
       }, 'duels').catch(() => {});
+
+      sendMaltaSupportNotification(loserId, {
+        eventType: 'duel_loss',
+        details: {
+          opponentName: winnerName,
+          gameType: updated.game_type,
+          stakeAmount: updated.stake_amount
+        },
+        url: '/#arcade'
+      }).catch(() => {});
     } else {
       sendPushToUsers([updated.creator_id, updated.opponent_id], {
         title: '🤝 Oavgjort i duellen!',
@@ -3664,6 +3721,16 @@ function recordPartyDebts(room, winners, stakePerLoser) {
             opponentScore: isSpace ? (loser.score || 0) : 0,
             winnerId: winner.id
           });
+
+          sendMaltaSupportNotification(loser.id, {
+            eventType: 'duel_loss',
+            details: {
+              opponentName: winner.nickname || winner.real_name || 'Polaren',
+              gameType: isSpace ? 'Space Blitz' : (room.gameType === 'blind10' ? 'Blind 10' : 'Partyspel'),
+              stakeAmount: share
+            },
+            url: '/#arcade'
+          }).catch(() => {});
         }
       } catch (e) {
         console.error('Failed to log party duel settlement:', e);
@@ -5808,6 +5875,28 @@ app.post('/api/support/chat', async (req, res) => {
     const fallback = getMaltaFallbackReply(message.trim(), userName);
     res.json({ ok: true, reply: fallback });
   }
+});
+
+app.post('/api/support/test-push', async (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  const subs = db.getPushSubscriptionsForUsers([user.id]);
+  if (!subs || subs.length === 0) {
+    return res.status(400).json({
+      error: 'Inga aktiva push-notiser hittades för din enhet. Slå på webbnotiser under Profil först!'
+    });
+  }
+
+  const pushData = await generateMaltaSupportPush({
+    eventType: 'test_push',
+    user,
+    details: {},
+    apiKey: process.env.GEMINI_API_KEY
+  });
+
+  await sendPushToUsers([user.id], pushData, 'support');
+  res.json({ ok: true, message: 'Testnotis skickad från Malta Support! 🌴☕' });
 });
 
 // ── Central Express Error Handler ─────────────────────

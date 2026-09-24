@@ -315,3 +315,156 @@ export async function generateMaltaSupportReply(message, history = [], userName 
   // If all Gemini models failed or had empty responses, use rich offline fallback
   return getMaltaFallbackReply(message, userName);
 }
+
+/**
+ * Rich offline/fallback templates for Malta Support push notifications.
+ */
+export function getMaltaPushFallback({ eventType, userName = 'Kompis', details = {} }) {
+  const { opponentName = 'polaren', gameType = 'duellen', stakeAmount = 50, netAmount = 0, creditorName = 'kompisen', tournamentName = 'Turneringen' } = details;
+
+  switch (eventType) {
+    case 'duel_loss': {
+      const templates = [
+        `Svider det, ${userName}? Torsk mot ${opponentName} i ${gameType}! Grabben i supporten gråter i sin espresso. Tryck Revansch och ta tillbaka hedern! ☕🔥`,
+        `Aj aj aj, ${stakeAmount} kr rakt i fickan på ${opponentName}! 🏌️‍♂️ Supporten råder dig att kräva omedelbar revansch innan han skryter i baren! 🍻`,
+        `Tuff förlust i ${gameType}, ${userName}! Även Tiger Woods har slagit i ruffen. In och utmana på nytt direkt! ⛳💥`
+      ];
+      return {
+        title: '🇲🇹 Malta Support: Aj aj aj...',
+        body: templates[Math.floor(Math.random() * templates.length)],
+        url: '/duels'
+      };
+    }
+    case 'duel_win': {
+      const templates = [
+        `Kungligt spelat, ${userName}! 🏆 ${stakeAmount} kr in från ${opponentName} i ${gameType}. Supporten skålar i en iskall Cisk! 🍻💰`,
+        `Där satt den! Du krossade ${opponentName} i ${gameType}. Glöm inte att kräva in dina ${stakeAmount} kr på Swish! 💸🏖️`
+      ];
+      return {
+        title: '🇲🇹 Malta Support: Kungligt! 🏆',
+        body: templates[Math.floor(Math.random() * templates.length)],
+        url: '/duels'
+      };
+    }
+    case 'duel_challenge': {
+      return {
+        title: '🇲🇹 Malta Support: Duell utlyst! ⚔️',
+        body: `${opponentName} tror han kan tvåla dit dig i ${gameType} om ${stakeAmount} kr! Vågar du anta eller fegar du ur? 🏌️‍♂️🎲`,
+        url: '/duels'
+      };
+    }
+    case 'debt_reminder': {
+      return {
+        title: '🇲🇹 Malta Support: Swish väntar... 💸',
+        body: `Psst ${userName}! Du ligger back ${Math.abs(netAmount || stakeAmount)} kr mot ${creditorName}. Sköt det snyggt så bjuder hen kanske på nästa runda på 19:e! 🏖️🍹`,
+        url: '/leaderboard'
+      };
+    }
+    case 'tournament_settled': {
+      if (netAmount > 0) {
+        return {
+          title: '🇲🇹 Malta Support: Slutavräkning klar! 🥂',
+          body: `Grattis ${userName}! ${tournamentName} är avgjord och du går plus ${netAmount} kr. Dags att hålla fram Swish! 🏆💰`,
+          url: '/leaderboard'
+        };
+      } else if (netAmount < 0) {
+        return {
+          title: '🇲🇹 Malta Support: Slutavräkning klar! 📊',
+          body: `${tournamentName} är avgjord och du ligger back ${Math.abs(netAmount)} kr. In på 'Vem swishar vem' och städa upp innan kvällen spårar! 🍻`,
+          url: '/leaderboard'
+        };
+      } else {
+        return {
+          title: '🇲🇹 Malta Support: Jämnt skägg! ⚖️',
+          body: `${tournamentName} är avgjord och du går ut på exakt nollan! Inte en krona back. Grabben i supporten lyfter på hatten! ⛳`,
+          url: '/leaderboard'
+        };
+      }
+    }
+    case 'test_push':
+    default: {
+      return {
+        title: '🇲🇹 Malta Support: Tjena kompis!',
+        body: `Halloj ${userName}! Grabben i supporten kollar bara att telefonen plingar som den ska. Läget är under kontroll i St. Julian's! 🌴☕🏌️‍♂️`,
+        url: '/'
+      };
+    }
+  }
+}
+
+/**
+ * Generate an intelligent, humorous push notification via Gemini or instant fallback.
+ */
+export async function generateMaltaSupportPush({ eventType, user, details = {}, apiKey = process.env.GEMINI_API_KEY }) {
+  const userName = (typeof user === 'object' && user ? (user.nickname || user.name) : user) || 'Kompis';
+  const fallback = getMaltaPushFallback({ eventType, userName, details });
+
+  if (!apiKey) {
+    return fallback;
+  }
+
+  const quota = getSearchQuotaInfo();
+  if (quota.exhausted) {
+    return fallback;
+  }
+
+  const contextDesc = `
+Händelse: ${eventType}
+Användare: ${userName}
+Motståndare/Kompis: ${details.opponentName || details.creditorName || 'kompisen'}
+Spel/Turnering: ${details.gameType || details.tournamentName || 'spelet'}
+Belopp: ${details.stakeAmount || details.netAmount || 50} kr
+`;
+
+  const prompt = `Du är "Malta Support 🇲🇹" – den solbrända, kaxiga och sköna VIP Conciergen för appen Malta Betting.
+Skriv en ultrakort, slagkraftig, rolig push-notis till spelaren baserat på denna händelse:
+${contextDesc}
+
+Krav:
+- Max 120 tecken!
+- Får INTE nämna "BetPals" någonsin (appen heter Malta Betting).
+- Humör: Kaxig, skön humor, glimten i ögat, golf/bärs/espresso/revansch-pepp.
+- Svara i exakt JSON-format: {"title": "🇲🇹 Malta Support: ...", "body": "..."}
+- Skriv ingenting annat än JSON-objektet.`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1800);
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 100,
+          responseMimeType: 'application/json'
+        }
+      })
+    });
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) {
+        const parsed = JSON.parse(text);
+        if (parsed.title && parsed.body) {
+          return {
+            title: parsed.title.startsWith('🇲🇹') ? parsed.title : `🇲🇹 Malta Support: ${parsed.title}`,
+            body: parsed.body,
+            url: fallback.url
+          };
+        }
+      }
+    }
+  } catch {
+    // Timeout or network error -> seamlessly fall back
+  }
+
+  return fallback;
+}
+
