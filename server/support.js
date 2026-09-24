@@ -162,10 +162,8 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     parts: [{ text: `[Användare: ${userName}]: ${message}` }]
   });
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-  const payload = {
-    systemInstruction: {
+  const primaryPayload = {
+    system_instruction: {
       parts: [{ text: MALTA_SYSTEM_PROMPT }]
     },
     contents: formattedContents,
@@ -175,24 +173,34 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     }
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.warn(`[malta-support] Gemini API error (${response.status}): ${errText}`);
-    return getMaltaFallbackReply(message, userName);
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(primaryPayload)
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`[malta-support] Gemini API error on ${model} (${response.status}): ${errText}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (candidateText && candidateText.trim()) {
+        return candidateText.trim();
+      }
+    } catch (fetchErr) {
+      console.warn(`[malta-support] Fetch exception on ${model}:`, fetchErr.message);
+    }
   }
 
-  const data = await response.json();
-  const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!candidateText || !candidateText.trim()) {
-    return getMaltaFallbackReply(message, userName);
-  }
-
-  return candidateText.trim();
+  // If all Gemini models failed or had empty responses, use rich offline fallback
+  return getMaltaFallbackReply(message, userName);
 }

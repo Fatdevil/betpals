@@ -5549,7 +5549,44 @@ app.post('/api/loven-games/:id/cancel', (req, res) => {
   }
 });
 
-// ── Malta AI Support Chat ────────────────────────────
+// ── Malta AI Support Chat & Diagnostics ─────────────
+app.get('/api/support/health', async (req, res) => {
+  const apiKey = (process.env.GEMINI_API_KEY || db.getSetting('gemini_api_key') || '').trim();
+  if (!apiKey) {
+    return res.json({ live: false, reason: 'GEMINI_API_KEY is not configured in env or database' });
+  }
+
+  const testPayload = {
+    contents: [{ role: 'user', parts: [{ text: 'Ping. Svara med ordet PONG.' }] }]
+  };
+
+  const results = {};
+  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testPayload)
+      });
+      const status = response.status;
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        results[model] = { ok: true, status, reply: text?.trim() };
+      } else {
+        const errText = await response.text();
+        results[model] = { ok: false, status, error: errText };
+      }
+    } catch (e) {
+      results[model] = { ok: false, error: e.message };
+    }
+  }
+
+  const isLive = Object.values(results).some(r => r.ok);
+  res.json({ live: isLive, results });
+});
+
 app.post('/api/support/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
   const limit = db.checkRateLimit ? db.checkRateLimit('support_chat:' + ip) : { allowed: true };
