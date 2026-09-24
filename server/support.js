@@ -1,5 +1,6 @@
 // ── Malta AI Support Engine (VIP Concierge & Betting Specialist) ──
 // Provides intelligent AI responses for BetPals via Gemini API with a rich offline fallback.
+import * as db from './db.js';
 
 const MALTA_SYSTEM_PROMPT = `
 Du är "Malta Support 🇲🇹🎰" – den officiella AI-kundtjänsten för BetPals / Malta Betting under en episk golfresa med kompisgänget som bettar på sina golfrundor.
@@ -125,10 +126,18 @@ Bara fråga på så guidar jag dig direkt! ⛳🎰`;
 }
 
 /**
+ * Check if Gemini 2.0 API is configured and ready.
+ */
+export function isGeminiLive() {
+  const key = process.env.GEMINI_API_KEY || (db?.getSetting ? db.getSetting('gemini_api_key') : null);
+  return Boolean(key && String(key).trim());
+}
+
+/**
  * Calls Gemini API if GEMINI_API_KEY is available, otherwise uses smart fallback.
  */
 export async function generateMaltaSupportReply(message, history = [], userName = 'Kompis') {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = (process.env.GEMINI_API_KEY || (db?.getSetting ? db.getSetting('gemini_api_key') : null) || '').trim();
 
   if (!apiKey) {
     return getMaltaFallbackReply(message, userName);

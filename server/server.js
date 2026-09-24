@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken } from 'livekit-server-sdk';
-import { generateMaltaSupportReply, getMaltaFallbackReply } from './support.js';
+import { generateMaltaSupportReply, getMaltaFallbackReply, isGeminiLive } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -800,7 +800,36 @@ app.post('/api/admin/verify', (req, res) => {
 });
 
 app.get('/api/admin/status', (req, res) => {
-  res.json({ hasPin: !!db.getAdminPin() });
+  res.json({
+    hasPin: !!db.getAdminPin(),
+    geminiLive: isGeminiLive(),
+    livekitConfigured: Boolean(process.env.LIVEKIT_URL || db.getSetting('livekit_url'))
+  });
+});
+
+app.get('/api/admin/gemini', (req, res) => {
+  const pin = req.query.pin || req.headers['x-admin-pin'];
+  if (!pin || !verifyPin(pin)) {
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  const key = (process.env.GEMINI_API_KEY || db.getSetting('gemini_api_key') || '').trim();
+  res.json({
+    live: Boolean(key),
+    model: 'gemini-2.0-flash',
+    source: process.env.GEMINI_API_KEY ? 'env' : (db.getSetting('gemini_api_key') ? 'db' : 'none'),
+    apiKeyMasked: key ? `${key.slice(0, 4)}...${key.slice(-4)}` : ''
+  });
+});
+
+app.post('/api/admin/gemini', (req, res) => {
+  const { pin, apiKey } = req.body || {};
+  if (!pin || !verifyPin(pin)) {
+    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+  }
+  if (apiKey !== undefined) {
+    db.setSetting('gemini_api_key', String(apiKey).trim());
+  }
+  res.json({ ok: true, live: isGeminiLive() });
 });
 
 app.get('/api/admin/livekit', (req, res) => {

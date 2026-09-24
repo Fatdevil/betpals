@@ -22,6 +22,7 @@ Ställs in i driftmiljön (t.ex. **Railway → Settings → Variables**):
 | `LIVEKIT_URL` | *Valfri* | WebSocket-URL till LiveKit Cloud (t.ex. `wss://xxx.livekit.cloud`). |
 | `LIVEKIT_API_KEY` | *Valfri* | LiveKit Cloud API Key. |
 | `LIVEKIT_API_SECRET` | *Valfri* | LiveKit Cloud API Secret. |
+| `GEMINI_API_KEY` | *Valfri* | Google Gemini API-nyckel för skarp AI-support (Gemini 2.0 Flash) i Malta AI-chatten. Hämtas från Google AI Studio. Om den saknas används offline fallback-motorn. Kan även ställas in via Admin API (/api/admin/gemini). |
 
 ---
 
