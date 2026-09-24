@@ -5567,15 +5567,22 @@ app.get('/api/support/health', async (req, res) => {
 
   // Only perform a live API test probe if explicitly asked via ?test=1
   if (req.query.test === '1') {
+    const probeModel = req.query.model || 'gemini-2.5-flash';
     try {
-      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${probeModel}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Ping. Svara med ordet PONG.' }] }]
         })
       });
-      responseData.probe = { ok: gRes.ok, status: gRes.status };
+      const data = gRes.ok ? await gRes.json() : null;
+      responseData.probe = {
+        ok: gRes.ok,
+        status: gRes.status,
+        model: probeModel,
+        reply: data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      };
     } catch (e) {
       responseData.probe = { ok: false, error: e.message };
     }
