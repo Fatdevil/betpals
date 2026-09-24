@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken } from 'livekit-server-sdk';
-import { generateMaltaSupportReply, getMaltaFallbackReply, isGeminiLive, getSearchQuotaInfo } from './support.js';
+import { generateMaltaSupportReply, getMaltaFallbackReply, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -5558,75 +5558,30 @@ app.get('/api/support/health', async (req, res) => {
     return res.json({ live: false, reason: 'GEMINI_API_KEY is not configured in env or database' });
   }
 
-  const testPayload = {
-    contents: [{ role: 'user', parts: [{ text: 'Ping. Svara med ordet PONG.' }] }]
+  const responseData = {
+    live: true,
+    model: 'gemini-2.5-flash',
+    searchQuota: getSearchQuotaInfo(),
+    lastApiDiagnostic: getLastApiDiagnostic()
   };
 
-  const results = {};
-  for (const model of ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+  // Only perform a live API test probe if explicitly asked via ?test=1
+  if (req.query.test === '1') {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(testPayload)
-      });
-      const status = response.status;
-      if (response.ok) {
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        results[model] = { ok: true, status, reply: text?.trim() };
-      } else {
-        const errText = await response.text();
-        results[model] = { ok: false, status, error: errText };
-      }
-    } catch (e) {
-      results[model] = { ok: false, error: e.message };
-    }
-  }
-
-  let availableModels = [];
-  try {
-    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (listRes.ok) {
-      const listData = await listRes.json();
-      availableModels = (listData.models || []).map(m => m.name.replace('models/', ''));
-    }
-  } catch (e) { /* ignore */ }
-
-  const groundingResults = {};
-  for (const m of ['gemini-2.5-flash', 'gemini-3.6-flash']) {
-    try {
-      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`, {
+      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: 'Vad står Stockholmsbörsen (OMXS30) i idag?' }] }],
-          tools: [{ google_search: {} }]
+          contents: [{ role: 'user', parts: [{ text: 'Ping. Svara med ordet PONG.' }] }]
         })
       });
-      if (gRes.ok) {
-        const data = await gRes.json();
-        const cand = data?.candidates?.[0];
-        const gm = cand?.groundingMetadata || cand?.grounding_metadata;
-        groundingResults[m] = {
-          ok: true,
-          status: gRes.status,
-          queries: gm?.webSearchQueries || gm?.web_search_queries || [],
-          sources: (gm?.groundingChunks || []).map(c => c?.web?.title || c?.web?.uri).slice(0, 3),
-          reply: cand?.content?.parts?.[0]?.text?.slice(0, 150)
-        };
-      } else {
-        const errText = await gRes.text();
-        groundingResults[m] = { ok: false, status: gRes.status, error: errText };
-      }
-    } catch (ge) {
-      groundingResults[m] = { ok: false, error: ge.message };
+      responseData.probe = { ok: gRes.ok, status: gRes.status };
+    } catch (e) {
+      responseData.probe = { ok: false, error: e.message };
     }
   }
 
-  const isLive = Object.values(results).some(r => r.ok);
-  res.json({ live: isLive, searchQuota: getSearchQuotaInfo(), results, groundingResults, availableModels });
+  res.json(responseData);
 });
 
 app.post('/api/support/chat', async (req, res) => {

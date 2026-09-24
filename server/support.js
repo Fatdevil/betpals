@@ -152,6 +152,12 @@ export function getSearchQuotaInfo() {
   };
 }
 
+let lastApiDiagnostic = null;
+
+export function getLastApiDiagnostic() {
+  return lastApiDiagnostic;
+}
+
 /**
  * Check if Gemini API is configured and ready.
  */
@@ -166,7 +172,15 @@ export function isGeminiLive() {
 export async function generateMaltaSupportReply(message, history = [], userName = 'Kompis') {
   const apiKey = (process.env.GEMINI_API_KEY || (db?.getSetting ? db.getSetting('gemini_api_key') : null) || '').trim();
 
+  lastApiDiagnostic = {
+    time: new Date().toISOString(),
+    apiKeyPresent: Boolean(apiKey),
+    quota: getSearchQuotaInfo(),
+    attempts: []
+  };
+
   if (!apiKey) {
+    lastApiDiagnostic.offlineReason = 'No API key provided';
     return getMaltaFallbackReply(message, userName);
   }
 
@@ -226,17 +240,26 @@ export async function generateMaltaSupportReply(message, history = [], userName 
       if (!response.ok) {
         const errText = await response.text();
         console.warn(`[malta-support] Gemini API error on ${model} (${response.status}): ${errText}`);
+        lastApiDiagnostic.attempts.push({ model, status: response.status, ok: false, error: errText });
         continue;
       }
 
       const data = await response.json();
       const cand = data?.candidates?.[0];
       const candidateText = cand?.content?.parts?.[0]?.text;
+      const gm = cand?.groundingMetadata || cand?.grounding_metadata;
+      const queries = gm?.webSearchQueries || gm?.web_search_queries;
+
+      lastApiDiagnostic.attempts.push({
+        model,
+        status: response.status,
+        ok: true,
+        candidateLength: candidateText ? candidateText.length : 0,
+        queries: queries || []
+      });
 
       if (candidateText && candidateText.trim()) {
         // Increment search count if Google Search queries were executed
-        const gm = cand?.groundingMetadata || cand?.grounding_metadata;
-        const queries = gm?.webSearchQueries || gm?.web_search_queries;
         if (Array.isArray(queries) && queries.length > 0 && db?.incrementMonthlySearchCount) {
           db.incrementMonthlySearchCount(queries.length);
         }
@@ -244,6 +267,7 @@ export async function generateMaltaSupportReply(message, history = [], userName 
       }
     } catch (fetchErr) {
       console.warn(`[malta-support] Fetch exception on ${model}:`, fetchErr.message);
+      lastApiDiagnostic.attempts.push({ model, exception: fetchErr.message });
     }
   }
 
