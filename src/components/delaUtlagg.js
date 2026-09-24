@@ -131,7 +131,7 @@ export async function openDelaUtlaggModal(options = {}) {
         <!-- Header badge -->
         <div class="flex-between align-center mb-xs">
           <span class="badge badge-accent" style="font-size: 0.72rem; font-weight: 800; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
-            🛒 ${isEn ? 'SPLIT EXPENSE' : 'DELA UTLÄGG'}
+            🧾 ${isEn ? 'SPLIT THE TAB' : 'DELA PÅ NOTAN'}
           </span>
           ${tournamentName ? `
             <span class="badge" style="background: rgba(245, 166, 35, 0.15); color: var(--gold); border: 1px solid rgba(245, 166, 35, 0.3); font-size: 0.7rem; font-weight: 700;">
@@ -141,7 +141,7 @@ export async function openDelaUtlaggModal(options = {}) {
         </div>
 
         <h2 class="font-heading" style="color: #fff; margin: 4px 0 2px; font-size: 1.25rem;">
-          ${isEn ? 'Split Expense / Bill' : 'Dela utlägg & krognota'}
+          ${isEn ? 'Split the Tab / Bill' : 'Dela på notan & utlägg'}
         </h2>
         <p class="text-muted" style="font-size: 0.78rem; margin: 0 0 var(--space-sm);">
           ${tournamentId 

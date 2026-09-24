@@ -260,9 +260,12 @@ export const en = {
   tab: {
     title: 'The Tab',
     subtitle: 'Consolidated events, side-bets, and Swish settlements',
+    saldo: 'Balance',
     weekendTournament: 'Event',
-    swishlist: 'Minigames & Duels',
-    history: 'Archive & History',
+    swishlist: 'Duels',
+    history: 'Archive',
+    splitHeroTitle: 'Split the Tab',
+    splitHeroSub: 'Lunch, bar rounds, taxi or gas',
     noActiveTournaments: 'No active events found.',
     createOrJoin: 'Create an event or join via code to track all your bets!',
     goToCreate: '➕ Create Event',
@@ -291,9 +294,9 @@ export const en = {
     roundLost: 'Lost',
     pastTournaments: 'Past closed events',
     noPastTournaments: 'No previous events in archive.',
-    splitExpenseBtn: '🛒 Split Expense',
+    splitExpenseBtn: '🧾 Split the Tab',
     splitExpenseDesc: 'Food, lunch, snacks or gas — split evenly or customize',
-    expenseTitle: 'Expense'
+    expenseTitle: 'Tab & Expense'
   },
   join: {
     title: 'Join',

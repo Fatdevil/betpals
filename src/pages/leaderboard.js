@@ -35,18 +35,35 @@ export async function renderLeaderboard(params = {}) {
         <p class="page-subtitle" style="margin-top: 2px;">${t('tab.subtitle')}</p>
       </div>
 
-      <div class="the-tab-nav" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;">
+      <!-- Hero action: Dela på notan (Alt A) -->
+      <div class="the-tab-hero-action animate-in">
+        <button type="button" class="btn-hero-split-tab" id="btn-hero-dela-notan" title="${t('tab.splitHeroTitle') || 'Dela på notan'}">
+          <div class="btn-hero-split-content">
+            <div class="btn-hero-split-icon">🧾</div>
+            <div class="btn-hero-split-text">
+              <div class="btn-hero-split-title">
+                <span>${t('tab.splitHeroTitle') || 'Dela på notan'}</span>
+                <span class="btn-hero-split-badge">+</span>
+              </div>
+              <div class="btn-hero-split-desc">${t('tab.splitHeroSub') || 'Lunch, runda i baren, taxi eller bensin'}</div>
+            </div>
+            <div class="btn-hero-split-arrow">➜</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="the-tab-nav the-tab-nav-grid">
         <button class="tab-nav-btn ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview">
-          💰 Vem swishar vem
+          <span>💰</span> <span>${t('tab.saldo') || 'Saldo'}</span>
         </button>
         <button class="tab-nav-btn ${activeTab === 'tournaments' ? 'active' : ''}" data-tab="tournaments">
-          🏆 ${t('tab.weekendTournament')}
+          <span>🏆</span> <span>${t('tab.weekendTournament') || 'Event'}</span>
         </button>
         <button class="tab-nav-btn ${activeTab === 'swishlist' ? 'active' : ''}" data-tab="swishlist">
-          🎲 ${t('tab.swishlist')}
+          <span>🎲</span> <span>${t('tab.swishlist') || 'Dueller'}</span>
         </button>
         <button class="tab-nav-btn ${activeTab === 'history' ? 'active' : ''}" data-tab="history">
-          📁 ${t('tab.history')}
+          <span>📁</span> <span>${t('tab.history') || 'Arkiv'}</span>
         </button>
       </div>
 
@@ -64,6 +81,41 @@ export async function renderLeaderboard(params = {}) {
       activeTab = targetTab;
       renderLeaderboard();
     });
+  });
+
+  // Attach Hero Dela på notan listener
+  content.querySelector('#btn-hero-dela-notan')?.addEventListener('click', async () => {
+    try {
+      const allTours = await getTournaments().catch(() => []);
+      const activeTours = (allTours || []).filter(t => t.status === 'active');
+      const activeTour = activeTours.length > 0 ? activeTours[0] : null;
+
+      if (activeTab === 'tournaments' && activeTour) {
+        const fullTour = await getTournament(activeTour.shareCode).catch(() => activeTour);
+        const balances = (fullTour.settlement && fullTour.settlement.balances) || [];
+        const participants = balances.map(b => ({
+          id: b.userId || b.name,
+          name: b.name,
+          nickname: b.name
+        }));
+        openDelaUtlaggModal({
+          tournamentId: fullTour.id,
+          tournamentName: fullTour.name,
+          participants: participants.length > 0 ? participants : undefined,
+          onSaved: () => renderLeaderboard()
+        });
+      } else {
+        openDelaUtlaggModal({
+          tournamentId: activeTour?.id,
+          tournamentName: activeTour?.name,
+          onSaved: () => renderLeaderboard()
+        });
+      }
+    } catch {
+      openDelaUtlaggModal({
+        onSaved: () => renderLeaderboard()
+      });
+    }
   });
 
   try {
@@ -101,12 +153,12 @@ export async function renderLeaderboard(params = {}) {
     // Update badges
     const overviewBtn = content.querySelector('.tab-nav-btn[data-tab="overview"]');
     if (overviewBtn && overviewData.totalOwed > 0) {
-      overviewBtn.innerHTML = `💰 Vem swishar vem <span class="badge badge-warning" style="font-size: 0.65rem; padding: 2px 6px;">${overviewData.totalOwed} kr</span>`;
+      overviewBtn.innerHTML = `<span>💰</span> <span>${t('tab.saldo') || 'Saldo'}</span> <span class="badge badge-warning tab-badge-compact">${overviewData.totalOwed}:-</span>`;
     }
 
     const swishBtn = content.querySelector('.tab-nav-btn[data-tab="swishlist"]');
     if (swishBtn && duelSettlement.totalOwed > 0) {
-      swishBtn.innerHTML = `🎲 ${t('tab.swishlist')} <span class="badge badge-warning" style="font-size: 0.65rem; padding: 2px 6px;">${duelSettlement.totalOwed} kr</span>`;
+      swishBtn.innerHTML = `<span>🎲</span> <span>${t('tab.swishlist') || 'Dueller'}</span> <span class="badge badge-warning tab-badge-compact">${duelSettlement.totalOwed}:-</span>`;
     }
 
     const tabBody = document.getElementById('tab-body');
@@ -158,12 +210,18 @@ function renderOverviewTab(container, overview, user) {
           ${isEn ? 'You have no open debts or pending payouts across any tournaments, minigames or tabs.' : 'Du har inga öppna skulder eller oreglerade belopp från turneringar, minispel eller notor.'}
         </p>
         <div class="flex gap-sm justify-center">
-          <button type="button" class="btn btn-primary btn-sm btn-overview-goto-home">
+          <button type="button" class="btn btn-primary btn-sm btn-overview-dela-notan" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700;">
+            🧾 ${t('tab.splitHeroTitle') || 'Dela på notan'}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm btn-overview-goto-home">
             ${isEn ? 'Go to Games' : 'Till spelen 🎲'}
           </button>
         </div>
       </div>
     `;
+    container.querySelector('.btn-overview-dela-notan')?.addEventListener('click', () => {
+      openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
+    });
     container.querySelector('.btn-overview-goto-home')?.addEventListener('click', () => {
       window.location.hash = '#home';
     });
@@ -627,10 +685,10 @@ async function renderTournamentTab(container, activeTournaments, user) {
       ${selectorHtml}
       ${heroCardHtml}
 
-      <!-- Action: Dela utlägg -->
+      <!-- Action: Dela på notan -->
       <div class="mb-md">
         <button type="button" class="btn btn-primary btn-block" id="btn-event-dela-utlagg" style="padding: 11px 14px; font-weight: 800; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <span>🛒</span> <span>${t('tab.splitExpenseBtn') || 'Dela utlägg'}</span>
+          <span>🧾</span> <span>${t('tab.splitExpenseBtn') || 'Dela på notan'}</span>
           <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">(${isEn ? 'Food, gas, lunch' : 'Mat, lunch, bensin'})</span>
         </button>
       </div>
@@ -862,10 +920,10 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </div>
       </div>
 
-      <!-- Tab Actions: Dela utlägg -->
+      <!-- Tab Actions: Dela på notan -->
       <div class="mb-md">
         <button type="button" class="btn btn-primary btn-block" id="btn-swish-split-tab" style="padding: 11px 14px; font-weight: 800; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <span>🛒</span> <span>${t('tab.splitExpenseBtn') || 'Dela utlägg'}</span>
+          <span>🧾</span> <span>${t('tab.splitExpenseBtn') || 'Dela på notan'}</span>
           <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">(${isEn ? 'Equal / Custom' : 'Dela lika / Anpassa'})</span>
         </button>
       </div>
@@ -985,7 +1043,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
                     const gameTitles = {
                       flashbet: 'BlixtBet',
                       anybet: 'AnyBet',
-                      even_steven: isEn ? 'Split Expense' : 'Dela utlägg',
+                      even_steven: isEn ? 'Split Tab' : 'Dela på notan',
                       gimme: 'Gimme',
                       'coin-flip': isEn ? 'Coin Flip' : 'Krona/Klave',
                       coin: isEn ? 'Coin Flip' : 'Krona/Klave',

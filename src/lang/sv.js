@@ -261,9 +261,12 @@ export const sv = {
   tab: {
     title: 'The Tab',
     subtitle: 'Samlade events, sido-bets och Swish-uppgörelser',
+    saldo: 'Saldo',
     weekendTournament: 'Event',
-    swishlist: 'Minispel & Dueller',
-    history: 'Arkiv & Historik',
+    swishlist: 'Dueller',
+    history: 'Arkiv',
+    splitHeroTitle: 'Dela på notan',
+    splitHeroSub: 'Lunch, runda i baren, taxi eller bensin',
     noActiveTournaments: 'Inget aktivt event hittades.',
     createOrJoin: 'Skapa ett event eller gå med via kod för att samla alla spel!',
     goToCreate: '➕ Skapa Event',
@@ -292,9 +295,9 @@ export const sv = {
     roundLost: 'Förlust',
     pastTournaments: 'Tidigare avslutade events',
     noPastTournaments: 'Inga tidigare events i arkivet.',
-    splitExpenseBtn: '🛒 Dela utlägg',
+    splitExpenseBtn: '🧾 Dela på notan',
     splitExpenseDesc: 'Mat, lunch, fika eller bensin — fördela lika eller anpassa',
-    expenseTitle: 'Utlägg'
+    expenseTitle: 'Nota & Utlägg'
   },
   join: {
     title: 'Gå med',

@@ -736,6 +736,142 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
+/* 4-column balanced grid navigation for THE TAB */
+.the-tab-nav.the-tab-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  overflow-x: visible;
+}
+
+.the-tab-nav.the-tab-nav-grid .tab-nav-btn {
+  flex: none;
+  width: 100%;
+  padding: 8px 4px;
+  font-size: 0.78rem;
+  gap: 4px;
+  justify-content: center;
+  text-align: center;
+}
+
+.tab-badge-compact {
+  font-size: 0.62rem !important;
+  padding: 1px 5px !important;
+  border-radius: 999px !important;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+@media (max-width: 380px) {
+  .the-tab-nav.the-tab-nav-grid .tab-nav-btn {
+    font-size: 0.72rem;
+    padding: 7px 2px;
+    gap: 2px;
+  }
+  .the-tab-nav.the-tab-nav-grid .tab-nav-btn span:first-child {
+    font-size: 0.85rem;
+  }
+  .tab-badge-compact {
+    font-size: 0.58rem !important;
+    padding: 1px 3px !important;
+  }
+}
+
+/* ── Hero action: Dela på notan (Alt A) ────────────────────────── */
+.the-tab-hero-action {
+  margin-bottom: var(--space-md);
+}
+
+.btn-hero-split-tab {
+  width: 100%;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.15) 50%, rgba(245, 158, 11, 0.15) 100%);
+  border: 1.5px solid rgba(16, 185, 129, 0.45);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.15), 0 2px 8px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: left;
+  display: block;
+}
+
+.btn-hero-split-tab:hover,
+.btn-hero-split-tab:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(16, 185, 129, 0.7);
+  box-shadow: 0 6px 22px rgba(16, 185, 129, 0.25), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.btn-hero-split-tab:active {
+  transform: translateY(0);
+}
+
+.btn-hero-split-content {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.btn-hero-split-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.35), rgba(245, 158, 11, 0.25));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.btn-hero-split-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-hero-split-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: -0.01em;
+}
+
+.btn-hero-split-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.btn-hero-split-desc {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-hero-split-arrow {
+  color: var(--gold);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.btn-hero-split-tab:hover .btn-hero-split-arrow {
+  transform: translateX(3px);
+}
+
 .tab-hero-card {
   border-radius: var(--radius-lg);
   padding: var(--space-md);
