@@ -108,6 +108,10 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
 4. **Den gyllene Malta-regeln:** Släpp dödsgreppet om klubban (grepptryck 4 av 10) och svinga i 80% tempo. Bollen flyger både rakare och längre, och ölen på 19:e smakar dubbelt så gott! 🚀🍻`;
   }
 
+  if (q.includes('internet') || q.includes('surf')) {
+    return `Haha ${userName}! 🌴📶 Här på Malta-kontoret har vi dragit ur modemsladden – internet är slut! Månadens fria satellitsurf är förbrukad, men oroa dig inte: jag har fortfarande hela golfhjärnan full med tips om The Tab, AnyBet, FlashBet och hur du rätar ut din slice! Vad vill du ha hjälp med? 🏌️‍♂️🍻`;
+  }
+
   if (q.includes('putt') || q.includes('vatten') || q.includes('ruff')) {
     return `Ojojoj ${userName}... 🏌️‍♂️💨 På Malta har vi en gyllene regel: En missad putt eller boll i vattnet kan alltid räddas av ett iskallt AnyBet på nästa hål och en kall lager i baren! Släpp prestigen, fokusera på nästa slag och låt BetPals hålla koll på ställningen! 🍻⛳`;
   }
@@ -125,8 +129,23 @@ Hur kan jag hjälpa dig med golfresan och era rundor idag?
 Bara fråga på så guidar jag dig direkt! ⛳🎰`;
 }
 
+export const MAX_MONTHLY_SEARCHES = 5000;
+
 /**
- * Check if Gemini 2.0 API is configured and ready.
+ * Get current monthly search quota status.
+ */
+export function getSearchQuotaInfo() {
+  const count = db?.getMonthlySearchCount ? db.getMonthlySearchCount() : 0;
+  return {
+    count,
+    max: MAX_MONTHLY_SEARCHES,
+    remaining: Math.max(0, MAX_MONTHLY_SEARCHES - count),
+    exhausted: count >= MAX_MONTHLY_SEARCHES
+  };
+}
+
+/**
+ * Check if Gemini API is configured and ready.
  */
 export function isGeminiLive() {
   const key = process.env.GEMINI_API_KEY || (db?.getSetting ? db.getSetting('gemini_api_key') : null);
@@ -134,7 +153,7 @@ export function isGeminiLive() {
 }
 
 /**
- * Calls Gemini API if GEMINI_API_KEY is available, otherwise uses smart fallback.
+ * Calls Gemini API with Google Search grounding (capped at 5,000 searches/month).
  */
 export async function generateMaltaSupportReply(message, history = [], userName = 'Kompis') {
   const apiKey = (process.env.GEMINI_API_KEY || (db?.getSetting ? db.getSetting('gemini_api_key') : null) || '').trim();
@@ -142,6 +161,8 @@ export async function generateMaltaSupportReply(message, history = [], userName 
   if (!apiKey) {
     return getMaltaFallbackReply(message, userName);
   }
+
+  const quota = getSearchQuotaInfo();
 
   // Format contents for Gemini API
   const formattedContents = [];
@@ -162,9 +183,14 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     parts: [{ text: `[Användare: ${userName}]: ${message}` }]
   });
 
+  let systemInstructionText = MALTA_SYSTEM_PROMPT;
+  if (quota.exhausted) {
+    systemInstructionText += `\n\n[VIKTIGT OM SURFPOTT: Månadens fria internet/Google-sökkvot (5 000 sökningar) är helt SLUT! Du har INTE tillgång till live-sökning på Google just nu. Om användaren ber dig kolla upp dagsfärsk info, live-väder, eller frågar om internet/surfen, svara med glimten i ögat och klassisk Malta-humor att 'internet är slut / surfen har tagit slut på Malta-kontoret' (t.ex. att någon på 19:e hålet drog ur modemsladden och brände månadens 5 000 fria megabytes! 🌴📶). Svara på frågan efter bästa förmåga med ditt allmänna minne utan realtidssökning!]`;
+  }
+
   const primaryPayload = {
     system_instruction: {
-      parts: [{ text: MALTA_SYSTEM_PROMPT }]
+      parts: [{ text: systemInstructionText }]
     },
     contents: formattedContents,
     generationConfig: {
@@ -172,6 +198,11 @@ export async function generateMaltaSupportReply(message, history = [], userName 
       maxOutputTokens: 600
     }
   };
+
+  // Only enable Google Search grounding tool if under 5,000 searches this month!
+  if (!quota.exhausted) {
+    primaryPayload.tools = [{ google_search: {} }];
+  }
 
   const models = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
@@ -194,6 +225,11 @@ export async function generateMaltaSupportReply(message, history = [], userName 
       const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (candidateText && candidateText.trim()) {
+        // Increment search count if Google Search queries were executed
+        const queries = data?.candidates?.[0]?.groundingMetadata?.webSearchQueries;
+        if (Array.isArray(queries) && queries.length > 0 && db?.incrementMonthlySearchCount) {
+          db.incrementMonthlySearchCount(queries.length);
+        }
         return candidateText.trim();
       }
     } catch (fetchErr) {

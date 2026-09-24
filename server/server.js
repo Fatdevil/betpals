@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken } from 'livekit-server-sdk';
-import { generateMaltaSupportReply, getMaltaFallbackReply, isGeminiLive } from './support.js';
+import { generateMaltaSupportReply, getMaltaFallbackReply, isGeminiLive, getSearchQuotaInfo } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -803,6 +803,7 @@ app.get('/api/admin/status', (req, res) => {
   res.json({
     hasPin: !!db.getAdminPin(),
     geminiLive: isGeminiLive(),
+    searchQuota: getSearchQuotaInfo(),
     livekitConfigured: Boolean(process.env.LIVEKIT_URL || db.getSetting('livekit_url'))
   });
 });
@@ -815,9 +816,10 @@ app.get('/api/admin/gemini', (req, res) => {
   const key = (process.env.GEMINI_API_KEY || db.getSetting('gemini_api_key') || '').trim();
   res.json({
     live: Boolean(key),
-    model: 'gemini-2.0-flash',
+    model: 'gemini-3.6-flash',
     source: process.env.GEMINI_API_KEY ? 'env' : (db.getSetting('gemini_api_key') ? 'db' : 'none'),
-    apiKeyMasked: key ? `${key.slice(0, 4)}...${key.slice(-4)}` : ''
+    apiKeyMasked: key ? `${key.slice(0, 4)}...${key.slice(-4)}` : '',
+    searchQuota: getSearchQuotaInfo()
   });
 });
 
@@ -5593,7 +5595,7 @@ app.get('/api/support/health', async (req, res) => {
   } catch (e) { /* ignore */ }
 
   const isLive = Object.values(results).some(r => r.ok);
-  res.json({ live: isLive, results, availableModels });
+  res.json({ live: isLive, searchQuota: getSearchQuotaInfo(), results, availableModels });
 });
 
 app.post('/api/support/chat', async (req, res) => {

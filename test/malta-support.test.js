@@ -15,11 +15,36 @@ test('Malta Support — Generates rich fallback replies for golf, birdies, tab a
   const pinReply = getMaltaFallbackReply('Jag har glömt min PIN-kod', 'Kalle');
   assert.ok(pinReply.includes('Nollställ PIN'), 'Should guide on PIN reset via admin');
 
+  const internetReply = getMaltaFallbackReply('Har ni internet eller surf?', 'Sarah');
+  assert.ok(internetReply.includes('internet är slut') || internetReply.includes('surf'), 'Should mention internet/surf out playfully');
+
   const lovenReply = getMaltaFallbackReply('Ska vi köra löven game på golfen?', 'Erik');
   assert.ok(lovenReply.includes('Björklöven') || lovenReply.includes('hockey'), 'Should warn about Löven hockey');
 
   const generalReply = getMaltaFallbackReply('Tja vad kan du hjälpa till med?', 'Alex');
   assert.ok(generalReply.includes('Malta Support'), 'General reply should introduce Malta Support');
+});
+
+test('Malta Support — Search Quota tracking and 5000 cap', async () => {
+  const { getSearchQuotaInfo, MAX_MONTHLY_SEARCHES } = await import('../server/support.js');
+  const db = await import('../server/db.js');
+
+  assert.equal(MAX_MONTHLY_SEARCHES, 5000);
+  const initial = getSearchQuotaInfo();
+  assert.ok(typeof initial.count === 'number');
+  assert.equal(initial.max, 5000);
+  assert.equal(initial.remaining, Math.max(0, 5000 - initial.count));
+
+  // Test increment
+  const startCount = initial.count;
+  db.incrementMonthlySearchCount(3);
+  const afterInc = getSearchQuotaInfo();
+  assert.equal(afterInc.count, startCount + 3);
+
+  // Restore
+  db.resetMonthlySearchCount();
+  assert.equal(getSearchQuotaInfo().count, 0);
+  assert.equal(getSearchQuotaInfo().exhausted, false);
 });
 
 test('Malta Support — POST /api/support/chat handles HTTP requests and rate limits', async () => {

@@ -1110,6 +1110,26 @@ export function setAdminPin(hashedPin) {
   stmts.setSetting.run('admin_pin', hashedPin);
 }
 
+export function getMonthlySearchCount() {
+  const monthKey = 'search_count_' + new Date().toISOString().slice(0, 7);
+  const val = getSetting(monthKey);
+  return val ? parseInt(val, 10) || 0 : 0;
+}
+
+export function incrementMonthlySearchCount(delta = 1) {
+  const monthKey = 'search_count_' + new Date().toISOString().slice(0, 7);
+  const current = getMonthlySearchCount();
+  const next = current + Math.max(1, Number(delta) || 1);
+  setSetting(monthKey, next);
+  return next;
+}
+
+export function resetMonthlySearchCount() {
+  const monthKey = 'search_count_' + new Date().toISOString().slice(0, 7);
+  setSetting(monthKey, 0);
+  return 0;
+}
+
 export function getEventSummaries(includeTournamentEvents = false) {
   const events = stmts.getAllEvents.all();
   return events
