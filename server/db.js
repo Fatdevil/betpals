@@ -2886,6 +2886,115 @@ export function settleDuelsBetweenUsers(userId, friendId) {
   return true;
 }
 
+export function getUnifiedSettlementOverview(userId) {
+  if (!userId) return { friends: [], totalNet: 0, totalOwed: 0, totalDue: 0 };
+
+  const duelSummary = getDuelSettlementSummary(userId);
+  const friendsMap = new Map();
+
+  for (const f of (duelSummary.friends || [])) {
+    friendsMap.set(f.friendId, {
+      friendId: f.friendId,
+      friendName: f.friendName,
+      friendNickname: f.friendNickname,
+      friendSwish: f.friendSwish,
+      friendAvatarEmoji: f.friendAvatarEmoji,
+      friendAvatarUrl: f.friendAvatarUrl,
+      duelNet: f.netAmount || 0,
+      tournamentNet: 0,
+      totalNet: f.netAmount || 0,
+      duelsCount: f.duelsCount || 0,
+      duelIds: f.duelIds || [],
+      details: (f.duels || []).map(d => ({
+        type: d.expenseId ? 'expense' : 'duel',
+        title: d.customTitle || (d.expenseId ? 'Utlägg/Nota' : `Duell (${d.gameType || '1v1'})`),
+        amount: d.youWon ? d.stakeAmount : -d.stakeAmount,
+        date: d.createdAt
+      }))
+    });
+  }
+
+  const userTournaments = getAllTournaments(userId);
+  const currentUser = getUserById(userId);
+  const myNick = currentUser ? currentUser.nickname : null;
+  const myName = currentUser ? currentUser.real_name : null;
+
+  for (const t of userTournaments) {
+    let settlement;
+    try {
+      settlement = getTournamentNetSettlement(t.id);
+    } catch {
+      continue;
+    }
+    if (!settlement || !Array.isArray(settlement.transfers)) continue;
+
+    for (const tr of settlement.transfers) {
+      if (tr.isPaid) continue;
+
+      const isMeFrom = tr.fromUserId === userId || (myNick && tr.from === myNick) || (myName && tr.from === myName);
+      const isMeTo = tr.toUserId === userId || (myNick && tr.to === myNick) || (myName && tr.to === myName);
+
+      if (!isMeFrom && !isMeTo) continue;
+
+      const otherUserId = isMeFrom ? tr.toUserId : tr.fromUserId;
+      const otherName = isMeFrom ? tr.to : tr.from;
+      const otherSwish = isMeFrom ? tr.toSwish : null;
+
+      let key = otherUserId || otherName;
+      if (!key) continue;
+
+      if (!friendsMap.has(key)) {
+        let otherUser = otherUserId ? getUserById(otherUserId) : null;
+        if (!otherUser && otherName) {
+          otherUser = getUserByNicknameOrSwish(otherName);
+        }
+
+        friendsMap.set(key, {
+          friendId: otherUser ? otherUser.id : key,
+          friendName: otherUser ? (otherUser.nickname || otherUser.real_name) : otherName,
+          friendNickname: otherUser ? otherUser.nickname : otherName,
+          friendSwish: otherUser ? otherUser.swish_number : otherSwish,
+          friendAvatarEmoji: otherUser ? otherUser.avatar_emoji : '👤',
+          friendAvatarUrl: otherUser ? otherUser.avatar_url : null,
+          duelNet: 0,
+          tournamentNet: 0,
+          totalNet: 0,
+          duelsCount: 0,
+          duelIds: [],
+          details: []
+        });
+      }
+
+      const item = friendsMap.get(key);
+      const amountChange = isMeTo ? tr.amount : -tr.amount;
+      item.tournamentNet += amountChange;
+      item.totalNet += amountChange;
+      item.details.push({
+        type: 'tournament',
+        title: `🏆 ${t.name}`,
+        amount: amountChange,
+        tournamentId: t.id
+      });
+    }
+  }
+
+  const friends = Array.from(friendsMap.values())
+    .filter(f => f.totalNet !== 0 || f.details.length > 0)
+    .sort((a, b) => a.totalNet - b.totalNet);
+
+  let totalNet = 0;
+  let totalOwed = 0;
+  let totalDue = 0;
+
+  for (const f of friends) {
+    totalNet += f.totalNet;
+    if (f.totalNet < 0) totalOwed += Math.abs(f.totalNet);
+    if (f.totalNet > 0) totalDue += f.totalNet;
+  }
+
+  return { friends, totalNet, totalOwed, totalDue };
+}
+
 // ── AnyBet Public API ─────────────────────────────────
 
 export function isDeadlinePassed(deadline) {

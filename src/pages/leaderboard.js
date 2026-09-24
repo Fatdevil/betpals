@@ -4,6 +4,7 @@ import {
   getTournament, 
   toggleSettlementReceipt, 
   getDuelSettlements, 
+  getSettlementsOverview,
   settleDuelsWithFriend 
 } from '../api.js';
 import { formatCurrency, showToast, escapeHtml, createSwishUrl } from '../utils.js';
@@ -12,7 +13,7 @@ import { getStoredUser, isLoggedIn } from '../auth.js';
 import { openReceiptModal } from '../components/minigames.js';
 import { openDelaUtlaggModal } from '../components/delaUtlagg.js';
 
-let activeTab = 'tournaments'; // 'tournaments' | 'swishlist' | 'history'
+let activeTab = 'overview'; // 'overview' | 'tournaments' | 'swishlist' | 'history'
 let currentTournamentCode = null;
 
 export async function renderLeaderboard(params = {}) {
@@ -21,7 +22,7 @@ export async function renderLeaderboard(params = {}) {
 
   const url = new URL(window.location);
   const tabParam = params.tab || url.searchParams.get('tab');
-  if (tabParam && ['tournaments', 'swishlist', 'history'].includes(tabParam)) {
+  if (tabParam && ['overview', 'tournaments', 'swishlist', 'history'].includes(tabParam)) {
     activeTab = tabParam;
   }
 
@@ -34,7 +35,10 @@ export async function renderLeaderboard(params = {}) {
         <p class="page-subtitle" style="margin-top: 2px;">${t('tab.subtitle')}</p>
       </div>
 
-      <div class="the-tab-nav">
+      <div class="the-tab-nav" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;">
+        <button class="tab-nav-btn ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview">
+          💰 Vem swishar vem
+        </button>
         <button class="tab-nav-btn ${activeTab === 'tournaments' ? 'active' : ''}" data-tab="tournaments">
           🏆 ${t('tab.weekendTournament')}
         </button>
@@ -71,21 +75,35 @@ export async function renderLeaderboard(params = {}) {
     const activeTournaments = allTournaments.filter(t => t.status === 'active');
     const pastTournaments = allTournaments.filter(t => t.status === 'settled');
 
-    // Fetch duel settlements if logged in
+    // Fetch settlements if logged in
+    let overviewData = { friends: [], totalNet: 0, totalOwed: 0, totalDue: 0 };
     let duelSettlement = { friends: [], totalNet: 0, totalOwed: 0, totalDue: 0 };
     if (loggedIn) {
       try {
-        const rawDuels = await getDuelSettlements();
-        const friends = rawDuels.friends || [];
-        const totalDue = friends.filter(f => f.netAmount > 0).reduce((sum, f) => sum + f.netAmount, 0);
-        const totalOwed = friends.filter(f => f.netAmount < 0).reduce((sum, f) => sum + (-f.netAmount), 0);
-        duelSettlement = { friends, totalNet: rawDuels.totalNet || 0, totalOwed, totalDue };
+        const [rawOverview, rawDuels] = await Promise.all([
+          getSettlementsOverview().catch(() => null),
+          getDuelSettlements().catch(() => null)
+        ]);
+        if (rawOverview) {
+          overviewData = rawOverview;
+        }
+        if (rawDuels) {
+          const friends = rawDuels.friends || [];
+          const totalDue = friends.filter(f => f.netAmount > 0).reduce((sum, f) => sum + f.netAmount, 0);
+          const totalOwed = friends.filter(f => f.netAmount < 0).reduce((sum, f) => sum + (-f.netAmount), 0);
+          duelSettlement = { friends, totalNet: rawDuels.totalNet || 0, totalOwed, totalDue };
+        }
       } catch (e) {
-        console.warn('Could not fetch duel settlements:', e);
+        console.warn('Could not fetch settlements:', e);
       }
     }
 
-    // Update swishlist pill badge if there is debt
+    // Update badges
+    const overviewBtn = content.querySelector('.tab-nav-btn[data-tab="overview"]');
+    if (overviewBtn && overviewData.totalOwed > 0) {
+      overviewBtn.innerHTML = `💰 Vem swishar vem <span class="badge badge-warning" style="font-size: 0.65rem; padding: 2px 6px;">${overviewData.totalOwed} kr</span>`;
+    }
+
     const swishBtn = content.querySelector('.tab-nav-btn[data-tab="swishlist"]');
     if (swishBtn && duelSettlement.totalOwed > 0) {
       swishBtn.innerHTML = `🎲 ${t('tab.swishlist')} <span class="badge badge-warning" style="font-size: 0.65rem; padding: 2px 6px;">${duelSettlement.totalOwed} kr</span>`;
@@ -94,7 +112,9 @@ export async function renderLeaderboard(params = {}) {
     const tabBody = document.getElementById('tab-body');
     if (!tabBody) return;
 
-    if (activeTab === 'tournaments') {
+    if (activeTab === 'overview') {
+      renderOverviewTab(tabBody, overviewData, user);
+    } else if (activeTab === 'tournaments') {
       await renderTournamentTab(tabBody, activeTournaments, user);
     } else if (activeTab === 'swishlist') {
       renderSwishlistTab(tabBody, duelSettlement, user);
@@ -111,6 +131,173 @@ export async function renderLeaderboard(params = {}) {
         </div>`;
     }
   }
+}
+
+// ── 0. Unified "Who Owes Who" Tab ────────────────────
+function renderOverviewTab(container, overview, user) {
+  const isEn = getLang() === 'en';
+  if (!user) {
+    container.innerHTML = `
+      <div class="card text-center p-lg">
+        <p class="text-secondary">${isEn ? 'Log in to view your unified settlements.' : 'Logga in för att se dina samlade uppgörelser och skulder.'}</p>
+      </div>
+    `;
+    return;
+  }
+
+  const { friends = [], totalNet = 0, totalOwed = 0, totalDue = 0 } = overview || {};
+
+  if (friends.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state card text-center" style="padding: 32px 16px;">
+        <div style="font-size: 3rem; margin-bottom: 8px;">🥂</div>
+        <h3 class="font-heading" style="color: #10b981; margin-bottom: 6px;">
+          ${isEn ? 'All settled up!' : 'Helt kvitt med alla!'}
+        </h3>
+        <p class="text-muted" style="font-size: 0.85rem; max-width: 340px; margin: 0 auto 16px;">
+          ${isEn ? 'You have no open debts or pending payouts across any tournaments, minigames or tabs.' : 'Du har inga öppna skulder eller oreglerade belopp från turneringar, minispel eller notor.'}
+        </p>
+        <div class="flex gap-sm justify-center">
+          <button type="button" class="btn btn-primary btn-sm btn-overview-goto-home">
+            ${isEn ? 'Go to Games' : 'Till spelen 🎲'}
+          </button>
+        </div>
+      </div>
+    `;
+    container.querySelector('.btn-overview-goto-home')?.addEventListener('click', () => {
+      window.location.hash = '#home';
+    });
+    return;
+  }
+
+  container.innerHTML = `
+    <!-- Top Summary Banner -->
+    <div class="card p-md mb-md animate-in" style="background: linear-gradient(135deg, rgba(20,20,35,0.9), rgba(10,10,20,0.95)); border: 1.5px solid ${totalNet < 0 ? 'rgba(239,68,68,0.35)' : totalNet > 0 ? 'rgba(16,185,129,0.35)' : 'var(--border-glass)'};">
+      <div class="flex-between align-center mb-xs">
+        <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+          ${isEn ? 'Total Net Balance' : 'Din totala ställning'}
+        </span>
+        <span class="badge" style="font-size: 0.88rem; font-weight: 800; background: ${totalNet < 0 ? 'rgba(239,68,68,0.2)' : totalNet > 0 ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}; color: ${totalNet < 0 ? '#ef4444' : totalNet > 0 ? '#10b981' : 'var(--gold)'}; padding: 4px 10px;">
+          ${totalNet > 0 ? `+${totalNet} kr` : `${totalNet} kr`}
+        </span>
+      </div>
+      <div class="flex gap-md mt-sm pt-xs" style="border-top: 1px solid var(--border-glass);">
+        <div style="flex: 1;">
+          <div style="font-size: 0.72rem; color: var(--text-muted);">${isEn ? 'To Swish others' : 'Du ska swisha'}</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #ef4444;">${totalOwed} kr</div>
+        </div>
+        <div style="flex: 1;">
+          <div style="font-size: 0.72rem; color: var(--text-muted);">${isEn ? 'Others to Swish you' : 'Andra ska swisha dig'}</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #10b981;">${totalDue} kr</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Friends Settlement Cards -->
+    <div class="section-header-bar mb-sm">
+      <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-secondary);">
+        👥 ${isEn ? 'Net settlements per person' : 'Nettosaldo per kompis'} (${friends.length})
+      </span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      ${friends.map((f, i) => {
+        const owesYou = f.totalNet > 0;
+        const absAmount = Math.abs(f.totalNet);
+        const swishUrl = f.friendSwish ? createSwishUrl({
+          phone: f.friendSwish,
+          amount: absAmount,
+          message: 'Malta Betting Slutavräkning'
+        }) : '#';
+
+        return `
+          <div class="card p-sm animate-in" style="border-left: 4px solid ${owesYou ? '#10b981' : '#ef4444'}; animation-delay: ${i * 0.05}s;">
+            <div class="flex-between align-center">
+              <div class="flex gap-sm align-center" style="min-width: 0; flex: 1;">
+                <div style="width: 38px; height: 38px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; border: 1px solid var(--border-glass);">
+                  ${f.friendAvatarUrl ? `<img src="${f.friendAvatarUrl}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (f.friendAvatarEmoji || '👤')}
+                </div>
+                <div style="min-width: 0;">
+                  <div style="font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    ${escapeHtml(f.friendName || f.friendNickname)}
+                  </div>
+                  <div style="font-size: 0.75rem; color: ${owesYou ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                    ${owesYou 
+                      ? (isEn ? `Ska swisha dig ${absAmount} kr` : `Ska swisha dig ${absAmount} kr`) 
+                      : (isEn ? `Du ska swisha ${absAmount} kr` : `Du ska swisha ${absAmount} kr`)}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action buttons -->
+              <div class="flex gap-xs align-center" style="flex-shrink: 0;">
+                ${!owesYou && absAmount > 0 ? `
+                  <a href="${swishUrl}" class="swish-pay-btn" style="padding: 7px 12px; font-size: 0.8rem; font-weight: 700;" target="_blank" rel="noopener">
+                    📱 Swisha
+                  </a>
+                ` : owesYou && absAmount > 0 ? `
+                  <button type="button" class="btn btn-ghost btn-xs btn-remind-unified" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" style="color: var(--gold); padding: 6px 10px;">
+                    💬 Påminn
+                  </button>
+                ` : ''}
+                <button type="button" class="btn btn-secondary btn-xs btn-toggle-unified-details" data-target="details-${i}" title="Visa specifikation" style="padding: 6px 8px; font-size: 0.75rem;">
+                  🔍
+                </button>
+              </div>
+            </div>
+
+            <!-- Expandable specification / details -->
+            <div id="details-${i}" class="unified-details-drawer" style="display: none; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-glass); font-size: 0.78rem;">
+              <div style="font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
+                ${isEn ? 'Specification:' : 'Underlag:'}
+              </div>
+              ${(f.details && f.details.length > 0) ? f.details.map(d => `
+                <div class="flex-between py-xs" style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                  <span>${escapeHtml(d.title)}</span>
+                  <span style="font-weight: 700; color: ${d.amount >= 0 ? '#10b981' : '#ef4444'};">
+                    ${d.amount >= 0 ? `+${d.amount}` : d.amount} kr
+                  </span>
+                </div>
+              `).join('') : `
+                <div class="text-muted">${isEn ? 'No detail breakdown' : 'Ingen specifikation tillgänglig'}</div>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  // Attach toggle listeners
+  container.querySelectorAll('.btn-toggle-unified-details').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      const drawer = document.getElementById(targetId);
+      if (drawer) {
+        const isShown = drawer.style.display !== 'none';
+        drawer.style.display = isShown ? 'none' : 'block';
+      }
+    });
+  });
+
+  // Attach remind listener
+  container.querySelectorAll('.btn-remind-unified').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.getAttribute('data-name');
+      const amount = btn.getAttribute('data-amount');
+      const text = isEn 
+        ? `Hey ${name}! Friendly reminder to Swish ${amount} kr for our Malta Betting games & tabs 📱🤝`
+        : `Tjena ${name}! Vänlig påminnelse att swisha ${amount} kr för våra Malta Betting-spel och notor 📱🤝`;
+
+      if (navigator.share) {
+        navigator.share({ text }).catch(() => {});
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast(isEn ? 'Reminder copied! 📋' : 'Påminnelsetext kopierad till urklipp! 📋', 'success');
+        });
+      }
+    });
+  });
 }
 
 // ── 1. Tournament Settlement Tab ──────────────────────

@@ -309,6 +309,7 @@ export const getMyStats = () => request('/users/me/stats');
 export const createDuel = (data) => request('/duels', { method: 'POST', body: data });
 export const getPendingDuels = () => request('/duels/pending');
 export const getDuelSettlements = () => request('/duels/settlements');
+export const getSettlementsOverview = () => request('/settlements/overview');
 export const getDuelHistory = () => request('/duels/history');
 export const getDuel = (id) => request('/duels/' + id);
 export const respondDuel = (id, accept) => request('/duels/' + id + '/respond', { method: 'POST', body: { accept } });

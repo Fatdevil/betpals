@@ -494,6 +494,13 @@ function renderEventContent(event, content, code) {
               </div>
               <div class="form-group">
                 <label class="form-label">${t('event.stake')} (${formatCurrency(event.minBet)} – ${formatCurrency(event.maxBet)})</label>
+                <div class="quick-stake-pills flex gap-xs mb-xs" style="flex-wrap: wrap; margin-bottom: 8px;">
+                  ${[20, 50, 100, 200, 500].filter(amt => amt >= (event.minBet || 1) && amt <= (event.maxBet || 10000)).map(amt => `
+                    <button type="button" class="btn btn-xs btn-secondary quick-stake-btn" data-amount="${amt}" style="padding: 5px 12px; font-weight: 700; border-radius: 20px;">
+                      ${amt} kr
+                    </button>
+                  `).join('')}
+                </div>
                 <input type="number" class="form-input" id="bet-amount"
                        min="${event.minBet}" max="${event.maxBet}" step="1"
                        placeholder="${event.minBet}" required />
@@ -616,6 +623,23 @@ function renderEventContent(event, content, code) {
     });
 
     const form = document.getElementById('bet-form');
+    form?.querySelectorAll('.quick-stake-btn').forEach(qBtn => {
+      qBtn.addEventListener('click', () => {
+        const amt = qBtn.getAttribute('data-amount');
+        const input = document.getElementById('bet-amount');
+        if (input) {
+          input.value = amt;
+          input.dispatchEvent(new Event('input'));
+        }
+        form.querySelectorAll('.quick-stake-btn').forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-secondary');
+        });
+        qBtn.classList.remove('btn-secondary');
+        qBtn.classList.add('btn-primary');
+      });
+    });
+
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('bet-submit-btn');

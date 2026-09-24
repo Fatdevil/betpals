@@ -3105,6 +3105,13 @@ app.get('/api/duels/settlements', (req, res) => {
   res.json(summary);
 });
 
+app.get('/api/settlements/overview', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const overview = db.getUnifiedSettlementOverview(user.id);
+  res.json(overview);
+});
+
 app.get('/api/duels/history', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });

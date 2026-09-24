@@ -2438,8 +2438,8 @@ export async function openBlind10Modal(initialRoom = null) {
           <button type="button" class="btn btn-secondary btn-block" id="btn-party-close">
             ❌ ${isEn ? 'Close' : 'Stäng'}
           </button>
-          <button type="button" class="btn btn-primary btn-block" id="btn-party-play-again" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
-            🔄 ${isEn ? 'Play Again' : 'Spela igen'}
+          <button type="button" class="btn btn-primary btn-block" id="btn-party-play-again" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 800;">
+            ${!isWinner ? (isEn ? '🔥 REVANSCH!' : '🔥 REVANSCH!') : (isEn ? '🔄 Play Again' : '🔄 Spela igen')}
           </button>
         </div>
       </div>
@@ -6387,11 +6387,41 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           </div>
         ` : ''}
 
+        ${!isUserWinner && winner ? `
+          <div class="my-sm">
+            <button type="button" class="btn btn-warning btn-block animate-pulse" id="btn-space-party-rematch" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; font-weight: 800; padding: 12px; font-size: 0.95rem; border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(245,158,11,0.35);">
+              🔥 REVANSCH! (Utmana ${escapeHtml(winner.nickname)} igen)
+            </button>
+          </div>
+        ` : ''}
+
         <button type="button" class="btn btn-secondary btn-block mt-sm" id="btn-space-party-done">
           ${isEn ? 'Close' : 'Stäng'}
         </button>
       </div>
     `;
+
+    stage.querySelector('#btn-space-party-rematch')?.addEventListener('click', async () => {
+      const btn = stage.querySelector('#btn-space-party-rematch');
+      if (btn) btn.disabled = true;
+      try {
+        const newRoomRes = await createPartyRoom({
+          gameType: room.gameType,
+          stakeAmount: room.stakeAmount || 0
+        });
+        if (newRoomRes && newRoomRes.room) {
+          partyRoom = newRoomRes.room;
+          showToast('🔥 Revansch-rum skapat! Bjuder in...', 'success');
+          if (winner && winner.id) {
+            inviteToParty(partyRoom.id, winner.id).catch(() => {});
+          }
+          renderPartyLobbyView();
+        }
+      } catch (err) {
+        showToast(err.message || 'Kunde inte starta revansch', 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
 
     stage.querySelector('#btn-space-party-done')?.addEventListener('click', close);
   }

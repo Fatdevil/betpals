@@ -1,11 +1,11 @@
 // ── Page: Home / Dashboard ────────────────────────────
-import { getEvents, getTournaments, getActiveFlashLives } from '../api.js';
+import { getEvents, getTournaments, getActiveFlashLives, getFriendRequests, getPendingDuels, getSettlementsOverview } from '../api.js';
 import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
 import { openLiveStreamModal } from '../components/livestream.js';
-import { getStoredUser } from '../auth.js';
+import { getStoredUser, isLoggedIn } from '../auth.js';
 import { openAppQrModal } from '../components/appQrModal.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { isPushSupported, getPushPermissionState, subscribeToPush } from '../push.js';
@@ -20,6 +20,7 @@ export async function renderHome() {
         <img src="/logo-banner.png" alt="Malta Betting" class="home-logo-banner" />
       </div>
     </div>
+    <div id="home-action-feed-container"></div>
     ${renderMinigamesRoller()}
     <div id="home-push-banner-container"></div>
     <div id="tournaments-list"></div>
@@ -44,6 +45,7 @@ export async function renderHome() {
 
   try {
     const [events, tournaments] = await Promise.all([getEvents(), getTournaments()]);
+    initHomeActionFeed(isEn, events);
 
     // Tournaments
     const tList = document.getElementById('tournaments-list');
@@ -320,4 +322,115 @@ function initHomePushBanner(isEn) {
     sessionStorage.setItem('betpals_push_dismissed', '1');
     container.innerHTML = '';
   });
+}
+
+async function initHomeActionFeed(isEn, events = []) {
+  const container = document.getElementById('home-action-feed-container');
+  if (!container || !isLoggedIn()) return;
+
+  const user = getStoredUser();
+  try {
+    const [friendReqs, pendingDuels, settlements] = await Promise.all([
+      getFriendRequests().catch(() => []),
+      getPendingDuels().catch(() => []),
+      getSettlementsOverview().catch(() => null)
+    ]);
+
+    const items = [];
+
+    // 1. Incoming Friend Requests
+    const incomingReqs = Array.isArray(friendReqs) ? friendReqs.filter(r => r.direction === 'incoming' || !r.direction) : [];
+    if (incomingReqs.length > 0) {
+      items.push({
+        id: 'friend-reqs',
+        icon: '👥',
+        title: isEn ? `${incomingReqs.length} friend request${incomingReqs.length > 1 ? 's' : ''}` : `${incomingReqs.length} ny vänförfrågan`,
+        subtitle: isEn ? 'Tap to view and accept' : 'Tryck för att granska och godkänna',
+        badge: isEn ? 'Review' : 'Godkänn',
+        badgeClass: 'badge-accent',
+        link: '#profile'
+      });
+    }
+
+    // 2. Pending Duel Challenges
+    const challenges = Array.isArray(pendingDuels) ? pendingDuels.filter(d => user && d.opponent_id === user.id && d.status === 'pending') : [];
+    if (challenges.length > 0) {
+      items.push({
+        id: 'duel-challenges',
+        icon: '⚔️',
+        title: isEn ? `${challenges.length} duel challenge${challenges.length > 1 ? 's' : ''}` : `${challenges.length} utmaning${challenges.length > 1 ? 'ar' : ''} väntar!`,
+        subtitle: isEn ? 'Opponent is waiting for you' : 'En kompis utmanar dig på duell',
+        badge: isEn ? 'Play' : 'Svara',
+        badgeClass: 'badge-warning',
+        link: '#arcade'
+      });
+    }
+
+    // 3. Unsettled Debts
+    if (settlements && settlements.totalOwed > 0) {
+      items.push({
+        id: 'debts',
+        icon: '💸',
+        title: isEn ? `You owe ${settlements.totalOwed} kr` : `Du ska swisha ${settlements.totalOwed} kr`,
+        subtitle: isEn ? 'Net debts across tournaments & tabs' : 'Samlad nettoskuld från turneringar & notor',
+        badge: isEn ? 'Swish' : 'Swisha nu',
+        badgeClass: 'badge-danger',
+        link: '#leaderboard?tab=overview'
+      });
+    }
+
+    // 4. Closing Bets (< 30 min left)
+    const now = Date.now();
+    const urgentEvent = (events || []).find(e => {
+      if (e.status !== 'open' || !e.closesAt) return false;
+      const t = new Date(e.closesAt).getTime();
+      return t > now && (t - now) < 30 * 60 * 1000;
+    });
+    if (urgentEvent) {
+      const minLeft = Math.max(1, Math.round((new Date(urgentEvent.closesAt).getTime() - now) / 60000));
+      items.push({
+        id: 'urgent-event',
+        icon: '⏱️',
+        title: isEn ? `Betting closes in ${minLeft} min!` : `Bettning stänger om ${minLeft} min!`,
+        subtitle: escapeHtml(urgentEvent.name),
+        badge: isEn ? 'Bet' : 'Lägg bet',
+        badgeClass: 'badge-accent',
+        link: `/?page=event&code=${urgentEvent.shareCode}`
+      });
+    }
+
+    if (items.length === 0) return;
+
+    container.innerHTML = `
+      <div class="card p-sm mb-sm animate-in" style="background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(20,20,35,0.85)); border: 1.5px solid rgba(245,158,11,0.35); box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+        <div class="flex-between align-center mb-xs" style="padding: 2px 4px;">
+          <span style="font-size: 0.75rem; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em;">
+            🔔 ${isEn ? 'REQUIRES YOUR ACTION' : 'KRÄVER DITT DRAG'} (${items.length})
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          ${items.map(item => `
+            <a href="${item.link}" class="card-clickable flex-between align-center p-xs" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); text-decoration: none; color: inherit;">
+              <div class="flex gap-xs align-center" style="min-width: 0; flex: 1;">
+                <span style="font-size: 1.15rem; min-width: 24px; text-align: center;">${item.icon}</span>
+                <div style="min-width: 0;">
+                  <div style="font-weight: 700; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    ${item.title}
+                  </div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    ${item.subtitle}
+                  </div>
+                </div>
+              </div>
+              <span class="badge ${item.badgeClass}" style="font-size: 0.72rem; font-weight: 700; padding: 4px 8px; flex-shrink: 0; margin-left: 8px;">
+                ${item.badge} ➜
+              </span>
+            </a>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.warn('Could not load home action items:', e);
+  }
 }
