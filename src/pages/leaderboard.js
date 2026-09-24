@@ -685,14 +685,6 @@ async function renderTournamentTab(container, activeTournaments, user) {
       ${selectorHtml}
       ${heroCardHtml}
 
-      <!-- Action: Dela på notan -->
-      <div class="mb-md">
-        <button type="button" class="btn btn-primary btn-block" id="btn-event-dela-utlagg" style="padding: 11px 14px; font-weight: 800; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <span>🧾</span> <span>${t('tab.splitExpenseBtn') || 'Dela på notan'}</span>
-          <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">(${isEn ? 'Food, gas, lunch' : 'Mat, lunch, bensin'})</span>
-        </button>
-      </div>
-
       <!-- Standings & Audit Section -->
       <div class="section-header mt-md mb-xs">
         <h3 class="section-title" style="font-size: 0.95rem;">${t('tab.standingsTitle')}</h3>
@@ -719,21 +711,6 @@ async function renderTournamentTab(container, activeTournaments, user) {
         </button>
       </div>
     </div>`;
-
-  // Attach Dela utlägg listener
-  container.querySelector('#btn-event-dela-utlagg')?.addEventListener('click', () => {
-    const participants = (balances || []).map(b => ({
-      id: b.userId || b.name,
-      name: b.name,
-      nickname: b.name
-    }));
-    openDelaUtlaggModal({
-      tournamentId: tour.id,
-      tournamentName: tour.name,
-      participants,
-      onSaved: () => renderLeaderboard()
-    });
-  });
 
   // Attach receipt modal viewer listener in audit drawer
   container.querySelectorAll('.btn-view-tab-receipt').forEach(btn => {
@@ -920,14 +897,6 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </div>
       </div>
 
-      <!-- Tab Actions: Dela på notan -->
-      <div class="mb-md">
-        <button type="button" class="btn btn-primary btn-block" id="btn-swish-split-tab" style="padding: 11px 14px; font-weight: 800; font-size: 0.88rem; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <span>🧾</span> <span>${t('tab.splitExpenseBtn') || 'Dela på notan'}</span>
-          <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">(${isEn ? 'Equal / Custom' : 'Dela lika / Anpassa'})</span>
-        </button>
-      </div>
-
       <!-- Friends Settlement List -->
       <div class="section-header mb-sm">
         <h3 class="section-title" style="font-size: 0.95rem;">
@@ -1089,12 +1058,6 @@ function renderSwishlistTab(container, duelSettlement, user) {
         </button>
       </div>
     </div>`;
-
-  // Attach split tab action listeners
-  container.querySelector('#btn-swish-split-tab')?.addEventListener('click', () => {
-    openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
-  });
-
 
   container.querySelector('.btn-goto-arcade')?.addEventListener('click', () => {
     window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'home' } }));
