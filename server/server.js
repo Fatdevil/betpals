@@ -731,6 +731,16 @@ function verifyPin(pin, req) {
   return false;
 }
 
+// Checks the admin PIN only when it is actually needed, so a stale PIN sent along with
+// an otherwise authorized request (e.g. by the creator) never counts as a failed attempt.
+function lazyAdminPin(req, pin) {
+  let result;
+  return () => {
+    if (result === undefined) result = Boolean(pin) && verifyPin(pin, req);
+    return result;
+  };
+}
+
 function requireAdminPin(req, res) {
   const limitCheck = db.checkRateLimit('admin:' + getClientIp(req));
   if (!limitCheck.allowed) {
@@ -1547,16 +1557,16 @@ app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   // Verify ownership or super admin
-  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
-  if (!user && !hasPin) return res.status(401).json({ error: 'Inloggning krävs' });
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!user && !hasPin()) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const isCreator = (user && tournament.creatorId === user.id) || hasPin;
+  const isCreator = Boolean(user && tournament.creatorId === user.id);
 
   const photos = db.getPhotosByTournament(tournament.id);
   const photo = photos.find(p => p.id === req.params.photoId);
   if (!photo) return res.status(404).json({ error: 'Bilden hittades inte' });
 
-  if ((!user || photo.user_id !== user.id) && !isCreator && !hasPin) {
+  if ((!user || photo.user_id !== user.id) && !isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet att ta bort denna bild' });
   }
 
@@ -1746,8 +1756,8 @@ app.post('/api/events', (req, res) => {
 
   // Allow creation with user token OR admin PIN
   const user = getUserFromToken(req);
-  const hasPin = pin && verifyPin(pin, req);
-  if (!user && !hasPin) {
+  const hasPin = lazyAdminPin(req, pin);
+  if (!user && !hasPin()) {
     return res.status(403).json({ error: 'Logga in eller ange admin-PIN för att skapa match' });
   }
 
@@ -1758,7 +1768,7 @@ app.post('/api/events', (req, res) => {
       return res.status(404).json({ error: 'Turneringen hittades inte' });
     }
     const isTournamentCreator = user && tournament.creatorId === user.id;
-    if (!isTournamentCreator && !hasPin) {
+    if (!isTournamentCreator && !hasPin()) {
       return res.status(403).json({ error: 'Du har inte behörighet att lägga till matcher i denna turnering' });
     }
     if (tournament.status === 'settled') {
@@ -2406,8 +2416,8 @@ app.get('/api/tournaments', (req, res) => {
 app.post('/api/tournaments', (req, res) => {
   const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = body.pin && verifyPin(body.pin, req);
-  if (!user && !hasPin) {
+  const hasPin = lazyAdminPin(req, body?.pin);
+  if (!user && !hasPin()) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
 
@@ -2465,8 +2475,8 @@ app.post('/api/tournaments/:id/invite', (req, res) => {
   const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
   const isCreator = user && tournament.creator_id === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Endast arrangören kan bjuda in vänner' });
   }
 
@@ -2506,8 +2516,8 @@ app.post('/api/tournaments/:id/participants', (req, res) => {
   const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
   const isCreator = user && tournament.creator_id === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Endast spelledaren kan lägga till deltagare' });
   }
 
@@ -2527,8 +2537,8 @@ app.get('/api/tournament-templates', (req, res) => {
 app.post('/api/tournaments/from-template', (req, res) => {
   const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = body.pin && verifyPin(body.pin, req);
-  if (!user && !hasPin) {
+  const hasPin = lazyAdminPin(req, body?.pin);
+  if (!user && !hasPin()) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
 
@@ -2640,9 +2650,9 @@ app.get('/api/tournaments/:code', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const hasPin = req.headers['x-admin-pin'] && verifyPin(req.headers['x-admin-pin'], req);
+  const hasPin = lazyAdminPin(req, req.headers['x-admin-pin']);
 
-  if (!hasPin && !db.canUserAccessTournament(tournament, user ? user.id : null)) {
+  if (!db.canUserAccessTournament(tournament, user ? user.id : null) && !hasPin()) {
     const creator = tournament.creatorId ? db.getUserById(tournament.creatorId) : null;
     return res.status(403).json({
       error: 'ACCESS_RESTRICTED',
@@ -2670,8 +2680,8 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2747,8 +2757,8 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2826,8 +2836,8 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2858,8 +2868,8 @@ app.post('/api/tournaments/:id/reopen', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2876,8 +2886,8 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2908,8 +2918,8 @@ app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2925,8 +2935,8 @@ app.delete('/api/tournaments/:id', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet att radera turneringen' });
   }
 
@@ -2942,7 +2952,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   const user = getUserFromToken(req);
   const { fromName, toName, fromUserId, toUserId, amount, receiptId } = req.body;
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin, req);
+  const hasPin = lazyAdminPin(req, req.body?.pin);
 
   if (receiptId) {
     const existing = db.getSettlementReceiptById(receiptId);
@@ -2951,7 +2961,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     }
 
     const isReceiptCreditor = user && ((existing.to_user_id && user.id === existing.to_user_id) || user.nickname === existing.to_name || user.real_name === existing.to_name);
-    if (!isCreator && !isReceiptCreditor && !hasPin) {
+    if (!isCreator && !isReceiptCreditor && !hasPin()) {
       return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan ta bort detta kvitto' });
     }
 
@@ -2985,7 +2995,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     (matchingTransfer.toUserId && user.id === matchingTransfer.toUserId) ||
     (!matchingTransfer.toUserId && (user.nickname === matchingTransfer.to || user.real_name === matchingTransfer.to))
   );
-  if (!isCreator && !isCreditor && !hasPin) {
+  if (!isCreator && !isCreditor && !hasPin()) {
     return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan kvittera denna överföring' });
   }
 
@@ -5335,7 +5345,10 @@ app.post('/api/tab/expenses', async (req, res) => {
   const { title, notes, totalAmount, participantIds, receiptImage, customShares } = req.body || {};
 
   const parsedTotal = parseFloat(totalAmount);
-  if (Number.isFinite(parsedTotal) && parsedTotal > MAX_TAB_EXPENSE) {
+  if (!Number.isFinite(parsedTotal) || parsedTotal <= 0) {
+    return res.status(400).json({ error: 'Giltigt totalbelopp krävs' });
+  }
+  if (parsedTotal > MAX_TAB_EXPENSE) {
     return res.status(400).json({ error: `En nota får vara högst ${MAX_TAB_EXPENSE.toLocaleString('sv-SE')} kr` });
   }
 

@@ -3724,7 +3724,7 @@ export function updateFlashLiveStreamBet(id, flashBetId, stakeAmount, durationSe
 export function createTabExpense({ payerId, title, notes, totalAmount, mode, participantIds = [], loserId = null, receiptImage = null, customShares = null, tournamentId = null }) {
   if (!payerId) throw new Error('Payer is required');
   const amount = parseFloat(totalAmount);
-  if (isNaN(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Giltigt totalbelopp krävs');
 
   const cleanTitle = (title && title.trim()) ? title.trim() : 'Dela nota';
   const cleanNotes = (notes && notes.trim()) ? notes.trim() : null;
@@ -3761,7 +3761,7 @@ export function createTabExpense({ payerId, title, notes, totalAmount, mode, par
         let allocatedCents = 0;
         for (const uid of allParticipants) {
           const val = parseFloat(customShares[uid]);
-          const share = (!isNaN(val) && val >= 0) ? Math.round(val * 100) / 100 : 0;
+          const share = (Number.isFinite(val) && val >= 0) ? Math.round(val * 100) / 100 : 0;
           userShares[uid] = share;
           allocatedCents += Math.round(share * 100);
         }
@@ -3853,11 +3853,30 @@ export function removeTabExpenseForUser(expenseId, userId) {
   const duels = db.prepare('SELECT * FROM minigame_duels WHERE expense_id = ?').all(expenseId);
   const isPayer = String(expense.payer_id) === String(userId);
 
+  // In a tournament, payments are recorded as net settlement receipts rather than on the
+  // debt itself. If an affected person already has a receipt, the debt may already be paid.
+  const hasTournamentReceiptFor = (affectedUserIds) => {
+    if (!expense.tournament_id) return false;
+    const receipts = stmts.getSettlementReceipts.all(expense.tournament_id);
+    if (receipts.length === 0) return false;
+    const ids = new Set(affectedUserIds.map(String));
+    const names = new Set();
+    for (const id of ids) {
+      const u = stmts.getUserById.get(id);
+      if (u?.nickname) names.add(u.nickname.toLowerCase());
+      if (u?.real_name) names.add(u.real_name.toLowerCase());
+    }
+    return receipts.some(r =>
+      ids.has(String(r.from_user_id)) || ids.has(String(r.to_user_id)) ||
+      names.has(String(r.from_name || '').toLowerCase()) || names.has(String(r.to_name || '').toLowerCase())
+    );
+  };
+
   if (isPayer) {
-    if (duels.some(d => d.is_settled)) {
+    const participantIds = db.prepare('SELECT user_id FROM tab_expense_participants WHERE expense_id = ?').all(expenseId).map(r => r.user_id);
+    if (duels.some(d => d.is_settled) || hasTournamentReceiptFor(participantIds)) {
       throw new Error('Någon har redan kvitterat sin del. Notan kan inte tas bort.');
     }
-    const participantIds = db.prepare('SELECT user_id FROM tab_expense_participants WHERE expense_id = ?').all(expenseId).map(r => r.user_id);
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM minigame_duels WHERE expense_id = ?').run(expenseId);
       db.prepare('DELETE FROM tab_expense_participants WHERE expense_id = ?').run(expenseId);
@@ -3871,7 +3890,7 @@ export function removeTabExpenseForUser(expenseId, userId) {
   if (!isParticipant) throw new Error('Du deltar inte i denna nota');
 
   const myDuels = duels.filter(d => String(d.opponent_id) === String(userId));
-  if (myDuels.some(d => d.is_settled)) {
+  if (myDuels.some(d => d.is_settled) || hasTournamentReceiptFor([userId])) {
     throw new Error('Din del är redan kvitterad och kan inte bestridas');
   }
   const tx = db.transaction(() => {

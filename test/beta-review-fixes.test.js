@@ -276,3 +276,49 @@ test('Fix 6 — AnyBet participants cannot switch sides', async () => {
   const switched = await call('POST', `/api/anybets/${bet.id}/join`, { choice: 'no' }, friend.token);
   assert.equal(switched.status, 400);
 });
+
+test('Codex review — non-finite expense totals are rejected', async () => {
+  const payer = await registerUser('infP');
+  const friend = await registerUser('infF');
+  await makeFriends(payer, friend);
+  for (const totalAmount of ['Infinity', '1e309', -50, 'abc']) {
+    const res = await call('POST', '/api/tab/expenses', { title: 'X', totalAmount, participantIds: [friend.id] }, payer.token);
+    assert.equal(res.status, 400, `totalAmount ${totalAmount} must be rejected`);
+  }
+});
+
+test('Codex review — tournament expenses with settlement receipts cannot be removed', async () => {
+  const host = await registerUser('trH');
+  const friend = await registerUser('trF');
+  await makeFriends(host, friend);
+
+  const tourId = 'tour-exp-' + crypto.randomUUID();
+  db.createTournament(tourId, 'Receipt Tour', 'R' + crypto.randomBytes(3).toString('hex').toUpperCase(), host.id, 'friends');
+  db.addTournamentParticipant(tourId, friend.nickname, friend.id);
+
+  const expense = (await call('POST', '/api/tab/expenses', { title: 'Greenfee', totalAmount: 400, participantIds: [friend.id], tournamentId: tourId }, host.token)).body;
+  assert.ok(expense.id, JSON.stringify(expense));
+
+  // Friend pays and the host confirms via a tournament settlement receipt
+  const receipt = await call('POST', `/api/tournaments/${tourId}/settlement/receipt`, { fromName: friend.nickname, toName: host.nickname, fromUserId: friend.id, toUserId: host.id, amount: 200 }, host.token);
+  assert.equal(receipt.status, 200, JSON.stringify(receipt.body));
+
+  const dispute = await call('DELETE', `/api/tab/expenses/${expense.id}`, null, friend.token);
+  assert.equal(dispute.status, 400);
+  const remove = await call('DELETE', `/api/tab/expenses/${expense.id}`, null, host.token);
+  assert.equal(remove.status, 400);
+});
+
+test('Codex review — a stale PIN from an authorized creator never counts as a failed attempt', async () => {
+  clearLocalRateLimits();
+  const host = await registerUser('stale');
+  const tourId = 'tour-stale-' + crypto.randomUUID();
+  db.createTournament(tourId, 'Stale PIN Tour', 'S' + crypto.randomBytes(3).toString('hex').toUpperCase(), host.id, 'friends');
+
+  for (let i = 0; i < 6; i++) {
+    const res = await call('POST', `/api/tournaments/${tourId}/reopen`, { pin: 'old-stale-pin' }, host.token);
+    assert.equal(res.status, 200);
+  }
+  const verify = await call('POST', '/api/admin/verify', { pin: process.env.ADMIN_PIN });
+  assert.equal(verify.status, 200, 'superadmin must not be locked out');
+});
