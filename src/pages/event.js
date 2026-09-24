@@ -704,8 +704,8 @@ function renderEventContent(event, content, code) {
     if (!confirm(`Vill du öppna bettningen för "${event.name}" igen?`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
-      await reopenEvent(event.id, pin);
-      showToast('Bettningen är öppen igen! 🔓', 'success');
+      const reopenRes = await reopenEvent(event.id, pin);
+      showToast(reopenRes?.status === 'locked' ? reopenRes.message : 'Bettningen är öppen igen! 🔓', reopenRes?.status === 'locked' ? 'info' : 'success');
       const updated = await getEvent(code);
       renderEventContent(updated, content, code);
     } catch (err) {

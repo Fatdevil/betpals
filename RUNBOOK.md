@@ -13,7 +13,7 @@ Ställs in i driftmiljön (t.ex. **Railway → Settings → Variables**):
 | `NODE_ENV` | `production` | Sätt alltid till `production` i skarp drift. |
 | `PORT` | `3001` | Porten Express lyssnar på (Railway sätter detta automatiskt). |
 | `BETPALS_INVITE_CODE` | *Ingen (öppen)* | **Viktig för betan:** Sätt en hemlig kod (t.ex. `BETAPALS2025`) så kan endast inbjudna kompisar registrera sig. |
-| `ADMIN_PIN` | *Ingen* | Fyrsiffrig PIN för Superadmin. Servern initierar databasen automatiskt med denna PIN vid start om den inte redan är konfigurerad. |
+| `ADMIN_PIN` | *Ingen* | **Obligatorisk i produktion.** Superadmin-lösenord, minst 8 tecken. Synkas in i databasen vid varje start (miljövariabeln gäller alltid). I produktion går det inte att sätta admin-lösenordet via appen. Felaktiga försök spärrar IP-adressen i 15 min efter 5 fel. |
 | `RAILWAY_VOLUME_MOUNT_PATH` | `/data` | Sökväg till persistent disk. Säkerställer att SQLite-databasen överlever omstarter och deploys. |
 | `DB_PATH` | `/data/betpals.db` | Alternativ explicit sökväg till databasfilen. |
 | `CLOUDINARY_CLOUD_NAME` | *Valfri* | Cloudinary cloud name för mobil- och turneringsfoton. |

@@ -35,6 +35,7 @@ import {
   getTournaments,
   getActiveEvent,
   getTabExpense,
+  deleteTabExpense,
   startMafiaGame,
   getMyMafiaRole,
   submitMafiaNightAction,
@@ -1962,11 +1963,7 @@ export async function openBlind10Modal(initialRoom = null) {
       renderPartyLobbyView();
     } else if (data.type === 'party_started' && data.room) {
       currentRoom = data.room;
-      runStopwatchGame(data.countdownSec || 3, (time, diff) => {
-        renderWaitingForOthers(time, diff);
-      }, (time) => {
-        submitPartyTime(currentRoom.id, time).catch(() => {});
-      });
+      runPartyStopwatchRound(data.countdownSec || 3);
     } else if (data.type === 'party_player_stopped') {
       const waitingStatus = document.getElementById('party-waiting-status');
       if (waitingStatus) {
@@ -1977,11 +1974,7 @@ export async function openBlind10Modal(initialRoom = null) {
       renderPartyResultsView(data.room, data.isTie, data.tiedPlayerIds);
     } else if (data.type === 'party_sudden_death_start' && data.room) {
       currentRoom = data.room;
-      runStopwatchGame(data.countdownSec || 3, (time, diff) => {
-        renderWaitingForOthers(time, diff);
-      }, (time) => {
-        submitPartyTime(currentRoom.id, time).catch(() => {});
-      });
+      runPartyStopwatchRound(data.countdownSec || 3);
     }
   }
 
@@ -2018,6 +2011,13 @@ export async function openBlind10Modal(initialRoom = null) {
             💰 ${t('arcade.blind10TotalPot')} ${totalPot} kr
           </span>
         </div>
+        ${currentRoom.stakeAmount > 0 ? `
+          <div class="text-muted" style="font-size: 0.72rem; margin: -6px 0 12px; line-height: 1.4;">
+            ${isEn
+              ? '⚖️ The server measures the official time. Anyone who hasn\'t stopped within 30 s loses their stake.'
+              : '⚖️ Servern mäter den officiella tiden. Den som inte stoppat inom 30 s förlorar sin insats.'}
+          </div>
+        ` : ''}
       </div>
 
       <!-- Player List -->
@@ -2122,23 +2122,30 @@ export async function openBlind10Modal(initialRoom = null) {
 
     playTone(440, 'sine', 0.2, 0.15); // Countdown 3
 
+    // The clock starts exactly countdownSec after the start signal, in sync with the
+    // server, which measures the official time from the same moment.
+    const clockZero = performance.now() + countdownSec * 1000;
+
     const countdownInterval = setInterval(() => {
       currentCountdown--;
       const digitsEl = document.getElementById('countdown-digits');
       if (currentCountdown > 0) {
         if (digitsEl) digitsEl.textContent = currentCountdown;
         playTone(440, 'sine', 0.2, 0.15);
-      } else if (currentCountdown === 0) {
-        if (digitsEl) {
-          digitsEl.textContent = isEn ? 'GO!' : 'KÖR!';
-          digitsEl.style.color = '#10b981';
-        }
-        playTone(880, 'sine', 0.35, 0.25);
       } else {
         clearInterval(countdownInterval);
-        startActualClock();
       }
     }, 1000);
+
+    activeTimeoutId = setTimeout(() => {
+      const digitsEl = document.getElementById('countdown-digits');
+      if (digitsEl) {
+        digitsEl.textContent = isEn ? 'GO!' : 'KÖR!';
+        digitsEl.style.color = '#10b981';
+      }
+      playTone(880, 'sine', 0.35, 0.25);
+      startActualClock();
+    }, Math.max(0, clockZero - performance.now()));
 
     function startActualClock() {
       const overlay = document.getElementById('countdown-overlay');
@@ -2151,7 +2158,7 @@ export async function openBlind10Modal(initialRoom = null) {
       const hintEl = document.getElementById('blind10-hint');
       const stopBtn = document.getElementById('btn-blind10-stop');
 
-      gameStartTime = performance.now();
+      gameStartTime = clockZero;
 
       function updateClock() {
         if (isStopped) return;
@@ -2202,8 +2209,32 @@ export async function openBlind10Modal(initialRoom = null) {
     }
   }
 
+  // Party round: the server measures the official time; the local time is only a preview
+  function runPartyStopwatchRound(countdownSec) {
+    let official = null;
+    let waitingShown = false;
+    runStopwatchGame(countdownSec, (time, diff) => {
+      waitingShown = true;
+      if (official) {
+        renderWaitingForOthers(official.stoppedTime, official.diff, true);
+      } else {
+        renderWaitingForOthers(time, diff, false);
+      }
+    }, (time) => {
+      submitPartyTime(currentRoom.id, time)
+        .then((res) => {
+          if (typeof res?.stoppedTime !== 'number') return;
+          official = { stoppedTime: res.stoppedTime, diff: res.diff };
+          if (waitingShown && document.getElementById('party-my-time')) {
+            renderWaitingForOthers(official.stoppedTime, official.diff, true);
+          }
+        })
+        .catch((err) => showToast(err.message || (isEn ? 'Could not submit your time' : 'Kunde inte skicka din tid'), 'error'));
+    });
+  }
+
   // ── VIEW 4: PARTY WAITING FOR OTHERS ─────────────────
-  function renderWaitingForOthers(myTime, myDiff) {
+  function renderWaitingForOthers(myTime, myDiff, isOfficial = false) {
     const sign = myTime >= 10.000 ? '+' : '-';
     container.innerHTML = `
       <div class="text-center" style="padding: 20px 0;">
@@ -2211,11 +2242,16 @@ export async function openBlind10Modal(initialRoom = null) {
         <h3 style="color: var(--gold); margin-bottom: 6px;">
           ${isEn ? 'Time Logged!' : 'Tid registrerad!'}
         </h3>
-        <div style="font-size: 2.2rem; font-family: monospace; font-weight: 800; color: #ffffff; margin-bottom: 4px;">
+        <div id="party-my-time" style="font-size: 2.2rem; font-family: monospace; font-weight: 800; color: #ffffff; margin-bottom: 4px;">
           ${myTime.toFixed(3)}s
         </div>
-        <div class="badge badge-accent mb-lg" style="font-size: 0.95rem; padding: 4px 14px;">
+        <div class="badge badge-accent" style="font-size: 0.95rem; padding: 4px 14px;">
           Diff mot 10:00: ${sign}${myDiff.toFixed(3)}s
+        </div>
+        <div class="text-muted mb-lg" style="font-size: 0.72rem; margin-top: 6px;">
+          ${isOfficial
+            ? (isEn ? '✓ Official time, measured by the server' : '✓ Officiell tid, mätt av servern')
+            : (isEn ? 'Your local time – waiting for the official time…' : 'Din lokala tid – väntar på officiell tid…')}
         </div>
 
         <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 18px; max-width: 320px; margin: 0 auto;">
@@ -2302,6 +2338,18 @@ export async function openBlind10Modal(initialRoom = null) {
       return;
     }
 
+    // Nobody finished the round in time: no winner, no debts
+    if (room.results && room.results.length > 0 && room.results.every(r => r.dnf)) {
+      container.innerHTML = `
+        <div class="text-center" style="padding: 20px 0;">
+          <div style="font-size: 2.6rem; margin-bottom: 6px;">⏱️</div>
+          <h3 style="color: var(--gold); margin-bottom: 6px;">${isEn ? 'No one stopped the clock in time' : 'Ingen stoppade klockan i tid'}</h3>
+          <p class="text-muted" style="font-size: 0.85rem;">${isEn ? 'No winner and no debts this round.' : 'Ingen vinnare och inga skulder den här omgången.'}</p>
+        </div>
+      `;
+      return;
+    }
+
     // Single winner decided!
     launchConfetti();
     playCoinSound();
@@ -2345,7 +2393,7 @@ export async function openBlind10Modal(initialRoom = null) {
                 </div>
                 <div class="text-right">
                   <div style="font-family: monospace; font-weight: 800; color: ${isFirst ? 'var(--gold)' : '#fff'}; font-size: 1rem;">
-                    ${p.stoppedTime !== null && p.stoppedTime !== undefined ? p.stoppedTime.toFixed(3) + 's' : '-'}
+                    ${p.dnf ? (isEn ? 'DNF' : 'Ej klar') : (p.stoppedTime !== null && p.stoppedTime !== undefined ? p.stoppedTime.toFixed(3) + 's' : '-')}
                   </div>
                   <div style="font-size: 0.75rem; color: var(--text-muted);">
                     Diff: ${p.diff !== null && p.diff !== undefined ? p.diff.toFixed(3) + 's' : '-'}
@@ -5476,6 +5524,9 @@ export async function openReceiptModal(expenseId) {
     }) : '';
 
     const payerName = expense.payer_real_name || expense.payer_nickname || (isEn ? 'A friend' : 'En vän');
+    const receiptViewerId = getStoredUser()?.id;
+    const isReceiptPayer = Boolean(receiptViewerId) && expense.payer_id === receiptViewerId;
+    const isReceiptParticipant = !isReceiptPayer && (expense.participants || []).some(p => p.user_id === receiptViewerId);
 
     showModal(`
       <div class="notan-receipt-viewer animate-in" style="max-width: 420px; margin: 0 auto; text-align: left;">
@@ -5557,6 +5608,16 @@ export async function openReceiptModal(expenseId) {
           </div>
         </div>
 
+        ${isReceiptPayer ? `
+          <button type="button" class="btn btn-block mb-sm" id="btn-remove-tab-expense" style="padding: 10px; font-weight: 700; background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.4);">
+            🗑️ ${isEn ? 'Delete expense' : 'Ta bort notan'}
+          </button>
+        ` : isReceiptParticipant ? `
+          <button type="button" class="btn btn-block mb-sm" id="btn-remove-tab-expense" style="padding: 10px; font-weight: 700; background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.4);">
+            ⚠️ ${isEn ? 'Dispute my share' : 'Bestrid min del'}
+          </button>
+        ` : ''}
+
         <button type="button" class="btn btn-secondary btn-block" id="btn-close-receipt-modal" style="padding: 10px; font-weight: 700;">
           ${isEn ? 'Close' : 'Stäng'}
         </button>
@@ -5565,6 +5626,21 @@ export async function openReceiptModal(expenseId) {
 
     document.getElementById('btn-close-receipt-modal')?.addEventListener('click', () => {
       closeModal();
+    });
+
+    document.getElementById('btn-remove-tab-expense')?.addEventListener('click', async () => {
+      const question = isReceiptPayer
+        ? (isEn ? 'Delete this expense for everyone?' : 'Ta bort notan för alla deltagare?')
+        : (isEn ? 'Dispute your share? It will be removed from your debts and the payer is notified.' : 'Bestrida din del? Den tas bort från dina skulder och den som lade ut får en notis.');
+      if (!confirm(question)) return;
+      try {
+        await deleteTabExpense(expenseId);
+        showToast(isReceiptPayer ? (isEn ? 'Expense deleted' : 'Notan är borttagen') : (isEn ? 'Your share was disputed' : 'Din del är bestriden'), 'success');
+        closeModal();
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard' } }));
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     });
 
     // Zoom receipt modal
@@ -6109,6 +6185,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
             <div style="font-size: 1.2rem; font-weight: 800; color: #10b981;">${totalPot} kr</div>
           </div>
         </div>
+        ${partyRoom.stakeAmount > 0 ? `
+          <div class="text-muted" style="font-size: 0.72rem; margin-top: 8px; line-height: 1.4;">
+            ${isEn
+              ? '⚖️ Results are checked against the game rules; impossible scores count as 0. Anyone who doesn\'t finish loses their stake.'
+              : '⚖️ Resultaten kontrolleras mot spelets regler – omöjliga poäng räknas som 0. Den som inte spelar klart förlorar sin insats.'}
+          </div>
+        ` : ''}
 
         <div class="my-md">
           <label class="form-label" style="font-size: 0.8rem; display: block; margin-bottom: 6px;">
@@ -6191,6 +6274,9 @@ export function openSpaceInvadersModal(initialOptions = {}) {
                 aliensKilled: result.aliensKilled,
                 waveReached: result.wave
               });
+              if (submitRes && submitRes.invalidated) {
+                showToast(isEn ? 'Your result did not match the game rules and counts as 0 points' : 'Ditt resultat gick inte ihop med spelets regler och räknas som 0 poäng', 'error');
+              }
               if (submitRes && submitRes.room) {
                 partyRoom = submitRes.room;
                 if (partyRoom.status === 'completed' || partyRoom.status === 'tie') {
@@ -6244,6 +6330,19 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
     const sorted = [...(room.results && room.results.length > 0 ? room.results : room.players)].sort((a, b) => (b.score || 0) - (a.score || 0));
     const winner = sorted[0];
+
+    if (sorted.length > 0 && sorted.every(p => p.dnf)) {
+      stage.innerHTML = `
+        <div class="card p-md animate-in text-center">
+          <div style="font-size: 2.6rem; margin-bottom: 4px;">⏱️</div>
+          <h3 style="color: var(--gold);">${isEn ? 'Nobody finished in time' : 'Ingen blev klar i tid'}</h3>
+          <p class="text-muted" style="font-size: 0.85rem;">${isEn ? 'No winner and no debts this round.' : 'Ingen vinnare och inga skulder den här omgången.'}</p>
+          <button type="button" class="btn btn-secondary btn-block mt-sm" id="btn-space-party-done">${isEn ? 'Close' : 'Stäng'}</button>
+        </div>
+      `;
+      stage.querySelector('#btn-space-party-done')?.addEventListener('click', close);
+      return;
+    }
     const isUserWinner = currentUser && winner && winner.id === currentUser.id;
     const isRoomTie = isTie || room.status === 'tie';
 
@@ -6268,8 +6367,12 @@ export function openSpaceInvadersModal(initialOptions = {}) {
                   <span style="font-weight: 800; color: ${idx === 0 ? 'var(--gold)' : 'var(--text-muted)'}; min-width: 24px;">#${p.rank || idx + 1}</span>
                   <span>${escapeHtml(p.nickname || 'Spelare')} ${idx === 0 && !isRoomTie ? '👑' : (isPlayerTieWinner ? '🤝' : '')}</span>
                 </div>
-                <span style="font-family: monospace; font-weight: 700; color: #10b981;">
-                  ${(p.score || 0).toLocaleString()} PTS
+                <span style="font-family: monospace; font-weight: 700; color: ${p.invalidated || p.dnf ? '#f87171' : '#10b981'};">
+                  ${p.dnf
+                    ? (isEn ? 'DNF' : 'Ej klar')
+                    : p.invalidated
+                      ? (isEn ? '⚠️ Invalid result' : '⚠️ Ogiltigt resultat')
+                      : `${(p.score || 0).toLocaleString()} PTS`}
                 </span>
               </div>
             `;
@@ -6278,8 +6381,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
         ${!isRoomTie && room.stakeAmount > 0 && !isUserWinner && winner.swishNumber ? `
           <div class="my-md">
-            <a href="${createSwishUrl(winner.swishNumber, room.stakeAmount, `Space Blitz - ${winner.nickname}`)}" class="btn btn-primary btn-block" style="background: #10b981; font-weight: 800;">
-              📱 Swisha ${winner.nickname} (${room.stakeAmount} kr)
+            <a href="${createSwishUrl({ phone: winner.swishNumber, amount: room.stakeAmount, message: `Space Blitz - ${winner.nickname}` })}" class="btn btn-primary btn-block" style="background: #10b981; font-weight: 800;">
+              📱 Swisha ${escapeHtml(winner.nickname)} (${room.stakeAmount} kr)
             </a>
           </div>
         ` : ''}

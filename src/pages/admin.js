@@ -64,10 +64,7 @@ function renderAdminChoice(content) {
         <h3 class="text-center mb-md" style="font-size: 0.9rem;">${t('admin.superadminPin')}</h3>
         <form id="enter-pin-form">
           <div class="pin-input-group">
-            <input type="tel" class="pin-digit" maxlength="1" data-pin="0" inputmode="numeric" />
-            <input type="tel" class="pin-digit" maxlength="1" data-pin="1" inputmode="numeric" />
-            <input type="tel" class="pin-digit" maxlength="1" data-pin="2" inputmode="numeric" />
-            <input type="tel" class="pin-digit" maxlength="1" data-pin="3" inputmode="numeric" />
+            <input type="password" class="form-input admin-secret-input" autocomplete="current-password" placeholder="Admin-lösenord (minst 8 tecken)" />
           </div>
           <button type="submit" class="btn btn-secondary btn-block btn-sm">${t('admin.loginSuperadmin')}</button>
         </form>
@@ -83,7 +80,7 @@ function renderAdminChoice(content) {
   document.getElementById('enter-pin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const pin = collectPin();
-    if (pin.length !== 4) { showToast(t('admin.toastEnterDigits'), 'error'); return; }
+    if (pin.length < 8) { showToast(t('admin.toastEnterDigits'), 'error'); return; }
     try {
       const status = await api.adminStatus();
       if (!status.hasPin) {
@@ -273,8 +270,8 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
     list.querySelectorAll('.admin-reopen-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         try {
-          await api.reopenEvent(btn.dataset.id, getPin());
-          showToast(t('admin.toastEventOpened'), 'success');
+          const reopenRes = await api.reopenEvent(btn.dataset.id, getPin());
+          showToast(reopenRes?.status === 'locked' ? reopenRes.message : t('admin.toastEventOpened'), reopenRes?.status === 'locked' ? 'info' : 'success');
           loadAdminEvents(loggedIn, hasPinSession, user);
         } catch (err) { showToast(err.message, 'error'); }
       });
@@ -1091,9 +1088,12 @@ function setupPinInputs(container = document) {
     input.addEventListener('focus', () => input.select());
   });
   digits[0]?.focus();
+  container.querySelector('.admin-secret-input')?.focus();
 }
 
 function collectPin(container = document) {
+  const secretInput = container.querySelector('.admin-secret-input');
+  if (secretInput) return secretInput.value.trim();
   return Array.from(container.querySelectorAll('.pin-digit'))
     .map(el => el.value)
     .join('');
@@ -1111,10 +1111,7 @@ function showUnlockSuperAdminModal() {
 
       <form id="modal-unlock-pin-form">
         <div class="pin-input-group" style="margin-bottom: 16px;">
-          <input type="tel" class="pin-digit" maxlength="1" data-pin="0" inputmode="numeric" />
-          <input type="tel" class="pin-digit" maxlength="1" data-pin="1" inputmode="numeric" />
-          <input type="tel" class="pin-digit" maxlength="1" data-pin="2" inputmode="numeric" />
-          <input type="tel" class="pin-digit" maxlength="1" data-pin="3" inputmode="numeric" />
+          <input type="password" class="form-input admin-secret-input" autocomplete="current-password" placeholder="Admin-lösenord (minst 8 tecken)" />
         </div>
         <button type="submit" class="btn btn-primary btn-block" style="padding: 12px; font-weight: 700;">
           ${t('admin.loginSuperadmin') || 'Lås upp'} 🔓
@@ -1130,7 +1127,7 @@ function showUnlockSuperAdminModal() {
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const pin = collectPin(root);
-    if (pin.length !== 4) {
+    if (pin.length < 8) {
       showToast(t('admin.toastEnterDigits'), 'error');
       return;
     }
@@ -1434,13 +1431,36 @@ async function loadAdminUsers(pin) {
           <button class="btn btn-primary btn-sm" id="btn-create-backup">
             💾 Säkerhetskopiera nu
           </button>
-          <a class="btn btn-secondary btn-sm" id="btn-download-backup" href="/api/admin/backup/download?pin=${encodeURIComponent(pin)}" download>
+          <button class="btn btn-secondary btn-sm" id="btn-download-backup">
             ⬇️ Ladda ned senaste backup (.db)
-          </a>
+          </button>
         </div>
         <div id="admin-backup-status" class="mt-xs text-muted" style="font-size: 0.75rem;"></div>
       </div>
     `;
+
+    // Download via fetch so the admin PIN travels in a header, never in the URL
+    container.querySelector('#btn-download-backup')?.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/admin/backup/download', { headers: { 'x-admin-pin': pin } });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Kunde inte ladda ned backup');
+        }
+        const disposition = res.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        const blobUrl = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = match ? match[1] : 'betpals-backup.db';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
 
     // Hook up backup create button
     container.querySelector('#btn-create-backup')?.addEventListener('click', async () => {

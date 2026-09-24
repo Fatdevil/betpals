@@ -161,6 +161,7 @@ function cleanupStaleRooms() {
     const isFinishedOld = isFinished && age > 30 * 60 * 1000; // 30 min after results
     
     if (isStale || isFinishedOld) {
+      clearPartyRoundTimer(roomId);
       partyRooms.delete(roomId);
       partyCodeToId.delete(room.code);
       partyClients.delete(roomId);
@@ -394,6 +395,7 @@ wss.on('connection', (ws, req) => {
         const user = db.getUserByToken(msg.token);
         if (user) {
           boundUserId = user.id;
+          ws.betpalsUserId = user.id;
           if (!userClients.has(user.id)) userClients.set(user.id, new Set());
           userClients.get(user.id).add(ws);
           if (boundLiveId) {
@@ -563,6 +565,13 @@ wss.on('connection', (ws, req) => {
   });
 
 
+  ws.on('pong', () => {
+    if (ws.betpalsPingAt && ws.betpalsUserId) {
+      recordUserRtt(ws.betpalsUserId, performance.now() - ws.betpalsPingAt);
+      ws.betpalsPingAt = null;
+    }
+  });
+
   ws.on('error', () => {});
 });
 
@@ -676,29 +685,74 @@ function hashPin(pin) {
   return crypto.createHash('sha256').update(pin).digest('hex');
 }
 
-// Auto-seed superadmin PIN from environment variable if set and DB has no PIN yet
+const MIN_ADMIN_PIN_LENGTH = 8;
+
+function isValidAdminPinFormat(pin) {
+  return typeof pin === 'string' && pin.trim().length >= MIN_ADMIN_PIN_LENGTH && pin.trim().length <= 128;
+}
+
+// ADMIN_PIN from the environment is the source of truth: it is (re)synced into the DB on start
 if (process.env.ADMIN_PIN) {
   const envPin = String(process.env.ADMIN_PIN).trim();
-  if (/^\d{4}$/.test(envPin)) {
-    if (!db.getAdminPin()) {
+  if (isValidAdminPinFormat(envPin)) {
+    if (db.getAdminPin() !== hashPin(envPin)) {
       db.setAdminPin(hashPin(envPin));
-      console.log('[admin] Superadmin PIN initialized from process.env.ADMIN_PIN');
+      console.log('[admin] Superadmin PIN synced from process.env.ADMIN_PIN');
     }
   } else {
-    console.warn('[admin] ADMIN_PIN is set in environment but is not a 4-digit number');
+    console.warn(`[admin] ADMIN_PIN is set but shorter than ${MIN_ADMIN_PIN_LENGTH} characters — ignored. Use a longer secret.`);
   }
 }
 
-function verifyPin(pin) {
-  if (!pin) return false;
+function getClientIp(req) {
+  return (req && (req.ip || req.socket?.remoteAddress)) || 'unknown';
+}
+
+function safeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+}
+
+// Every admin PIN check goes through here and is rate limited per IP, so the PIN
+// cannot be brute forced through any endpoint that accepts it.
+function verifyPin(pin, req) {
+  if (!pin || typeof pin !== 'string') return false;
   const stored = db.getAdminPin();
-  if (stored) {
-    return hashPin(pin) === stored;
-  }
-  if (process.env.ADMIN_PIN && String(process.env.ADMIN_PIN).trim() === String(pin).trim()) {
+  if (!stored) return false;
+
+  const key = 'admin:' + getClientIp(req);
+  if (!db.checkRateLimit(key).allowed) return false;
+
+  if (safeEqualHex(hashPin(pin.trim()), stored)) {
+    db.clearRateLimit(key);
     return true;
   }
+  db.recordFailedAttempt(key, 5, 15);
   return false;
+}
+
+// Checks the admin PIN only when it is actually needed, so a stale PIN sent along with
+// an otherwise authorized request (e.g. by the creator) never counts as a failed attempt.
+function lazyAdminPin(req, pin) {
+  let result;
+  return () => {
+    if (result === undefined) result = Boolean(pin) && verifyPin(pin, req);
+    return result;
+  };
+}
+
+function requireAdminPin(req, res) {
+  const limitCheck = db.checkRateLimit('admin:' + getClientIp(req));
+  if (!limitCheck.allowed) {
+    res.status(429).json({ error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.` });
+    return false;
+  }
+  const pin = req.body?.pin || req.headers['x-admin-pin'];
+  if (!verifyPin(pin, req)) {
+    res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
+    return false;
+  }
+  return true;
 }
 
 // Get user from request token
@@ -736,7 +790,7 @@ function verifyEventAdmin(req, event) {
   }
   // Fall back to PIN
   const { pin } = req.body || {};
-  if (pin && verifyPin(pin)) return true;
+  if (pin && verifyPin(pin, req)) return true;
   return false;
 }
 
@@ -750,52 +804,33 @@ app.post('/api/admin/setup', (req, res) => {
   if (db.getAdminPin()) {
     return res.status(403).json({ error: 'PIN är redan satt' });
   }
-  const { pin } = req.body;
-  if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
-    return res.status(400).json({ error: 'PIN måste vara exakt 4 siffror' });
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Superadmin-PIN sätts via miljövariabeln ADMIN_PIN i produktion' });
   }
-  db.setAdminPin(hashPin(pin));
+  const { pin } = req.body || {};
+  if (!isValidAdminPinFormat(pin)) {
+    return res.status(400).json({ error: `Admin-PIN måste vara minst ${MIN_ADMIN_PIN_LENGTH} tecken` });
+  }
+  db.setAdminPin(hashPin(pin.trim()));
   res.json({ ok: true });
 });
 
-// Admin PIN Rate Limiter (IP based, SQLite backed)
-function checkAdminRateLimit(ip) {
-  return db.checkRateLimit('admin:' + ip);
-}
-
-function recordFailedAdminAttempt(ip) {
-  return db.recordFailedAttempt('admin:' + ip, 5, 15);
-}
-
-function clearAdminAttempts(ip) {
-  db.clearRateLimit('admin:' + ip);
-}
-
 app.post('/api/admin/verify', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
+  const limitCheck = db.checkRateLimit('admin:' + getClientIp(req));
   if (!limitCheck.allowed) {
     return res.status(429).json({
       error: `För många felaktiga PIN-försök. Admin-inloggning spärrad i ${limitCheck.minutesLeft} minuter.`
     });
   }
 
-  const { pin } = req.body;
-  const stored = db.getAdminPin();
-  if (!stored) return res.json({ verified: false, needsSetup: true });
+  const { pin } = req.body || {};
+  if (!db.getAdminPin()) return res.json({ verified: false, needsSetup: true });
 
-  const ok = hashPin(pin) === stored;
-  if (!ok) {
-    const rec = recordFailedAdminAttempt(ip);
-    if (rec.count >= 5) {
-      return res.status(429).json({
-        error: 'För många felaktiga PIN-försök. Admin-inloggning har spärrats i 15 minuter.'
-      });
-    }
+  if (!verifyPin(pin, req)) {
     return res.status(401).json({ verified: false, error: 'Felaktig PIN-kod' });
   }
 
-  clearAdminAttempts(ip);
+  db.clearRateLimit('admin:' + getClientIp(req));
   res.json({ verified: true });
 });
 
@@ -809,10 +844,7 @@ app.get('/api/admin/status', (req, res) => {
 });
 
 app.get('/api/admin/gemini', (req, res) => {
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
   const key = (process.env.GEMINI_API_KEY || db.getSetting('gemini_api_key') || '').trim();
   res.json({
     live: Boolean(key),
@@ -824,10 +856,8 @@ app.get('/api/admin/gemini', (req, res) => {
 });
 
 app.post('/api/admin/gemini', (req, res) => {
-  const { pin, apiKey } = req.body || {};
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
+  const { apiKey } = req.body || {};
   if (apiKey !== undefined) {
     db.setSetting('gemini_api_key', String(apiKey).trim());
   }
@@ -835,10 +865,7 @@ app.post('/api/admin/gemini', (req, res) => {
 });
 
 app.get('/api/admin/livekit', (req, res) => {
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
   const cfg = getLiveKitConfig();
   res.json({
     configured: cfg.configured,
@@ -849,10 +876,8 @@ app.get('/api/admin/livekit', (req, res) => {
 });
 
 app.post('/api/admin/livekit', (req, res) => {
-  const { pin, url, apiKey, apiSecret } = req.body || {};
-  if (!pin || !verifyPin(pin)) {
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
+  if (!requireAdminPin(req, res)) return;
+  const { url, apiKey, apiSecret } = req.body || {};
   if (url !== undefined) db.setSetting('livekit_url', String(url).trim());
   if (apiKey !== undefined) db.setSetting('livekit_api_key', String(apiKey).trim());
   if (apiSecret !== undefined) db.setSetting('livekit_api_secret', String(apiSecret).trim());
@@ -861,45 +886,20 @@ app.post('/api/admin/livekit', (req, res) => {
 
 // Get all users (Superadmin only)
 app.post('/api/admin/users', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const { pin } = req.body;
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
   const users = db.getAllUsers();
   res.json(users);
 });
 
 // Reset user PIN (Superadmin only)
 app.post('/api/admin/users/:id/reset-pin', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const { pin } = req.body;
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
   const targetUser = db.getUserById(req.params.id);
   if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
 
   const resetCode = String(crypto.randomInt(100000, 1000000));
   db.resetUserPin(targetUser.id, resetCode);
+  db.clearRateLimit('pinreset:' + targetUser.id);
   res.json({
     ok: true,
     resetCode,
@@ -909,20 +909,7 @@ app.post('/api/admin/users/:id/reset-pin', (req, res) => {
 
 // ── Admin Database Backup Operations ─────────────────
 app.post('/api/admin/backup', async (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const { pin } = req.body || {};
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
 
   try {
     const backupResult = await db.backupDatabase();
@@ -934,40 +921,14 @@ app.post('/api/admin/backup', async (req, res) => {
 });
 
 app.get('/api/admin/backup/latest', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
 
   const latest = db.getLatestBackup();
   res.json({ ok: true, backup: latest });
 });
 
 app.get('/api/admin/backup/download', (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  const limitCheck = checkAdminRateLimit(ip);
-  if (!limitCheck.allowed) {
-    return res.status(429).json({
-      error: `För många felaktiga PIN-försök. Admin-funktioner spärrade i ${limitCheck.minutesLeft} minuter.`
-    });
-  }
-
-  const pin = req.query.pin || req.headers['x-admin-pin'];
-  if (!pin || !verifyPin(pin)) {
-    recordFailedAdminAttempt(ip);
-    return res.status(403).json({ error: 'Ingen behörighet (fel PIN)' });
-  }
-  clearAdminAttempts(ip);
+  if (!requireAdminPin(req, res)) return;
 
   const latest = db.getLatestBackup();
   if (!latest || !fs.existsSync(latest.path)) {
@@ -1193,7 +1154,23 @@ app.post('/api/users/reset-pin', (req, res) => {
     return res.status(400).json({ error: 'Kontot är inte i återställningsläge' });
   }
 
-  if (!user.reset_code || user.reset_code !== cleanCode) {
+  // Limit guesses per account and per IP so the 6-digit code cannot be brute forced
+  const resetKey = 'pinreset:' + user.id;
+  const resetIpKey = 'pinreset_ip:' + getClientIp(req);
+  const resetLimit = db.checkRateLimit(resetKey);
+  const resetIpLimit = db.checkRateLimit(resetIpKey);
+  if (!resetLimit.allowed || !resetIpLimit.allowed) {
+    const minutesLeft = Math.max(resetLimit.minutesLeft || 0, resetIpLimit.minutesLeft || 0);
+    return res.status(429).json({
+      error: `För många felaktiga försök. Vänta ${minutesLeft} minuter eller be admin om en ny engångskod.`
+    });
+  }
+
+  const codeMatches = typeof user.reset_code === 'string' && user.reset_code.length === cleanCode.length &&
+    crypto.timingSafeEqual(Buffer.from(user.reset_code), Buffer.from(cleanCode));
+  if (!codeMatches) {
+    db.recordFailedAttempt(resetKey, 5, 15);
+    db.recordFailedAttempt(resetIpKey, 10, 15);
     return res.status(401).json({ error: 'Felaktig 6-siffrig engångskod' });
   }
 
@@ -1204,6 +1181,7 @@ app.post('/api/users/reset-pin', (req, res) => {
   const newToken = crypto.randomUUID();
   db.setUserPin(user.id, cleanPin, newToken);
   clearPinAttempts(user.id);
+  db.clearRateLimit(resetKey);
   const updated = db.getUserById(user.id);
   res.json({
     id: updated.id,
@@ -1579,16 +1557,16 @@ app.delete('/api/tournaments/:id/photos/:photoId', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   // Verify ownership or super admin
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
-  if (!user && !hasPin) return res.status(401).json({ error: 'Inloggning krävs' });
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!user && !hasPin()) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const isCreator = (user && tournament.creatorId === user.id) || hasPin;
+  const isCreator = Boolean(user && tournament.creatorId === user.id);
 
   const photos = db.getPhotosByTournament(tournament.id);
   const photo = photos.find(p => p.id === req.params.photoId);
   if (!photo) return res.status(404).json({ error: 'Bilden hittades inte' });
 
-  if ((!user || photo.user_id !== user.id) && !isCreator && !hasPin) {
+  if ((!user || photo.user_id !== user.id) && !isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet att ta bort denna bild' });
   }
 
@@ -1640,11 +1618,50 @@ app.get('/api/friends', (req, res) => {
   res.json(db.getFriends(user.id));
 });
 
+// Signed personal invite link: whoever shares their link has consented up front,
+// so opening someone's link creates the friendship directly.
+function getFriendInviteSecret() {
+  let secret = db.getSetting('friend_invite_secret');
+  if (!secret) {
+    secret = crypto.randomBytes(32).toString('hex');
+    db.setSetting('friend_invite_secret', secret);
+  }
+  return secret;
+}
+
+function friendInviteToken(userId) {
+  return crypto.createHmac('sha256', getFriendInviteSecret()).update(String(userId)).digest('hex').slice(0, 32);
+}
+
+function isValidFriendInviteToken(userId, token) {
+  if (typeof token !== 'string') return false;
+  const expected = friendInviteToken(userId);
+  return token.length === expected.length && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+}
+
+function publicFriend(target) {
+  return {
+    id: target.id,
+    nickname: target.nickname,
+    realName: target.real_name,
+    avatarEmoji: target.avatar_emoji,
+    avatarUrl: target.avatar_url
+  };
+}
+
+app.get('/api/friends/invite-token', requireAuth, (req, res) => {
+  res.json({ token: friendInviteToken(req.user.id), nickname: req.user.nickname });
+});
+
+app.get('/api/friends/requests', requireAuth, (req, res) => {
+  res.json(db.getFriendRequests(req.user.id));
+});
+
 app.post('/api/friends', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Ej inloggad' });
 
-  const { friendId, nickname } = req.body || {};
+  const { friendId, nickname, inviteToken } = req.body || {};
   let target = null;
   if (friendId) {
     target = db.getUserById(friendId);
@@ -1660,18 +1677,53 @@ app.post('/api/friends', (req, res) => {
     return res.status(400).json({ error: 'Du kan inte lägga till dig själv som vän' });
   }
 
-  db.addFriend(user.id, target.id);
+  if (db.isFriend(user.id, target.id)) {
+    return res.json({ ok: true, status: 'already_friends', message: `Du och ${target.nickname} är redan vänner! 👥`, friend: publicFriend(target) });
+  }
+
+  if (inviteToken && isValidFriendInviteToken(target.id, inviteToken)) {
+    db.addFriend(user.id, target.id);
+    db.declineFriendRequest(user.id, target.id);
+    db.declineFriendRequest(target.id, user.id);
+    broadcastToUser(target.id, { type: 'friend_added', friend: publicFriend(user) });
+    return res.json({ ok: true, status: 'accepted', message: `${target.nickname} har lagts till som vän! 👥`, friend: publicFriend(target) });
+  }
+
+  const result = db.requestFriend(user.id, target.id);
+  if (result.status === 'accepted') {
+    broadcastToUser(target.id, { type: 'friend_added', friend: publicFriend(user) });
+    return res.json({ ok: true, status: 'accepted', message: `Du och ${target.nickname} är nu vänner! 👥`, friend: publicFriend(target) });
+  }
+
+  const requesterName = user.nickname || user.real_name || 'Någon';
+  broadcastToUser(target.id, { type: 'friend_request', from: publicFriend(user) });
+  sendPushToUsers([target.id], {
+    title: '👥 Ny vänförfrågan',
+    body: `${requesterName} vill bli vän med dig i BetPals.`,
+    url: '/#profile'
+  }).catch(() => {});
+
   res.json({
     ok: true,
-    message: `${target.nickname} har lagts till som vän! 👥`,
-    friend: {
-      id: target.id,
-      nickname: target.nickname,
-      realName: target.real_name,
-      avatarEmoji: target.avatar_emoji,
-      avatarUrl: target.avatar_url
-    }
+    status: 'pending',
+    message: `Vänförfrågan skickad till ${target.nickname}! 📨`,
+    friend: publicFriend(target)
   });
+});
+
+app.post('/api/friends/requests/:fromUserId/accept', requireAuth, (req, res) => {
+  const ok = db.acceptFriendRequest(req.params.fromUserId, req.user.id);
+  if (!ok) return res.status(404).json({ error: 'Vänförfrågan hittades inte' });
+  broadcastToUser(req.params.fromUserId, { type: 'friend_added', friend: publicFriend(req.user) });
+  res.json({ ok: true });
+});
+
+app.post('/api/friends/requests/:fromUserId/decline', requireAuth, (req, res) => {
+  // Also lets the sender withdraw their own outgoing request
+  const declined = db.declineFriendRequest(req.params.fromUserId, req.user.id) ||
+    db.declineFriendRequest(req.user.id, req.params.fromUserId);
+  if (!declined) return res.status(404).json({ error: 'Vänförfrågan hittades inte' });
+  res.json({ ok: true });
 });
 
 app.delete('/api/friends/:friendId', (req, res) => {
@@ -1704,8 +1756,8 @@ app.post('/api/events', (req, res) => {
 
   // Allow creation with user token OR admin PIN
   const user = getUserFromToken(req);
-  const hasPin = pin && verifyPin(pin);
-  if (!user && !hasPin) {
+  const hasPin = lazyAdminPin(req, pin);
+  if (!user && !hasPin()) {
     return res.status(403).json({ error: 'Logga in eller ange admin-PIN för att skapa match' });
   }
 
@@ -1716,7 +1768,7 @@ app.post('/api/events', (req, res) => {
       return res.status(404).json({ error: 'Turneringen hittades inte' });
     }
     const isTournamentCreator = user && tournament.creatorId === user.id;
-    if (!isTournamentCreator && !hasPin) {
+    if (!isTournamentCreator && !hasPin()) {
       return res.status(403).json({ error: 'Du har inte behörighet att lägga till matcher i denna turnering' });
     }
     if (tournament.status === 'settled') {
@@ -2077,15 +2129,19 @@ app.post('/api/events/:id/reopen', (req, res) => {
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
-  db.reopenEvent(req.params.id);
-  broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code });
+  const newStatus = db.reopenEvent(req.params.id);
+  broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code, status: newStatus });
 
   if (event.tournament_id) {
     const t = db.getTournamentById(event.tournament_id);
     if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
   }
 
-  res.json({ ok: true, status: 'open' });
+  res.json({
+    ok: true,
+    status: newStatus,
+    message: newStatus === 'locked' ? 'Resultatet är upplåst för rättning. Bettningen förblir stängd eftersom resultatet redan har visats.' : undefined
+  });
 });
 
 app.post('/api/events/:id/boost', async (req, res) => {
@@ -2230,6 +2286,10 @@ app.post('/api/events/:id/finish', (req, res) => {
     }
   }
 
+  if (event.status === 'cancelled') {
+    return res.status(400).json({ error: 'Matchen är inställd och kan inte avgöras' });
+  }
+
   if (winnerImageUrl && !isValidImageUrl(winnerImageUrl)) {
     return res.status(400).json({ error: 'Ogiltig bild-URL för vinnaren' });
   }
@@ -2356,8 +2416,8 @@ app.get('/api/tournaments', (req, res) => {
 app.post('/api/tournaments', (req, res) => {
   const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = body.pin && verifyPin(body.pin);
-  if (!user && !hasPin) {
+  const hasPin = lazyAdminPin(req, body?.pin);
+  if (!user && !hasPin()) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
 
@@ -2415,8 +2475,8 @@ app.post('/api/tournaments/:id/invite', (req, res) => {
   const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
   const isCreator = user && tournament.creator_id === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Endast arrangören kan bjuda in vänner' });
   }
 
@@ -2456,8 +2516,8 @@ app.post('/api/tournaments/:id/participants', (req, res) => {
   const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
   if (!tournament) return res.status(404).json({ error: 'Turneringen hittades inte' });
   const isCreator = user && tournament.creator_id === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Endast spelledaren kan lägga till deltagare' });
   }
 
@@ -2477,8 +2537,8 @@ app.get('/api/tournament-templates', (req, res) => {
 app.post('/api/tournaments/from-template', (req, res) => {
   const body = req.body || {};
   const user = getUserFromToken(req);
-  const hasPin = body.pin && verifyPin(body.pin);
-  if (!user && !hasPin) {
+  const hasPin = lazyAdminPin(req, body?.pin);
+  if (!user && !hasPin()) {
     return res.status(403).json({ error: 'Logga in för att skapa turnering' });
   }
 
@@ -2590,9 +2650,9 @@ app.get('/api/tournaments/:code', (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
   const user = getUserFromToken(req);
-  const hasPin = req.query.pin && verifyPin(req.query.pin);
+  const hasPin = lazyAdminPin(req, req.headers['x-admin-pin']);
 
-  if (!hasPin && !db.canUserAccessTournament(tournament, user ? user.id : null)) {
+  if (!db.canUserAccessTournament(tournament, user ? user.id : null) && !hasPin()) {
     const creator = tournament.creatorId ? db.getUserById(tournament.creatorId) : null;
     return res.status(403).json({
       error: 'ACCESS_RESTRICTED',
@@ -2620,8 +2680,8 @@ app.post('/api/tournaments/:id/rounds', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2697,8 +2757,8 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2776,8 +2836,8 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2808,8 +2868,8 @@ app.post('/api/tournaments/:id/reopen', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2826,8 +2886,8 @@ app.post('/api/tournaments/:id/banners', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2858,8 +2918,8 @@ app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet' });
   }
 
@@ -2875,8 +2935,8 @@ app.delete('/api/tournaments/:id', (req, res) => {
 
   const user = getUserFromToken(req);
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
-  if (!isCreator && !hasPin) {
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet att radera turneringen' });
   }
 
@@ -2892,7 +2952,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
   const user = getUserFromToken(req);
   const { fromName, toName, fromUserId, toUserId, amount, receiptId } = req.body;
   const isCreator = user && tournament.creatorId === user.id;
-  const hasPin = req.body?.pin && verifyPin(req.body.pin);
+  const hasPin = lazyAdminPin(req, req.body?.pin);
 
   if (receiptId) {
     const existing = db.getSettlementReceiptById(receiptId);
@@ -2901,7 +2961,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     }
 
     const isReceiptCreditor = user && ((existing.to_user_id && user.id === existing.to_user_id) || user.nickname === existing.to_name || user.real_name === existing.to_name);
-    if (!isCreator && !isReceiptCreditor && !hasPin) {
+    if (!isCreator && !isReceiptCreditor && !hasPin()) {
       return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan ta bort detta kvitto' });
     }
 
@@ -2935,7 +2995,7 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
     (matchingTransfer.toUserId && user.id === matchingTransfer.toUserId) ||
     (!matchingTransfer.toUserId && (user.nickname === matchingTransfer.to || user.real_name === matchingTransfer.to))
   );
-  if (!isCreator && !isCreditor && !hasPin) {
+  if (!isCreator && !isCreditor && !hasPin()) {
     return res.status(403).json({ error: 'Endast mottagaren/borgenären eller arrangören kan kvittera denna överföring' });
   }
 
@@ -2959,12 +3019,19 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
 });
 
 // ── Minigame Duels API ──────────────────────────────
+const MAX_DUEL_STAKE = 10000;
 app.post('/api/duels', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { gameType, opponentId, stakeAmount, mode, tournamentId } = req.body;
-  const stake = typeof stakeAmount === 'number' ? Math.max(0, stakeAmount) : 1;
+  if (stakeAmount !== undefined && (typeof stakeAmount !== 'number' || !Number.isFinite(stakeAmount) || stakeAmount < 0)) {
+    return res.status(400).json({ error: 'Ogiltig insats' });
+  }
+  if (typeof stakeAmount === 'number' && stakeAmount > MAX_DUEL_STAKE) {
+    return res.status(400).json({ error: `Insatsen får vara högst ${MAX_DUEL_STAKE} kr` });
+  }
+  const stake = typeof stakeAmount === 'number' ? Math.round(stakeAmount * 100) / 100 : 1;
   const duelMode = mode === 'table' ? 'table' : 'online';
 
   const rawTournamentId = tournamentId ? String(tournamentId).trim() : null;
@@ -3126,12 +3193,37 @@ app.post(['/api/duels/:id/roll', '/api/duels/:id/result'], (req, res) => {
 
   const effectiveWinnerId = derivedWinnerId;
 
-  const updated = db.submitDuelResult({
+  // The result only counts once the other participant confirms it (or the reporter concedes)
+  const report = db.reportDuelResult({
     duelId: req.params.id,
+    reporterId: user.id,
     creatorScore: parsedCreatorScore,
     opponentScore: parsedOpponentScore,
     winnerId: effectiveWinnerId
   });
+
+  if (report.error === 'mismatch') {
+    return res.status(409).json({ error: 'Resultatet matchar inte motståndarens rapport. Kom överens och rapportera igen.' });
+  }
+  if (report.error) {
+    return res.status(404).json({ error: 'Duell hittades inte' });
+  }
+
+  const updated = report.duel;
+
+  if (!report.confirmed) {
+    const otherId = user.id === duel.creator_id ? duel.opponent_id : duel.creator_id;
+    const reporterName = user.nickname || user.real_name || 'Motståndaren';
+    if (otherId) {
+      broadcastToUser(otherId, { type: 'duel_result_reported', duel: updated });
+      sendPushToUsers([otherId], {
+        title: '⚔️ Bekräfta duellresultat',
+        body: `${reporterName} har rapporterat resultatet. Bekräfta det i Arcade.`,
+        url: '/#arcade'
+      }, 'duels').catch(() => {});
+    }
+    return res.json({ duel: updated, awaitingConfirmation: true });
+  }
 
   broadcastToDuel(req.params.id, {
     type: 'duel_finished',
@@ -3280,9 +3372,9 @@ app.post('/api/minigames/party/create', (req, res) => {
       {
         id: user.id,
         nickname: user.nickname,
-        avatarUrl: user.avatarUrl || null,
-        avatarEmoji: user.avatarEmoji || '👑',
-        swishNumber: user.swishNumber || null,
+        avatarUrl: user.avatar_url || null,
+        avatarEmoji: user.avatar_emoji || '👑',
+        swishNumber: user.swish_number || null,
         isHost: true,
         stoppedTime: null,
         diff: null,
@@ -3361,18 +3453,20 @@ app.post('/api/minigames/party/join', (req, res) => {
   const targetId = roomId || partyCodeToId.get((code || '').toUpperCase());
   const room = partyRooms.get(targetId);
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
-  if (room.status !== 'lobby' && room.status !== 'tie') {
+  let player = room.players.find(p => p.id === user.id);
+  // New players may only join in the lobby: joining mid-round (or during a tie-break)
+  // would make them a loser of a round they never played.
+  if (!player && room.status !== 'lobby') {
     return res.status(400).json({ error: 'Spelet har redan startat' });
   }
 
-  let player = room.players.find(p => p.id === user.id);
   if (!player) {
     player = {
       id: user.id,
       nickname: user.nickname,
-      avatarUrl: user.avatarUrl || null,
-      avatarEmoji: user.avatarEmoji || '👤',
-      swishNumber: user.swishNumber || null,
+      avatarUrl: user.avatar_url || null,
+      avatarEmoji: user.avatar_emoji || '👤',
+      swishNumber: user.swish_number || null,
       isHost: false,
       stoppedTime: null,
       diff: null,
@@ -3433,6 +3527,220 @@ app.post('/api/minigames/party/:id/invite', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Party round integrity (Blind 10 & Space Blitz with money on the line) ──
+const BLIND10_TARGET_SEC = 10;
+const BLIND10_ROUND_TIMEOUT_MS = 30000;
+const SPACE_BLITZ_DURATION_MS = 60000;
+const SPACE_BLITZ_GRACE_MS = 10000;
+const SPACE_FIRE_INTERVAL_MS = 220;
+const SPACE_ALIENS_PER_WAVE = 28;
+const SPACE_WAVE_POINTS = 560; // 7×30 + 14×20 + 7×10
+const SPACE_ALIEN_POINTS_DESC = [...Array(7).fill(30), ...Array(14).fill(20), ...Array(7).fill(10)];
+const SPACE_UFO_POINTS = 200;
+const SPACE_FIRST_UFO_MS = 12000;
+const SPACE_UFO_MIN_GAP_MS = 18000;
+const MAX_LATENCY_COMPENSATION_MS = 400;
+const PARTY_PING_ROUNDS = 3;
+
+const partyRoundTimers = new Map(); // roomId → timeout handle (kept out of the room so it can be JSON-broadcast)
+const userRttSamples = new Map();   // userId → recent WebSocket round-trip times (ms)
+
+// RTT is measured with protocol-level WebSocket ping/pong, which page JavaScript cannot delay or fake
+function recordUserRtt(userId, rttMs) {
+  if (!userId || !Number.isFinite(rttMs) || rttMs < 0) return;
+  const samples = userRttSamples.get(userId) || [];
+  samples.push(rttMs);
+  while (samples.length > 5) samples.shift();
+  userRttSamples.set(userId, samples);
+}
+
+function getLatencyCompensationMs(userId) {
+  const samples = [...(userRttSamples.get(userId) || [])].sort((a, b) => a - b);
+  if (samples.length === 0) return 0;
+  const median = samples[Math.floor(samples.length / 2)];
+  return Math.min(MAX_LATENCY_COMPENSATION_MS, median);
+}
+
+function pingPartyPlayers(roomId) {
+  for (let i = 0; i < PARTY_PING_ROUNDS; i++) {
+    setTimeout(() => {
+      for (const ws of partyClients.get(roomId) || []) {
+        if (ws.readyState !== 1 || !ws.betpalsUserId) continue;
+        try {
+          ws.betpalsPingAt = performance.now();
+          ws.ping();
+        } catch {}
+      }
+    }, i * 600).unref?.();
+  }
+}
+
+// Checks a Space Blitz result against the game's rules: fire rate, points per alien row,
+// aliens per wave and UFO spawn timing. Returns null when plausible, otherwise a reason.
+export function spaceBlitzImplausibilityReason({ score, aliensKilled, wave, elapsedMs }) {
+  if (![score, aliensKilled, wave].every(n => Number.isInteger(n) && n >= 0)) return 'Ogiltiga värden';
+  if (wave < 1) return 'Ogiltig våg';
+  if (score % 10 !== 0) return 'Poängen går inte ihop';
+
+  const maxShots = Math.floor(elapsedMs / SPACE_FIRE_INTERVAL_MS) + 1;
+  if (aliensKilled > maxShots) return 'Fler träffar än möjliga skott';
+
+  const clearedWaves = wave - 1;
+  const partialKills = aliensKilled - clearedWaves * SPACE_ALIENS_PER_WAVE;
+  if (partialKills < 0 || partialKills > SPACE_ALIENS_PER_WAVE) return 'Våg och antal träffar går inte ihop';
+
+  const maxPartial = SPACE_ALIEN_POINTS_DESC.slice(0, partialKills).reduce((a, b) => a + b, 0);
+  const minPartial = SPACE_ALIEN_POINTS_DESC.slice(SPACE_ALIEN_POINTS_DESC.length - partialKills).reduce((a, b) => a + b, 0);
+  const maxUfos = elapsedMs < SPACE_FIRST_UFO_MS ? 0 : 1 + Math.floor((elapsedMs - SPACE_FIRST_UFO_MS) / SPACE_UFO_MIN_GAP_MS);
+
+  for (let ufos = 0; ufos <= maxUfos; ufos++) {
+    const partialScore = score - clearedWaves * SPACE_WAVE_POINTS - ufos * SPACE_UFO_POINTS;
+    if (partialScore >= minPartial && partialScore <= maxPartial) return null;
+  }
+  return 'Poängen går inte ihop med antal träffar';
+}
+
+function hasFinishedRound(p) {
+  return p.stoppedTime !== null && p.stoppedTime !== undefined || p.dnf === true;
+}
+
+function clearPartyRoundTimer(roomId) {
+  const handle = partyRoundTimers.get(roomId);
+  if (handle) clearTimeout(handle);
+  partyRoundTimers.delete(roomId);
+}
+
+function schedulePartyRoundTimeout(room) {
+  clearPartyRoundTimer(room.id);
+  const limitMs = room.gameType === 'space_invaders'
+    ? SPACE_BLITZ_DURATION_MS + SPACE_BLITZ_GRACE_MS
+    : BLIND10_ROUND_TIMEOUT_MS;
+  const delay = Math.max(0, room.startTime + limitMs - Date.now());
+  const handle = setTimeout(() => {
+    partyRoundTimers.delete(room.id);
+    if (partyRooms.get(room.id) === room && room.status === 'running') {
+      finalizePartyRound(room, { timedOut: true });
+    }
+  }, delay);
+  handle.unref?.();
+  partyRoundTimers.set(room.id, handle);
+}
+
+function getActivePartyPlayers(room) {
+  return room.tiedPlayerIds.length > 0
+    ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
+    : room.players;
+}
+
+function recordPartyDebts(room, winners, stakePerLoser) {
+  if (!(room.stakeAmount > 0) || winners.length === 0) return;
+  const winnerIds = new Set(winners.map(w => w.id));
+  const losers = room.players.filter(p => !winnerIds.has(p.id));
+  const share = Math.round((stakePerLoser / winners.length) * 100) / 100;
+  if (share <= 0) return;
+  const isSpace = room.gameType === 'space_invaders';
+
+  for (const loser of losers) {
+    for (const winner of winners) {
+      try {
+        const duel = db.createDuel({
+          gameType: room.gameType,
+          creatorId: winner.id,
+          opponentId: loser.id,
+          stakeAmount: share,
+          mode: isSpace ? 'party' : 'online'
+        });
+        if (duel) {
+          db.submitDuelResult({
+            duelId: duel.id,
+            creatorScore: isSpace ? (winner.score || 1) : 1,
+            opponentScore: isSpace ? (loser.score || 0) : 0,
+            winnerId: winner.id
+          });
+        }
+      } catch (e) {
+        console.error('Failed to log party duel settlement:', e);
+      }
+    }
+  }
+}
+
+// Decides the round once every active player has finished (or the round timed out).
+// Players who never finished are marked DNF and rank last.
+function finalizePartyRound(room, { timedOut = false } = {}) {
+  const isSpace = room.gameType === 'space_invaders';
+  const activePlayers = getActivePartyPlayers(room);
+
+  if (!timedOut && !activePlayers.every(hasFinishedRound)) return false;
+  clearPartyRoundTimer(room.id);
+
+  for (const p of activePlayers) {
+    if (!hasFinishedRound(p)) {
+      p.dnf = true;
+      if (isSpace) p.score = 0;
+    }
+  }
+
+  const finishers = activePlayers.filter(p => !p.dnf);
+  const ranked = [
+    ...finishers.sort((a, b) => isSpace ? (b.score || 0) - (a.score || 0) : a.diff - b.diff),
+    ...activePlayers.filter(p => p.dnf)
+  ];
+  room.results = ranked.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+  if (finishers.length === 0) {
+    room.status = 'completed';
+    if (room.tiedPlayerIds.length > 1) {
+      // Nobody finished the tie-break: the tied players share the pot as agreed before it
+      const tiedWinners = room.players.filter(p => room.tiedPlayerIds.includes(p.id));
+      recordPartyDebts(room, tiedWinners, room.stakeAmount);
+      broadcastToParty(room.id, { type: 'party_pot_split', room, tiedWinners });
+      return true;
+    }
+    broadcastToParty(room.id, { type: 'party_results', room, isTie: false, winner: null });
+    return true;
+  }
+
+  const best = ranked[0];
+  const tied = finishers.filter(p => isSpace ? (p.score || 0) === (best.score || 0) : p.diff === best.diff);
+
+  if (tied.length > 1) {
+    room.status = 'tie';
+    room.tiedPlayerIds = tied.map(p => p.id);
+    broadcastToParty(room.id, { type: 'party_results', room, isTie: true, tiedPlayerIds: room.tiedPlayerIds });
+    return true;
+  }
+
+  room.status = 'completed';
+  recordPartyDebts(room, [best], room.stakeAmount);
+  broadcastToParty(room.id, { type: 'party_results', room, isTie: false, winner: best });
+  return true;
+}
+
+function startPartyRound(room, playerIds) {
+  const countdownSec = 3;
+  room.status = 'running';
+  room.countdownSec = countdownSec;
+  room.startTime = Date.now() + (countdownSec * 1000);
+  for (const p of room.players) {
+    if (!playerIds || playerIds.includes(p.id)) {
+      p.stoppedTime = null;
+      p.diff = null;
+      p.rank = null;
+      p.dnf = false;
+      p.invalidated = false;
+      if (room.gameType === 'space_invaders') {
+        p.score = null;
+        p.aliensKilled = null;
+        p.waveReached = null;
+      }
+    }
+  }
+  pingPartyPlayers(room.id);
+  schedulePartyRoundTimeout(room);
+  return countdownSec;
+}
+
 app.post('/api/minigames/party/:id/start', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
@@ -3441,21 +3749,18 @@ app.post('/api/minigames/party/:id/start', (req, res) => {
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
   if (room.hostId !== user.id) return res.status(403).json({ error: 'Endast hosten kan starta spelet' });
 
+  // The host must not be able to wipe a round in progress (e.g. when losing)
+  if (room.status === 'running' || room.status === 'tie') {
+    return res.status(400).json({ error: 'En omgång pågår redan' });
+  }
+
   if (room.stakeAmount > 0 && room.players.length < 2) {
     return res.status(400).json({ error: 'Minst 2 deltagare krävs för att starta ett rum med insats' });
   }
 
-  const countdownSec = 3;
-  room.status = 'running';
-  room.countdownSec = countdownSec;
-  room.startTime = Date.now() + (countdownSec * 1000);
   room.results = [];
   room.tiedPlayerIds = [];
-  for (const p of room.players) {
-    p.stoppedTime = null;
-    p.diff = null;
-    p.rank = null;
-  }
+  const countdownSec = startPartyRound(room, null);
 
   broadcastToParty(room.id, {
     type: 'party_started',
@@ -3483,45 +3788,49 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     return res.status(400).json({ error: 'Spelet pågår inte just nu' });
   }
 
-  if (player.stoppedTime !== null) {
+  const activePlayers = getActivePartyPlayers(room);
+  if (!activePlayers.some(p => p.id === user.id)) {
+    return res.status(400).json({ error: 'Du deltar inte i denna omgång' });
+  }
+
+  if (hasFinishedRound(player)) {
     return res.status(400).json({ error: 'Du har redan stoppat klockan' });
   }
 
-  // For space_invaders, client sends { score, aliensKilled, waveReached }
+  const now = Date.now();
+  if (room.startTime && now < room.startTime) {
+    return res.status(400).json({ error: 'Spelet har inte startat ännu' });
+  }
+  const elapsedMs = now - (room.startTime || now);
+
   if (room.gameType === 'space_invaders') {
-    const now = Date.now();
-    if (room.startTime && now < room.startTime) {
-      return res.status(400).json({ error: 'Spelet har inte startat ännu' });
-    }
-    if (room.startTime && now > room.startTime + 120000) {
+    if (elapsedMs > SPACE_BLITZ_DURATION_MS + SPACE_BLITZ_GRACE_MS) {
       return res.status(400).json({ error: 'Tidsfönstret för inlämning har löpt ut' });
     }
 
-    // Support both top-level and nested stoppedTime if any client sent it
-    const reqScore = typeof req.body.score === 'number'
-      ? req.body.score
-      : (req.body.stoppedTime && typeof req.body.stoppedTime.score === 'number' ? req.body.stoppedTime.score : req.body.score);
-    const reqAliens = typeof req.body.aliensKilled === 'number'
-      ? req.body.aliensKilled
-      : (req.body.stoppedTime && typeof req.body.stoppedTime.aliensKilled === 'number' ? req.body.stoppedTime.aliensKilled : req.body.aliensKilled);
-    const reqWave = typeof req.body.waveReached === 'number'
-      ? req.body.waveReached
-      : (req.body.stoppedTime && typeof req.body.stoppedTime.waveReached === 'number' ? req.body.stoppedTime.waveReached : req.body.waveReached);
+    const pick = (key) => typeof req.body[key] === 'number'
+      ? req.body[key]
+      : (req.body.stoppedTime && typeof req.body.stoppedTime[key] === 'number' ? req.body.stoppedTime[key] : NaN);
+    const reported = {
+      score: pick('score'),
+      aliensKilled: pick('aliensKilled'),
+      wave: pick('waveReached'),
+      elapsedMs
+    };
 
-    const maxAllowedScore = 5000;
-    const parsedScore = typeof reqScore === 'number' && Number.isFinite(reqScore)
-      ? Math.min(maxAllowedScore, Math.max(0, Math.floor(reqScore)))
-      : 0;
-    const parsedAliens = typeof reqAliens === 'number' && Number.isFinite(reqAliens)
-      ? Math.min(150, Math.max(0, Math.floor(reqAliens)))
-      : 0;
-    const parsedWave = typeof reqWave === 'number' && Number.isFinite(reqWave)
-      ? Math.min(10, Math.max(1, Math.floor(reqWave)))
-      : 1;
-
-    player.score = parsedScore;
-    player.aliensKilled = parsedAliens;
-    player.waveReached = parsedWave;
+    const reason = spaceBlitzImplausibilityReason(reported);
+    if (reason) {
+      // An impossible result counts as 0 points instead of being silently clamped
+      console.warn(`[party] Invalidated Space Blitz result from ${user.id} in room ${room.id}: ${reason}`, reported);
+      player.score = 0;
+      player.aliensKilled = 0;
+      player.waveReached = 1;
+      player.invalidated = true;
+    } else {
+      player.score = reported.score;
+      player.aliensKilled = reported.aliensKilled;
+      player.waveReached = reported.wave;
+    }
     player.stoppedTime = now;
 
     broadcastToParty(room.id, {
@@ -3529,95 +3838,20 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
       userId: user.id,
       nickname: user.nickname,
       score: player.score,
-      stoppedCount: room.players.filter(p => p.stoppedTime !== null).length,
-      totalCount: room.players.length
+      invalidated: Boolean(player.invalidated),
+      stoppedCount: activePlayers.filter(hasFinishedRound).length,
+      totalCount: activePlayers.length
     });
 
-    const activePlayers = room.tiedPlayerIds.length > 0
-      ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
-      : room.players;
-
-    const allFinished = activePlayers.every(p => p.stoppedTime !== null);
-
-    if (allFinished && activePlayers.length > 0) {
-      // Highest score wins in space_invaders
-      activePlayers.sort((a, b) => (b.score || 0) - (a.score || 0));
-
-      const bestScore = activePlayers[0].score || 0;
-      const tied = activePlayers.filter(p => (p.score || 0) === bestScore);
-
-      if (tied.length > 1) {
-        room.status = 'tie';
-        room.tiedPlayerIds = tied.map(p => p.id);
-        room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
-
-        broadcastToParty(room.id, {
-          type: 'party_results',
-          room,
-          isTie: true,
-          tiedPlayerIds: room.tiedPlayerIds
-        });
-      } else {
-        room.status = 'completed';
-        const winner = activePlayers[0];
-        room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
-
-        if (room.stakeAmount > 0) {
-          const losers = room.players.filter(p => p.id !== winner.id);
-          for (const loser of losers) {
-            try {
-              const duel = db.createDuel({
-                gameType: 'space_invaders',
-                creatorId: winner.id,
-                opponentId: loser.id,
-                stakeAmount: room.stakeAmount,
-                mode: 'party'
-              });
-              if (duel) {
-                db.submitDuelResult({
-                  duelId: duel.id,
-                  creatorScore: winner.score || 1,
-                  opponentScore: loser.score || 0,
-                  winnerId: winner.id
-                });
-              }
-            } catch (e) {
-              console.error('Failed to log party duel settlement:', e);
-            }
-          }
-        }
-
-        broadcastToParty(room.id, {
-          type: 'party_results',
-          room,
-          isTie: false,
-          winner
-        });
-      }
-    }
-
-    return res.json({ ok: true, room, score: player.score });
+    finalizePartyRound(room);
+    return res.json({ ok: true, room, score: player.score, invalidated: Boolean(player.invalidated) });
   }
 
-  // Authoritative server-measured elapsed time (for blind10)
-  const now = Date.now();
-  const rawElapsed = (now - (room.startTime || now)) / 1000;
-  const elapsedSec = Math.max(0, rawElapsed);
-
-  let finalTime;
-  if (typeof req.body.stoppedTime === 'number' && req.body.stoppedTime > 0) {
-    const clientTime = Math.round(req.body.stoppedTime * 1000) / 1000;
-    // Tolerance window for network transit (1.5s). If client sends wildly manipulated time, force server time
-    if (Math.abs(clientTime - elapsedSec) <= 1.5) {
-      finalTime = clientTime;
-    } else {
-      finalTime = Math.round(elapsedSec * 1000) / 1000;
-    }
-  } else {
-    finalTime = Math.round(elapsedSec * 1000) / 1000;
-  }
-
-  const diff = Math.round(Math.abs(finalTime - 10.000) * 1000) / 1000;
+  // Blind 10: the server measures the time. The client's own number is ignored; only the
+  // player's network round-trip (measured by the server) is subtracted, capped at 400 ms.
+  const compensationMs = getLatencyCompensationMs(user.id);
+  const finalTime = Math.round(Math.max(0, elapsedMs - compensationMs)) / 1000;
+  const diff = Math.round(Math.abs(finalTime - BLIND10_TARGET_SEC) * 1000) / 1000;
   player.stoppedTime = finalTime;
   player.diff = diff;
 
@@ -3625,73 +3859,12 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
     type: 'party_player_stopped',
     userId: user.id,
     nickname: user.nickname,
-    stoppedCount: room.players.filter(p => p.stoppedTime !== null).length,
-    totalCount: room.players.length
+    stoppedCount: activePlayers.filter(hasFinishedRound).length,
+    totalCount: activePlayers.length
   });
 
-  const activePlayers = room.tiedPlayerIds.length > 0
-    ? room.players.filter(p => room.tiedPlayerIds.includes(p.id))
-    : room.players;
-
-  const allFinished = activePlayers.every(p => p.stoppedTime !== null);
-
-  if (allFinished && activePlayers.length > 0) {
-    activePlayers.sort((a, b) => a.diff - b.diff);
-
-    const bestDiff = activePlayers[0].diff;
-    const tied = activePlayers.filter(p => p.diff === bestDiff);
-
-    if (tied.length > 1) {
-      room.status = 'tie';
-      room.tiedPlayerIds = tied.map(p => p.id);
-      room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
-
-      broadcastToParty(room.id, {
-        type: 'party_results',
-        room,
-        isTie: true,
-        tiedPlayerIds: room.tiedPlayerIds
-      });
-    } else {
-      room.status = 'completed';
-      const winner = activePlayers[0];
-      room.results = activePlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
-
-      if (room.stakeAmount > 0) {
-        const losers = room.players.filter(p => p.id !== winner.id);
-        for (const loser of losers) {
-          try {
-            const duel = db.createDuel({
-              gameType: 'blind10',
-              creatorId: winner.id,
-              opponentId: loser.id,
-              stakeAmount: room.stakeAmount,
-              mode: 'online'
-            });
-            if (duel) {
-              db.submitDuelResult({
-                duelId: duel.id,
-                creatorScore: 1,
-                opponentScore: 0,
-                winnerId: winner.id
-              });
-            }
-          } catch (e) {
-            console.error('Failed to log party duel settlement:', e);
-          }
-        }
-      }
-
-      broadcastToParty(room.id, {
-        type: 'party_results',
-        room,
-        isTie: false,
-        winner
-      });
-    }
-  }
-
-  res.json({ ok: true, room, stoppedTime: finalTime, diff });
+  finalizePartyRound(room);
+  res.json({ ok: true, room, stoppedTime: finalTime, diff, latencyCompensationMs: Math.round(compensationMs) });
 });
 
 app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
@@ -3705,63 +3878,33 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
     return res.status(403).json({ error: 'Endast hosten kan avgöra oavgjort' });
   }
 
+  if (room.status !== 'tie' || room.tiedPlayerIds.length < 2) {
+    return res.status(400).json({ error: 'Det finns inget oavgjort resultat att avgöra' });
+  }
+
   const { decision } = req.body;
 
   if (decision === 'sudden_death') {
-    const countdownSec = 3;
-    room.status = 'running';
-    room.countdownSec = countdownSec;
-    room.startTime = Date.now() + (countdownSec * 1000);
-    for (const p of room.players) {
-      if (room.tiedPlayerIds.includes(p.id)) {
-        p.stoppedTime = null;
-        p.diff = null;
-      }
-    }
+    const countdownSec = startPartyRound(room, room.tiedPlayerIds);
     broadcastToParty(room.id, {
       type: 'party_sudden_death_start',
       room,
       countdownSec,
       startTime: room.startTime
     });
-    res.json({ ok: true, room });
-  } else {
-    room.status = 'completed';
-    const tiedWinners = room.players.filter(p => room.tiedPlayerIds.includes(p.id));
-    const losers = room.players.filter(p => !room.tiedPlayerIds.includes(p.id));
-
-    if (room.stakeAmount > 0 && tiedWinners.length > 0) {
-      const splitStake = Math.round((room.stakeAmount / tiedWinners.length) * 100) / 100;
-      for (const loser of losers) {
-        for (const winner of tiedWinners) {
-          try {
-            const duel = db.createDuel({
-              gameType: 'blind10',
-              creatorId: winner.id,
-              opponentId: loser.id,
-              stakeAmount: splitStake,
-              mode: 'online'
-            });
-            if (duel) {
-              db.submitDuelResult({
-                duelId: duel.id,
-                creatorScore: 1,
-                opponentScore: 0,
-                winnerId: winner.id
-              });
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    broadcastToParty(room.id, {
-      type: 'party_pot_split',
-      room,
-      tiedWinners
-    });
-    res.json({ ok: true, room });
+    return res.json({ ok: true, room });
   }
+
+  room.status = 'completed';
+  const tiedWinners = room.players.filter(p => room.tiedPlayerIds.includes(p.id));
+  recordPartyDebts(room, tiedWinners, room.stakeAmount);
+
+  broadcastToParty(room.id, {
+    type: 'party_pot_split',
+    room,
+    tiedWinners
+  });
+  res.json({ ok: true, room });
 });
 
 // ── MAFFIA / WEREWOLF PARTY ENGINE ────────────────────────────────
@@ -5193,11 +5336,21 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
 });
 
 // ── Tab Expenses (Dela utlägg / The Tab) Routes ──────
+const MAX_TAB_EXPENSE = 50000;
+
 app.post('/api/tab/expenses', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
   const { title, notes, totalAmount, participantIds, receiptImage, customShares } = req.body || {};
+
+  const parsedTotal = parseFloat(totalAmount);
+  if (!Number.isFinite(parsedTotal) || parsedTotal <= 0) {
+    return res.status(400).json({ error: 'Giltigt totalbelopp krävs' });
+  }
+  if (parsedTotal > MAX_TAB_EXPENSE) {
+    return res.status(400).json({ error: `En nota får vara högst ${MAX_TAB_EXPENSE.toLocaleString('sv-SE')} kr` });
+  }
 
   if (receiptImage && !isValidImageUrl(receiptImage)) {
     return res.status(400).json({ error: 'Ogiltig bild-URL för kvitto' });
@@ -5305,6 +5458,33 @@ app.get('/api/tab/expenses/:id', (req, res) => {
   }
 
   res.json(expense);
+});
+
+// Payer deletes the whole expense; a participant disputes (removes) their own share
+app.delete('/api/tab/expenses/:id', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
+  try {
+    const result = db.removeTabExpenseForUser(req.params.id, user.id);
+    const actorName = user.real_name || user.nickname || 'En vän';
+    if (result.removed === 'expense') {
+      for (const uid of result.participantIds || []) {
+        if (uid !== user.id) broadcastToUser(uid, { type: 'tab_expense_removed', expenseId: req.params.id });
+      }
+    } else {
+      broadcastToUser(result.expense.payer_id, { type: 'tab_expense_disputed', expenseId: req.params.id, userId: user.id });
+      sendPushToUsers([result.expense.payer_id], {
+        title: '⚠️ Nota bestriden',
+        body: `${actorName} har bestridit sin del av "${result.expense.title}".`,
+        url: '/#leaderboard'
+      }, 'duels').catch(() => {});
+    }
+    res.json({ ok: true, removed: result.removed });
+  } catch (err) {
+    const status = err.message.includes('hittades inte') ? 404 : (err.message.includes('deltar inte') ? 403 : 400);
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // ── Löven Game (Björklöven Matchtips 4-3-2p) Routes ──
@@ -5658,5 +5838,8 @@ export {
   evaluateMafiaWinner,
   resolveMafiaDebts,
   partyRooms,
-  partyCodeToId
+  partyCodeToId,
+  finalizePartyRound,
+  recordUserRtt,
+  getLatencyCompensationMs
 };

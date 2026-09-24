@@ -96,10 +96,15 @@ test('AnyBet 2 — Debt Evasion Prevention: player cannot revert from yes/no to 
     db.updateAnyBetChoice(bet.id, friend1.id, 'bogus_choice');
   }, /Du har redan valt sida och kan inte återgå till neutral deltagare/);
 
-  // Friend 1 can still switch to 'no'
-  db.updateAnyBetChoice(bet.id, friend1.id, 'no');
+  // Friend 1 cannot switch sides either (would allow betting after the outcome is known)
+  assert.throws(() => {
+    db.updateAnyBetChoice(bet.id, friend1.id, 'no');
+  }, /Du har redan valt sida och kan inte byta/);
   const part1After = db.getAnyBetById(bet.id).participants.find(p => p.user_id === friend1.id);
-  assert.equal(part1After.choice, 'no');
+  assert.equal(part1After.choice, 'yes');
+
+  // Re-submitting the same side is harmless
+  db.updateAnyBetChoice(bet.id, friend1.id, 'yes');
 });
 
 test('AnyBet 3 — Deadline enforcement: rejects choice updates after deadline', () => {

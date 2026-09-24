@@ -232,6 +232,16 @@ export const updateSwish = (swishNumber) =>
 export const getFriends = () => request('/friends');
 export const addFriend = (data) => request('/friends', { method: 'POST', body: typeof data === 'string' ? { nickname: data } : data });
 export const removeFriend = (friendId) => request(`/friends/${friendId}`, { method: 'DELETE' });
+export const getFriendRequests = () => request('/friends/requests');
+export const acceptFriendRequest = (fromUserId) => request(`/friends/requests/${fromUserId}/accept`, { method: 'POST', body: {} });
+export const declineFriendRequest = (fromUserId) => request(`/friends/requests/${fromUserId}/decline`, { method: 'POST', body: {} });
+export const getFriendInviteToken = () => request('/friends/invite-token');
+
+// Personal invite link: opening it creates the friendship directly (the sharer has consented)
+export async function buildFriendInviteUrl() {
+  const { token, nickname } = await getFriendInviteToken();
+  return `${window.location.origin}/?addFriend=${encodeURIComponent(nickname)}&ft=${encodeURIComponent(token)}`;
+}
 export const searchUsers = (q) => request(`/users/search?q=${encodeURIComponent(q || '')}`);
 
 // ── WebAuthn / FaceID / TouchID ──────────────────────
@@ -363,6 +373,7 @@ export const updateNotificationPrefs = (prefs) => request('/users/notification-p
 export const createTabExpense = (data) => request('/tab/expenses', { method: 'POST', body: data });
 export const getMyTabExpenses = () => request('/tab/expenses/my');
 export const getTabExpense = (id) => request('/tab/expenses/' + id);
+export const deleteTabExpense = (id) => request('/tab/expenses/' + id, { method: 'DELETE' });
 
 // ── App QR Code ───────────────────────────────────────
 export const getAppQr = (url) => request('/app/qr' + (url ? `?url=${encodeURIComponent(url)}` : ''));

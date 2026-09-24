@@ -102,8 +102,8 @@ export async function renderTournament(params = {}) {
         const btn = document.getElementById('add-host-friend-btn');
         if (btn) btn.disabled = true;
         try {
-          await addFriend(rest.creatorId);
-          showToast(`Vänförfrågan skickad till ${creatorName}! 👥`, 'success');
+          const res = await addFriend({ friendId: rest.creatorId });
+          showToast(res.status === 'pending' ? `Vänförfrågan skickad till ${creatorName}! När hen godkänner får du tillgång. 📨` : `Du och ${creatorName} är nu vänner! 👥`, 'success');
           setTimeout(() => renderTournament(params), 800);
         } catch (e) {
           showToast(e.message, 'error');
@@ -1021,8 +1021,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       if (!confirm(`Vill du öppna bettningen för "${evName}" igen?`)) return;
       try {
         const pin = sessionStorage.getItem('betpals_pin') || '';
-        await reopenEvent(btn.dataset.id, pin);
-        showToast('Bettningen är öppen igen! 🔓', 'success');
+        const reopenRes = await reopenEvent(btn.dataset.id, pin);
+        showToast(reopenRes?.status === 'locked' ? reopenRes.message : 'Bettningen är öppen igen! 🔓', reopenRes?.status === 'locked' ? 'info' : 'success');
         const updated = await getTournament(t.shareCode);
         renderTournamentContent(content, updated, photos, tournamentFlashBets);
       } catch (err) {
