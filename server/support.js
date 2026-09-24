@@ -2,7 +2,7 @@
 // Provides intelligent AI responses for BetPals via Gemini API with a rich offline fallback.
 
 const MALTA_SYSTEM_PROMPT = `
-Du är "Malta Support 🇲🇹🎰" – den officiella AI-kundtjänsten för BetPals / Malta Betting under en episk golfresa med 20 kompisar som spelar 10 golfrundor.
+Du är "Malta Support 🇲🇹🎰" – den officiella AI-kundtjänsten för BetPals / Malta Betting under en episk golfresa med kompisgänget som bettar på sina golfrundor.
 
 Din personlighet:
 - Du är en skön, solbränd, trevlig men professionell Malta-supportagent (tänk: "VIP Concierge på ett soligt kasino i St. Julian's").
@@ -10,14 +10,15 @@ Din personlighet:
 - Du svarar alltid på svenska (om användaren inte skriver på engelska), rappt, roligt och med glimten i ögat. Använd passande emojis som 🇲🇹, 🏌️‍♂️, 🍻, 🎰, ⛳, 💰.
 - Du ger alltid konkreta och korrekta instruktioner om hur BetPals-appen fungerar.
 
-Dina djupa kunskaper om BetPals & Golfresan (10 rundor & 20 vänner):
-1. **Turnering & De 10 rundorna**:
-   - Skapa en övergripande Turnering i appen (t.ex. "Golfresan 2026"). Alla 20 bjuds in via länk/QR.
-   - För varje runda kan man skapa del-events eller matcher (Runda 1 till 10).
+Dina djupa kunskaper om BetPals & Golfresan:
+1. **Turnering & Ronder**:
+   - Skapa en övergripande Turnering i appen (t.ex. "Golfresan 2026"). Alla deltagare i gänget bjuds in via länk/QR (oavsett hur många ni blir).
+   - För varje runda ni spelar kan man skapa del-events eller matcher (Runda 1, Runda 2 osv.).
    - Man kan spela Head-to-Head (1X2-matcher i bollen) eller sätta odds på vem som vinner rundan.
+   - När sista rundan spelats klickar man "Avsluta Turnering" för att kora totalsegraren och kvitta alla bets.
 2. **"Mest Birdies" & Specialspel (AnyBet)**:
-   - Använd "AnyBet" i appen! Klicka på Skapa AnyBet, skriv t.ex. "Vem gör flest birdies över de 10 rundorna?", sätt en insats (t.ex. 50 kr) och utse en opartisk domare.
-   - Alla deltagare som vill vara med klickar "Gå med". Domaren eller skaparen avgör vinnaren efter runda 10.
+   - Använd "AnyBet" i appen! Klicka på Skapa AnyBet, skriv t.ex. "Vem gör flest birdies under resan?", sätt en insats (t.ex. 50 kr) och utse en opartisk domare.
+   - Alla deltagare som vill vara med klickar "Gå med". Domaren eller skaparen avgör vinnaren efter finalrundan.
 3. **FlashBet (BlixtBet på banan)**:
    - Snabba realtidsspel direkt på banan (t.ex. "Sätter Mackan 3-metersputten på hål 14? Ja/Nej").
    - TIPS: Sätt minst 2-3 minuters tidsgräns så kompisarna med svag 4G-täckning i ruffen hinner svara!
@@ -45,11 +46,11 @@ export function getMaltaFallbackReply(message, userName = 'Kompis') {
   const q = (message || '').toLowerCase();
 
   if (q.includes('birdie') || q.includes('birdies') || q.includes('flest')) {
-    return `Tjena ${userName}! 🏌️‍♂️ Birdies är golfens finaste valuta! För "Mest birdies" över era 10 rundor rekommenderar jag starkt **AnyBet**:
+    return `Tjena ${userName}! 🏌️‍♂️ Birdies är golfens finaste valuta! För "Mest birdies" under resan rekommenderar jag starkt **AnyBet**:
 1. Gå till fliken för AnyBet och klicka på **"Skapa AnyBet"**.
-2. Döp det till t.ex. *"Mest birdies (10 rundor)"* och sätt insats (t.ex. 50 eller 100 kr).
+2. Döp det till t.ex. *"Mest birdies (hela resan)"* och sätt insats (t.ex. 50 eller 100 kr).
 3. Välj en pålitlig domare som håller räkningen på scorekorten.
-4. Alla 20 spelare trycker **"Gå med"**. Den som hålar flest birdies tar hem hela potten! 🏆💰`;
+4. Alla som vill vara med trycker **"Gå med"**. Den som hålar flest birdies tar hem hela potten! 🏆💰`;
   }
 
   if (q.includes('blixt') || q.includes('flash') || q.includes('live')) {
@@ -81,12 +82,12 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
     return `Haha, se upp ${userName}! 🏒 **Löven-game** i appen är för hockeylaget Björklöven (mål, skott på mål etc.). Om ni inte ska kolla hockey på hotellrummet ska ni **inte** använda Löven-game för golfscoren! Kör på vanliga **Turneringsevent** eller **AnyBet** för golfen istället! ⛳`;
   }
 
-  if (q.includes('runda') || q.includes('turnering') || q.includes('10') || q.includes('match') || q.includes('tävling')) {
-    return `Tjena mästaren! 🏌️‍♂️ För era 10 rundor gör ni så här:
+  if (q.includes('runda') || q.includes('turnering') || q.includes('match') || q.includes('tävling')) {
+    return `Tjena mästaren! 🏌️‍♂️ För era rundor på golfresan gör ni så här:
 1. Skapa en **Turnering** med namnet *"Golfresan 2026"*.
-2. Bjud in alla 20 deltagare med er inbjudningskod.
-3. För varje dag/runda lägger ni upp del-events eller matcher (t.ex. bästboll, scratch eller Head-to-Head mellan bollar).
-4. Efter alla 10 rundor klickar ni **"Avsluta Turnering"** så koras totalsegraren och alla skulder kvittas automatiskt! 🏆🇲🇹`;
+2. Bjud in alla deltagare i gänget med er inbjudningskod eller QR-kod.
+3. För varje runda ni spelar lägger ni upp del-events eller matcher (t.ex. bästboll, scratch eller Head-to-Head mellan bollar).
+4. När sista rundan spelats klickar ni **"Avsluta Turnering"** så koras totalsegraren och alla skulder kvittas automatiskt! 🏆🇲🇹`;
   }
 
   if (q.includes('putt') || q.includes('slice') || q.includes('duff') || q.includes('vatten') || q.includes('ruff')) {
@@ -94,8 +95,8 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
   }
 
   return `Morn morn ${userName}! 🇲🇹 Solen skiner över St. Julian's och Malta Support står redo!
-Hur kan jag hjälpa dig med golfresan och era 10 rundor idag?
-- 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & de 10 rundorna)
+Hur kan jag hjälpa dig med golfresan och era rundor idag?
+- 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & rundorna)
 - 🎯 **Mest birdies** (Tips för AnyBet-potter)
 - ⚡ **BlixtBet** (Realtidsbets på puttar och drives)
 - 🍻 **The Tab** (Dela golfbilar, lunch och bira)

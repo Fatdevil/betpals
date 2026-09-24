@@ -31,7 +31,7 @@ test('Malta Support — POST /api/support/chat handles HTTP requests and rate li
       method: 'POST',
       url: '/api/support/chat',
       headers: { 'content-type': 'application/json' },
-      body: { message: 'Hur sätter vi upp 10 rundor golf?' },
+      body: { message: 'Hur sätter vi upp rundor på golfresan?' },
       query: {},
       params: {},
       _readableState: { pipes: [] },

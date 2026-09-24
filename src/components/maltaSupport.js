@@ -31,7 +31,7 @@ export function openMaltaSupportModal(initialQuestion = null) {
 
       <!-- Quick topic chips -->
       <div class="malta-quick-chips">
-        <button class="malta-chip-btn" data-topic="Hur sätter vi bäst upp 10 rundor golf i turneringen?">🏌️ 10 ronder golf</button>
+        <button class="malta-chip-btn" data-topic="Hur sätter vi bäst upp våra rundor och matcher i turneringen?">🏌️ Ronder & matcher</button>
         <button class="malta-chip-btn" data-topic="Hur gör vi vadslagning för mest birdies med AnyBet?">🎯 Mest birdies</button>
         <button class="malta-chip-btn" data-topic="Hur funkar BlixtBet ute på banan?">⚡ BlixtBet</button>
         <button class="malta-chip-btn" data-topic="Hur delar vi öl och lunch på The Tab?">🍻 The Tab</button>
@@ -45,8 +45,8 @@ export function openMaltaSupportModal(initialQuestion = null) {
           <img src="/chip-malta-transparent.png" class="malta-msg-avatar" alt="Malta" />
           <div class="malta-msg-bubble">
             ${isEn
-              ? "Welcome to Malta Betting VIP Support! 🇲🇹🎰 Heading out on a legendary golf trip with 20 buddies? Ask me about tournaments, AnyBet for most birdies, sharing drinks on The Tab, or Swish settlements!"
-              : "Tjena mästaren! 🇲🇹🎰 Välkommen till Malta Betting VIP Kundtjänst! Peggar ni upp för 10 episka rundor med 20 kompisar? Fråga mig om hur ni lägger upp turneringen, AnyBet på flest birdies, The Tab för bärsen eller hur Swish-avräkningen funkar!"}
+              ? "Welcome to Malta Betting VIP Support! 🇲🇹🎰 Heading out on a legendary golf trip with the crew? Ask me about tournaments, AnyBet for most birdies, sharing drinks on The Tab, or Swish settlements!"
+              : "Tjena mästaren! 🇲🇹🎰 Välkommen till Malta Betting VIP Kundtjänst! Peggar ni upp för en episk golfresa med gänget? Fråga mig om hur ni lägger upp turneringen, AnyBet på flest birdies, The Tab för bärsen eller hur Swish-avräkningen funkar!"}
           </div>
         </div>
       </div>
