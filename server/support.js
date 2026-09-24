@@ -226,7 +226,7 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     primaryPayload.tools = [{ google_search: {} }];
   }
 
-  const models = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-3.6-flash'];
 
   for (const model of models) {
     try {
@@ -269,6 +269,12 @@ export async function generateMaltaSupportReply(message, history = [], userName 
       console.warn(`[malta-support] Fetch exception on ${model}:`, fetchErr.message);
       lastApiDiagnostic.attempts.push({ model, exception: fetchErr.message });
     }
+  }
+
+  // If rate limited by Google API (429 Too Many Requests)
+  const isRateLimited = lastApiDiagnostic.attempts.some(a => a.status === 429);
+  if (isRateLimited) {
+    return `Tjena ${userName}! 🌴🍹 Servrarna nere i St. Julian's går varma just nu – vi nådde tillfälligt Googles maxgräns för anrop per minut på gratisnivån. Ta en sipp på en kall öl och ställ frågan igen om 15–20 sekunder så har jag surfat fram svaret! ⛳🍻`;
   }
 
   // If all Gemini models failed or had empty responses, use rich offline fallback
