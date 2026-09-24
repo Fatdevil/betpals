@@ -9,7 +9,7 @@ test('Dela utlägg: Custom shares split (Petter 400 kr, others 200 kr) within Ev
   db.createUser(creatorId, 'Org_' + r().slice(0, 6), 'tok_' + r(), '🏌️', 'Organizer', '0701000001');
 
   const tourId = 'tour_exp_' + r();
-  const shareCode = 'EXP' + crypto.randomInt(1000, 9999);
+  const shareCode = 'EXP' + crypto.randomBytes(4).toString('hex').toUpperCase();
   db.createTournament(tourId, 'Golfhelg med utlägg', shareCode, creatorId, 'friends');
 
   // 4 friends: Payer (Me), Petter, Erik, Johan

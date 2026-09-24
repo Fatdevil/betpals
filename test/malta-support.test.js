@@ -26,6 +26,15 @@ test('Malta Support — Generates rich fallback replies for golf, birdies, tab a
 
   const generalReply = getMaltaFallbackReply('Tja vad kan du hjälpa till med?', 'Alex');
   assert.ok(generalReply.includes('Malta Support') && generalReply.includes('rast'), 'General reply should announce that Malta Support has a break (rast)');
+  assert.ok(generalReply.includes('Malta Betting'), 'Should refer to Malta Betting');
+  assert.ok(!generalReply.includes('BetPals'), 'Should never refer to BetPals');
+  assert.ok(generalReply.includes('https://youtu.be/0EoEY4fi3vo'), 'Should promote official video');
+
+  const videoReply = getMaltaFallbackReply('Visa en video för att tagga!', 'Alex');
+  assert.ok(videoReply.includes('https://youtu.be/0EoEY4fi3vo'), 'Should provide official YouTube link');
+
+  const svingReply = getMaltaFallbackReply('Hjälp med svingen och slice', 'Micke');
+  assert.ok(svingReply.includes('https://youtu.be/0EoEY4fi3vo'), 'Should promote video in swing advice');
 });
 
 test('Malta Support — Search Quota tracking and 5000 cap', async () => {

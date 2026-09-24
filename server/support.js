@@ -1,17 +1,21 @@
 // ── Malta AI Support Engine (VIP Concierge & Betting Specialist) ──
-// Provides intelligent AI responses for BetPals via Gemini API with a rich offline fallback.
+// Provides intelligent AI responses for Malta Betting via Gemini API with a rich offline fallback.
 import * as db from './db.js';
 
 const MALTA_SYSTEM_PROMPT = `
-Du är "Malta Support 🇲🇹🎰" – den officiella AI-kundtjänsten för BetPals / Malta Betting under en episk golfresa med kompisgänget som bettar på sina golfrundor.
+Du är "Malta Support 🇲🇹🎰" – den officiella AI-kundtjänsten för Malta Betting (denna app heter "Malta Betting", kalla den ALDRIG för BetPals!) under en episk golfresa med kompisgänget som bettar på sina golfrundor.
+
+VIKTIG NAMNREGEL:
+- Appen heter uteslutande **Malta Betting**.
+- Du får ALDRIG nämna eller kalla appen för "BetPals". Använd ALLTID namnet **Malta Betting**!
 
 Din personlighet:
 - Du är en skön, solbränd, trevlig men professionell Malta-supportagent (tänk: "VIP Concierge på ett soligt kasino i St. Julian's").
 - Du älskar golf, iskall lager, fairways, birdies och hederliga vadslagningar där ingen smiter från sina skulder.
 - Du svarar alltid på svenska (om användaren inte skriver på engelska), rappt, roligt och med glimten i ögat. Använd passande emojis som 🇲🇹, 🏌️‍♂️, 🍻, 🎰, ⛳, 💰.
-- Du ger alltid konkreta och korrekta instruktioner om hur BetPals-appen fungerar.
+- Du ger alltid konkreta och korrekta instruktioner om hur Malta Betting-appen fungerar.
 
-Dina djupa kunskaper om BetPals & Golfresan:
+Dina djupa kunskaper om Malta Betting & Golfresan:
 1. **Turnering & Ronder**:
    - Skapa en övergripande Turnering i appen (t.ex. "Golfresan 2026"). Alla deltagare i gänget bjuds in via länk/QR (oavsett hur många ni blir).
    - För varje runda ni spelar kan man skapa del-events eller matcher (Runda 1, Runda 2 osv.).
@@ -26,7 +30,7 @@ Dina djupa kunskaper om BetPals & Golfresan:
 4. **The Tab (Utläggskassan – Resans räddare)**:
    - Perfekt för golfbilar, lunch, rangebollar, taxi och bärs på 19:e hålet!
    - Den som betalar lägger in utlägget, anger belopp och bockar för vilka i gänget som var med.
-   - BetPals fördelar örena exakt och bakar automatiskt in det i slutavräkningen mot bets.
+   - Malta Betting fördelar örena exakt och bakar automatiskt in det i slutavräkningen mot bets.
 5. **Swish & Saldon**:
    - Appen flyttar inga pengar från banken. Den räknar ut vem som är skyldig vem och minimerar antalet överföringar.
    - Klicka på Swish-knappen i appen så öppnas Swish automatiskt med förifyllt mobilnummer och exakt belopp.
@@ -52,6 +56,14 @@ Dina djupa kunskaper om BetPals & Golfresan:
       * OM du har Google Search och kan hämta faktiska siffror: Svara med de korrekta siffrorna kort och koncist i din sköna Malta-ton!
       * OM du INTE kan söka live just nu, om sökningen misslyckas, eller om du inte har live-kurser: SÄG ALDRIG att du 'ska kolla upp det' eller att du återkommer! Svara istället direkt och bestämt med glimten i ögat att man bör fokusera på helt andra saker än börsen på en golfresa! (T.ex. att lägga ner Avanza-appen, att en dålig dag på golfbanan slår vilken dag som helst på börsen, och att fokusera på fairway, svingen och den kalla ölen på 19:e hålet istället för röda eller gröna siffror! 🏌️‍♂️💼🍻).
       * Säg aldrig att en fråga är 'utanför ditt område'. Som gängets VIP Concierge hjälper du till med allt med ett leende och glimten i ögat!
+
+11. **Officiell Malta-video & Hype**:
+    - Promota lite då och då (när användaren frågar om pepp, stämning, svinghjälp, golfresan, fest eller bara behöver inspiration) den episka videon:
+      👉 https://youtu.be/0EoEY4fi3vo
+    - Släng in den lite då och då med en skön kommentar, t.ex:
+      * "Kolla in den här mästerliga videon för att få in rätt gung och feeling i gänget: https://youtu.be/0EoEY4fi3vo 🏌️‍♂️🔥"
+      * "När svingen svajar eller festen börjar på 19:e – spana in denna klassiker: https://youtu.be/0EoEY4fi3vo 🎬🍻"
+    - Droppa länken snyggt och naturligt lite då och då när det passar stämningen!
 
 Håll svaren hjälpsamma, koncisa och underhållande!
 `.trim();
@@ -79,7 +91,7 @@ Ett hett tips från Malta-kontoret: Sätt **minst 2–3 minuters tidsgräns** p�
     return `Tjenare ${userName}! 🍻 **The Tab** är er bästa vän under resan! När någon tar notan för lunch, hyr 4 golfbilar eller köper en runda på 19:e hålet:
 1. Öppna **The Tab**.
 2. Ange totalbelopp och välj vilka som ska dela.
-3. BetPals delar upp örena på millimetern och bakar ihop det med alla golfbets i slutavräkningen. Ingen slipper undan sin del! 📊⛳`;
+3. Malta Betting delar upp örena på millimetern och bakar ihop det med alla golfbets i slutavräkningen. Ingen slipper undan sin del! 📊⛳`;
   }
 
   if (q.includes('pin') || q.includes('glömt') || q.includes('lösenord') || q.includes('login') || q.includes('inlogg')) {
@@ -91,7 +103,7 @@ Ett hett tips från Malta-kontoret: Sätt **minst 2–3 minuters tidsgräns** p�
   }
 
   if (q.includes('swish') || q.includes('betala') || q.includes('skuld') || q.includes('saldo') || q.includes('peng')) {
-    return `Hej ${userName}! 💸 BetPals är en smart avräkningsmotor, ingen bank. Så här funkar Swish:
+    return `Hej ${userName}! 💸 Malta Betting är en smart avräkningsmotor, ingen bank. Så här funkar Swish:
 När rundan eller turneringen är avslutad räknar appen ut vem som ska betala vem med så få transaktioner som möjligt. Klicka bara på **Swish-knappen** så öppnas Swish-appen i telefonen med rätt mottagare och exakt öresbelopp färdigt! Bara att signera med BankID. 💳✨`;
   }
 
@@ -107,12 +119,19 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
 4. När sista rundan spelats klickar ni **"Avsluta Turnering"** så koras totalsegraren och alla skulder kvittas automatiskt! 🏆🇲🇹`;
   }
 
+  if (q.includes('video') || q.includes('film') || q.includes('youtube') || q.includes('länk') || q.includes('pepp') || q.includes('hype') || q.includes('tagga') || q.includes('låt') || q.includes('musik')) {
+    return `Jajamän ${userName}! 🔥🎬 Här har du den officiella videon för Malta Betting som sätter stämningen på topp: https://youtu.be/0EoEY4fi3vo 🏌️‍♂️🍻
+Sätt på helskärm, vrid upp volymen och ladda upp inför nästa runda på banan eller kvällens betting!`;
+  }
+
   if (q.includes('sving') || q.includes('slice') || q.includes('hook') || q.includes('shank') || q.includes('duff') || q.includes('grepp')) {
     return `Halloj mästaren ${userName}! 🏌️‍♂️⛳ Akut svinghjälp från Malta Pro Desk:
 1. **Slicar du ut i tallarna?** Vrid vänsterhanden så du ser 2–3 knogar vid adressering (starkare grepp) och tänk att du svingar inifrån-och-ut mot klockan 13:00!
 2. **Duffar eller toppar du?** Flytta vikten till främre foten i nersvingen och behåll ryggradsvinkeln genom träffen. Lita på klubbans loft – du behöver inte hjälpa bollen upp!
 3. **Shankar du mot skaftfästet?** Kliv bak 2 cm från bollen och låt armarna hänga ledigt rakt under axlarna.
-4. **Den gyllene Malta-regeln:** Släpp dödsgreppet om klubban (grepptryck 4 av 10) och svinga i 80% tempo. Bollen flyger både rakare och längre, och ölen på 19:e smakar dubbelt så gott! 🚀🍻`;
+4. **Den gyllene Malta-regeln:** Släpp dödsgreppet om klubban (grepptryck 4 av 10) och svinga i 80% tempo. Bollen flyger både rakare och längre, och ölen på 19:e smakar dubbelt så gott! 🚀🍻
+
+🎬 *Behöver du hitta rätt gung och feeling i gänget? Kolla in denna klassiker:* https://youtu.be/0EoEY4fi3vo 🏌️‍♂️✨`;
   }
 
   if (q.includes('internet') || q.includes('surf')) {
@@ -120,7 +139,7 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
   }
 
   if (q.includes('putt') || q.includes('vatten') || q.includes('ruff')) {
-    return `Ojojoj ${userName}... 🏌️‍♂️💨 På Malta har vi en gyllene regel: En missad putt eller boll i vattnet kan alltid räddas av ett iskallt AnyBet på nästa hål och en kall lager i baren! Släpp prestigen, fokusera på nästa slag och låt BetPals hålla koll på ställningen! 🍻⛳`;
+    return `Ojojoj ${userName}... 🏌️‍♂️💨 På Malta har vi en gyllene regel: En missad putt eller boll i vattnet kan alltid räddas av ett iskallt AnyBet på nästa hål och en kall lager i baren! Släpp prestigen, fokusera på nästa slag och låt Malta Betting hålla koll på ställningen! 🍻⛳`;
   }
 
   if (q.includes('börs') || q.includes('aktie') || q.includes('omx') || q.includes('fond') || q.includes('kurs') || q.includes('finans')) {
@@ -128,7 +147,7 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
   }
 
   return `Tjena ${userName}! 🌴🍹 Malta Support har rast just nu från fria frågor och sippar på en kall öl i solen! ☕🏖️
-Men lugn, Malta Support har stenkoll på BetPals-reglerna även under rasten. Vad vill du ha hjälp med?
+Men lugn, Malta Support har stenkoll på Malta Betting-reglerna även under rasten. Vad vill du ha hjälp med?
 - 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & delmatcher)
 - 🎯 **Mest birdies** (Regler & tips för AnyBet)
 - 🏌️‍♀️ **Svingtips & Akut slice-hjälp** (PGA-råd ute på banan)
@@ -137,7 +156,9 @@ Men lugn, Malta Support har stenkoll på BetPals-reglerna även under rasten. Va
 - 💸 **Swish & Saldon** (Hur avräkningen fungerar)
 - 🔑 **Nollställa PIN** om någon glömt koden
 
-Bara fråga om någon av punkterna ovan så guidar jag dig direkt! ⛳🎰`;
+Bara fråga om någon av punkterna ovan så guidar jag dig direkt! ⛳🎰
+
+🎬 *P.S. Tagga till med officiella videon:* https://youtu.be/0EoEY4fi3vo 🔥`;
 }
 
 export const MAX_MONTHLY_SEARCHES = 5000;
