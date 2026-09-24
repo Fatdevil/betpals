@@ -5576,12 +5576,14 @@ app.get('/api/support/health', async (req, res) => {
           contents: [{ role: 'user', parts: [{ text: 'Ping. Svara med ordet PONG.' }] }]
         })
       });
-      const data = gRes.ok ? await gRes.json() : null;
+      const txt = await gRes.text();
+      let parsed = null;
+      try { parsed = JSON.parse(txt); } catch (e) {}
       responseData.probe = {
         ok: gRes.ok,
         status: gRes.status,
         model: probeModel,
-        reply: data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+        data: gRes.ok ? (parsed?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()) : parsed || txt
       };
     } catch (e) {
       responseData.probe = { ok: false, error: e.message };
