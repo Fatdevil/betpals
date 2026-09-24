@@ -21,8 +21,11 @@ test('Malta Support — Generates rich fallback replies for golf, birdies, tab a
   const lovenReply = getMaltaFallbackReply('Ska vi köra löven game på golfen?', 'Erik');
   assert.ok(lovenReply.includes('Björklöven') || lovenReply.includes('hockey'), 'Should warn about Löven hockey');
 
+  const stockReply = getMaltaFallbackReply('Vad står börsen i?', 'Sarah');
+  assert.ok(stockReply.includes('börsen') && stockReply.includes('golfresa'), 'Should tell user to focus on golf/beer rather than stock market');
+
   const generalReply = getMaltaFallbackReply('Tja vad kan du hjälpa till med?', 'Alex');
-  assert.ok(generalReply.includes('Malta Support'), 'General reply should introduce Malta Support');
+  assert.ok(generalReply.includes('Malta Support') && generalReply.includes('rast'), 'General reply should announce that Malta Support has a break (rast)');
 });
 
 test('Malta Support — Search Quota tracking and 5000 cap', async () => {

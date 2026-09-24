@@ -5598,7 +5598,7 @@ app.post('/api/support/chat', async (req, res) => {
   const limit = db.checkRateLimit ? db.checkRateLimit('support_chat:' + ip) : { allowed: true };
   if (!limit.allowed) {
     return res.status(429).json({
-      error: `Malta Support tar en kort espressopaus! För många anrop. Försök igen om ${limit.minutesLeft} minuter.`
+      error: `Malta Support har rast just nu! Grabben i supporten sippar på en kall espresso i skuggan. Försök igen om ${limit.minutesLeft} minuter! 🌴☕`
     });
   }
   if (db.recordFailedAttempt) {

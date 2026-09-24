@@ -48,11 +48,10 @@ Dina djupa kunskaper om BetPals & Golfresan:
 
 10. **Realtidssökning via Google & Allmän Concierge-service**:
     - Du har tillgång till Google Search i realtid!
-    - När användaren frågar om dagsaktuella saker – som **dagens börs (OMXS30, aktiekurser, fonder, index, valutor)**, sportresultat, nyheter, aktuellt väder eller allmänna frågor:
-      * Använd Google Search för att hämta dagsfärska siffror och korrekt realtidsinformation.
-      * Ge alltid ett konkret, faktiskt och hjälpsamt svar med de aktuella siffrorna/kurserna/fakta!
-      * Svara i din glada, underhållande Malta VIP-ton (t.ex. med en skön kommentar om att ta börsvinsterna till 19:e hålet eller att börsen svänger mer än Mackans slice).
-      * Säg ALDRIG att börsen, vädret eller allmänna frågor är 'utanför ditt område' – som gängets VIP Concierge hjälper du till med ALLT!
+    - När användaren frågar om dagsaktuella saker – som **dagens börs (OMXS30, aktiekurser, fonder, index, valutor)**, sportresultat, nyheter eller väder:
+      * OM du har Google Search och kan hämta faktiska siffror: Svara med de korrekta siffrorna kort och koncist i din sköna Malta-ton!
+      * OM du INTE kan söka live just nu, om sökningen misslyckas, eller om du inte har live-kurser: SÄG ALDRIG att du 'ska kolla upp det' eller att du återkommer! Svara istället direkt och bestämt med glimten i ögat att man bör fokusera på helt andra saker än börsen på en golfresa! (T.ex. att lägga ner Avanza-appen, att en dålig dag på golfbanan slår vilken dag som helst på börsen, och att fokusera på fairway, svingen och den kalla ölen på 19:e hålet istället för röda eller gröna siffror! 🏌️‍♂️💼🍻).
+      * Säg aldrig att en fråga är 'utanför ditt område'. Som gängets VIP Concierge hjälper du till med allt med ett leende och glimten i ögat!
 
 Håll svaren hjälpsamma, koncisa och underhållande!
 `.trim();
@@ -124,17 +123,21 @@ När rundan eller turneringen är avslutad räknar appen ut vem som ska betala v
     return `Ojojoj ${userName}... 🏌️‍♂️💨 På Malta har vi en gyllene regel: En missad putt eller boll i vattnet kan alltid räddas av ett iskallt AnyBet på nästa hål och en kall lager i baren! Släpp prestigen, fokusera på nästa slag och låt BetPals hålla koll på ställningen! 🍻⛳`;
   }
 
-  return `Morn morn ${userName}! 🇲🇹 Solen skiner över St. Julian's och Malta Support står redo!
-Hur kan jag hjälpa dig med golfresan och era rundor idag?
+  if (q.includes('börs') || q.includes('aktie') || q.includes('omx') || q.includes('fond') || q.includes('kurs') || q.includes('finans')) {
+    return `Hallå där ${userName}! 🏌️‍♂️💼 Lägg ner Avanza och släpp börsen för guds skull – du är ju på golfresa! 🌴☀️ Just nu kan jag inte surfa fram live-kurser, och ärligt talat: en dålig dag på golfbanan slår ändå vilken toppdag som helst på Stockholmsbörsen! Släpp indexstressen, fokusera på att träffa fairway, räta ut slicen och ta hem potten i AnyBet istället. Ölen på 19:e hålet smakar lika gott oavsett om börsen är röd eller grön! ⛳🍻💰`;
+  }
+
+  return `Tjena ${userName}! 🌴🍹 Malta Support har rast just nu från fria frågor och sippar på en kall öl i solen! ☕🏖️
+Men lugn, Malta Support har stenkoll på BetPals-reglerna även under rasten. Vad vill du ha hjälp med?
 - 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & delmatcher)
-- 🎯 **Mest birdies** (Tips för AnyBet-potter)
+- 🎯 **Mest birdies** (Regler & tips för AnyBet)
 - 🏌️‍♀️ **Svingtips & Akut slice-hjälp** (PGA-råd ute på banan)
 - ⚡ **BlixtBet** (Realtidsbets på puttar och drives)
 - 🍻 **The Tab** (Dela golfbilar, lunch och bira)
 - 💸 **Swish & Saldon** (Hur avräkningen fungerar)
 - 🔑 **Nollställa PIN** om någon glömt koden
 
-Bara fråga på så guidar jag dig direkt! ⛳🎰`;
+Bara fråga om någon av punkterna ovan så guidar jag dig direkt! ⛳🎰`;
 }
 
 export const MAX_MONTHLY_SEARCHES = 5000;
@@ -207,7 +210,7 @@ export async function generateMaltaSupportReply(message, history = [], userName 
 
   let systemInstructionText = MALTA_SYSTEM_PROMPT;
   if (quota.exhausted) {
-    systemInstructionText += `\n\n[VIKTIGT OM SURFPOTT: Månadens fria internet/Google-sökkvot (5 000 sökningar) är helt SLUT! Du har INTE tillgång till live-sökning på Google just nu. Om användaren ber dig kolla upp dagsfärsk info, live-väder, eller frågar om internet/surfen, svara med glimten i ögat och klassisk Malta-humor att 'internet är slut / surfen har tagit slut på Malta-kontoret' (t.ex. att någon på 19:e hålet drog ur modemsladden och brände månadens 5 000 fria megabytes! 🌴📶). Svara på frågan efter bästa förmåga med ditt allmänna minne utan realtidssökning!]`;
+    systemInstructionText += `\n\n[VIKTIGT OM SURFPOTT & BÖRSEN: Månadens fria internet/Google-sökkvot är slut! Du har INTE tillgång till live-sökning på Google just nu. Säg ALDRIG att du ska kolla upp realtidsinfo eller börsen. Om användaren frågar om börsen eller aktier, svara med glimten i ögat att man ska släppa börsen helt och hållet – lägg ner Avanza-appen, fokusera på golfresan, svingen och den kalla ölen på 19:e hålet istället! 🏌️‍♂️💼🍻]`;
   }
 
   const primaryPayload = {
@@ -277,10 +280,15 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     }
   }
 
-  // If rate limited by Google API (429 Too Many Requests)
+  // If rate limited by Google API (429 Too Many Requests) or offline
   const isRateLimited = lastApiDiagnostic.attempts.some(a => a.status === 429);
+  const q = (message || '').toLowerCase();
+
   if (isRateLimited) {
-    return `Tjena ${userName}! 🌴🍹 Servrarna nere i St. Julian's går varma just nu – vi nådde tillfälligt Googles maxgräns för anrop per minut på gratisnivån. Ta en sipp på en kall öl och ställ frågan igen om 15–20 sekunder så har jag surfat fram svaret! ⛳🍻`;
+    if (q.includes('börs') || q.includes('aktie') || q.includes('omx') || q.includes('fond') || q.includes('kurs') || q.includes('finans')) {
+      return `Hallå där ${userName}! 🏌️‍♂️💼 Lägg ner Avanza och släpp börsen för guds skull – du är ju på golfresa! 🌴☀️ Just nu kan jag inte surfa fram live-kurser, och ärligt talat: en dålig dag på golfbanan slår ändå vilken toppdag som helst på Stockholmsbörsen! Släpp indexstressen, fokusera på att träffa fairway, räta ut slicen och ta hem potten i AnyBet istället. Ölen på 19:e hålet smakar lika gott oavsett om börsen är röd eller grön! ⛳🍻💰`;
+    }
+    return `Tjena ${userName}! 🌴🍹 Malta Support har rast just nu! Grabben i supporten har lagt upp fötterna på skrivbordet, sippar på en iskall Cisk i skuggan och tar en välförtjänt espresso i solen! ☕🏖️ Det går inte att ställa vanliga frågor just nu då servrarna vilar. Ta en paus du också, njut av en kall bärs och prova igen om en liten stund så är jag tillbaka vid tangentbordet! 🏌️‍♂️🍻`;
   }
 
   // If all Gemini models failed or had empty responses, use rich offline fallback
