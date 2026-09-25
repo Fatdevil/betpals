@@ -134,6 +134,7 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
 
       ${hasPinSession ? '<div id="admin-users-list"></div>' : ''}
       ${hasPinSession ? '<div id="admin-debts-list"></div>' : ''}
+      ${hasPinSession ? '<div id="admin-broadcast-push-container" class="mt-lg"></div>' : ''}
     </div>
   `;
 
@@ -163,6 +164,7 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
   if (hasPinSession) {
     await loadAdminUsers(getPin());
     await loadAdminDebts(getPin());
+    await loadAdminBroadcastPushSection();
   }
 }
 
@@ -1653,4 +1655,125 @@ function renderDuelCard(d, type) {
         </div>
       </div>
     </div>`;
+}
+
+async function loadAdminBroadcastPushSection() {
+  const container = document.getElementById('admin-broadcast-push-container');
+  if (!container) return;
+
+  let totalSubscribers = 0;
+  try {
+    const stats = await api.getAdminPushStats();
+    totalSubscribers = stats.totalSubscribers || 0;
+  } catch (e) {
+    // silent
+  }
+
+  container.innerHTML = `
+    <div class="card" style="border: 1px solid rgba(255, 215, 0, 0.35); background: linear-gradient(135deg, rgba(255, 215, 0, 0.05) 0%, rgba(20, 20, 30, 0.95) 100%); padding: var(--space-md);">
+      <div class="flex-between" style="align-items: center; margin-bottom: var(--space-sm);">
+        <div style="font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gold); display: flex; align-items: center; gap: 8px;">
+          <span>📢</span> <span>Skicka Pushnotis till alla</span>
+        </div>
+        <span class="badge ${totalSubscribers > 0 ? 'badge-success' : 'badge-warning'}" id="broadcast-subscribers-badge" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">
+          👥 ${totalSubscribers} aktiva enheter
+        </span>
+      </div>
+
+      <p class="text-muted" style="font-size: 0.8rem; line-height: 1.4; margin-bottom: var(--space-md);">
+        Skicka en direktsänd pushnotis till alla sparade mobiler (matchstart, påminnelser eller BlixtBet-race).
+      </p>
+
+      <form id="admin-broadcast-push-form">
+        <div class="form-group mb-sm">
+          <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 4px;">Rubrik:</label>
+          <input type="text" id="broadcast-push-title" class="form-control" placeholder="T.ex. 🏆 Kvällens stormatch börjar om 15 minuter!" required maxlength="60" style="font-size: 0.85rem;" />
+        </div>
+
+        <div class="form-group mb-sm">
+          <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 4px;">Meddelande:</label>
+          <textarea id="broadcast-push-body" class="form-control" placeholder="T.ex. Lägg ditt tips nu eller utmana polarna på en snabb duell!" required rows="2" maxlength="160" style="font-size: 0.85rem;"></textarea>
+        </div>
+
+        <div class="form-group mb-md">
+          <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 4px;">Länk (valfritt):</label>
+          <input type="text" id="broadcast-push-url" class="form-control" placeholder="T.ex. /?page=leaderboard eller /" style="font-size: 0.85rem;" />
+        </div>
+
+        <!-- Live lock screen preview -->
+        <div style="margin-bottom: var(--space-md); padding: 10px 12px; background: rgba(0,0,0,0.5); border-radius: var(--radius-md); border: 1px dashed rgba(255,215,0,0.3);">
+          <div style="font-size: 0.7rem; color: var(--gold); text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">📱 Förhandsgranskning (Låsskärm):</div>
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <div style="width: 34px; height: 34px; border-radius: 9px; overflow: hidden; flex-shrink: 0; border: 1px solid var(--gold); box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+              <img src="/icons/icon-192.png" alt="MB" style="width: 100%; height: 100%; object-fit: cover;" />
+            </div>
+            <div style="flex: 1; font-size: 0.78rem; line-height: 1.35; min-width: 0;">
+              <div id="preview-push-title" style="font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Malta Betting 🇲🇹</div>
+              <div id="preview-push-body" class="text-muted" style="font-size: 0.75rem; word-break: break-word;">Skriv en text ovan för att förhandsgranska...</div>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="btn-submit-broadcast-push" style="background: linear-gradient(135deg, var(--gold), #f59e0b); border: none; font-weight: 700; padding: 10px 16px;">
+          🚀 Skicka Pushnotis till alla
+        </button>
+      </form>
+    </div>
+  `;
+
+  // Attach live preview listeners
+  const titleInput = document.getElementById('broadcast-push-title');
+  const bodyInput = document.getElementById('broadcast-push-body');
+  const previewTitle = document.getElementById('preview-push-title');
+  const previewBody = document.getElementById('preview-push-body');
+
+  titleInput?.addEventListener('input', () => {
+    previewTitle.textContent = titleInput.value.trim() || 'Malta Betting 🇲🇹';
+  });
+
+  bodyInput?.addEventListener('input', () => {
+    previewBody.textContent = bodyInput.value.trim() || 'Skriv en text ovan för att förhandsgranska...';
+  });
+
+  // Attach submit handler
+  document.getElementById('admin-broadcast-push-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = titleInput.value.trim();
+    const body = bodyInput.value.trim();
+    const url = document.getElementById('broadcast-push-url')?.value.trim() || '/';
+
+    if (!title || !body) {
+      showToast('Ange både rubrik och meddelande', 'error');
+      return;
+    }
+
+    if (!confirm(`Är du säker på att du vill skicka denna pushnotis till ${totalSubscribers} aktiva enheter? 🚀`)) {
+      return;
+    }
+
+    const submitBtn = document.getElementById('btn-submit-broadcast-push');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Skickar pushnotis...';
+
+    try {
+      const res = await api.sendAdminBroadcastPush({ title, body, url });
+      launchConfetti();
+      showToast(res.message || `Pushnotis skickad till ${res.sentCount || 0} enheter!`, 'success');
+      document.getElementById('admin-broadcast-push-form')?.reset();
+      previewTitle.textContent = 'Malta Betting 🇲🇹';
+      previewBody.textContent = 'Skriv en text ovan för att förhandsgranska...';
+
+      // Refresh count
+      const updatedStats = await api.getAdminPushStats().catch(() => null);
+      if (updatedStats && document.getElementById('broadcast-subscribers-badge')) {
+        totalSubscribers = updatedStats.totalSubscribers || 0;
+        document.getElementById('broadcast-subscribers-badge').textContent = `👥 ${totalSubscribers} aktiva enheter`;
+      }
+    } catch (err) {
+      showToast(err.message || 'Kunde inte skicka pushnotis', 'error');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '🚀 Skicka Pushnotis till alla';
+    }
+  });
 }

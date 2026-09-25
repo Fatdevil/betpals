@@ -6,6 +6,8 @@ import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from './components/minigames.js';
 import { initMaltaSupportWidget } from './components/maltaSupport.js';
+import { setDeferredPrompt, isAppStandalone, shouldShowAutoPrompt, showPwaInstallModal } from './components/pwaInstallModal.js';
+import { isPushSupported, subscribeToPush } from './push.js';
 
 // ── Global Client Error Reporting ─────────────────────
 let reportedErrorsCount = 0;
@@ -129,81 +131,92 @@ async function renderApp() {
 // ── PWA & Service Worker Initialization ──────────────────
 function initPwa() {
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    });
-  }
-
-  // Check if app is already running in standalone mode (installed as home screen app)
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches 
-    || window.navigator.standalone === true 
-    || document.referrer.includes('android-app://');
-
-  if (isStandalone) {
-    return; // Already running as an installed app!
-  }
-
-  // Check if dismissed in this session
-  if (sessionStorage.getItem('betpals_pwa_banner_dismissed')) {
-    return;
-  }
-
-  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const banner = document.getElementById('pwa-install-banner');
-  let deferredPrompt = null;
-
-  const showBanner = (isNative) => {
-    if (!banner) return;
-    const textEl = banner.querySelector('#pwa-banner-text');
-    const btnEl = banner.querySelector('#pwa-install-btn');
-    if (textEl && btnEl) {
-      if (isIos) {
-        textEl.innerHTML = '📲 <strong>Spara som app:</strong> Tryck Dela ⎋ och välj "Lägg till på hemskärmen" ➕';
-        btnEl.style.display = 'none';
-      } else if (isNative) {
-        textEl.innerHTML = '📲 <strong>Spara som app på mobilen!</strong>';
-        btnEl.textContent = 'Installera';
-        btnEl.style.display = 'inline-block';
-      } else {
-        textEl.innerHTML = '📲 <strong>Spara som app:</strong> Tryck på menyn ⋮ och välj "Installera app" ➕';
-        btnEl.style.display = 'none';
-      }
+    const registerSw = () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('[SW] Registration failed:', err);
+      });
+    };
+    if (document.readyState === 'complete') {
+      registerSw();
+    } else {
+      window.addEventListener('load', registerSw);
     }
-    banner.style.display = 'flex';
-  };
+  }
 
   // Catch native Android/Chrome prompt
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
-    deferredPrompt = e;
-    showBanner(true);
+    setDeferredPrompt(e);
   });
 
-  // If beforeinstallprompt hasn't fired after 2 seconds (e.g. iOS or Android cooldown), show guide banner
-  setTimeout(() => {
-    if (!banner || banner.style.display === 'flex') return;
-    // Only show on mobile devices
-    const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
-    if (isMobile) {
-      showBanner(false);
-    }
-  }, 2000);
+  // If already installed as standalone app on home screen
+  if (isAppStandalone()) {
+    checkFirstRunPushPrompt();
+    return;
+  }
 
-  document.getElementById('pwa-install-btn')?.addEventListener('click', async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice.outcome === 'accepted') {
-        if (banner) banner.style.display = 'none';
+  // If running in normal browser, gently offer installation guide after 12s of engagement
+  if (shouldShowAutoPrompt()) {
+    setTimeout(() => {
+      if (!isAppStandalone() && shouldShowAutoPrompt()) {
+        const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+        if (isMobile) {
+          showPwaInstallModal({ forced: false });
+        }
       }
-      deferredPrompt = null;
-    }
-  });
+    }, 12000);
+  }
+}
 
-  document.getElementById('pwa-dismiss-btn')?.addEventListener('click', () => {
-    sessionStorage.setItem('betpals_pwa_banner_dismissed', '1');
-    if (banner) banner.style.display = 'none';
-  });
+// ── Standalone First-Run Push Notification Invitation ────
+function checkFirstRunPushPrompt() {
+  if (!isPushSupported() || !isLoggedIn()) return;
+  if (Notification.permission !== 'default') return;
+
+  const PUSH_PROMPT_KEY = 'betpals_first_run_push_asked';
+  if (localStorage.getItem(PUSH_PROMPT_KEY)) return;
+
+  setTimeout(async () => {
+    if (Notification.permission !== 'default') return;
+    localStorage.setItem(PUSH_PROMPT_KEY, '1');
+
+    const { showModal, closeModal } = await import('./components/modal.js');
+    showModal(
+      '🔔 Blixtsnabba notiser',
+      `
+        <div class="text-center animate-in" style="padding: 4px;">
+          <div style="font-size: 2.8rem; margin-bottom: 8px;">⚡</div>
+          <h4 style="margin-bottom: 8px; color: var(--gold); font-weight: 800;">Missa inga BlixtBets!</h4>
+          <p class="text-muted" style="font-size: 0.85rem; line-height: 1.45; margin-bottom: var(--space-md);">
+            Nu när du har sparat appen kan du få notiser direkt i mobilen när vänner startar ett <strong>BlixtBet</strong> eller utmanar dig på en duell.
+          </p>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button class="btn btn-primary btn-block" id="btn-first-run-enable-push" style="font-weight: 700; background: linear-gradient(135deg, var(--gold), #f59e0b); border: none;">
+              🔔 Slå på notiser nu
+            </button>
+            <button class="btn btn-secondary btn-block btn-sm" id="btn-first-run-skip-push">
+              Kanske senare
+            </button>
+          </div>
+        </div>
+      `,
+      null
+    );
+
+    document.getElementById('btn-first-run-skip-push')?.addEventListener('click', () => {
+      closeModal();
+    });
+
+    document.getElementById('btn-first-run-enable-push')?.addEventListener('click', async () => {
+      closeModal();
+      try {
+        await subscribeToPush();
+        showToast('🔔 Notiser aktiverade! Du får nu blixtsnabb info i mobilen.', 'success');
+      } catch (err) {
+        showToast(err.message || 'Kunde inte aktivera notiser', 'error');
+      }
+    });
+  }, 2500);
 }
 
 // ── Init ──────────────────────────────────────────────

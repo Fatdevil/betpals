@@ -988,6 +988,7 @@ const stmts = {
   deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
   deletePushSubscriptionsByUser: db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?'),
   getPushSubscriptionsByUser: db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?'),
+  getAllPushSubscriptions: db.prepare('SELECT * FROM push_subscriptions'),
   getUserNotificationPrefs: db.prepare('SELECT notify_flashbets, notify_duels, notify_tournaments, notify_support FROM users WHERE id = ?'),
   updateUserNotificationPrefs: db.prepare('UPDATE users SET notify_flashbets = ?, notify_duels = ?, notify_tournaments = ?, notify_support = ? WHERE id = ?'),
 
@@ -3585,6 +3586,10 @@ export function savePushSubscription(idOrUserId, userIdOrSub, endpoint, p256dh, 
 
 export function deletePushSubscriptionByEndpoint(endpoint) {
   stmts.deletePushSubscriptionByEndpoint.run(endpoint);
+}
+
+export function getAllPushSubscriptions() {
+  return stmts.getAllPushSubscriptions.all();
 }
 
 export function getUserNotificationPrefs(userId) {

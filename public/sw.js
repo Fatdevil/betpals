@@ -98,8 +98,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Malta Betting 🇲🇹';
   const options = {
     body: data.body || 'Ett nytt BlixtBet har startats!',
-    icon: '/favicon.png',
-    badge: '/favicon.png',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     vibrate: [200, 100, 200],
     data: {
       url: data.url || '/'

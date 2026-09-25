@@ -1737,7 +1737,30 @@ select.form-input option {
   background: var(--border-glass-hover);
 }
 
-/* ── PWA Install Banner ─────────────────────────────── */
+/* ── PWA Install Modal & Guide ──────────────────────── */
+.pwa-guide-container {
+  padding: 4px 2px;
+}
+
+.pwa-step-item {
+  transition: transform 0.2s var(--ease-spring), border-color 0.2s;
+}
+
+.pwa-step-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 215, 0, 0.4) !important;
+}
+
+@keyframes bounceDown {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+/* ── PWA Floating Quick Action (if triggered) ───────── */
 .pwa-banner {
   position: fixed;
   bottom: calc(var(--navbar-height) + 12px);

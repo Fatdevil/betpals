@@ -1079,6 +1079,79 @@ app.post('/api/admin/duels/:id/unsettle', (req, res) => {
   }
 });
 
+app.get('/api/admin/push-stats', (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+  const allSubs = db.getAllPushSubscriptions();
+  res.json({
+    totalSubscribers: allSubs.length
+  });
+});
+
+app.post('/api/admin/broadcast-push', async (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+
+  const { title, body, url, category = 'all' } = req.body || {};
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'Ange en rubrik för notisen' });
+  }
+  if (!body || !body.trim()) {
+    return res.status(400).json({ error: 'Ange ett meddelande för notisen' });
+  }
+
+  const allSubs = db.getAllPushSubscriptions();
+  if (!allSubs || allSubs.length === 0) {
+    return res.json({ ok: true, sentCount: 0, totalSubscribers: 0, message: 'Inga aktiva push-prenumerationer hittades i systemet.' });
+  }
+
+  const payload = JSON.stringify({
+    title: title.trim(),
+    body: body.trim(),
+    url: url?.trim() || '/'
+  });
+
+  let sentCount = 0;
+  let failedCount = 0;
+  let expiredCount = 0;
+
+  for (const sub of allSubs) {
+    if (category && category !== 'all' && sub.user_id) {
+      const prefs = db.getUserNotificationPrefs(sub.user_id);
+      if (category === 'flashbets' && !prefs.notifyFlashbets) continue;
+      if (category === 'duels' && !prefs.notifyDuels) continue;
+      if (category === 'tournaments' && !prefs.notifyTournaments) continue;
+      if (category === 'support' && !prefs.notifySupport) continue;
+    }
+
+    const pushSub = {
+      endpoint: sub.endpoint,
+      keys: {
+        p256dh: sub.p256dh,
+        auth: sub.auth
+      }
+    };
+
+    try {
+      await webpush.sendNotification(pushSub, payload);
+      sentCount++;
+    } catch (err) {
+      failedCount++;
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        db.deletePushSubscriptionByEndpoint(sub.endpoint);
+        expiredCount++;
+      }
+    }
+  }
+
+  res.json({
+    ok: true,
+    sentCount,
+    failedCount,
+    expiredCount,
+    totalSubscribers: allSubs.length,
+    message: `Pushnotis skickad till ${sentCount} enheter! 🚀`
+  });
+});
+
 // ── Users ────────────────────────────────────────────
 const BETPALS_INVITE_CODE = process.env.BETPALS_INVITE_CODE || null;
 

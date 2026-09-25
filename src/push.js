@@ -26,14 +26,39 @@ export function getPushPermissionState() {
 }
 
 export async function subscribeToPush() {
-  if (!isPushSupported()) throw new Error('Push-notiser stöds inte i denna webbläsare');
-
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') {
-    throw new Error('Notistillstånd nekades');
+  if (!isPushSupported()) {
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (isIos) {
+      throw new Error('På iPhone måste Malta Betting sparas på hemskärmen först för att aktivera notiser');
+    }
+    throw new Error('Push-notiser stöds inte i denna webbläsare eller kräver HTTPS');
   }
 
-  const reg = await navigator.serviceWorker.ready;
+  // Request browser notification permission
+  const permission = await Notification.requestPermission();
+  if (permission === 'denied') {
+    throw new Error('Notistillstånd nekades. Tillåt aviseringar i webbläsarens inställningar för att få notiser.');
+  }
+  if (permission !== 'granted') {
+    throw new Error('Notistillstånd godkändes inte.');
+  }
+
+  // Ensure Service Worker registration is initiated
+  if ('serviceWorker' in navigator) {
+    try {
+      await navigator.serviceWorker.register('/sw.js');
+    } catch (e) {
+      console.warn('[Push] ServiceWorker register warning:', e);
+    }
+  }
+
+  // Wait for service worker ready with a timeout safeguard
+  const swReadyPromise = navigator.serviceWorker.ready;
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Kunde inte initiera Service Worker för notiser i tid')), 8000)
+  );
+  const reg = await Promise.race([swReadyPromise, timeoutPromise]);
+
   const { publicKey } = await getVapidPublicKey();
   if (!publicKey) throw new Error('Kunde inte hämta VAPID-nyckel från servern');
 

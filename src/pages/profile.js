@@ -10,6 +10,7 @@ import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from '../components/minigames.js';
 import { openMaltaSupportModal, isMaltaFabDisabled, setMaltaFabDisabled } from '../components/maltaSupport.js';
+import { isAppStandalone, isIosDevice, showPwaInstallModal } from '../components/pwaInstallModal.js';
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -443,6 +444,9 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   const hasBiometric = isWebAuthnSupported();
   const isBiometricActive = creds?.hasBiometric || false;
 
+  const isStandalone = isAppStandalone();
+  const isIos = isIosDevice();
+
   const pushSupported = isPushSupported();
   const pushPerm = pushSupported ? getPushPermissionState() : 'unsupported';
   const isPushActive = pushSupported && pushPerm === 'granted';
@@ -584,6 +588,30 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         </form>
       </div>
 
+      <!-- PWA Installation Status / Action Card -->
+      <div class="card mt-md" id="pwa-profile-card" style="${isStandalone ? 'background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.28);' : 'background: linear-gradient(135deg, rgba(255, 215, 0, 0.08) 0%, rgba(20, 20, 30, 0.9) 100%); border: 1px solid rgba(255, 215, 0, 0.35);'}">
+        <div class="flex-between" style="align-items: center; margin-bottom: 6px;">
+          <div style="font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: ${isStandalone ? '#4ade80' : 'var(--gold)'}; display: flex; align-items: center; gap: 6px;">
+            <span>📱</span> <span>${isStandalone ? 'Hemskärmsapp Aktiv' : 'Spara appen på telefonen'}</span>
+          </div>
+          ${isStandalone 
+            ? `<span class="badge badge-success" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">✓ Installerad</span>`
+            : `<span class="badge badge-warning" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">Tips!</span>`
+          }
+        </div>
+        <p class="text-muted" style="font-size: 0.8rem; line-height: 1.4; margin-bottom: ${isStandalone ? '0' : '10px'};">
+          ${isStandalone 
+            ? 'Malta Betting körs i optimerat helskärmsläge direkt från din hemskärm!'
+            : 'Få fullskärmsupplevelse utan webbläsarrader, snabbare uppstart och direktnotiser genom att spara appen på hemskärmen.'
+          }
+        </p>
+        ${!isStandalone ? `
+          <button type="button" class="btn btn-primary btn-sm btn-block" id="btn-profile-install-pwa" style="background: linear-gradient(135deg, var(--gold), #f59e0b); border: none; font-weight: 700; padding: 9px 14px;">
+            📲 Spara appen på hemskärmen
+          </button>
+        ` : ''}
+      </div>
+
       <!-- Web Push Notifications Card -->
       <div class="card mt-md" id="push-notifications-card">
         <div class="flex-between" style="align-items: center; margin-bottom: var(--space-sm);">
@@ -591,7 +619,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             <span>🔔</span> <span>Pushnotiser (Web Push)</span>
           </div>
           ${!pushSupported 
-            ? `<span class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted); font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">Ej stödd</span>`
+            ? `<span class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted); font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">${isIos && !isStandalone ? 'Kräver app' : 'Ej stödd'}</span>`
             : isPushActive
               ? `<span class="badge badge-success" style="font-size: 0.72rem; padding: 4px 8px; border-radius: 6px;">🔔 Aktiv</span>`
               : pushPerm === 'denied'
@@ -604,15 +632,37 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
           Få realtidsnotiser i mobilen när någon startar ett <strong>⚡ BlixtBet</strong> eller utmanar dig på duell – även när appen är stängd!
         </p>
 
-        ${pushSupported ? `
-          <button type="button" class="btn ${isPushActive ? 'btn-secondary' : 'btn-primary'} btn-sm btn-block" id="btn-toggle-push" style="${!isPushActive ? 'background: linear-gradient(135deg, var(--gold), #e67e22); border: none; font-weight: 700;' : ''}">
-            ${isPushActive ? '🔕 Inaktivera pushnotiser på denna enhet' : '🔔 Aktivera pushnotiser nu'}
-          </button>
-        ` : `
-          <div class="badge badge-warning" style="font-size: 0.75rem; padding: 6px 10px; width: 100%; text-align: center;">
-            ⚠️ Web Push stöds inte i denna webbläsare
+        ${!pushSupported 
+          ? (isIos && !isStandalone 
+              ? `
+                <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 12px; margin-top: 4px;">
+                  <div style="font-weight: 700; font-size: 0.82rem; color: #fbbf24; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                    <span>📱</span> <span>Kräver hemskärmsapp på iPhone</span>
+                  </div>
+                  <p style="font-size: 0.78rem; line-height: 1.4; color: var(--text-secondary); margin-bottom: 10px;">
+                    Apple tillåter endast pushnotiser när Malta Betting sparats på hemskärmen. Lägg till appen på hemskärmen och öppna den därifrån för att slå på notiser!
+                  </p>
+                  <button type="button" class="btn btn-secondary btn-sm btn-block" id="btn-profile-guide-push-ios" style="font-weight: 700; border-color: rgba(255, 215, 0, 0.4);">
+                    📲 Visa hur du sparar på hemskärmen
+                  </button>
+                </div>
+              `
+              : `<div class="badge badge-warning" style="font-size: 0.75rem; padding: 8px 10px; width: 100%; text-align: center; border-radius: var(--radius-sm);">
+                   ⚠️ Web Push stöds inte i denna webbläsare eller kräver säker HTTPS-anslutning
+                 </div>`
+            )
+          : `
+            <button type="button" class="btn ${isPushActive ? 'btn-secondary' : 'btn-primary'} btn-sm btn-block" id="btn-toggle-push" style="${!isPushActive ? 'background: linear-gradient(135deg, var(--gold), #e67e22); border: none; font-weight: 700;' : ''}">
+              ${isPushActive ? '🔕 Inaktivera pushnotiser på denna enhet' : '🔔 Aktivera pushnotiser nu'}
+            </button>
+          `
+        }
+
+        ${pushPerm === 'denied' ? `
+          <div style="margin-top: 10px; padding: 8px 10px; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.72rem; color: #fca5a5; line-height: 1.35;">
+            ⚠️ Notistillstånd är blockerat i webbläsaren. Öppna webbplatsinställningarna (t.ex. hänglåset i adressfältet) för att tillåta aviseringar.
           </div>
-        `}
+        ` : ''}
 
         ${pushSupported && isPushActive ? `
           <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-glass);">
@@ -645,9 +695,11 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
           </div>
         ` : ''}
 
-        <div style="margin-top: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm); border: 1px solid var(--border-glass); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.35;">
-          💡 <strong>Tips för iPhone / iPad (iOS 16.4+):</strong> Tryck på Dela-knappen i Safari (fyrkanten med pil uppåt) och välj <em>"Lägg till på hemskärmen"</em>. Öppna sedan appen från hemskärmen och slå på notiser här!
-        </div>
+        ${isIos && isStandalone ? `
+          <div style="margin-top: 10px; padding: 8px 10px; background: rgba(34, 197, 94, 0.05); border-radius: var(--radius-sm); border: 1px solid rgba(34, 197, 94, 0.25); font-size: 0.72rem; color: #4ade80; line-height: 1.35;">
+            ✓ Körs som hemskärmsapp på iPhone. Notiser är fullt kompatibla med iOS!
+          </div>
+        ` : ''}
       </div>
 
       <!-- Malta AI Concierge & Support Card -->
@@ -970,6 +1022,15 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     } catch (err) {
       showToast(err.message, 'error');
     }
+  });
+
+  // PWA Install / Guide Button
+  document.getElementById('btn-profile-install-pwa')?.addEventListener('click', () => {
+    showPwaInstallModal({ forced: true });
+  });
+
+  document.getElementById('btn-profile-guide-push-ios')?.addEventListener('click', () => {
+    showPwaInstallModal({ forced: true });
   });
 
   // Push Notification Toggle

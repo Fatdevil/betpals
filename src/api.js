@@ -4,14 +4,16 @@ const BASE = '/api';
 const WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
 
 async function request(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   // Attach user auth token if available
   const token = localStorage.getItem('betpals_token');
   if (token) headers['x-user-token'] = token;
+  const adminPin = sessionStorage.getItem('betpals_pin');
+  if (adminPin && !headers['x-admin-pin']) headers['x-admin-pin'] = adminPin;
 
   const res = await fetch(`${BASE}${path}`, {
-    headers,
     ...options,
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const data = await res.json();
@@ -358,6 +360,8 @@ export const settleAnyBet = (id, data) => request('/anybets/' + id + '/settle', 
 export const getVapidPublicKey = () => request('/push/vapid-public-key');
 export const subscribePush = (data) => request('/push/subscribe', { method: 'POST', body: data });
 export const unsubscribePush = (data) => request('/push/unsubscribe', { method: 'POST', body: data });
+export const getAdminPushStats = () => request('/admin/push-stats');
+export const sendAdminBroadcastPush = (data) => request('/admin/broadcast-push', { method: 'POST', body: data });
 
 // ── BlixtBet (FlashBet) ──────────────────────────────
 export const createFlashBet = (data) => request('/flashbets', { method: 'POST', body: data });
