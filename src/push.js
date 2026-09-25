@@ -116,29 +116,32 @@ export async function subscribeToPush() {
 // Called on app start and after login: re-registers this device with the server so
 // notifications keep working after a server reset, key change, new login or expired
 // subscription. Never prompts the user.
+// Resolves to this device's subscription endpoint, or null when it could not be synced.
 export async function syncPushSubscription() {
-  if (!isPushActive() || !localStorage.getItem('betpals_token')) return false;
+  if (!isPushActive() || !localStorage.getItem('betpals_token')) return null;
   try {
     const reg = await getReadyRegistration();
-    await ensureSubscription(reg);
-    return true;
+    const sub = await ensureSubscription(reg);
+    return sub.endpoint;
   } catch (err) {
     console.warn('[Push] Could not sync push subscription:', err);
-    return false;
+    return null;
   }
 }
 
+// Removes the subscription in the browser first: once that has succeeded no notification
+// can reach this device, even if telling the server fails (a stale server entry is
+// cleaned up automatically on the next send). Only then is "off" remembered.
 export async function unsubscribeFromPush() {
-  try { localStorage.setItem(PUSH_DISABLED_KEY, '1'); } catch {}
-  if (!isPushSupported()) return;
-  try {
+  if (isPushSupported()) {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) {
-      await unsubscribePush({ endpoint: sub.endpoint });
-      await sub.unsubscribe();
+      const { endpoint } = sub;
+      const removed = await sub.unsubscribe();
+      if (!removed) throw new Error('Kunde inte stänga av notiser på denna enhet. Försök igen.');
+      unsubscribePush({ endpoint }).catch((err) => console.warn('[Push] Server unsubscribe failed:', err));
     }
-  } catch (err) {
-    console.error('Failed to unsubscribe push:', err);
   }
+  try { localStorage.setItem(PUSH_DISABLED_KEY, '1'); } catch {}
 }

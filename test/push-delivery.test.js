@@ -80,3 +80,30 @@ test('The public VAPID key is served for the client-side key check', async () =>
   assert.equal(res.status, 200);
   assert.match(res.body.publicKey, /^[A-Za-z0-9_-]{80,}$/);
 });
+
+test('Test notification targets only the device that asked (another device cannot mask it)', async () => {
+  const user = await registerUser('pushDev');
+  const phoneA = fakeSubscription();
+  const phoneB = fakeSubscription();
+  await call('POST', '/api/push/subscribe', phoneA, user.token);
+  await call('POST', '/api/push/subscribe', phoneB, user.token);
+
+  const res = await call('POST', '/api/support/test-push', { endpoint: phoneA.endpoint }, user.token);
+  assert.equal(res.status, 502);
+  assert.equal(res.body.result.attempted, 1, 'only the requesting device is tested');
+
+  const unknown = await call('POST', '/api/support/test-push', { endpoint: 'https://example.invalid/other' }, user.token);
+  assert.equal(unknown.status, 400);
+});
+
+test('Server refuses to start with only half of a VAPID key pair', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', "await import('./server/server.js')"], {
+    cwd: new URL('..', import.meta.url).pathname,
+    env: { ...process.env, NODE_ENV: 'test', VAPID_PUBLIC_KEY: 'BOnlyHalfOfThePair', VAPID_PRIVATE_KEY: '' },
+    encoding: 'utf8',
+    timeout: 20000
+  });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /VAPID_PUBLIC_KEY och VAPID_PRIVATE_KEY/);
+});

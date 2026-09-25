@@ -684,8 +684,16 @@ function broadcastFlashBetToTargets(flashBet, payload) {
 // Keys can be pinned via env so they survive a database reset. If the keys ever change,
 // every existing phone subscription stops working (push services answer 403), so the
 // client re-syncs its subscription against the current public key on every app start.
-let vapidPublicKey = process.env.VAPID_PUBLIC_KEY || db.getSetting('vapid_public_key');
-let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || db.getSetting('vapid_private_key');
+// The pair is taken as a whole: mixing an env key with the other half from the database
+// would sign every push with a mismatched key and nothing would be delivered.
+const envVapidPublic = process.env.VAPID_PUBLIC_KEY;
+const envVapidPrivate = process.env.VAPID_PRIVATE_KEY;
+if (Boolean(envVapidPublic) !== Boolean(envVapidPrivate)) {
+  console.error('VAPID_PUBLIC_KEY och VAPID_PRIVATE_KEY måste sättas tillsammans (eller ingen av dem).');
+  process.exit(1);
+}
+let vapidPublicKey = envVapidPublic || db.getSetting('vapid_public_key');
+let vapidPrivateKey = envVapidPrivate || db.getSetting('vapid_private_key');
 
 if (!vapidPublicKey || !vapidPrivateKey) {
   const generated = webpush.generateVAPIDKeys();
@@ -704,9 +712,12 @@ webpush.setVapidDetails(
 // Sends a push to every device of the given users. Returns what happened so callers
 // (e.g. the test button) can report real delivery instead of assuming success.
 async function sendPushToUsers(userIds, payload, category = null) {
+  if (!userIds || userIds.length === 0) return { attempted: 0, sent: 0, failed: [] };
+  return sendPushToSubscriptions(db.getPushSubscriptionsForUsers(userIds, category), payload);
+}
+
+async function sendPushToSubscriptions(subscriptions, payload) {
   const result = { attempted: 0, sent: 0, failed: [] };
-  if (!userIds || userIds.length === 0) return result;
-  const subscriptions = db.getPushSubscriptionsForUsers(userIds, category);
   if (!subscriptions || subscriptions.length === 0) return result;
 
   const jsonPayload = JSON.stringify(payload);
@@ -6253,7 +6264,11 @@ app.post('/api/support/test-push', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const subs = db.getPushSubscriptionsForUsers([user.id]);
+  // Test the device that pressed the button when it tells us its endpoint, so another
+  // working phone cannot mask a broken one
+  const { endpoint } = req.body || {};
+  const allSubs = db.getPushSubscriptionsForUsers([user.id]);
+  const subs = endpoint ? allSubs.filter(s => s.endpoint === endpoint) : allSubs;
   if (!subs || subs.length === 0) {
     return res.status(400).json({
       error: 'Inga aktiva push-notiser hittades för din enhet. Slå på webbnotiser under Profil först!'
@@ -6268,7 +6283,7 @@ app.post('/api/support/test-push', async (req, res) => {
   });
 
   // The test ignores category preferences: it checks that delivery to this phone works
-  const result = await sendPushToUsers([user.id], pushData);
+  const result = await sendPushToSubscriptions(subs, pushData);
   if (result.sent === 0) {
     const codes = result.failed.map(f => f.statusCode || '?').join(', ');
     return res.status(502).json({

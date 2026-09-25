@@ -1152,13 +1152,14 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     testPushBtn.textContent = '⏳ Skickar testnotis...';
     try {
       // Re-register this device first, so a stale subscription is repaired before testing
-      await syncPushSubscription();
+      const endpoint = await syncPushSubscription();
       const res = await fetch('/api/support/test-push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-token': localStorage.getItem('betpals_token') || ''
-        }
+        },
+        body: JSON.stringify(endpoint ? { endpoint } : {})
       });
       const data = await res.json();
       if (!res.ok) {
