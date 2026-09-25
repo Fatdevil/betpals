@@ -8,7 +8,7 @@ import {
   settleDuelsWithFriend,
   clearSettlementWithFriend
 } from '../api.js';
-import { formatCurrency, showToast, escapeHtml, createSwishUrl } from '../utils.js';
+import { formatCurrency, showToast, escapeHtml, createSwishUrl, parseServerDate } from '../utils.js';
 import { t, getLang } from '../i18n.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { openReceiptModal } from '../components/minigames.js';
@@ -817,7 +817,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
             const itemSign = item.amount >= 0 ? '+' : '';
             const itemClass = item.amount >= 0 ? 'text-green' : 'text-red';
             const icon = isPayment ? '📱' : isExpense ? '🛒' : item.won ? '✅' : '🔴';
-            const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const dateStr = item.timestamp ? parseServerDate(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
             return `
               <div class="audit-item">
@@ -1404,7 +1404,7 @@ function renderHistoryTab(container, pastTournaments, user = null) {
                   🏆 ${escapeHtml(tItem.name)}
                 </div>
                 <div class="text-muted" style="font-size: 0.75rem;">
-                  ${tItem.roundCount} ${isEn ? 'games' : 'spel'} · ${tItem.createdAt ? new Date(tItem.createdAt).toLocaleDateString() : ''}
+                  ${tItem.roundCount} ${isEn ? 'games' : 'spel'} · ${tItem.createdAt ? parseServerDate(tItem.createdAt).toLocaleDateString() : ''}
                 </div>
               </div>
               <div class="flex align-center gap-xs">

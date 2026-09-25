@@ -1,5 +1,5 @@
 // ── Utility functions ─────────────────────────────────
-import { t } from './i18n.js';
+import { t, getLang } from './i18n.js';
 
 export function formatPoints(amount) {
   if (amount === null || amount === undefined) return '0 kr';
@@ -19,6 +19,9 @@ export function getAppBaseUrl() {
   return origin.replace(/\/$/, '');
 }
 
+// The server stores timestamps as SQLite "YYYY-MM-DD HH:MM:SS" in UTC. Safari cannot parse
+// that format (Invalid Date) and other browsers read it as local time, so it is normalized
+// to ISO UTC here. Returns null for missing or invalid dates.
 export function parseDateSafe(dateVal) {
   if (!dateVal) return null;
   if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? null : dateVal;
@@ -27,13 +30,17 @@ export function parseDateSafe(dateVal) {
     return isNaN(d.getTime()) ? null : d;
   }
   let str = String(dateVal).trim();
-  // If it's in SQL format "YYYY-MM-DD HH:mm:ss" or similar with space, replace space with 'T'
-  // WebKit / Safari fails on "YYYY-MM-DD HH:mm:ss"
-  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(str)) {
-    str = str.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)(\s*.*)?$/, '$1T$2$3');
+  const sqlTimestamp = str.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (sqlTimestamp) {
+    str = `${sqlTimestamp[1]}T${sqlTimestamp[2]}${sqlTimestamp[3] || 'Z'}`;
   }
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
+}
+
+// Kept for existing callers; same as parseDateSafe but always returns a Date
+export function parseServerDate(value) {
+  return parseDateSafe(value) || new Date(NaN);
 }
 
 export function formatOdds(odds) {
@@ -267,3 +274,42 @@ export function generateGoogleCalendarUrl({ title, description, startDate, endDa
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
+
+// ── Login prompt for pages that need a logged-in user ──
+const RETURN_TO_KEY = 'betpals_return_to';
+
+export function rememberReturnTo(page, params = {}) {
+  try {
+    sessionStorage.setItem(RETURN_TO_KEY, JSON.stringify({ page, params }));
+  } catch {}
+}
+
+export function consumeReturnTo() {
+  try {
+    const raw = sessionStorage.getItem(RETURN_TO_KEY);
+    sessionStorage.removeItem(RETURN_TO_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function renderLoginPrompt(message) {
+  return `
+    <div class="card text-center animate-in" style="padding: var(--space-lg); margin-top: var(--space-md);">
+      <div style="font-size: 2.2rem; margin-bottom: 6px;">🔑</div>
+      <h3 style="font-size: 1.05rem; margin-bottom: 6px;">${getLang() === 'en' ? 'Log in to continue' : 'Logga in för att fortsätta'}</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: var(--space-md);">${escapeHtml(message)}</p>
+      <button type="button" class="btn btn-primary btn-block login-prompt-btn">${getLang() === 'en' ? 'Log in / Create profile' : 'Logga in / Skapa profil'}</button>
+    </div>
+  `;
+}
+
+export function attachLoginPrompt(container, returnTo = null) {
+  container?.querySelectorAll('.login-prompt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (returnTo) rememberReturnTo(returnTo.page, returnTo.params || {});
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'profile' } }));
+    });
+  });
+}

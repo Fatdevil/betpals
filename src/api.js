@@ -1,28 +1,69 @@
 // ── API layer + WebSocket client ──────────────────────
 import { getAppBaseUrl } from './utils.js';
+import { clearUser } from './auth.js';
 
 const BASE = '/api';
 const WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
 
+let authCheckInFlight = null;
+
+// A 401 can mean an expired session, but also e.g. a wrong current PIN. Ask /users/me
+// whether the stored token is still valid, and only then treat the user as logged out.
+function verifyStoredSession(token) {
+  if (!authCheckInFlight) {
+    authCheckInFlight = fetch(`${BASE}/users/me`, { headers: { 'x-user-token': token } })
+      .then((res) => {
+        if (res.status === 401 && localStorage.getItem('betpals_token') === token) {
+          clearUser();
+          window.dispatchEvent(new CustomEvent('auth-expired'));
+        }
+      })
+      .catch(() => {})
+      .finally(() => { authCheckInFlight = null; });
+  }
+  return authCheckInFlight;
+}
+
 async function request(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const headers = { 'Content-Type': 'application/json' };
   // Attach user auth token if available
   const token = localStorage.getItem('betpals_token');
   if (token) headers['x-user-token'] = token;
-  const adminPin = sessionStorage.getItem('betpals_pin');
-  if (adminPin && !headers['x-admin-pin']) headers['x-admin-pin'] = adminPin;
 
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const data = await res.json();
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers,
+      ...options,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+  } catch {
+    throw new Error('Ingen kontakt med servern. Kontrollera din uppkoppling och försök igen.');
+  }
+
+  // Safari reports a non-JSON body (e.g. a proxy error page) as the cryptic
+  // "The string did not match the expected pattern", so parse defensively.
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
   if (!res.ok) {
-    const err = new Error(data.error || 'Något gick fel');
+    if (res.status === 401 && token) {
+      await verifyStoredSession(token);
+    }
+    const err = new Error(data?.error || (res.status >= 500 || !data
+      ? 'Servern svarar inte just nu. Försök igen om en stund.'
+      : 'Något gick fel'));
     err.status = res.status;
     err.data = data;
+    err.authRequired = res.status === 401;
     throw err;
+  }
+  if (data === null) {
+    throw new Error('Servern svarar inte just nu. Försök igen om en stund.');
   }
   return data;
 }

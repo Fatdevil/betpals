@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments, getActiveFlashLives, getFriendRequests, getPendingDuels, getSettlementsOverview } from '../api.js';
-import { formatCurrency, formatDate, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
+import { formatCurrency, formatDate, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
@@ -59,9 +59,16 @@ export async function renderHome() {
     const eventsError = eventsResult.status === 'rejected' ? eventsResult.reason : null;
     initHomeActionFeed(isEn, events);
 
-    // Tournaments
+    // Tournaments ("Events") are only listed for logged-in users. Without a login (common on
+    // iPhone: Safari clears storage after 7 days and the home-screen app has its own login)
+    // they would silently be missing, so explain why and offer a login.
     const tList = document.getElementById('tournaments-list');
-    if (tournaments.length > 0) {
+    if (!isLoggedIn()) {
+      tList.innerHTML = renderLoginPrompt(isEn
+        ? 'Log in to see your events and bet with your friends.'
+        : 'Logga in för att se dina event och betta med kompisarna.');
+      attachLoginPrompt(tList);
+    } else if (tournaments.length > 0) {
       const hasActive = tournaments.some(t => t.status === 'active');
       const badgeText = hasActive ? 'LIVE' : 'SEASON 2026';
       tList.innerHTML = `
@@ -219,9 +226,11 @@ export async function renderHome() {
     document.getElementById('events-list').innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">⚠️</div>
-        <p class="empty-state-text">${t('common.error')}</p>
+        <p class="empty-state-text">${escapeHtml(err?.message || t('common.error'))}</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="home-retry-btn">${isEn ? 'Try again' : 'Försök igen'}</button>
       </div>
     `;
+    document.getElementById('home-retry-btn')?.addEventListener('click', () => renderHome());
   }
 }
 
@@ -369,7 +378,9 @@ async function initHomeActionFeed(isEn, events = []) {
     const items = [];
 
     // 1. Incoming Friend Requests
-    const incomingReqs = Array.isArray(friendReqs) ? friendReqs.filter(r => r.direction === 'incoming' || !r.direction) : [];
+    const incomingReqs = Array.isArray(friendReqs)
+      ? friendReqs.filter(r => r.direction === 'incoming' || !r.direction)
+      : (Array.isArray(friendReqs?.incoming) ? friendReqs.incoming : []);
     if (incomingReqs.length > 0) {
       items.push({
         id: 'friend-reqs',

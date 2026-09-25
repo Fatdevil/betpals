@@ -1,7 +1,7 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getFriendRequests, acceptFriendRequest, declineFriendRequest, buildFriendInviteUrl, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay, consumeReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
@@ -211,7 +211,7 @@ function renderAuthScreen(content) {
         await checkPendingFriendInvite();
         await checkPendingPartyJoin();
         showToast(`Välkommen tillbaka, ${user.nickname}! 👋`, 'success');
-        renderProfile();
+        finishLogin();
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -293,7 +293,7 @@ function renderAuthScreen(content) {
       } else {
         showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
       }
-      renderProfile();
+      finishLogin();
     } catch (err) {
       if (err.data?.code === 'SWISH_ALREADY_REGISTERED') {
         showToast(err.message || 'Ditt Swish-nummer är redan registrerat. Ange din PIN för att logga in!', 'info');
@@ -341,7 +341,7 @@ function renderAuthScreen(content) {
       await checkPendingFriendInvite();
       await checkPendingPartyJoin();
       showToast(`Välkommen tillbaka, ${res.nickname}! 👋`, 'success');
-      renderProfile();
+      finishLogin();
     } catch (err) {
       showToast(err.message, 'error');
       btn.disabled = false;
@@ -350,6 +350,16 @@ function renderAuthScreen(content) {
   });
 
   setupPinToggles(content);
+}
+
+// After logging in, go back to the page that asked for it (e.g. a shared match link)
+function finishLogin() {
+  const target = consumeReturnTo();
+  if (target?.page && target.page !== 'profile') {
+    navigate(target.page, target.params || {});
+  } else {
+    renderProfile();
+  }
 }
 
 async function checkPendingFriendInvite() {
@@ -455,7 +465,7 @@ function showPinResetUI(identifier, nickname) {
       const user = await completePinReset({ identifier, resetCode, newPin });
       storeUser(user);
       showToast('PIN-koden har uppdaterats! 🎉', 'success');
-      renderProfile();
+      finishLogin();
     } catch (err) {
       showToast(err.message, 'error');
       btn.disabled = false;
