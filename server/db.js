@@ -4240,8 +4240,8 @@ export async function backupDatabase(customDir = null) {
       .map(f => ({ name: f, path: join(targetDir, f), time: fs.statSync(join(targetDir, f)).mtimeMs }))
       .sort((a, b) => b.time - a.time);
 
-    if (files.length > 7) {
-      for (const oldFile of files.slice(7)) {
+    if (files.length > 30) {
+      for (const oldFile of files.slice(30)) {
         try { fs.unlinkSync(oldFile.path); } catch (e) {}
       }
     }
