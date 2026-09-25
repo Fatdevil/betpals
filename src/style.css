@@ -1740,22 +1740,32 @@ select.form-input option {
 /* ── PWA Install Banner ─────────────────────────────── */
 .pwa-banner {
   position: fixed;
-  bottom: 80px;
+  bottom: calc(var(--navbar-height) + 12px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 150;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background: rgba(10, 10, 20, 0.95);
-  backdrop-filter: blur(20px);
+  padding: 10px 16px;
+  background: rgba(18, 18, 28, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--gold);
-  border-radius: var(--radius-full);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 15px rgba(255, 215, 0, 0.2);
+  border-radius: var(--radius-lg);
   font-size: 0.8rem;
   color: var(--text-primary);
   animation: slideUp 0.4s var(--ease-spring);
-  white-space: nowrap;
+  width: calc(100% - 28px);
+  max-width: 440px;
+}
+
+#pwa-banner-text {
+  flex: 1;
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 /* ── QR Code ────────────────────────────────────────── */

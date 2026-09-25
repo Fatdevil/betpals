@@ -134,26 +134,74 @@ function initPwa() {
     });
   }
 
-  let deferredPrompt;
+  // Check if app is already running in standalone mode (installed as home screen app)
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches 
+    || window.navigator.standalone === true 
+    || document.referrer.includes('android-app://');
+
+  if (isStandalone) {
+    return; // Already running as an installed app!
+  }
+
+  // Check if dismissed in this session
+  if (sessionStorage.getItem('betpals_pwa_banner_dismissed')) {
+    return;
+  }
+
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const banner = document.getElementById('pwa-install-banner');
+  let deferredPrompt = null;
+
+  const showBanner = (isNative) => {
+    if (!banner) return;
+    const textEl = banner.querySelector('#pwa-banner-text');
+    const btnEl = banner.querySelector('#pwa-install-btn');
+    if (textEl && btnEl) {
+      if (isIos) {
+        textEl.innerHTML = '📲 <strong>Spara som app:</strong> Tryck Dela ⎋ och välj "Lägg till på hemskärmen" ➕';
+        btnEl.style.display = 'none';
+      } else if (isNative) {
+        textEl.innerHTML = '📲 <strong>Spara som app på mobilen!</strong>';
+        btnEl.textContent = 'Installera';
+        btnEl.style.display = 'inline-block';
+      } else {
+        textEl.innerHTML = '📲 <strong>Spara som app:</strong> Tryck på menyn ⋮ och välj "Installera app" ➕';
+        btnEl.style.display = 'none';
+      }
+    }
+    banner.style.display = 'flex';
+  };
+
+  // Catch native Android/Chrome prompt
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    const banner = document.getElementById('pwa-install-banner');
-    if (banner) banner.style.display = 'flex';
+    showBanner(true);
   });
+
+  // If beforeinstallprompt hasn't fired after 2 seconds (e.g. iOS or Android cooldown), show guide banner
+  setTimeout(() => {
+    if (!banner || banner.style.display === 'flex') return;
+    // Only show on mobile devices
+    const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+    if (isMobile) {
+      showBanner(false);
+    }
+  }, 2000);
 
   document.getElementById('pwa-install-btn')?.addEventListener('click', async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
+      const choice = await deferredPrompt.userChoice;
+      if (choice.outcome === 'accepted') {
+        if (banner) banner.style.display = 'none';
+      }
       deferredPrompt = null;
-      const banner = document.getElementById('pwa-install-banner');
-      if (banner) banner.style.display = 'none';
     }
   });
 
   document.getElementById('pwa-dismiss-btn')?.addEventListener('click', () => {
-    const banner = document.getElementById('pwa-install-banner');
+    sessionStorage.setItem('betpals_pwa_banner_dismissed', '1');
     if (banner) banner.style.display = 'none';
   });
 }
