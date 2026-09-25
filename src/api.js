@@ -154,6 +154,7 @@ export const adminResetUserPin = (userId, pin) => request(`/admin/users/${userId
 export const adminGetDebts = (pin) => request('/admin/debts', { method: 'POST', body: { pin } });
 export const adminDeleteDuel = (id, pin) => request(`/admin/duels/${id}`, { method: 'DELETE', body: { pin } });
 export const adminUnsettleDuel = (id, pin) => request(`/admin/duels/${id}/unsettle`, { method: 'POST', body: { pin } });
+export const adminVerifyBackup = (pin) => request('/admin/backup/verify', { method: 'POST', body: { pin } });
 
 // ── Events ─────────────────────────────────────────────
 export const getEvents = () => request('/events');

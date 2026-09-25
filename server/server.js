@@ -1021,6 +1021,33 @@ app.get('/api/admin/backup/download', (req, res) => {
   res.download(latest.path, latest.name);
 });
 
+app.post('/api/admin/backup/verify', async (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+
+  const latest = db.getLatestBackup();
+  if (!latest || !fs.existsSync(latest.path)) {
+    return res.status(404).json({ error: 'Ingen säkerhetskopia hittades' });
+  }
+
+  try {
+    const { default: Database } = await import('better-sqlite3');
+    const testDb = new Database(latest.path, { readonly: true });
+    const users = testDb.prepare('SELECT count(*) as c FROM users').get().c;
+    const tournaments = testDb.prepare('SELECT count(*) as c FROM tournaments').get().c;
+    const duels = testDb.prepare('SELECT count(*) as c FROM minigame_duels').get().c;
+    testDb.close();
+
+    res.json({
+      ok: true,
+      filename: latest.name,
+      sizeKB: Math.round(fs.statSync(latest.path).size / 1024),
+      contents: { users, tournaments, duels }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Backupen kunde inte verifieras: ' + err.message });
+  }
+});
+
 // ── Admin Debt Management ────────────────────────────
 app.post('/api/admin/debts', (req, res) => {
   if (!requireAdminPin(req, res)) return;

@@ -1436,6 +1436,9 @@ async function loadAdminUsers(pin) {
           <button class="btn btn-secondary btn-sm" id="btn-download-backup">
             ⬇️ Ladda ned senaste backup (.db)
           </button>
+          <button class="btn btn-secondary btn-sm" id="btn-verify-backup" style="border: 1px solid var(--success);">
+            🔍 Verifiera backup
+          </button>
         </div>
         <div id="admin-backup-status" class="mt-xs text-muted" style="font-size: 0.75rem;"></div>
       </div>
@@ -1489,6 +1492,30 @@ async function loadAdminUsers(pin) {
       } finally {
         btn.disabled = false;
         btn.textContent = '💾 Säkerhetskopiera nu';
+      }
+    });
+
+    // Hook up backup verify button
+    container.querySelector('#btn-verify-backup')?.addEventListener('click', async () => {
+      const btn = container.querySelector('#btn-verify-backup');
+      const statusEl = container.querySelector('#admin-backup-status');
+      btn.disabled = true;
+      btn.textContent = 'Verifierar... 🔍';
+      try {
+        const res = await api.adminVerifyBackup(pin);
+        if (res.ok) {
+          const c = res.contents;
+          statusEl.innerHTML = `<span class="text-green">✅ Backup OK – ${c.users} användare, ${c.tournaments} turneringar, ${c.duels} dueller (${res.sizeKB} KB)</span>`;
+          showToast('Backupen är giltig! ✅', 'success');
+        } else {
+          statusEl.innerHTML = `<span class="text-red">❌ ${escapeHtml(res.error || 'Verifiering misslyckades')}</span>`;
+        }
+      } catch (err) {
+        statusEl.innerHTML = `<span class="text-red">❌ ${escapeHtml(err.message)}</span>`;
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Verifiera backup';
       }
     });
 
