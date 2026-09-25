@@ -2044,9 +2044,33 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // ── Events ───────────────────────────────────────────
-app.get('/api/events', requireAuth, (req, res) => {
+// Events in a tournament follow the tournament's visibility (friends / friends of friends / link)
+function canViewEvent(event, user) {
+  const tournamentId = event.tournamentId || event.tournament_id;
+  if (!tournamentId) return true;
+  const tournament = db.getTournamentById(tournamentId);
+  if (!tournament) return true;
+  return db.canUserAccessTournament(tournament, user ? user.id : null);
+}
+
+// Anonymous viewers may see a match (so shared links work before logging in), but not
+// anyone's Swish number or user ids.
+function publicEventView(event) {
+  const { swishNumber, winnerSwishNumber, ...rest } = event;
+  return {
+    ...rest,
+    bets: (event.bets || []).map(({ userId, ...bet }) => bet)
+  };
+}
+
+app.get('/api/events', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const user = getUserFromToken(req);
+  // Standalone matches by default; tournament rounds are listed under their tournament.
+  // With ?all=1, rounds are included only for tournaments the caller may see.
   const includeAll = req.query.all === '1';
-  res.json(db.getEventSummaries(includeAll));
+  const summaries = db.getEventSummaries(includeAll).filter(e => canViewEvent(e, user));
+  res.json(summaries);
 });
 
 app.post('/api/events', (req, res) => {
@@ -2145,10 +2169,18 @@ app.get('/api/events/active', (req, res) => {
   res.json({ activeEvent });
 });
 
-app.get('/api/events/:idOrCode', requireAuth, (req, res) => {
+app.get('/api/events/:idOrCode', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   const event = db.getFullEvent(req.params.idOrCode);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
-  res.json(event);
+
+  const user = getUserFromToken(req);
+  if (!canViewEvent(event, user)) {
+    return user
+      ? res.status(403).json({ error: 'Du har inte tillgång till detta event' })
+      : res.status(401).json({ error: 'Logga in för att se detta event' });
+  }
+  res.json(user ? event : publicEventView(event));
 });
 
 // ── Helper for public HTTPS base URL ────────────────

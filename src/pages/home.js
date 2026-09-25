@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments, getActiveFlashLives, getFriendRequests, getPendingDuels, getSettlementsOverview } from '../api.js';
-import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
+import { formatCurrency, formatDate, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
@@ -21,12 +21,11 @@ export async function renderHome() {
       </div>
     </div>
     <div id="home-action-feed-container"></div>
-    <!-- Events and matches first, so they are visible without scrolling on a phone -->
     <div id="tournaments-list"></div>
     <div id="events-list">
       <div class="text-center text-muted mt-lg">${t('common.loading')}</div>
     </div>
-    <div class="mt-lg">${renderMinigamesRoller()}</div>
+    ${renderMinigamesRoller()}
     <div id="home-push-banner-container"></div>
   `;
 
@@ -45,35 +44,31 @@ export async function renderHome() {
   initHomePushBanner(isEn);
 
   try {
-    // Load independently: one failing request (e.g. an expired login on iPhone) must not
-    // hide everything else on the page.
-    const loggedIn = isLoggedIn();
-    const [eventsResult, tournamentsResult] = await Promise.allSettled([
-      loggedIn ? getEvents() : Promise.resolve([]),
-      getTournaments()
-    ]);
-    const needsLogin = !isLoggedIn() || (eventsResult.status === 'rejected' && eventsResult.reason?.authRequired);
-    const events = eventsResult.status === 'fulfilled' ? eventsResult.value : [];
-    const tournaments = tournamentsResult.status === 'fulfilled' ? tournamentsResult.value : [];
-    const loadFailed = (eventsResult.status === 'rejected' && !needsLogin) || tournamentsResult.status === 'rejected';
+    // Keep the two feeds independent. Previously one failed request (most often an
+    // expired login token on iOS/PWA) hid both Events and tournaments because the
+    // shared Promise.all rejected before either list was rendered.
+    const [eventsResult, tournamentsResult] = await Promise.allSettled([getEvents(), getTournaments()]);
+    if (!document.getElementById('events-list') || !document.getElementById('tournaments-list')) return;
 
-    if (needsLogin) {
-      const eventsListEl = document.getElementById('events-list');
-      eventsListEl.innerHTML = renderLoginPrompt(isEn
-        ? 'Log in to see and bet on your friends\' matches.'
-        : 'Logga in för att se och betta på kompisarnas matcher.');
-      attachLoginPrompt(eventsListEl);
-    } else {
-      initHomeActionFeed(isEn, events);
-    }
+    const events = eventsResult.status === 'fulfilled' && Array.isArray(eventsResult.value)
+      ? eventsResult.value
+      : [];
+    const tournaments = tournamentsResult.status === 'fulfilled' && Array.isArray(tournamentsResult.value)
+      ? tournamentsResult.value
+      : [];
+    const eventsError = eventsResult.status === 'rejected' ? eventsResult.reason : null;
+    initHomeActionFeed(isEn, events);
 
-    if (loadFailed && events.length === 0 && tournaments.length === 0) {
-      throw (eventsResult.reason || tournamentsResult.reason);
-    }
-
-    // Tournaments
+    // Tournaments ("Events") are only listed for logged-in users. Without a login (common on
+    // iPhone: Safari clears storage after 7 days and the home-screen app has its own login)
+    // they would silently be missing, so explain why and offer a login.
     const tList = document.getElementById('tournaments-list');
-    if (tournaments.length > 0) {
+    if (!isLoggedIn()) {
+      tList.innerHTML = renderLoginPrompt(isEn
+        ? 'Log in to see your events and bet with your friends.'
+        : 'Logga in för att se dina event och betta med kompisarna.');
+      attachLoginPrompt(tList);
+    } else if (tournaments.length > 0) {
       const hasActive = tournaments.some(t => t.status === 'active');
       const badgeText = hasActive ? 'LIVE' : 'SEASON 2026';
       tList.innerHTML = `
@@ -130,10 +125,8 @@ export async function renderHome() {
       });
     }
 
-    if (needsLogin) return;
-
     // Events
-    if (events.length === 0 && tournaments.length === 0) {
+    if (events.length === 0 && tournaments.length === 0 && !eventsError) {
       document.getElementById('events-list').innerHTML = `
         <div class="empty-state">
           <div style="display: flex; justify-content: center; margin-bottom: var(--space-md);">
@@ -155,22 +148,21 @@ export async function renderHome() {
     events.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
 
     if (events.length > 0) {
-      const evHeader = tournaments.length > 0 
-        ? `
-          <div class="section-header-bar mt-lg">
-            <div class="section-header-title">
-              <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 2px;"></span>
-              <img src="/chip-malta-transparent.png" alt="Matches" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
-              <span>${t('home.events')}</span>
-            </div>
-            <div class="flex gap-xs" style="align-items: center;">
-              <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
-                MATCHES
-              </span>
-            </div>
+      // Always render a heading. The old condition removed the EVENTS heading for
+      // users without a visible tournament, which made the feed look like unrelated
+      // cards on the small iPhone viewport.
+      const evHeader = `
+        <div class="section-header-bar ${tournaments.length > 0 ? 'mt-lg' : ''}">
+          <div class="section-header-title">
+            <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 2px;"></span>
+            <img src="/chip-malta-transparent.png" alt="Events" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+            <span>${t('home.events')}</span>
           </div>
-        ` 
-        : '';
+          <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
+            ${events.length} ${events.length === 1 ? 'MATCH' : 'MATCHES'}
+          </span>
+        </div>
+      `;
       document.getElementById('events-list').innerHTML = evHeader + events.map((ev, i) => `
         <div class="card card-clickable animate-in" data-event-id="${escapeHtml(ev.shareCode)}"
              style="animation-delay: ${(tournaments.length + i) * 0.08}s">
@@ -201,6 +193,25 @@ export async function renderHome() {
           </div>
         </div>
       `).join('');
+    } else if (eventsError) {
+      const needsLogin = eventsError.status === 401;
+      document.getElementById('events-list').innerHTML = `
+        <div class="card home-events-error" role="status">
+          <div class="section-header-title mb-md">⚠️ ${t('home.events')}</div>
+          <p class="text-secondary" style="font-size: 0.85rem;">
+            ${needsLogin
+              ? (isEn ? 'Sign in again to load your events.' : 'Logga in igen för att visa dina events.')
+              : (isEn ? 'Events could not be loaded. Try again.' : 'Events kunde inte laddas. Försök igen.')}
+          </p>
+          <button type="button" class="btn btn-primary btn-sm mt-md" id="home-events-retry">
+            ${needsLogin ? (isEn ? 'Sign in' : 'Logga in') : (isEn ? 'Try again' : 'Försök igen')}
+          </button>
+        </div>
+      `;
+      document.getElementById('home-events-retry')?.addEventListener('click', () => {
+        if (needsLogin) navigate('profile');
+        else renderHome();
+      });
     } else {
       document.getElementById('events-list').innerHTML = '';
     }
@@ -413,11 +424,14 @@ async function initHomeActionFeed(isEn, events = []) {
     const now = Date.now();
     const urgentEvent = (events || []).find(e => {
       if (e.status !== 'open' || !e.closesAt) return false;
-      const t = new Date(e.closesAt).getTime();
+      const dt = parseDateSafe(e.closesAt);
+      if (!dt) return false;
+      const t = dt.getTime();
       return t > now && (t - now) < 30 * 60 * 1000;
     });
     if (urgentEvent) {
-      const minLeft = Math.max(1, Math.round((new Date(urgentEvent.closesAt).getTime() - now) / 60000));
+      const dt = parseDateSafe(urgentEvent.closesAt);
+      const minLeft = dt ? Math.max(1, Math.round((dt.getTime() - now) / 60000)) : 1;
       items.push({
         id: 'urgent-event',
         icon: '⏱️',

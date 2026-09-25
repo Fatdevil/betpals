@@ -1,5 +1,5 @@
 // ── Utility functions ─────────────────────────────────
-import { t } from './i18n.js';
+import { t, getLang } from './i18n.js';
 
 export function formatPoints(amount) {
   if (amount === null || amount === undefined) return '0 kr';
@@ -19,32 +19,44 @@ export function getAppBaseUrl() {
   return origin.replace(/\/$/, '');
 }
 
+// The server stores timestamps as SQLite "YYYY-MM-DD HH:MM:SS" in UTC. Safari cannot parse
+// that format (Invalid Date) and other browsers read it as local time, so it is normalized
+// to ISO UTC here. Returns null for missing or invalid dates.
+export function parseDateSafe(dateVal) {
+  if (!dateVal) return null;
+  if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? null : dateVal;
+  if (typeof dateVal === 'number') {
+    const d = new Date(dateVal);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let str = String(dateVal).trim();
+  const sqlTimestamp = str.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (sqlTimestamp) {
+    str = `${sqlTimestamp[1]}T${sqlTimestamp[2]}${sqlTimestamp[3] || 'Z'}`;
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Kept for existing callers; same as parseDateSafe but always returns a Date
+export function parseServerDate(value) {
+  return parseDateSafe(value) || new Date(NaN);
+}
+
 export function formatOdds(odds) {
   if (odds === null || odds === undefined) return '—';
   return odds.toFixed(2) + 'x';
 }
 
-// The server stores timestamps as SQLite "YYYY-MM-DD HH:MM:SS" in UTC. Safari cannot parse
-// that format (Invalid Date) and other browsers read it as local time, so normalize to ISO UTC.
-export function parseServerDate(value) {
-  if (value instanceof Date) return value;
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)) {
-    return new Date(value.replace(' ', 'T') + 'Z');
-  }
-  return new Date(value);
-}
-
 export function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const d = parseServerDate(dateStr);
-  if (isNaN(d.getTime())) return '';
+  const d = parseDateSafe(dateStr);
+  if (!d) return '';
   return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function formatTime(isoStr) {
-  if (!isoStr) return '';
-  const d = parseServerDate(isoStr);
-  if (isNaN(d.getTime())) return '';
+  const d = parseDateSafe(isoStr);
+  if (!d) return '';
   return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -170,8 +182,9 @@ export function createSwishUrl({ phone, amount, message }) {
 
 export function formatDeadline(closesAt) {
   if (!closesAt) return null;
-  const target = parseServerDate(closesAt).getTime();
-  if (isNaN(target)) return null;
+  const d = parseDateSafe(closesAt);
+  if (!d) return null;
+  const target = d.getTime();
   const diff = target - Date.now();
   if (diff <= 0) {
     return {
@@ -219,8 +232,10 @@ export function formatDeadline(closesAt) {
 
 export function generateIcsDataUrl({ title, description, startDate, endDate, url }) {
   const formatIcsDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const start = formatIcsDate(new Date(startDate || Date.now()));
-  const end = formatIcsDate(new Date(endDate || (new Date(startDate || Date.now()).getTime() + 60 * 60 * 1000)));
+  const startObj = parseDateSafe(startDate) || new Date();
+  const start = formatIcsDate(startObj);
+  const endObj = parseDateSafe(endDate) || new Date(startObj.getTime() + 60 * 60 * 1000);
+  const end = formatIcsDate(endObj);
   const ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -245,8 +260,10 @@ export function generateIcsDataUrl({ title, description, startDate, endDate, url
 
 export function generateGoogleCalendarUrl({ title, description, startDate, endDate, location }) {
   const formatGDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const start = formatGDate(new Date(startDate || Date.now()));
-  const end = formatGDate(new Date(endDate || (new Date(startDate || Date.now()).getTime() + 60 * 60 * 1000)));
+  const startObj = parseDateSafe(startDate) || new Date();
+  const start = formatGDate(startObj);
+  const endObj = parseDateSafe(endDate) || new Date(startObj.getTime() + 60 * 60 * 1000);
+  const end = formatGDate(endObj);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: title,
@@ -281,9 +298,9 @@ export function renderLoginPrompt(message) {
   return `
     <div class="card text-center animate-in" style="padding: var(--space-lg); margin-top: var(--space-md);">
       <div style="font-size: 2.2rem; margin-bottom: 6px;">🔑</div>
-      <h3 style="font-size: 1.05rem; margin-bottom: 6px;">Logga in för att fortsätta</h3>
+      <h3 style="font-size: 1.05rem; margin-bottom: 6px;">${getLang() === 'en' ? 'Log in to continue' : 'Logga in för att fortsätta'}</h3>
       <p class="text-muted" style="font-size: 0.85rem; margin-bottom: var(--space-md);">${escapeHtml(message)}</p>
-      <button type="button" class="btn btn-primary btn-block login-prompt-btn">Logga in / Skapa profil</button>
+      <button type="button" class="btn btn-primary btn-block login-prompt-btn">${getLang() === 'en' ? 'Log in / Create profile' : 'Logga in / Skapa profil'}</button>
     </div>
   `;
 }

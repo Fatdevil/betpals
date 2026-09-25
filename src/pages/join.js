@@ -1,5 +1,5 @@
 // ── Page: Join (enter share code) ─────────────────────
-import { getEvent } from '../api.js';
+import { getEvent, getTournament } from '../api.js';
 import { showToast } from '../utils.js';
 import { navigate } from '../main.js';
 
@@ -46,10 +46,17 @@ export async function renderJoin() {
     try {
       await getEvent(code);
       navigate('event', { code });
-    } catch (err) {
-      showToast('Hittar inget event med den koden', 'error');
-      btn.disabled = false;
-      btn.textContent = 'Gå till event →';
+      return;
+    } catch (e1) {
+      try {
+        await getTournament(code);
+        navigate('tournament', { code });
+        return;
+      } catch (e2) {
+        showToast('Hittar inget event eller turnering med den koden', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Gå till event →';
+      }
     }
   });
 

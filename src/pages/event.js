@@ -1,5 +1,5 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
@@ -10,6 +10,34 @@ import { t } from '../i18n.js';
 let wsUnsubscribe = null;
 let eventSponsorCarouselCleanup = null;
 let countdownInterval = null;
+let resumeCleanup = null;
+
+// iOS closes the WebSocket silently when the app goes to the background (e.g. to pay in
+// Swish) and may restore the page from its back/forward cache with stale odds. Refresh the
+// event and reconnect when the page becomes visible again.
+function watchForResume(params) {
+  let hiddenAt = null;
+  const refresh = () => {
+    if (document.getElementById('page-content') && params?.code) renderEvent(params);
+  };
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now();
+    } else if (hiddenAt && Date.now() - hiddenAt > 2000) {
+      hiddenAt = null;
+      refresh();
+    }
+  };
+  const onPageShow = (e) => {
+    if (e.persisted) refresh();
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pageshow', onPageShow);
+  return () => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('pageshow', onPageShow);
+  };
+}
 
 function renderSettlementSection(event, payoutInfo) {
   if (event.status === 'cancelled') {
@@ -143,11 +171,6 @@ export async function renderEvent(params = {}) {
     attachLoginPrompt(content, { page: 'event', params: { code } });
   };
 
-  if (!isLoggedIn()) {
-    showLoginPrompt();
-    return;
-  }
-
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
@@ -167,6 +190,7 @@ export async function renderEvent(params = {}) {
 
     // Connect WebSocket for live updates
     connectWebSocket(code);
+    resumeCleanup = watchForResume(params);
     wsUnsubscribe = onWebSocketMessage((msg) => {
       handleWebSocketNotification(msg);
       if (msg.type === 'odds_update') {
@@ -309,7 +333,7 @@ function renderEventContent(event, content, code) {
         </div>
       </div>
 
-      ${event.closesAt && !dl.isExpired ? `
+      ${event.closesAt && dl && !dl.isExpired ? `
         <!-- Active Deadline Banner -->
         <div class="card mb-md" id="deadline-banner" style="border: 1.5px solid var(--gold); background: linear-gradient(135deg, rgba(245,166,35,0.12) 0%, rgba(20,24,39,0.8) 100%); padding: 12px 16px;">
           <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -323,7 +347,7 @@ function renderEventContent(event, content, code) {
                   ${dl.text}
                 </div>
                 <div style="font-size: 0.72rem; color: var(--text-muted);">
-                  Stänger: ${new Date(event.closesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${new Date(event.closesAt).toLocaleDateString([], { month: 'short', day: 'numeric' })})
+                  Stänger: ${(parseDateSafe(event.closesAt) || new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${(parseDateSafe(event.closesAt) || new Date()).toLocaleDateString([], { month: 'short', day: 'numeric' })})
                 </div>
               </div>
             </div>
@@ -332,7 +356,7 @@ function renderEventContent(event, content, code) {
             </button>
           </div>
         </div>
-      ` : event.closesAt && dl.isExpired && !isFinished && event.status !== 'cancelled' ? `
+      ` : event.closesAt && dl && dl.isExpired && !isFinished && event.status !== 'cancelled' ? `
         <!-- Expired Deadline Banner -->
         <div class="card mb-md" style="border: 1.5px solid #e74c3c; background: rgba(231,76,60,0.1); padding: 12px 16px;">
           <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -774,6 +798,11 @@ function renderEventContent(event, content, code) {
   });
 
   // Countdown ticking interval
+  // After logging in (or adding a Swish number) from this page, come back to this match
+  content.querySelectorAll('a[href="#profile"]').forEach(link => {
+    link.addEventListener('click', () => rememberReturnTo('event', { code }));
+  });
+
   if (countdownInterval) {
     clearInterval(countdownInterval);
     countdownInterval = null;
@@ -808,7 +837,7 @@ function renderEventContent(event, content, code) {
 }
 
 function openCalendarModal(event) {
-  const startDate = event.closesAt ? new Date(event.closesAt) : (event.date ? new Date(event.date) : new Date());
+  const startDate = parseDateSafe(event.closesAt) || parseDateSafe(event.date) || new Date();
   const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
   const baseUrl = getAppBaseUrl();
   const title = `Malta Betting: ${event.name}`;
@@ -995,6 +1024,10 @@ async function openEventShareModal(code, eventName) {
 
 export function cleanupEvent() {
   disconnectWebSocket();
+  if (resumeCleanup) {
+    resumeCleanup();
+    resumeCleanup = null;
+  }
   if (wsUnsubscribe) {
     wsUnsubscribe();
     wsUnsubscribe = null;

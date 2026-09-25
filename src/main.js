@@ -255,6 +255,10 @@ function init() {
       const tCode = hash.split('/')[1];
       window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
       navigate('tournament', { code: tCode });
+    } else if (hash.startsWith('event/')) {
+      const eCode = hash.split('/')[1];
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      navigate('event', { code: eCode });
     }
   }
 
@@ -278,6 +282,10 @@ function init() {
       e.preventDefault();
       const tCode = route.split('/')[1];
       navigate('tournament', { code: tCode });
+    } else if (route.startsWith('event/')) {
+      e.preventDefault();
+      const eCode = route.split('/')[1];
+      navigate('event', { code: eCode });
     }
   });
 
