@@ -4,7 +4,7 @@ import { initAds } from './components/ads.js';
 import { addFriend, getPartyRoom, joinPartyRoom, connectWebSocket } from './api.js';
 import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
-import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from './components/minigames.js';
+import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal, openAllArcadeGamesModal } from './components/minigames.js';
 import { initMaltaSupportWidget } from './components/maltaSupport.js';
 import { setDeferredPrompt, isAppStandalone, shouldShowAutoPrompt, showPwaInstallModal } from './components/pwaInstallModal.js';
 import { isPushSupported, subscribeToPush, syncPushSubscription } from './push.js';
@@ -264,10 +264,40 @@ function init() {
       const eCode = hash.split('/')[1];
       window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
       navigate('event', { code: eCode });
+    } else if (hash === 'arcade') {
+      // Used by duel and game notifications: open the games from the betting page
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      navigate('home');
+      openAllArcadeGamesModal();
     }
   }
 
   window.addEventListener('hashchange', handleHashRoute);
+
+  // A tapped notification while the app is already open: the service worker asks the
+  // page to go to the notification's link (party rooms, hash routes, other pages)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.type !== 'open-url' || !e.data.url) return;
+      let target;
+      try {
+        target = new URL(e.data.url, window.location.origin);
+      } catch {
+        return;
+      }
+      if (target.origin !== window.location.origin) return;
+      const partyCode = (target.searchParams.get('party') || target.searchParams.get('room') || '').trim().toUpperCase();
+      if (partyCode) {
+        handlePartyRoomDeepLink(partyCode);
+      } else if (target.hash && target.hash !== '#') {
+        window.location.hash = target.hash;
+        handleHashRoute();
+      } else {
+        window.location.assign(target.href);
+      }
+    });
+    navigator.serviceWorker.startMessages?.();
+  }
   if (window.location.hash) handleHashRoute();
 
   // Intercept clicks on hash links in SPA

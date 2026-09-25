@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v13';
+const CACHE_NAME = 'betpals-v14';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -118,19 +118,20 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || '/';
+  const targetUrl = new URL(event.notification.data?.url || '/', self.location.origin).href;
 
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      for (const client of windowClients) {
-        if (client.url.includes(location.origin) && 'focus' in client) {
-          client.navigate(targetUrl);
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
-      }
-    })
-  );
+  event.waitUntil((async () => {
+    const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const client = windowClients.find(c => c.url.startsWith(self.location.origin));
+    if (client) {
+      // Let the open app navigate itself. WindowClient.navigate() is unreliable on
+      // iPhone and can leave the app hanging on its loading screen.
+      client.postMessage({ type: 'open-url', url: targetUrl });
+      try { await client.focus(); } catch {}
+      return;
+    }
+    if (clients.openWindow) {
+      await clients.openWindow(targetUrl);
+    }
+  })());
 });
