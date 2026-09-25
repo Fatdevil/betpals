@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments, getActiveFlashLives, getFriendRequests, getPendingDuels, getSettlementsOverview } from '../api.js';
-import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
+import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
@@ -21,12 +21,13 @@ export async function renderHome() {
       </div>
     </div>
     <div id="home-action-feed-container"></div>
-    ${renderMinigamesRoller()}
-    <div id="home-push-banner-container"></div>
+    <!-- Events and matches first, so they are visible without scrolling on a phone -->
     <div id="tournaments-list"></div>
     <div id="events-list">
       <div class="text-center text-muted mt-lg">${t('common.loading')}</div>
     </div>
+    <div class="mt-lg">${renderMinigamesRoller()}</div>
+    <div id="home-push-banner-container"></div>
   `;
 
   document.getElementById('home-logo-btn')?.addEventListener('click', () => {
@@ -44,8 +45,31 @@ export async function renderHome() {
   initHomePushBanner(isEn);
 
   try {
-    const [events, tournaments] = await Promise.all([getEvents(), getTournaments()]);
-    initHomeActionFeed(isEn, events);
+    // Load independently: one failing request (e.g. an expired login on iPhone) must not
+    // hide everything else on the page.
+    const loggedIn = isLoggedIn();
+    const [eventsResult, tournamentsResult] = await Promise.allSettled([
+      loggedIn ? getEvents() : Promise.resolve([]),
+      getTournaments()
+    ]);
+    const needsLogin = !isLoggedIn() || (eventsResult.status === 'rejected' && eventsResult.reason?.authRequired);
+    const events = eventsResult.status === 'fulfilled' ? eventsResult.value : [];
+    const tournaments = tournamentsResult.status === 'fulfilled' ? tournamentsResult.value : [];
+    const loadFailed = (eventsResult.status === 'rejected' && !needsLogin) || tournamentsResult.status === 'rejected';
+
+    if (needsLogin) {
+      const eventsListEl = document.getElementById('events-list');
+      eventsListEl.innerHTML = renderLoginPrompt(isEn
+        ? 'Log in to see and bet on your friends\' matches.'
+        : 'Logga in för att se och betta på kompisarnas matcher.');
+      attachLoginPrompt(eventsListEl);
+    } else {
+      initHomeActionFeed(isEn, events);
+    }
+
+    if (loadFailed && events.length === 0 && tournaments.length === 0) {
+      throw (eventsResult.reason || tournamentsResult.reason);
+    }
 
     // Tournaments
     const tList = document.getElementById('tournaments-list');
@@ -105,6 +129,8 @@ export async function renderHome() {
         });
       });
     }
+
+    if (needsLogin) return;
 
     // Events
     if (events.length === 0 && tournaments.length === 0) {
@@ -189,9 +215,11 @@ export async function renderHome() {
     document.getElementById('events-list').innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">⚠️</div>
-        <p class="empty-state-text">${t('common.error')}</p>
+        <p class="empty-state-text">${escapeHtml(err?.message || t('common.error'))}</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="home-retry-btn">${isEn ? 'Try again' : 'Försök igen'}</button>
       </div>
     `;
+    document.getElementById('home-retry-btn')?.addEventListener('click', () => renderHome());
   }
 }
 
@@ -339,7 +367,9 @@ async function initHomeActionFeed(isEn, events = []) {
     const items = [];
 
     // 1. Incoming Friend Requests
-    const incomingReqs = Array.isArray(friendReqs) ? friendReqs.filter(r => r.direction === 'incoming' || !r.direction) : [];
+    const incomingReqs = Array.isArray(friendReqs)
+      ? friendReqs.filter(r => r.direction === 'incoming' || !r.direction)
+      : (Array.isArray(friendReqs?.incoming) ? friendReqs.incoming : []);
     if (incomingReqs.length > 0) {
       items.push({
         id: 'friend-reqs',

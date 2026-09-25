@@ -1,5 +1,5 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
@@ -54,7 +54,10 @@ function renderSettlementSection(event, payoutInfo) {
     `;
   }
 
-  const losingBets = event.bets.filter(b => b.playerId !== event.winnerId);
+  const winnerIdList = event.winnerIds && event.winnerIds.length > 0
+    ? event.winnerIds
+    : String(event.winnerId || '').split(',').map(s => s.trim()).filter(Boolean);
+  const losingBets = event.bets.filter(b => !winnerIdList.includes(b.playerId));
   if (losingBets.length === 0) return '';
 
   const currentUser = getStoredUser();
@@ -135,6 +138,16 @@ export async function renderEvent(params = {}) {
     return;
   }
 
+  const showLoginPrompt = () => {
+    content.innerHTML = renderLoginPrompt('Du behöver vara inloggad för att se matchen och lägga bets. Efter inloggningen kommer du tillbaka hit.');
+    attachLoginPrompt(content, { page: 'event', params: { code } });
+  };
+
+  if (!isLoggedIn()) {
+    showLoginPrompt();
+    return;
+  }
+
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
@@ -184,11 +197,17 @@ export async function renderEvent(params = {}) {
       }
     });
   } catch (err) {
+    if (err?.authRequired) {
+      showLoginPrompt();
+      return;
+    }
     content.innerHTML = `
       <div class="empty-state animate-in">
         <div class="empty-state-icon">❌</div>
-        <p class="empty-state-text">${err.message}</p>
+        <p class="empty-state-text">${escapeHtml(err?.message || t('common.error'))}</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="event-retry-btn">Försök igen</button>
       </div>`;
+    document.getElementById('event-retry-btn')?.addEventListener('click', () => renderEvent(params));
   }
 }
 
@@ -197,7 +216,12 @@ function renderEventContent(event, content, code) {
   const isLockedOrExpired = event.status === 'locked' || (dl && dl.isExpired);
   const isOpen = event.status === 'open' && (!dl || !dl.isExpired);
   const isFinished = event.status === 'finished';
-  const winner = isFinished ? event.players.find(p => p.id === event.winnerId) : null;
+  // A shared win is stored as a comma-separated list of winner ids
+  const winnerIds = event.winnerIds && event.winnerIds.length > 0
+    ? event.winnerIds
+    : (event.winnerId ? String(event.winnerId).split(',').map(s => s.trim()).filter(Boolean) : []);
+  const winner = isFinished ? event.players.find(p => winnerIds.includes(p.id)) : null;
+  const winnerNames = event.players.filter(p => winnerIds.includes(p.id)).map(p => p.name).join(' & ');
 
   const isYesNo = event.players.length === 2 &&
     event.players.some(p => p.name.toLowerCase() === 'ja') &&
@@ -206,25 +230,32 @@ function renderEventContent(event, content, code) {
   const nejPlayer = isYesNo ? event.players.find(p => p.name.toLowerCase() === 'nej') : null;
 
   let payoutInfo = null;
-  if (isFinished && event.winnerId) {
+  if (isFinished && winnerIds.length > 0) {
+    // Same rules as the server: the pool is split equally between the winners that were
+    // backed, and each winner's share goes to the bets on that winner.
     const totalPool = event.totalPool || 0;
     const effectivePool = totalPool * (event.payoutPercent / 100);
-    const winnerBets = event.bets.filter(b => b.playerId === event.winnerId);
-    const winnerPool = winnerBets.reduce((s, b) => s + b.amount, 0);
-    const hasWinners = winnerPool > 0;
-    const winnerOdds = hasWinners ? effectivePool / winnerPool : 1.0;
+    const poolByWinner = {};
+    for (const wId of winnerIds) {
+      poolByWinner[wId] = event.bets.filter(b => b.playerId === wId).reduce((s, b) => s + b.amount, 0);
+    }
+    const backedWinners = winnerIds.filter(wId => poolByWinner[wId] > 0);
+    const hasWinners = backedWinners.length > 0;
+    const sharePerWinner = hasWinners ? effectivePool / backedWinners.length : 0;
+    const oddsFor = (wId) => poolByWinner[wId] > 0 ? sharePerWinner / poolByWinner[wId] : 0;
+    const winnerBets = event.bets.filter(b => winnerIds.includes(b.playerId));
 
     payoutInfo = {
       totalPool,
       effectivePool,
-      odds: winnerOdds,
+      odds: backedWinners.length === 1 ? oddsFor(backedWinners[0]) : 1.0,
       noWinners: !hasWinners,
       payouts: hasWinners
         ? winnerBets.map(b => ({
             name: b.bettorName,
             bet: b.amount,
-            winnings: +(b.amount * winnerOdds).toFixed(0),
-            profit: +(b.amount * winnerOdds - b.amount).toFixed(0)
+            winnings: +(b.amount * oddsFor(b.playerId)).toFixed(0),
+            profit: +(b.amount * oddsFor(b.playerId) - b.amount).toFixed(0)
           }))
         : event.bets.map(b => ({
             name: b.bettorName,
@@ -253,16 +284,17 @@ function renderEventContent(event, content, code) {
       ` : ''}
 
       <div class="page-header">
-        <div class="flex-between" style="align-items: flex-start; gap: 8px;">
-          <div>
-            <h1 class="page-title" style="margin-bottom: 2px;">${escapeHtml(event.name)}</h1>
-            <div class="flex gap-xs" style="align-items: center; font-size: 0.8rem;">
+        <!-- Title gets the full width; actions wrap onto their own row on narrow phones -->
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="min-width: 0;">
+            <h1 class="page-title" style="margin-bottom: 2px; overflow-wrap: anywhere;">${escapeHtml(event.name)}</h1>
+            <div class="flex gap-xs" style="align-items: center; font-size: 0.8rem; flex-wrap: wrap; white-space: nowrap;">
               <span class="page-subtitle" style="margin: 0;">${formatDate(event.date)}</span>
               <span class="text-muted">·</span>
               <span class="text-gold" style="font-weight: 700;">${escapeHtml(event.shareCode)}</span>
             </div>
           </div>
-          <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+          <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap;">
             <button type="button" class="btn btn-secondary btn-sm" id="event-share-modal-btn" style="font-size: 0.72rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
               📱 Dela
             </button>
@@ -385,7 +417,7 @@ function renderEventContent(event, content, code) {
             </div>
           ` : ''}
           <div class="winner-label">🏆 ${t('event.winner')}</div>
-          <div class="winner-name">${escapeHtml(winner.name)}</div>
+          <div class="winner-name">${escapeHtml(winnerNames || winner.name)}${winnerIds.length > 1 ? ' 🤝' : ''}</div>
           ${event.winnerImageUrl ? `
             <div class="winner-proof-wrapper">
               <div class="winner-proof-card" id="winner-proof-trigger" data-img="${event.winnerImageUrl}" title="Klicka för fullskärm">

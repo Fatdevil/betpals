@@ -1,6 +1,6 @@
 // ── Components: Minigames Arcade ────────────────────────
 import { showModal, closeModal } from './modal.js';
-import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl, normalizeSwedishPhone, getAppBaseUrl } from '../utils.js';
+import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl, normalizeSwedishPhone, getAppBaseUrl, parseServerDate } from '../utils.js';
 import { 
   getFriends, 
   createDuel, 
@@ -5519,7 +5519,7 @@ export async function openReceiptModal(expenseId) {
       return;
     }
 
-    const dateStr = expense.created_at ? new Date(expense.created_at + (expense.created_at.includes('Z') ? '' : 'Z')).toLocaleString(isEn ? 'en-US' : 'sv-SE', {
+    const dateStr = expense.created_at ? parseServerDate(expense.created_at).toLocaleString(isEn ? 'en-US' : 'sv-SE', {
       year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     }) : '';
 

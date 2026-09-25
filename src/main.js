@@ -286,6 +286,12 @@ function init() {
     navigate(e.detail.page, e.detail);
   });
 
+  // Stored session is no longer valid (expired token, or Safari cleared the login)
+  window.addEventListener('auth-expired', () => {
+    showToast('Din inloggning har gått ut. Logga in igen för att se och betta på matcher. 🔑', 'info');
+    renderApp();
+  });
+
   // Handle language switch
   window.addEventListener('lang-changed', () => {
     renderApp();

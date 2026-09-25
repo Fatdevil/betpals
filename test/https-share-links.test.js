@@ -2,19 +2,34 @@ process.env.NODE_ENV = 'test';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import * as db from '../server/db.js';
 
 const { server } = await import('../server/server.js');
 
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
+test.after(() => server.close());
+
+// fetch() refuses to set the Host header, so use http.request to simulate other domains
+function fetch(url, { headers = {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(url, { headers }, (res) => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, json: async () => JSON.parse(body) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 test('App QR and share endpoints enforce HTTPS on production/railway domains', async (t) => {
   // 1. App QR with host header = betpals-production.up.railway.app
   const res1 = await fetch(`${base}/api/app/qr`, {
     headers: {
-      'host': 'betpals-production.up.railway.app',
-      'x-forwarded-proto': 'http'
+      // Plain http request (no proxy header, so no HTTPS redirect): links must still be https
+      'host': 'betpals-production.up.railway.app'
     }
   });
   assert.equal(res1.status, 200);
@@ -43,13 +58,13 @@ test('App QR and share endpoints enforce HTTPS on production/railway domains', a
   assert.ok(data3.url.includes('localhost:5173'));
 
   // 4. Event QR endpoint with railway host
-  const events = db.getEvents();
+  const events = db.getEventSummaries(true);
   if (events && events.length > 0) {
     const event = events[0];
     const res4 = await fetch(`${base}/api/events/${event.id}/qr`, {
       headers: {
-        'host': 'betpals-production.up.railway.app',
-        'x-forwarded-proto': 'http'
+        // Plain http request (no proxy header, so no HTTPS redirect): links must still be https
+        'host': 'betpals-production.up.railway.app'
       }
     });
     assert.equal(res4.status, 200);
@@ -57,5 +72,4 @@ test('App QR and share endpoints enforce HTTPS on production/railway domains', a
     assert.ok(data4.url.startsWith('https://betpals-production.up.railway.app/?page=event'), `Expected https URL but got: ${data4.url}`);
   }
 
-  server.close();
 });

@@ -24,15 +24,27 @@ export function formatOdds(odds) {
   return odds.toFixed(2) + 'x';
 }
 
+// The server stores timestamps as SQLite "YYYY-MM-DD HH:MM:SS" in UTC. Safari cannot parse
+// that format (Invalid Date) and other browsers read it as local time, so normalize to ISO UTC.
+export function parseServerDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)) {
+    return new Date(value.replace(' ', 'T') + 'Z');
+  }
+  return new Date(value);
+}
+
 export function formatDate(dateStr) {
   if (!dateStr) return '';
-  const d = new Date(dateStr);
+  const d = parseServerDate(dateStr);
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function formatTime(isoStr) {
   if (!isoStr) return '';
-  const d = new Date(isoStr);
+  const d = parseServerDate(isoStr);
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -158,7 +170,7 @@ export function createSwishUrl({ phone, amount, message }) {
 
 export function formatDeadline(closesAt) {
   if (!closesAt) return null;
-  const target = new Date(closesAt).getTime();
+  const target = parseServerDate(closesAt).getTime();
   if (isNaN(target)) return null;
   const diff = target - Date.now();
   if (diff <= 0) {
@@ -245,3 +257,42 @@ export function generateGoogleCalendarUrl({ title, description, startDate, endDa
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
+
+// ── Login prompt for pages that need a logged-in user ──
+const RETURN_TO_KEY = 'betpals_return_to';
+
+export function rememberReturnTo(page, params = {}) {
+  try {
+    sessionStorage.setItem(RETURN_TO_KEY, JSON.stringify({ page, params }));
+  } catch {}
+}
+
+export function consumeReturnTo() {
+  try {
+    const raw = sessionStorage.getItem(RETURN_TO_KEY);
+    sessionStorage.removeItem(RETURN_TO_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function renderLoginPrompt(message) {
+  return `
+    <div class="card text-center animate-in" style="padding: var(--space-lg); margin-top: var(--space-md);">
+      <div style="font-size: 2.2rem; margin-bottom: 6px;">🔑</div>
+      <h3 style="font-size: 1.05rem; margin-bottom: 6px;">Logga in för att fortsätta</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: var(--space-md);">${escapeHtml(message)}</p>
+      <button type="button" class="btn btn-primary btn-block login-prompt-btn">Logga in / Skapa profil</button>
+    </div>
+  `;
+}
+
+export function attachLoginPrompt(container, returnTo = null) {
+  container?.querySelectorAll('.login-prompt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (returnTo) rememberReturnTo(returnTo.page, returnTo.params || {});
+      window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'profile' } }));
+    });
+  });
+}
