@@ -27,14 +27,6 @@ export async function renderHome() {
     <div id="events-list">
       <div class="text-center text-muted mt-lg">${t('common.loading')}</div>
     </div>
-    <div class="home-beta-footer">
-      <div class="beta-ticker-track">
-        <span class="beta-ticker-text">Malta Betting Betaversion 0.00001 - But still awesome...</span>
-        <span class="beta-ticker-separator">✦</span>
-        <span class="beta-ticker-text">Malta Betting Betaversion 0.00001 - But still awesome...</span>
-        <span class="beta-ticker-separator">✦</span>
-      </div>
-    </div>
   `;
 
   document.getElementById('home-logo-btn')?.addEventListener('click', () => {

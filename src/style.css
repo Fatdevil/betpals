@@ -371,64 +371,6 @@ body::before {
   border-top: 1px solid var(--border-glass);
 }
 
-/* ── Home Betting Page Beta Ticker Footer ─────────── */
-.home-beta-footer {
-  margin-top: var(--space-xl);
-  margin-bottom: var(--space-md);
-  width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  background: rgba(255, 229, 0, 0.04);
-  border: 1px solid rgba(255, 229, 0, 0.15);
-  border-radius: var(--radius-full);
-  padding: 8px 0;
-  display: flex;
-  align-items: center;
-  box-shadow: 0 0 15px rgba(255, 229, 0, 0.05);
-}
-
-.beta-ticker-track {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-  width: max-content;
-  will-change: transform;
-  animation: betaTickerScroll 16s linear infinite;
-}
-
-.home-beta-footer:hover .beta-ticker-track {
-  animation-play-state: paused;
-}
-
-.beta-ticker-text {
-  font-family: var(--font-heading);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  text-shadow: 0 0 10px rgba(255, 229, 0, 0.35);
-  padding: 0 8px;
-}
-
-.beta-ticker-separator {
-  color: var(--gold);
-  font-size: 0.6rem;
-  opacity: 0.7;
-  padding: 0 12px;
-}
-
-@keyframes betaTickerScroll {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
-}
-
-
-
 /* ── Notification Bell ─────────────────────────────── */
 .notif-bell {
   position: relative;
