@@ -1,7 +1,7 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getFriendRequests, acceptFriendRequest, declineFriendRequest, buildFriendInviteUrl, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay, consumeReturnTo } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay, consumeReturnTo, createSwishUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
@@ -581,17 +581,17 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         ` : `
           <div class="friends-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: var(--space-xs);">
             ${friends.map(f => `
-              <div class="friend-item flex-between" style="padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); align-items: center;">
+              <div class="friend-item flex-between" data-id="${f.id}" role="button" tabindex="0" style="padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); align-items: center; cursor: pointer; transition: all 0.15s ease;" title="Klicka för att hantera @${escapeHtml(f.nickname)}">
                 <div class="flex gap-sm" style="align-items: center; min-width: 0;">
                   ${f.avatarUrl ? `
-                    <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-glass); flex-shrink: 0;" />
+                    <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-glass); flex-shrink: 0;" />
                   ` : `
-                    <div style="width: 38px; height: 38px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; border: 1px solid var(--border-glass); flex-shrink: 0;">
-                      ${escapeHtml(f.avatar || '👤')}
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; border: 1px solid var(--border-glass); flex-shrink: 0;">
+                      ${escapeHtml(f.avatar || f.avatarEmoji || '👤')}
                     </div>
                   `}
                   <div style="min-width: 0;">
-                    <div style="font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    <div style="font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                       ${escapeHtml(f.realName || f.nickname)}
                     </div>
                     <div class="text-muted" style="font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
@@ -602,8 +602,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
                   </div>
                 </div>
                 <div style="flex-shrink: 0; margin-left: 8px;">
-                  <button class="btn btn-sm remove-friend-btn" data-id="${f.id}" data-name="${escapeHtml(f.nickname)}" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--border-glass);" title="Ta bort vän">
-                    ✕
+                  <button type="button" class="btn btn-sm btn-secondary friend-manage-btn" data-id="${f.id}" style="padding: 5px 11px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px; border-radius: var(--radius-sm);" title="Alternativ för @${escapeHtml(f.nickname)}">
+                    <span>Mer</span> <span style="font-size: 0.65rem;">▾</span>
                   </button>
                 </div>
               </div>
@@ -1286,18 +1286,19 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     }
   });
 
-  // Friends: Remove friend
-  document.querySelectorAll('.remove-friend-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const friendId = btn.dataset.id;
-      const friendName = btn.dataset.name;
-      if (!confirm(`Vill du ta bort @${friendName} från dina vänner?`)) return;
-      try {
-        await removeFriend(friendId);
-        showToast(`Tog bort @${friendName} från vänner`, 'info');
-        renderProfile();
-      } catch (err) {
-        showToast(err.message, 'error');
+  // Friends: Open friend options modal
+  document.querySelectorAll('.friend-item[data-id]').forEach(item => {
+    item.addEventListener('click', () => {
+      const friendId = item.dataset.id;
+      const f = (friends || []).find(x => x.id === friendId);
+      if (f) showFriendOptionsModal(f);
+    });
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const friendId = item.dataset.id;
+        const f = (friends || []).find(x => x.id === friendId);
+        if (f) showFriendOptionsModal(f);
       }
     });
   });
@@ -1413,6 +1414,133 @@ async function loadFriendRequests() {
         btn.disabled = false;
       }
     });
+  });
+}
+
+function showFriendOptionsModal(friend) {
+  const avatarHtml = friend.avatarUrl ? `
+    <img src="${friend.avatarUrl}" alt="${escapeHtml(friend.nickname)}" style="width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 2.5px solid var(--gold); box-shadow: 0 4px 16px rgba(0,0,0,0.5);" />
+  ` : `
+    <div style="width: 72px; height: 72px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 2.4rem; border: 2.5px solid var(--border-glass);">
+      ${escapeHtml(friend.avatar || friend.avatarEmoji || '👤')}
+    </div>
+  `;
+
+  showModal(`👤 @${escapeHtml(friend.nickname)}`, `
+    <div class="friend-modal-wrap text-center">
+      <div style="display: flex; justify-content: center; margin-bottom: var(--space-xs);">
+        ${avatarHtml}
+      </div>
+
+      <h3 style="font-family: var(--font-heading); font-size: 1.25rem; font-weight: 700; margin-bottom: 2px;">
+        ${escapeHtml(friend.realName || friend.nickname)}
+      </h3>
+      <div class="text-gold font-bold mb-md" style="font-size: 0.9rem;">
+        @${escapeHtml(friend.nickname)}
+      </div>
+
+      <!-- Stats Grid -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: var(--space-md); text-align: center;">
+        <div class="card p-xs" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 8px 4px;">
+          <div style="font-size: 1.15rem; font-weight: 800; color: var(--gold);">
+            ${friend.wins || 0}
+          </div>
+          <div class="text-muted" style="font-size: 0.68rem; text-transform: uppercase;">Vinster 🏆</div>
+        </div>
+        <div class="card p-xs" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 8px 4px;">
+          <div style="font-size: 1.15rem; font-weight: 800; color: ${friend.streak > 0 && friend.streakType === 'win' ? '#f59e0b' : 'var(--text-primary)'};">
+            ${friend.streak > 0 ? `${friend.streakType === 'win' ? '🔥 ' : '❄️ '}${friend.streak}` : '—'}
+          </div>
+          <div class="text-muted" style="font-size: 0.68rem; text-transform: uppercase;">Streak</div>
+        </div>
+        <div class="card p-xs" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 8px 4px;">
+          <div style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary);">
+            ${friend.totalBets || 0}
+          </div>
+          <div class="text-muted" style="font-size: 0.68rem; text-transform: uppercase;">Spel & Bets</div>
+        </div>
+      </div>
+
+      <!-- Swish Info -->
+      ${friend.swishNumber ? `
+        <div class="card mb-md p-sm text-left" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: var(--radius-md);">
+          <div class="flex-between" style="align-items: center;">
+            <div>
+              <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">📱 Swish</div>
+              <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); font-family: monospace;">
+                ${escapeHtml(formatSwedishPhoneDisplay(friend.swishNumber))}
+              </div>
+            </div>
+            <a href="${createSwishUrl({ phone: friend.swishNumber, amount: 50, message: 'BetPals' })}" class="btn btn-sm btn-secondary" style="font-size: 0.75rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 4px;">
+              💸 Swisha
+            </a>
+          </div>
+        </div>
+      ` : ''}
+
+      ${friend.friendshipDate ? `
+        <div class="text-muted mb-md" style="font-size: 0.75rem;">
+          🤝 Vänner sedan ${formatDate(friend.friendshipDate)}
+        </div>
+      ` : ''}
+
+      <!-- Safe Unfriend Area -->
+      <div id="friend-modal-unfriend-trigger-wrap" style="margin-top: var(--space-md); border-top: 1px solid var(--border-glass); padding-top: var(--space-md);">
+        <button type="button" class="btn btn-secondary btn-block btn-sm" id="btn-unfriend-trigger" style="color: #ff6b6b; border-color: rgba(255,107,107,0.3); background: rgba(255,107,107,0.06); font-size: 0.8rem; padding: 9px;">
+          🗑️ Ta bort som vän
+        </button>
+      </div>
+
+      <!-- Hidden Two-Step Confirmation Area -->
+      <div id="friend-unfriend-confirm-box" style="display: none; margin-top: var(--space-md); padding: 14px; background: rgba(231,76,60,0.1); border: 1.5px solid rgba(231,76,60,0.4); border-radius: var(--radius-md); text-align: center;">
+        <div style="font-size: 1.4rem; margin-bottom: 4px;">⚠️</div>
+        <div style="font-weight: 700; font-size: 0.95rem; color: #ff5555; margin-bottom: 6px;">
+          Vill du ta bort @${escapeHtml(friend.nickname)}?
+        </div>
+        <p class="text-secondary" style="font-size: 0.78rem; line-height: 1.4; margin-bottom: 12px;">
+          Ni tas bort från varandras vänlistor och kan inte längre se varandras privata spel automatiskt.
+        </p>
+        <div class="flex gap-sm" style="justify-content: center;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-unfriend" style="flex: 1; padding: 8px;">
+            Avbryt
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-unfriend" style="flex: 1; padding: 8px; font-weight: 700;">
+            Ja, ta bort
+          </button>
+        </div>
+      </div>
+    </div>
+  `);
+
+  const triggerWrap = document.getElementById('friend-modal-unfriend-trigger-wrap');
+  const triggerBtn = document.getElementById('btn-unfriend-trigger');
+  const confirmBox = document.getElementById('friend-unfriend-confirm-box');
+  const cancelBtn = document.getElementById('btn-cancel-unfriend');
+  const confirmBtn = document.getElementById('btn-confirm-unfriend');
+
+  triggerBtn?.addEventListener('click', () => {
+    if (triggerWrap) triggerWrap.style.display = 'none';
+    if (confirmBox) confirmBox.style.display = 'block';
+  });
+
+  cancelBtn?.addEventListener('click', () => {
+    if (confirmBox) confirmBox.style.display = 'none';
+    if (triggerWrap) triggerWrap.style.display = 'block';
+  });
+
+  confirmBtn?.addEventListener('click', async () => {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Tar bort...';
+    try {
+      await removeFriend(friend.id);
+      closeModal();
+      showToast(`Tog bort @${friend.nickname} från vänner`, 'info');
+      renderProfile();
+    } catch (err) {
+      showToast(err.message || 'Kunde inte ta bort vän', 'error');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Ja, ta bort';
+    }
   });
 }
 

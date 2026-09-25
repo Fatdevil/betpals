@@ -3311,4 +3311,28 @@ select.form-input option {
   border-radius: 12px;
 }
 
+/* ── Friends Card & Items ────────────────────────────── */
+.friend-item {
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.friend-item:hover,
+.friend-item:focus-visible,
+.friend-item:active {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(245, 166, 35, 0.35) !important;
+  transform: translateY(-1px);
+}
+
+.friend-manage-btn {
+  transition: all 0.2s ease;
+}
+
+.friend-item:hover .friend-manage-btn {
+  border-color: rgba(245, 166, 35, 0.5) !important;
+  color: var(--gold) !important;
+}
+
+
 
