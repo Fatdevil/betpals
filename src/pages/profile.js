@@ -9,6 +9,7 @@ import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFr
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from '../components/minigames.js';
+import { openMaltaSupportModal, isMaltaFabDisabled, setMaltaFabDisabled } from '../components/maltaSupport.js';
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -176,12 +177,24 @@ function renderAuthScreen(content) {
             </p>
           </div>
         </form>
+
+        <div style="margin-top: var(--space-md); padding-top: var(--space-sm); border-top: 1px solid var(--border-glass); text-align: center;">
+          <button type="button" id="auth-malta-support-btn" style="background: none; border: none; color: var(--gold); font-size: 0.76rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: underline;">
+            <img src="/chip-malta-transparent.png" alt="Malta" style="width: 16px; height: 16px; object-fit: contain;" />
+            <span>${getLang() === 'en' ? 'Need help or forgot PIN? Ask Malta AI Support' : 'Frågor om inloggning eller PIN? Fråga Malta AI Kundtjänst'}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Reset PIN container (hidden by default) -->
       <div id="pin-reset-card" class="card mt-md" style="display: none;"></div>
     </div>
   `;
+
+  // Malta AI Support from Auth Screen
+  document.getElementById('auth-malta-support-btn')?.addEventListener('click', () => {
+    openMaltaSupportModal();
+  });
 
   // Tab switching
   document.querySelectorAll('.auth-tab').forEach(tab => {
@@ -433,6 +446,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   const pushSupported = isPushSupported();
   const pushPerm = pushSupported ? getPushPermissionState() : 'unsupported';
   const isPushActive = pushSupported && pushPerm === 'granted';
+  const isFabDisabled = isMaltaFabDisabled();
 
   content.innerHTML = `
     <div class="animate-in">
@@ -636,6 +650,49 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         </div>
       </div>
 
+      <!-- Malta AI Concierge & Support Card -->
+      <div class="card mt-md" id="profile-malta-card" style="border: 1px solid rgba(255, 215, 0, 0.28); background: linear-gradient(180deg, rgba(255, 215, 0, 0.05) 0%, rgba(15, 15, 23, 0.7) 100%);">
+        <div class="flex-between mb-xs" style="align-items: center;">
+          <div style="font-weight: 700; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.07em; display: flex; align-items: center; gap: 8px; color: var(--gold);">
+            <img src="/chip-malta-transparent.png" alt="Malta AI" style="width: 22px; height: 22px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.4));" />
+            <span>${currentLang === 'en' ? 'Malta AI VIP Concierge 🇲🇹' : 'Malta AI Concierge & Hjälp 🇲🇹'}</span>
+          </div>
+          <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.68rem; font-weight: 700; border: 1px solid rgba(255,215,0,0.3); padding: 3px 8px; border-radius: 6px;">
+            24/7 AI-HJÄLP
+          </span>
+        </div>
+
+        <p class="text-muted" style="font-size: 0.78rem; line-height: 1.4; margin-bottom: var(--space-sm);">
+          ${currentLang === 'en' 
+            ? 'Chat with our AI concierge for instant help on tournament setup, betting rules, Swish settlements on The Tab, forgotten PIN, or golf tips.' 
+            : 'Få omedelbar hjälp med turneringar, regler, AnyBet-utmaningar, Swish-avräkning på The Tab, bortglömd PIN-kod eller golfsvingen.'}
+        </p>
+
+        <button type="button" class="btn btn-primary btn-block btn-sm" id="profile-open-malta-chat-btn" style="font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; margin-bottom: 12px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; box-shadow: 0 4px 14px rgba(245,158,11,0.25);">
+          <span>💬</span> <span>${currentLang === 'en' ? 'Open Malta AI Chat' : 'Öppna Malta AI Chatt'}</span>
+        </button>
+
+        <!-- Floating icon controller & restore toggle -->
+        <div style="padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.82rem; display: flex; align-items: center; gap: 6px;">
+              <span>${currentLang === 'en' ? 'Floating AI Screen Button' : 'Flytande skärmknapp'}</span>
+              <span id="profile-malta-fab-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: ${isFabDisabled ? 'var(--text-muted)' : '#10b981'}; box-shadow: ${isFabDisabled ? 'none' : '0 0 6px #10b981'};"></span>
+            </div>
+            <div class="text-muted" style="font-size: 0.72rem; margin-top: 2px;" id="profile-malta-fab-desc">
+              ${isFabDisabled 
+                ? (currentLang === 'en' ? 'Icon is hidden on screen' : 'Ikonen är dold på skärmen') 
+                : (currentLang === 'en' ? 'Icon is visible bottom-right (draggable)' : 'Ikonen visas nere till höger (går att flytta runt)')}
+            </div>
+          </div>
+          <button type="button" class="btn btn-xs ${isFabDisabled ? 'btn-primary' : 'btn-secondary'}" id="profile-toggle-malta-fab-btn" style="font-size: 0.74rem; padding: 5px 10px; white-space: nowrap;">
+            ${isFabDisabled 
+              ? (currentLang === 'en' ? '📌 Show on screen' : '📌 Visa på skärmen') 
+              : (currentLang === 'en' ? '👁️ Hide icon' : '👁️ Dölj ikon')}
+          </button>
+        </div>
+      </div>
+
       <!-- Edit profile details -->
       <div class="card mt-md">
         <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-md);">
@@ -818,6 +875,58 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     clearUser();
     renderProfile();
   });
+
+  // Malta AI Support & FAB Toggle
+  document.getElementById('profile-open-malta-chat-btn')?.addEventListener('click', () => {
+    openMaltaSupportModal();
+  });
+
+  const updateProfileFabState = () => {
+    const disabled = isMaltaFabDisabled();
+    const btn = document.getElementById('profile-toggle-malta-fab-btn');
+    const desc = document.getElementById('profile-malta-fab-desc');
+    const dot = document.getElementById('profile-malta-fab-dot');
+    const isEn = getLang() === 'en';
+    if (btn) {
+      btn.className = `btn btn-xs ${disabled ? 'btn-primary' : 'btn-secondary'}`;
+      btn.textContent = disabled 
+        ? (isEn ? '📌 Show on screen' : '📌 Visa på skärmen') 
+        : (isEn ? '👁️ Hide icon' : '👁️ Dölj ikon');
+    }
+    if (desc) {
+      desc.textContent = disabled 
+        ? (isEn ? 'Icon is hidden on screen' : 'Ikonen är dold på skärmen') 
+        : (isEn ? 'Icon is visible bottom-right (draggable)' : 'Ikonen visas nere till höger (går att flytta runt)');
+    }
+    if (dot) {
+      dot.style.background = disabled ? 'var(--text-muted)' : '#10b981';
+      dot.style.boxShadow = disabled ? 'none' : '0 0 6px #10b981';
+    }
+  };
+
+  document.getElementById('profile-toggle-malta-fab-btn')?.addEventListener('click', () => {
+    const isEn = getLang() === 'en';
+    const nextDisabled = !isMaltaFabDisabled();
+    setMaltaFabDisabled(nextDisabled);
+    if (nextDisabled) {
+      showToast(
+        isEn 
+          ? 'Malta button hidden. You can always restore it here under Profile!' 
+          : 'Malta-ikonen är nu dold. Du kan alltid återställa den här under Profil!', 
+        'info'
+      );
+    } else {
+      showToast(
+        isEn 
+          ? 'Malta button is now visible on screen!' 
+          : 'Malta-ikonen visas nu på skärmen igen!', 
+        'success'
+      );
+    }
+    updateProfileFabState();
+  });
+
+  window.addEventListener('malta-fab-visibility-changed', updateProfileFabState);
 
   // Enable/Toggle Biometric
   if (hasBiometric) {

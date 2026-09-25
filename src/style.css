@@ -114,8 +114,8 @@ body::before {
   right: 0;
   z-index: 100;
   height: var(--header-height);
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 0 var(--space-md);
   background: rgba(10, 10, 15, 0.85);
@@ -127,14 +127,21 @@ body::before {
 .top-header-left {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   min-width: 0;
-  flex: 1;
+}
+
+.top-header-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
 }
 
 .top-header-logo {
   font-family: var(--font-heading);
   font-weight: 800;
-  font-size: 1.38rem;
+  font-size: 1.30rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--accent);
@@ -144,6 +151,7 @@ body::before {
   line-height: 1;
   display: inline-flex;
   align-items: center;
+  text-align: center;
   transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 
@@ -155,9 +163,37 @@ body::before {
   transform: scale(0.98);
 }
 
+.top-header-qr-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all 0.2s var(--ease-out);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.top-header-qr-btn:hover {
+  background: rgba(255, 215, 0, 0.12);
+  border-color: rgba(255, 215, 0, 0.45);
+  color: var(--gold);
+  transform: translateY(-1px);
+}
+
+.top-header-qr-btn:active {
+  transform: scale(0.95);
+}
+
 .top-header-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
 }
@@ -230,8 +266,12 @@ body::before {
     padding: 0 10px;
   }
   .top-header-logo {
-    font-size: 1.22rem;
+    font-size: 1.18rem;
     letter-spacing: 0.02em;
+  }
+  .top-header-qr-btn {
+    width: 30px;
+    height: 30px;
   }
   .malta-header-chip,
   .notif-bell svg {
@@ -254,8 +294,16 @@ body::before {
     padding: 0 8px;
   }
   .top-header-logo {
-    font-size: 1.10rem;
+    font-size: 1.05rem;
     letter-spacing: 0.01em;
+  }
+  .top-header-qr-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .top-header-qr-btn svg {
+    width: 16px;
+    height: 16px;
   }
   .malta-header-chip,
   .notif-bell svg {
@@ -282,8 +330,16 @@ body::before {
     padding: 0 6px;
   }
   .top-header-logo {
-    font-size: 1.00rem;
+    font-size: 0.92rem;
     letter-spacing: 0;
+  }
+  .top-header-qr-btn {
+    width: 26px;
+    height: 26px;
+  }
+  .top-header-qr-btn svg {
+    width: 14px;
+    height: 14px;
   }
   .malta-header-label {
     display: none;

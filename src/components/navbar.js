@@ -13,7 +13,6 @@ const icons = {
 };
 
 import { openAppQrModal } from './appQrModal.js';
-import { openMaltaSupportModal } from './maltaSupport.js';
 
 export function renderNavbar(activePage) {
   const user = getStoredUser();
@@ -30,24 +29,34 @@ export function renderNavbar(activePage) {
 
   setTimeout(() => {
     initBellListeners();
-    document.getElementById('top-header-logo-btn')?.addEventListener('click', () => {
+    document.getElementById('top-header-qr-btn')?.addEventListener('click', () => {
       openAppQrModal();
     });
-    document.getElementById('malta-header-support-btn')?.addEventListener('click', () => {
-      openMaltaSupportModal();
+    document.getElementById('top-header-logo-btn')?.addEventListener('click', () => {
+      openAppQrModal();
     });
   }, 0);
 
   return `
     <div class="top-header">
       <div class="top-header-left">
+        <button class="top-header-qr-btn" id="top-header-qr-btn" title="${currentLang === 'sv' ? 'Dela app & QR-kod 📱' : 'Share app & QR code 📱'}" aria-label="Dela app och QR-kod">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <path d="M7 7h.01"></path>
+            <path d="M17 7h.01"></path>
+            <path d="M7 17h.01"></path>
+            <path d="M17 17h.01"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="top-header-center">
         <span class="top-header-logo" id="top-header-logo-btn" title="${currentLang === 'sv' ? 'Dela app / QR-kod 📱' : 'Share app / QR code 📱'}">THE SOCIAL BETWORK</span>
       </div>
       <div class="top-header-right">
-        <button class="malta-header-btn" id="malta-header-support-btn" title="Malta AI Kundtjänst 🇲🇹" aria-label="Malta AI Kundtjänst">
-          <img src="/chip-malta-transparent.png" alt="Malta AI" class="malta-header-chip" />
-          <span class="malta-header-label">Malta AI</span>
-        </button>
         ${renderBell()}
       </div>
     </div>

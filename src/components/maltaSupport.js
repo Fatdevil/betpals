@@ -6,9 +6,26 @@ import { escapeHtml, showToast } from '../utils.js';
 let sessionChatHistory = [];
 let isSending = false;
 
+export function isMaltaFabDisabled() {
+  return localStorage.getItem('malta_fab_disabled') === 'true';
+}
+
+export function setMaltaFabDisabled(disabled) {
+  localStorage.setItem('malta_fab_disabled', disabled ? 'true' : 'false');
+  const fab = document.getElementById('malta-support-fab');
+  if (fab) {
+    if (disabled) {
+      fab.classList.add('hidden-manual');
+    } else {
+      fab.classList.remove('hidden-manual');
+    }
+  }
+  window.dispatchEvent(new CustomEvent('malta-fab-visibility-changed', { detail: { disabled: !!disabled } }));
+}
+
 export function openMaltaSupportModal(initialQuestion = null) {
   const isEn = getLang() === 'en';
-  const isFabDisabled = localStorage.getItem('malta_fab_disabled') === 'true';
+  const isFabDisabled = isMaltaFabDisabled();
 
   const modalTitle = `
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -24,7 +41,7 @@ export function openMaltaSupportModal(initialQuestion = null) {
           <span class="malta-live-indicator"></span>
           <span>${isEn ? 'AI Concierge Online • St. Julian’s • 24/7' : 'AI-Concierge Online • St. Julian’s • 24/7'}</span>
         </div>
-        <button type="button" id="malta-toggle-fab-visibility-btn" class="btn btn-xs btn-secondary" style="font-size: 0.72rem; padding: 4px 9px; border-radius: 999px; opacity: 0.85;">
+        <button type="button" id="malta-toggle-fab-visibility-btn" class="btn btn-xs ${isFabDisabled ? 'btn-primary' : 'btn-secondary'}" style="font-size: 0.72rem; padding: 4px 9px; border-radius: 999px; opacity: 0.95;">
           ${isFabDisabled ? (isEn ? '📌 Show floating button' : '📌 Fäst ikon på skärmen') : (isEn ? '👁️ Hide floating button' : '👁️ Dölj flytande ikon')}
         </button>
       </div>
@@ -83,23 +100,36 @@ export function openMaltaSupportModal(initialQuestion = null) {
     const toggleFabBtn = document.getElementById('malta-toggle-fab-visibility-btn');
 
     // Toggle FAB visibility button
-    toggleFabBtn?.addEventListener('click', () => {
-      const currentlyDisabled = localStorage.getItem('malta_fab_disabled') === 'true';
-      const newDisabledState = !currentlyDisabled;
-      localStorage.setItem('malta_fab_disabled', newDisabledState ? 'true' : 'false');
+    const updateFabModalBtn = (disabled) => {
+      if (!toggleFabBtn) return;
+      toggleFabBtn.textContent = disabled
+        ? (isEn ? '📌 Show floating button' : '📌 Fäst ikon på skärmen')
+        : (isEn ? '👁️ Hide floating button' : '👁️ Dölj flytande ikon');
+      toggleFabBtn.className = `btn btn-xs ${disabled ? 'btn-primary' : 'btn-secondary'}`;
+    };
 
-      const fab = document.getElementById('malta-support-fab');
-      if (fab) {
-        if (newDisabledState) {
-          fab.classList.add('hidden-manual');
-          showToast('Malta-ikonen är dold. Du kan alltid öppna den via "Malta AI" i menyn högst upp!', 'info');
-        } else {
-          fab.classList.remove('hidden-manual');
-          showToast('Malta-ikonen visas nu på skärmen igen! Dra i den för att flytta.', 'success');
-        }
+    toggleFabBtn?.addEventListener('click', () => {
+      const currentlyDisabled = isMaltaFabDisabled();
+      const newDisabledState = !currentlyDisabled;
+      setMaltaFabDisabled(newDisabledState);
+
+      if (newDisabledState) {
+        showToast(
+          isEn 
+            ? 'Malta icon hidden. You can restore it anytime under Profile!' 
+            : 'Malta-ikonen är dold. Du kan alltid återställa den under Profil!', 
+          'info'
+        );
+      } else {
+        showToast(
+          isEn 
+            ? 'Malta icon visible on screen! Drag to move around.' 
+            : 'Malta-ikonen visas nu på skärmen igen! Dra i den för att flytta.', 
+          'success'
+        );
       }
 
-      toggleFabBtn.textContent = newDisabledState ? '📌 Fäst ikon på skärmen' : '👁️ Dölj flytande ikon';
+      updateFabModalBtn(newDisabledState);
     });
 
     // Render any previous history
