@@ -3984,7 +3984,8 @@ app.post('/api/minigames/party/:id/invite', (req, res) => {
     sendPushToUsers(friendIds, {
       title: `🎉 Inbjudan till ${gameName}!`,
       body: `${hostName} bjuder in dig till rum #${room.code} ${stakeText}. Klicka för att joina!`,
-      url: '/#arcade'
+      // Deep link straight into the room (joins it and opens the game)
+      url: `/?party=${encodeURIComponent(room.code)}`
     }, 'duels').catch(() => {});
   }
 

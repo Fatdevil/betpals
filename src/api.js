@@ -5,6 +5,8 @@ import { clearUser } from './auth.js';
 const BASE = '/api';
 const WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
 
+const REQUEST_TIMEOUT_MS = 20000;
+const UPLOAD_TIMEOUT_MS = 120000;
 let authCheckInFlight = null;
 
 // A 401 can mean an expired session, but also e.g. a wrong current PIN. Ask /users/me
@@ -30,15 +32,29 @@ async function request(path, options = {}) {
   const token = localStorage.getItem('betpals_token');
   if (token) headers['x-user-token'] = token;
 
+  // A request must never hang forever: on iPhone, a request made while the app is waking
+  // up from the background can otherwise leave a page stuck on "Laddar..."
+  const body = options.body ? JSON.stringify(options.body) : undefined;
+  // Image uploads can take a while on a slow connection
+  const timeoutMs = body && body.length > 200000 ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
       headers,
       ...options,
-      body: options.body ? JSON.stringify(options.body) : undefined
+      ...(controller ? { signal: controller.signal } : {}),
+      body
     });
-  } catch {
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Servern svarar inte just nu. Kontrollera uppkopplingen och försök igen.');
+    }
     throw new Error('Ingen kontakt med servern. Kontrollera din uppkoppling och försök igen.');
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   // Safari reports a non-JSON body (e.g. a proxy error page) as the cryptic
