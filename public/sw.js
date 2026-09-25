@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v12';
+const CACHE_NAME = 'betpals-v13';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -103,6 +103,11 @@ self.addEventListener('push', (event) => {
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     vibrate: [200, 100, 200],
+    // Always make a sound, also when a newer notification replaces an older one
+    silent: false,
+    tag: data.tag || `mb-${Date.now()}`,
+    renotify: true,
+    timestamp: Date.now(),
     data: {
       url: data.url || '/'
     }

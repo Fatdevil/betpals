@@ -5,7 +5,7 @@ import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, e
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
-import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush } from '../push.js';
+import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush, isPushActive as isPushActiveOnDevice, syncPushSubscription } from '../push.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from '../components/minigames.js';
@@ -354,6 +354,8 @@ function renderAuthScreen(content) {
 
 // After logging in, go back to the page that asked for it (e.g. a shared match link)
 function finishLogin() {
+  // Link this device's notifications to the account that just logged in
+  syncPushSubscription();
   const target = consumeReturnTo();
   if (target?.page && target.page !== 'profile') {
     navigate(target.page, target.params || {});
@@ -517,7 +519,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
 
   const pushSupported = isPushSupported();
   const pushPerm = pushSupported ? getPushPermissionState() : 'unsupported';
-  const isPushActive = pushSupported && pushPerm === 'granted';
+  // Permission stays "granted" after turning notifications off, so also respect that choice
+  const isPushActive = isPushActiveOnDevice();
   const isFabDisabled = isMaltaFabDisabled();
 
   content.innerHTML = `
@@ -1148,6 +1151,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     const originalText = testPushBtn.innerHTML;
     testPushBtn.textContent = '⏳ Skickar testnotis...';
     try {
+      // Re-register this device first, so a stale subscription is repaired before testing
+      await syncPushSubscription();
       const res = await fetch('/api/support/test-push', {
         method: 'POST',
         headers: {

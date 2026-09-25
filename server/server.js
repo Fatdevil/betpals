@@ -681,8 +681,11 @@ function broadcastFlashBetToTargets(flashBet, payload) {
 }
 
 // ── Web Push Setup (VAPID) ───────────────────────────
-let vapidPublicKey = db.getSetting('vapid_public_key');
-let vapidPrivateKey = db.getSetting('vapid_private_key');
+// Keys can be pinned via env so they survive a database reset. If the keys ever change,
+// every existing phone subscription stops working (push services answer 403), so the
+// client re-syncs its subscription against the current public key on every app start.
+let vapidPublicKey = process.env.VAPID_PUBLIC_KEY || db.getSetting('vapid_public_key');
+let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || db.getSetting('vapid_private_key');
 
 if (!vapidPublicKey || !vapidPrivateKey) {
   const generated = webpush.generateVAPIDKeys();
@@ -693,15 +696,18 @@ if (!vapidPublicKey || !vapidPrivateKey) {
 }
 
 webpush.setVapidDetails(
-  'mailto:support@betpals.se',
+  process.env.VAPID_SUBJECT || 'mailto:support@betpals.se',
   vapidPublicKey,
   vapidPrivateKey
 );
 
+// Sends a push to every device of the given users. Returns what happened so callers
+// (e.g. the test button) can report real delivery instead of assuming success.
 async function sendPushToUsers(userIds, payload, category = null) {
-  if (!userIds || userIds.length === 0) return;
+  const result = { attempted: 0, sent: 0, failed: [] };
+  if (!userIds || userIds.length === 0) return result;
   const subscriptions = db.getPushSubscriptionsForUsers(userIds, category);
-  if (!subscriptions || subscriptions.length === 0) return;
+  if (!subscriptions || subscriptions.length === 0) return result;
 
   const jsonPayload = JSON.stringify(payload);
 
@@ -713,14 +719,23 @@ async function sendPushToUsers(userIds, payload, category = null) {
         auth: sub.auth
       }
     };
+    result.attempted++;
     try {
-      await webpush.sendNotification(pushSub, jsonPayload);
+      // High urgency + a TTL so phones in power-saving mode still get it promptly
+      await webpush.sendNotification(pushSub, jsonPayload, { TTL: 60 * 60, urgency: 'high' });
+      result.sent++;
     } catch (err) {
-      if (err.statusCode === 410 || err.statusCode === 404) {
+      const statusCode = err.statusCode || null;
+      const host = (() => { try { return new URL(sub.endpoint).host; } catch { return 'unknown'; } })();
+      result.failed.push({ statusCode, host });
+      if (statusCode === 410 || statusCode === 404) {
         db.deletePushSubscriptionByEndpoint(sub.endpoint);
+      } else {
+        console.warn(`[push] Delivery failed (${statusCode || err.code || 'error'}) via ${host} for user ${sub.user_id}: ${String(err.body || err.message || '').slice(0, 200)}`);
       }
     }
   }
+  return result;
 }
 
 async function sendMaltaSupportNotification(userId, { eventType, details = {}, force = false, url = null }) {
@@ -6252,8 +6267,20 @@ app.post('/api/support/test-push', async (req, res) => {
     apiKey: process.env.GEMINI_API_KEY
   });
 
-  await sendPushToUsers([user.id], pushData, 'support');
-  res.json({ ok: true, message: 'Testnotis skickad från Malta Support! 🌴☕' });
+  // The test ignores category preferences: it checks that delivery to this phone works
+  const result = await sendPushToUsers([user.id], pushData);
+  if (result.sent === 0) {
+    const codes = result.failed.map(f => f.statusCode || '?').join(', ');
+    return res.status(502).json({
+      error: `Notisen kunde inte levereras (svar från push-tjänsten: ${codes}). Stäng av och slå på notiser igen under Profil.`,
+      result
+    });
+  }
+  res.json({
+    ok: true,
+    message: `Testnotis skickad till ${result.sent} enhet${result.sent === 1 ? '' : 'er'}! 🌴☕`,
+    result
+  });
 });
 
 // ── Central Express Error Handler ─────────────────────
