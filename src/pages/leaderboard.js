@@ -263,31 +263,16 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
       return;
     }
     container.innerHTML = `
-      <div class="empty-state card text-center" style="padding: 32px 16px;">
-        <div style="font-size: 3rem; margin-bottom: 8px;">🥂</div>
-        <h3 class="font-heading" style="color: #10b981; margin-bottom: 6px;">
+      <div class="empty-state card text-center" style="padding: 36px 20px;">
+        <div style="font-size: 3.2rem; margin-bottom: 12px; filter: drop-shadow(0 4px 12px rgba(16, 185, 129, 0.25));">🥂</div>
+        <h3 class="font-heading" style="color: #10b981; font-size: 1.25rem; margin-bottom: 8px;">
           ${t('tab.allSettledTitle') || (isEn ? 'All settled up! 🟢' : 'Helt kvitt med alla! 🟢')}
         </h3>
-        <p class="text-muted" style="font-size: 0.85rem; max-width: 340px; margin: 0 auto 16px;">
+        <p class="text-muted" style="font-size: 0.88rem; max-width: 320px; margin: 0 auto; line-height: 1.5;">
           ${t('tab.allSettledDesc') || (isEn ? 'You have no open debts or pending payouts across any tournaments, minigames or tabs.' : 'Du har inga öppna skulder eller oreglerade belopp från turneringar, minispel eller notor.')}
         </p>
-        <div class="flex gap-sm justify-center flex-wrap">
-          <button type="button" class="btn btn-primary btn-sm btn-overview-goto-home" style="font-weight: 700; padding: 8px 14px;">
-            ${t('tab.goToGames') || (isEn ? '🎲 Go to Games & Arcade' : '🎲 Till spelen & arkaden')}
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm btn-overview-goto-tournaments" style="font-weight: 600; padding: 8px 14px;">
-            ${t('tab.viewTournaments') || (isEn ? '🏆 View Tournaments & Events' : '🏆 Se event & turneringar')}
-          </button>
-        </div>
       </div>
     `;
-    container.querySelector('.btn-overview-goto-home')?.addEventListener('click', () => {
-      window.location.hash = '#home';
-    });
-    container.querySelector('.btn-overview-goto-tournaments')?.addEventListener('click', () => {
-      activeTab = 'tournaments';
-      renderLeaderboard();
-    });
     return;
   }
 

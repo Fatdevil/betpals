@@ -1631,6 +1631,7 @@ select.form-input option {
 .mb-md { margin-bottom: var(--space-md); }
 .mb-lg { margin-bottom: var(--space-lg); }
 .flex { display: flex; }
+.flex-wrap { flex-wrap: wrap; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 .gap-sm { gap: var(--space-sm); }
 .gap-md { gap: var(--space-md); }
