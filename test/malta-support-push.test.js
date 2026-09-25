@@ -134,9 +134,10 @@ test('Malta Support Push — POST /api/support/test-push works with subscription
     keys: { p256dh: 'BNcRdreALRFXTkOOUHK18WKJw5unoPqWhScqMHizU57fZThPItAn3W0nT8lxRVovG', auth: 'tBHItJI5svbpLNkp0_UQ4w==' }
   });
 
-  // After subscription: should return 200
-  const successRes = await call('POST', '/api/support/test-push', {}, u.token);
-  assert.equal(successRes.status, 200);
-  assert.equal(successRes.body.ok, true);
-  assert.ok(successRes.body.message.includes('Malta Support'));
+  // After subscription: the fake subscription cannot actually be delivered to, and the
+  // endpoint must say so instead of claiming the notification was sent
+  const deliveryRes = await call('POST', '/api/support/test-push', {}, u.token);
+  assert.equal(deliveryRes.status, 502);
+  assert.equal(deliveryRes.body.result.sent, 0);
+  assert.match(deliveryRes.body.error, /kunde inte levereras/);
 });

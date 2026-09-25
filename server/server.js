@@ -681,8 +681,19 @@ function broadcastFlashBetToTargets(flashBet, payload) {
 }
 
 // ── Web Push Setup (VAPID) ───────────────────────────
-let vapidPublicKey = db.getSetting('vapid_public_key');
-let vapidPrivateKey = db.getSetting('vapid_private_key');
+// Keys can be pinned via env so they survive a database reset. If the keys ever change,
+// every existing phone subscription stops working (push services answer 403), so the
+// client re-syncs its subscription against the current public key on every app start.
+// The pair is taken as a whole: mixing an env key with the other half from the database
+// would sign every push with a mismatched key and nothing would be delivered.
+const envVapidPublic = process.env.VAPID_PUBLIC_KEY;
+const envVapidPrivate = process.env.VAPID_PRIVATE_KEY;
+if (Boolean(envVapidPublic) !== Boolean(envVapidPrivate)) {
+  console.error('VAPID_PUBLIC_KEY och VAPID_PRIVATE_KEY måste sättas tillsammans (eller ingen av dem).');
+  process.exit(1);
+}
+let vapidPublicKey = envVapidPublic || db.getSetting('vapid_public_key');
+let vapidPrivateKey = envVapidPrivate || db.getSetting('vapid_private_key');
 
 if (!vapidPublicKey || !vapidPrivateKey) {
   const generated = webpush.generateVAPIDKeys();
@@ -693,15 +704,21 @@ if (!vapidPublicKey || !vapidPrivateKey) {
 }
 
 webpush.setVapidDetails(
-  'mailto:support@betpals.se',
+  process.env.VAPID_SUBJECT || 'mailto:support@betpals.se',
   vapidPublicKey,
   vapidPrivateKey
 );
 
+// Sends a push to every device of the given users. Returns what happened so callers
+// (e.g. the test button) can report real delivery instead of assuming success.
 async function sendPushToUsers(userIds, payload, category = null) {
-  if (!userIds || userIds.length === 0) return;
-  const subscriptions = db.getPushSubscriptionsForUsers(userIds, category);
-  if (!subscriptions || subscriptions.length === 0) return;
+  if (!userIds || userIds.length === 0) return { attempted: 0, sent: 0, failed: [] };
+  return sendPushToSubscriptions(db.getPushSubscriptionsForUsers(userIds, category), payload);
+}
+
+async function sendPushToSubscriptions(subscriptions, payload) {
+  const result = { attempted: 0, sent: 0, failed: [] };
+  if (!subscriptions || subscriptions.length === 0) return result;
 
   const jsonPayload = JSON.stringify(payload);
 
@@ -713,14 +730,23 @@ async function sendPushToUsers(userIds, payload, category = null) {
         auth: sub.auth
       }
     };
+    result.attempted++;
     try {
-      await webpush.sendNotification(pushSub, jsonPayload);
+      // High urgency + a TTL so phones in power-saving mode still get it promptly
+      await webpush.sendNotification(pushSub, jsonPayload, { TTL: 60 * 60, urgency: 'high' });
+      result.sent++;
     } catch (err) {
-      if (err.statusCode === 410 || err.statusCode === 404) {
+      const statusCode = err.statusCode || null;
+      const host = (() => { try { return new URL(sub.endpoint).host; } catch { return 'unknown'; } })();
+      result.failed.push({ statusCode, host });
+      if (statusCode === 410 || statusCode === 404) {
         db.deletePushSubscriptionByEndpoint(sub.endpoint);
+      } else {
+        console.warn(`[push] Delivery failed (${statusCode || err.code || 'error'}) via ${host} for user ${sub.user_id}: ${String(err.body || err.message || '').slice(0, 200)}`);
       }
     }
   }
+  return result;
 }
 
 async function sendMaltaSupportNotification(userId, { eventType, details = {}, force = false, url = null }) {
@@ -6238,7 +6264,11 @@ app.post('/api/support/test-push', async (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const subs = db.getPushSubscriptionsForUsers([user.id]);
+  // Test the device that pressed the button when it tells us its endpoint, so another
+  // working phone cannot mask a broken one
+  const { endpoint } = req.body || {};
+  const allSubs = db.getPushSubscriptionsForUsers([user.id]);
+  const subs = endpoint ? allSubs.filter(s => s.endpoint === endpoint) : allSubs;
   if (!subs || subs.length === 0) {
     return res.status(400).json({
       error: 'Inga aktiva push-notiser hittades för din enhet. Slå på webbnotiser under Profil först!'
@@ -6252,8 +6282,20 @@ app.post('/api/support/test-push', async (req, res) => {
     apiKey: process.env.GEMINI_API_KEY
   });
 
-  await sendPushToUsers([user.id], pushData, 'support');
-  res.json({ ok: true, message: 'Testnotis skickad från Malta Support! 🌴☕' });
+  // The test ignores category preferences: it checks that delivery to this phone works
+  const result = await sendPushToSubscriptions(subs, pushData);
+  if (result.sent === 0) {
+    const codes = result.failed.map(f => f.statusCode || '?').join(', ');
+    return res.status(502).json({
+      error: `Notisen kunde inte levereras (svar från push-tjänsten: ${codes}). Stäng av och slå på notiser igen under Profil.`,
+      result
+    });
+  }
+  res.json({
+    ok: true,
+    message: `Testnotis skickad till ${result.sent} enhet${result.sent === 1 ? '' : 'er'}! 🌴☕`,
+    result
+  });
 });
 
 // ── Central Express Error Handler ─────────────────────

@@ -7,7 +7,7 @@ import { showToast } from './utils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from './components/minigames.js';
 import { initMaltaSupportWidget } from './components/maltaSupport.js';
 import { setDeferredPrompt, isAppStandalone, shouldShowAutoPrompt, showPwaInstallModal } from './components/pwaInstallModal.js';
-import { isPushSupported, subscribeToPush } from './push.js';
+import { isPushSupported, subscribeToPush, syncPushSubscription } from './push.js';
 
 // ── Global Client Error Reporting ─────────────────────
 let reportedErrorsCount = 0;
@@ -142,6 +142,11 @@ function initPwa() {
       window.addEventListener('load', registerSw);
     }
   }
+
+  // Devices that already allowed notifications (browser or installed app): make sure the
+  // server still has a valid subscription for them. It can go stale silently, and then no
+  // "pling" ever arrives although the phone says notifications are allowed.
+  if (isLoggedIn()) syncPushSubscription();
 
   // Catch native Android/Chrome prompt
   window.addEventListener('beforeinstallprompt', (e) => {

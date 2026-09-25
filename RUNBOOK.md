@@ -22,6 +22,8 @@ Ställs in i driftmiljön (t.ex. **Railway → Settings → Variables**):
 | `LIVEKIT_URL` | *Valfri* | WebSocket-URL till LiveKit Cloud (t.ex. `wss://xxx.livekit.cloud`). |
 | `LIVEKIT_API_KEY` | *Valfri* | LiveKit Cloud API Key. |
 | `LIVEKIT_API_SECRET` | *Valfri* | LiveKit Cloud API Secret. |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | *Genereras automatiskt* | Nycklar för pushnotiser. Sätt dem i miljön så att de inte ändras om databasen återställs. Om nycklarna ändras slutar alla telefoners notiser att fungera tills appen öppnas igen (då registreras de om automatiskt). Värdena finns i tabellen `settings` (`vapid_public_key`, `vapid_private_key`). |
+| `VAPID_SUBJECT` | `mailto:support@betpals.se` | Kontaktadress som skickas till push-tjänsterna (Apple/Google). |
 | `GEMINI_API_KEY` | *Valfri* | Google Gemini API-nyckel för skarp AI-support (Gemini 2.0 Flash) i Malta AI-chatten. Hämtas från Google AI Studio. Om den saknas används offline fallback-motorn. Kan även ställas in via Admin API (/api/admin/gemini). |
 
 ---
@@ -76,6 +78,7 @@ BetPals har inbyggd krasch- och felövervakning:
 - **Klientfelrapportering**: Om en användares mobilwebbläsare stöter på ett JavaScript-fel skickas det automatiskt till servern och loggas med prefixet `[CLIENT-ERROR]` i Railways loggar.
 
 Sök i Railway-loggarna efter:
+- `[push] Delivery failed` – En notis kunde inte levereras. `403` betyder oftast att VAPID-nycklarna har ändrats; `410/404` rensas bort automatiskt.
 - `[CLIENT-ERROR]` – Fel som uppstått i mobilen hos någon användare.
 - `💥 [EXPRESS-ERROR]` – Oväntade serverfel på API-anrop.
 - `[cleanup]` – Information om automatiskt städade rum.
