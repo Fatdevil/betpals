@@ -84,6 +84,14 @@ process.on('uncaughtException', (err) => {
 const app = express();
 app.set('trust proxy', 1);
 
+// Force HTTPS redirect (Railway, cloud proxies)
+app.use((req, res, next) => {
+  if (req.headers['x-forwarded-proto'] === 'http') {
+    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  }
+  next();
+});
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: {
