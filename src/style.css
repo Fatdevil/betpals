@@ -360,33 +360,31 @@ body::before {
   right: 0;
   z-index: 100;
   display: flex;
-  flex-direction: column;
-  background: rgba(10, 10, 15, 0.94);
+  justify-content: space-around;
+  align-items: center;
+  height: var(--navbar-height);
+  padding: 0 var(--space-sm);
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+  background: rgba(10, 10, 15, 0.92);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid var(--border-glass);
 }
 
-.navbar-items {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  height: var(--navbar-height);
-  padding: 0 var(--space-sm);
-  width: 100%;
-}
-
-/* ── Malta Beta Ticker Banner ─────────────────────── */
-.beta-ticker-bar {
+/* ── Home Betting Page Beta Ticker Footer ─────────── */
+.home-beta-footer {
+  margin-top: var(--space-xl);
+  margin-bottom: var(--space-md);
   width: 100%;
   overflow: hidden;
   white-space: nowrap;
-  background: rgba(255, 229, 0, 0.05);
-  border-top: 1px solid rgba(255, 229, 0, 0.15);
-  padding: 3px 0 calc(3px + env(safe-area-inset-bottom, 0px)) 0;
-  position: relative;
+  background: rgba(255, 229, 0, 0.04);
+  border: 1px solid rgba(255, 229, 0, 0.15);
+  border-radius: var(--radius-full);
+  padding: 8px 0;
   display: flex;
   align-items: center;
+  box-shadow: 0 0 15px rgba(255, 229, 0, 0.05);
 }
 
 .beta-ticker-track {
@@ -398,13 +396,13 @@ body::before {
   animation: betaTickerScroll 16s linear infinite;
 }
 
-.beta-ticker-bar:hover .beta-ticker-track {
+.home-beta-footer:hover .beta-ticker-track {
   animation-play-state: paused;
 }
 
 .beta-ticker-text {
   font-family: var(--font-heading);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -415,9 +413,9 @@ body::before {
 
 .beta-ticker-separator {
   color: var(--gold);
-  font-size: 0.55rem;
+  font-size: 0.6rem;
   opacity: 0.7;
-  padding: 0 10px;
+  padding: 0 12px;
 }
 
 @keyframes betaTickerScroll {
@@ -428,6 +426,7 @@ body::before {
     transform: translateX(-50%);
   }
 }
+
 
 
 /* ── Notification Bell ─────────────────────────────── */
@@ -613,7 +612,7 @@ body::before {
   flex: 1;
   padding: var(--space-md) var(--space-md);
   padding-top: calc(var(--header-height) + 8px);
-  padding-bottom: calc(var(--navbar-height) + 26px + var(--space-lg));
+  padding-bottom: calc(var(--navbar-height) + var(--space-lg));
   max-width: 600px;
   margin: 0 auto;
   width: 100%;
