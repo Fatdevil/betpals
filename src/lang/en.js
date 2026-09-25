@@ -296,7 +296,17 @@ export const en = {
     noPastTournaments: 'No previous events in archive.',
     splitExpenseBtn: '🧾 Split the Tab',
     splitExpenseDesc: 'Food, lunch, snacks or gas — split evenly or customize',
-    expenseTitle: 'Tab & Expense'
+    expenseTitle: 'Tab & Expense',
+    payDebtSingle: '📱 Pay My Debt',
+    payDebtsMultiple: '📱 Clear My Debts',
+    collectDebtsBtn: '💬 Collect My Payouts',
+    remindDebtsBtn: '💬 Remind Friends',
+    goToGames: '🎲 Go to Games & Arcade',
+    viewTournaments: '🏆 View Tournaments & Events',
+    allSettledTitle: 'All settled up! 🟢',
+    allSettledDesc: 'You have no open debts or pending payouts across any tournaments, minigames or tabs.',
+    remindAllShareTitle: 'Malta Betting – Outstanding debts reminder',
+    remindAllShareBody: 'Hey guys! Friendly reminder for the open debts from The Tab / Malta Betting ({amount} kr total). Please Swish to {phone}! 📱🤝'
   },
   join: {
     title: 'Join',

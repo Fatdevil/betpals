@@ -297,7 +297,17 @@ export const sv = {
     noPastTournaments: 'Inga tidigare events i arkivet.',
     splitExpenseBtn: '🧾 Dela på notan',
     splitExpenseDesc: 'Mat, lunch, fika eller bensin — fördela lika eller anpassa',
-    expenseTitle: 'Nota & Utlägg'
+    expenseTitle: 'Nota & Utlägg',
+    payDebtSingle: '📱 Betala min skuld',
+    payDebtsMultiple: '📱 Gör mig skuldfri',
+    collectDebtsBtn: '💬 Kräv in mina fordringar',
+    remindDebtsBtn: '💬 Påminn vänner',
+    goToGames: '🎲 Till spelen & arkaden',
+    viewTournaments: '🏆 Se event & turneringar',
+    allSettledTitle: 'Helt kvitt med alla! 🟢',
+    allSettledDesc: 'Du har inga öppna skulder eller oreglerade belopp från turneringar, minispel eller notor.',
+    remindAllShareTitle: 'Malta Betting – Påminnelse om utestående belopp',
+    remindAllShareBody: 'Tjena! Vänlig påminnelse om skulderna från The Tab / Malta Betting (totalt {amount} kr). Swisha gärna till {phone}! 📱🤝'
   },
   join: {
     title: 'Gå med',

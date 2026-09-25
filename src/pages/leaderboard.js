@@ -266,28 +266,118 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
       <div class="empty-state card text-center" style="padding: 32px 16px;">
         <div style="font-size: 3rem; margin-bottom: 8px;">🥂</div>
         <h3 class="font-heading" style="color: #10b981; margin-bottom: 6px;">
-          ${isEn ? 'All settled up!' : 'Helt kvitt med alla!'}
+          ${t('tab.allSettledTitle') || (isEn ? 'All settled up! 🟢' : 'Helt kvitt med alla! 🟢')}
         </h3>
         <p class="text-muted" style="font-size: 0.85rem; max-width: 340px; margin: 0 auto 16px;">
-          ${isEn ? 'You have no open debts or pending payouts across any tournaments, minigames or tabs.' : 'Du har inga öppna skulder eller oreglerade belopp från turneringar, minispel eller notor.'}
+          ${t('tab.allSettledDesc') || (isEn ? 'You have no open debts or pending payouts across any tournaments, minigames or tabs.' : 'Du har inga öppna skulder eller oreglerade belopp från turneringar, minispel eller notor.')}
         </p>
-        <div class="flex gap-sm justify-center">
-          <button type="button" class="btn btn-primary btn-sm btn-overview-dela-notan" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700;">
-            🧾 ${t('tab.splitHeroTitle') || 'Dela på notan'}
+        <div class="flex gap-sm justify-center flex-wrap">
+          <button type="button" class="btn btn-primary btn-sm btn-overview-goto-home" style="font-weight: 700; padding: 8px 14px;">
+            ${t('tab.goToGames') || (isEn ? '🎲 Go to Games & Arcade' : '🎲 Till spelen & arkaden')}
           </button>
-          <button type="button" class="btn btn-secondary btn-sm btn-overview-goto-home">
-            ${isEn ? 'Go to Games' : 'Till spelen 🎲'}
+          <button type="button" class="btn btn-secondary btn-sm btn-overview-goto-tournaments" style="font-weight: 600; padding: 8px 14px;">
+            ${t('tab.viewTournaments') || (isEn ? '🏆 View Tournaments & Events' : '🏆 Se event & turneringar')}
           </button>
         </div>
       </div>
     `;
-    container.querySelector('.btn-overview-dela-notan')?.addEventListener('click', () => {
-      openDelaUtlaggModal({ onSaved: () => renderLeaderboard() });
-    });
     container.querySelector('.btn-overview-goto-home')?.addEventListener('click', () => {
       window.location.hash = '#home';
     });
+    container.querySelector('.btn-overview-goto-tournaments')?.addEventListener('click', () => {
+      activeTab = 'tournaments';
+      renderLeaderboard();
+    });
     return;
+  }
+
+  const debtors = friends.filter(f => f.totalNet < 0);
+  const creditors = friends.filter(f => f.totalNet > 0);
+  const hasDebt = totalOwed > 0;
+  const hasDue = totalDue > 0;
+
+  let ctaHtml = '';
+  if (hasDebt && !hasDue) {
+    // State A: Only debt
+    const singleDebtor = debtors.length === 1 ? debtors[0] : null;
+    const debtorName = singleDebtor ? (singleDebtor.friendName || singleDebtor.friendNickname || '') : '';
+    const singleSwishUrl = (singleDebtor && singleDebtor.friendSwish) ? createSwishUrl({
+      phone: singleDebtor.friendSwish,
+      amount: totalOwed,
+      message: 'Malta Betting Slutavräkning'
+    }) : null;
+
+    const debtBtnLabel = singleDebtor 
+      ? (isEn ? `📱 Pay ${formatCurrency(totalOwed)} to ${escapeHtml(debtorName)}` : `📱 Betala ${formatCurrency(totalOwed)} till ${escapeHtml(debtorName)}`)
+      : (isEn ? `📱 Clear My Debts (${formatCurrency(totalOwed)} total)` : `📱 Gör mig skuldfri (${formatCurrency(totalOwed)} totalt)`);
+
+    ctaHtml = `
+      <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-glass);">
+        ${singleSwishUrl ? `
+          <a href="${singleSwishUrl}" class="btn btn-danger btn-block btn-overview-pay-debts" id="btn-overview-pay-debts"
+            style="background: #ef4444; border: none; font-weight: 800; padding: 11px 16px; font-size: 0.9rem; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35); text-decoration: none; text-align: center; display: block;" target="_blank" rel="noopener">
+            ${debtBtnLabel}
+          </a>
+        ` : `
+          <button type="button" class="btn btn-danger btn-block btn-overview-pay-debts" id="btn-overview-pay-debts" 
+            data-single-name="${escapeHtml(debtorName)}"
+            style="background: #ef4444; border: none; font-weight: 800; padding: 11px 16px; font-size: 0.9rem; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);">
+            ${debtBtnLabel}
+          </button>
+        `}
+      </div>
+    `;
+  } else if (!hasDebt && hasDue) {
+    // State B: Only credit/claim
+    const collectLabel = isEn 
+      ? `💬 Collect My Payouts (+${formatCurrency(totalDue)})`
+      : `💬 Kräv in mina fordringar (+${formatCurrency(totalDue)})`;
+
+    ctaHtml = `
+      <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-glass);">
+        <button type="button" class="btn btn-primary btn-block btn-overview-collect-due" id="btn-overview-collect-due"
+          style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 800; padding: 11px 16px; font-size: 0.9rem; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
+          ${collectLabel}
+        </button>
+      </div>
+    `;
+  } else if (hasDebt && hasDue) {
+    // State C: Both debt and credit
+    const singleDebtor = debtors.length === 1 ? debtors[0] : null;
+    const debtorName = singleDebtor ? (singleDebtor.friendName || singleDebtor.friendNickname || '') : '';
+    const singleSwishUrl = (singleDebtor && singleDebtor.friendSwish) ? createSwishUrl({
+      phone: singleDebtor.friendSwish,
+      amount: totalOwed,
+      message: 'Malta Betting Slutavräkning'
+    }) : null;
+
+    const debtBtnLabel = singleDebtor 
+      ? (isEn ? `📱 Pay ${formatCurrency(totalOwed)}` : `📱 Betala ${formatCurrency(totalOwed)}`)
+      : (isEn ? `📱 Clear Debts (-${formatCurrency(totalOwed)})` : `📱 Gör mig skuldfri (-${formatCurrency(totalOwed)})`);
+    const collectLabel = isEn 
+      ? `💬 Collect (+${formatCurrency(totalDue)})`
+      : `💬 Kräv in (+${formatCurrency(totalDue)})`;
+
+    ctaHtml = `
+      <div class="flex gap-xs mt-md pt-xs" style="flex-wrap: wrap; border-top: 1px solid var(--border-glass);">
+        ${singleSwishUrl ? `
+          <a href="${singleSwishUrl}" class="btn btn-danger btn-overview-pay-debts" id="btn-overview-pay-debts"
+            style="flex: 1; min-width: 140px; background: #ef4444; border: none; font-weight: 800; padding: 10px 12px; font-size: 0.85rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.3); text-decoration: none; text-align: center; display: block;" target="_blank" rel="noopener">
+            ${debtBtnLabel}
+          </a>
+        ` : `
+          <button type="button" class="btn btn-danger btn-overview-pay-debts" id="btn-overview-pay-debts" 
+            data-single-name="${escapeHtml(debtorName)}"
+            style="flex: 1; min-width: 140px; background: #ef4444; border: none; font-weight: 800; padding: 10px 12px; font-size: 0.85rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.3);">
+            ${debtBtnLabel}
+          </button>
+        `}
+        <button type="button" class="btn btn-primary btn-overview-collect-due" id="btn-overview-collect-due"
+          style="flex: 1; min-width: 140px; background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 800; padding: 10px 12px; font-size: 0.85rem; box-shadow: 0 3px 10px rgba(16, 185, 129, 0.3);">
+          ${collectLabel}
+        </button>
+      </div>
+    `;
   }
 
   container.innerHTML = `
@@ -311,6 +401,7 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
           <div style="font-size: 1.15rem; font-weight: 800; color: #10b981;">${totalDue} kr</div>
         </div>
       </div>
+      ${ctaHtml}
     </div>
 
     <!-- Friends Settlement Cards -->
@@ -320,7 +411,7 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
       </span>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div id="overview-friends-cards" style="display: flex; flex-direction: column; gap: 10px;">
       ${friends.map((f, i) => {
         const owesYou = f.totalNet > 0;
         const absAmount = Math.abs(f.totalNet);
@@ -343,8 +434,8 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
                   </div>
                   <div style="font-size: 0.75rem; color: ${owesYou ? '#10b981' : '#ef4444'}; font-weight: 600;">
                     ${owesYou 
-                      ? (isEn ? `Ska swisha dig ${absAmount} kr` : `Ska swisha dig ${absAmount} kr`) 
-                      : (isEn ? `Du ska swisha ${absAmount} kr` : `Du ska swisha ${absAmount} kr`)}
+                      ? (isEn ? `Owes you ${absAmount} kr` : `Ska swisha dig ${absAmount} kr`) 
+                      : (isEn ? `You owe ${absAmount} kr` : `Du ska swisha ${absAmount} kr`)}
                   </div>
                 </div>
               </div>
@@ -357,13 +448,13 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
                   </a>
                 ` : owesYou && absAmount > 0 ? `
                   <button type="button" class="btn btn-ghost btn-xs btn-remind-unified" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" style="color: var(--gold); padding: 6px 10px;">
-                    💬 Påminn
+                    ${isEn ? '💬 Remind' : '💬 Påminn'}
                   </button>
                   <button type="button" class="btn btn-primary btn-xs btn-clear-all" data-friend-id="${escapeHtml(f.friendId)}" data-friend-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" data-duels="${f.duelsCount || 0}" data-tournaments="${(f.details || []).filter(d => d.type === 'tournament').length}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 6px 10px; font-size: 0.75rem;">
-                    ✅ Kvittera allt
+                    ${isEn ? '✅ Settle all' : '✅ Kvittera allt'}
                   </button>
                 ` : ''}
-                <button type="button" class="btn btn-secondary btn-xs btn-toggle-unified-details" data-target="details-${i}" title="Visa specifikation" style="padding: 6px 8px; font-size: 0.75rem;">
+                <button type="button" class="btn btn-secondary btn-xs btn-toggle-unified-details" data-target="details-${i}" title="${isEn ? 'View specification' : 'Visa underlag'}" style="padding: 6px 8px; font-size: 0.75rem;">
                   🔍
                 </button>
               </div>
@@ -451,7 +542,7 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
         renderLeaderboard();
       } catch (err) {
         btn.disabled = false;
-        btn.innerHTML = '✅ Kvittera allt';
+        btn.innerHTML = isEn ? '✅ Settle all' : '✅ Kvittera allt';
         if (err.message && err.message.includes('ändrats')) {
           showToast(isEn ? 'Balance changed — reloading...' : 'Saldot har ändrats — laddar om...', 'warning');
           renderLeaderboard();
@@ -461,6 +552,71 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
       }
     });
   });
+
+  // Attach top CTA listener for collecting due amounts
+  const collectDueBtn = container.querySelector('#btn-overview-collect-due');
+  if (collectDueBtn) {
+    collectDueBtn.addEventListener('click', () => {
+      const storedUser = getStoredUser();
+      const myPhone = storedUser?.swishNumber || storedUser?.phone || '';
+      const creditorsList = friends.filter(f => f.totalNet > 0);
+
+      let shareText = '';
+      if (creditorsList.length === 1) {
+        const c = creditorsList[0];
+        const cName = c.friendName || c.friendNickname || (isEn ? 'friend' : 'kompis');
+        const phoneNotice = myPhone ? (isEn ? ` to ${myPhone}` : ` till ${myPhone}`) : '';
+        shareText = isEn
+          ? `Hey ${cName}! Friendly reminder to Swish ${c.totalNet} kr for our Malta Betting games & tabs${phoneNotice} 📱🤝`
+          : `Tjena ${cName}! Vänlig påminnelse att swisha ${c.totalNet} kr för våra Malta Betting-spel och notor${phoneNotice} 📱🤝`;
+      } else {
+        const breakdown = creditorsList.map(c => `• ${c.friendName || c.friendNickname}: ${c.totalNet} kr`).join('\n');
+        const phoneNotice = myPhone ? (isEn ? `\n\nSwish to: ${myPhone}` : `\n\nSwisha gärna till: ${myPhone}`) : '';
+        shareText = isEn
+          ? `Hey everyone! Friendly reminder for open balances in The Tab / Malta Betting (${totalDue} kr total):\n${breakdown}${phoneNotice} 📱🤝`
+          : `Tjena! Vänlig påminnelse om utestående belopp i The Tab / Malta Betting (totalt ${totalDue} kr):\n${breakdown}${phoneNotice} 📱🤝`;
+      }
+
+      if (navigator.share) {
+        navigator.share({
+          title: isEn ? 'Malta Betting – Outstanding debts reminder' : 'Malta Betting – Påminnelse om utestående belopp',
+          text: shareText
+        }).catch(() => {});
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareText).then(() => {
+          showToast(isEn ? 'Reminder copied to clipboard! 📋' : 'Påminnelsetext kopierad till urklipp! 📋', 'success');
+        }).catch(() => {
+          showToast(shareText, 'info');
+        });
+      }
+    });
+  }
+
+  // Attach top CTA listener for paying debts (when rendered as a button)
+  const payDebtsBtn = container.querySelector('button#btn-overview-pay-debts');
+  if (payDebtsBtn) {
+    payDebtsBtn.addEventListener('click', () => {
+      const singleName = payDebtsBtn.getAttribute('data-single-name');
+      const cardsEl = document.getElementById('overview-friends-cards');
+      if (cardsEl) cardsEl.scrollIntoView({ behavior: 'smooth' });
+
+      if (singleName) {
+        showToast(
+          isEn
+            ? `No Swish number found for ${singleName}. See specification below.`
+            : `Inget Swish-nummer för ${singleName}. Se underlag nedan.`,
+          'info'
+        );
+      } else {
+        showToast(
+          isEn
+            ? 'Tap "📱 Swisha" on each person below to clear all debts 📱'
+            : 'Klicka på "📱 Swisha" på respektive person nedan för att betala 📱',
+          'info'
+        );
+      }
+    });
+  }
 }
 
 // ── 1. Tournament Settlement Tab ──────────────────────
