@@ -6088,6 +6088,22 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`📡 WebSocket ready on ws://localhost:${PORT}`);
     console.log(`💾 SQLite database active`);
   });
+
+  // Auto-backup every night at 03:00
+  let lastAutoBackupDate = '';
+  setInterval(async () => {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    if (now.getHours() === 3 && lastAutoBackupDate !== today) {
+      lastAutoBackupDate = today;
+      try {
+        const result = await db.backupDatabase();
+        console.log(`[auto-backup] ✅ ${result.filename} (${result.sizeBytes} bytes)`);
+      } catch (err) {
+        console.error('[auto-backup] ❌', err.message);
+      }
+    }
+  }, 60_000).unref();
 }
 
 export {
