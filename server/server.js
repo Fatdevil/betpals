@@ -1161,8 +1161,6 @@ app.post('/api/admin/broadcast-push', async (req, res) => {
 });
 
 // ── Users ────────────────────────────────────────────
-const BETPALS_INVITE_CODE = process.env.BETPALS_INVITE_CODE || null;
-
 app.post('/api/users/register', (req, res) => {
   const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
   const regKey = 'register:' + clientIp;
@@ -1173,17 +1171,7 @@ app.post('/api/users/register', (req, res) => {
     });
   }
 
-  const { name, realName, nickname, swishNumber, pin, avatarEmoji, inviteCode } = req.body;
-
-  // Invite code check (only active when BETPALS_INVITE_CODE is set)
-  if (BETPALS_INVITE_CODE) {
-    if (!inviteCode || inviteCode.trim() !== BETPALS_INVITE_CODE) {
-      db.recordFailedAttempt(regKey, 10, 15);
-      return res.status(403).json({
-        error: 'Ogiltig inbjudningskod. Kontakta arrangören för att få en kod.'
-      });
-    }
-  }
+  const { name, realName, nickname, swishNumber, pin, avatarEmoji } = req.body;
 
   const finalName = (name || realName || '').trim();
   const finalNickname = (nickname || '').trim();

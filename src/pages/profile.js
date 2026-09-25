@@ -130,13 +130,6 @@ function renderAuthScreen(content) {
             <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.pinHint')}</span>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">🎟️ ${t('profile.inviteCode')}</label>
-            <input type="text" class="form-input" id="reg-invite-code" 
-                   placeholder="${t('profile.inviteCodePlaceholder')}" maxlength="50" autocomplete="off" />
-            <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.inviteCodeHint')}</span>
-          </div>
-
           <button type="submit" class="btn btn-primary btn-block" id="reg-submit-btn">${t('profile.startBetting')}</button>
         </form>
 
@@ -268,7 +261,6 @@ function renderAuthScreen(content) {
     const nickname = document.getElementById('reg-nickname').value.trim();
     const rawSwish = document.getElementById('reg-swish').value.trim();
     const pin = document.getElementById('reg-pin').value.trim();
-    const inviteCode = document.getElementById('reg-invite-code')?.value.trim() || undefined;
 
     const cleanSwish = normalizePhone(rawSwish) || rawSwish.replace(/[^0-9]/g, '');
 
@@ -292,7 +284,7 @@ function renderAuthScreen(content) {
     btn.textContent = 'Skapar profil... ⏳';
 
     try {
-      const user = await registerUser({ name, nickname, swishNumber: cleanSwish, pin, avatarEmoji: '👤', inviteCode });
+      const user = await registerUser({ name, nickname, swishNumber: cleanSwish, pin, avatarEmoji: '👤' });
       storeUser(user);
       await checkPendingFriendInvite();
       await checkPendingPartyJoin();
