@@ -1,5 +1,5 @@
 // ── Components: Minigames Arcade ────────────────────────
-import { showModal, closeModal } from './modal.js';
+import { showModal, closeModal, isGameInProgress } from './modal.js';
 import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl, normalizeSwedishPhone, getAppBaseUrl, parseServerDate } from '../utils.js';
 import { 
   getFriends, 
@@ -1558,6 +1558,8 @@ export async function openBlind10Modal(initialRoom = null) {
   let activeWs = null;
   let activeAnimationId = null;
   let activeTimeoutId = null;
+  let waitingPollId = null;
+  let resultsShown = false;
   let currentRoom = initialRoom || null;
   let selectedStake = 20;
   let invitedFriendIds = new Set();
@@ -1580,6 +1582,7 @@ export async function openBlind10Modal(initialRoom = null) {
       clearTimeout(activeTimeoutId);
       activeTimeoutId = null;
     }
+    stopWaitingPoll();
   }
 
   const modalTitle = `<img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 24px; height: 24px; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(255,215,0,0.4));" />${t('arcade.blind10Title')}`;
@@ -1957,12 +1960,30 @@ export async function openBlind10Modal(initialRoom = null) {
     renderPartyLobbyView();
   }
 
+  function stopWaitingPoll() {
+    if (waitingPollId) {
+      clearInterval(waitingPollId);
+      waitingPollId = null;
+    }
+  }
+
+  // Shows the results once per round. Later "waiting" renders must not cover them.
+  function showPartyResults(room, isTie, tiedPlayerIds) {
+    resultsShown = true;
+    stopWaitingPoll();
+    currentRoom = room;
+    renderPartyResultsView(room, isTie, tiedPlayerIds);
+  }
+
   function handlePartyWsMessage(data) {
     if (data.type === 'party_updated' && data.room) {
       currentRoom = data.room;
-      renderPartyLobbyView();
+      // Only the lobby re-renders; never throw players out of a round in progress
+      if (data.room.status === 'lobby') renderPartyLobbyView();
     } else if (data.type === 'party_started' && data.room) {
       currentRoom = data.room;
+      resultsShown = false;
+      stopWaitingPoll();
       runPartyStopwatchRound(data.countdownSec || 3);
     } else if (data.type === 'party_player_stopped') {
       const waitingStatus = document.getElementById('party-waiting-status');
@@ -1970,10 +1991,14 @@ export async function openBlind10Modal(initialRoom = null) {
         waitingStatus.textContent = `${data.stoppedCount} / ${data.totalCount} ${isEn ? 'finished' : 'har stannat'}`;
       }
     } else if (data.type === 'party_results' && data.room) {
-      currentRoom = data.room;
-      renderPartyResultsView(data.room, data.isTie, data.tiedPlayerIds);
+      showPartyResults(data.room, data.isTie, data.tiedPlayerIds);
+    } else if (data.type === 'party_pot_split' && data.room) {
+      showToast(isEn ? '🤝 The pot was split between the tied players' : '🤝 Potten delades mellan de som låg lika', 'info');
+      showPartyResults(data.room, false, []);
     } else if (data.type === 'party_sudden_death_start' && data.room) {
       currentRoom = data.room;
+      resultsShown = false;
+      stopWaitingPoll();
       runPartyStopwatchRound(data.countdownSec || 3);
     }
   }
@@ -2214,6 +2239,8 @@ export async function openBlind10Modal(initialRoom = null) {
     let official = null;
     let waitingShown = false;
     runStopwatchGame(countdownSec, (time, diff) => {
+      // The round may already be decided (the last player's stop brings the results)
+      if (resultsShown) return;
       waitingShown = true;
       if (official) {
         renderWaitingForOthers(official.stoppedTime, official.diff, true);
@@ -2225,7 +2252,11 @@ export async function openBlind10Modal(initialRoom = null) {
         .then((res) => {
           if (typeof res?.stoppedTime !== 'number') return;
           official = { stoppedTime: res.stoppedTime, diff: res.diff };
-          if (waitingShown && document.getElementById('party-my-time')) {
+          if (res.room && (res.room.status === 'completed' || res.room.status === 'tie') && !resultsShown) {
+            showPartyResults(res.room, res.room.status === 'tie', res.room.tiedPlayerIds);
+            return;
+          }
+          if (!resultsShown && waitingShown && document.getElementById('party-my-time')) {
             renderWaitingForOthers(official.stoppedTime, official.diff, true);
           }
         })
@@ -2262,6 +2293,24 @@ export async function openBlind10Modal(initialRoom = null) {
         </div>
       </div>
     `;
+
+    // If the live connection dropped (e.g. the phone locked), ask the server instead,
+    // so nobody is left waiting forever
+    if (!waitingPollId && currentRoom?.id) {
+      waitingPollId = setInterval(async () => {
+        if (resultsShown || !document.getElementById('party-my-time')) {
+          stopWaitingPoll();
+          return;
+        }
+        try {
+          const res = await getPartyRoom(currentRoom.id);
+          const room = res?.room;
+          if (room && (room.status === 'completed' || room.status === 'tie') && !resultsShown) {
+            showPartyResults(room, room.status === 'tie', room.tiedPlayerIds);
+          }
+        } catch {}
+      }, 3000);
+    }
   }
 
   // ── VIEW 5: PARTY RESULTS & PODIUM ───────────────────
@@ -2631,6 +2680,13 @@ export async function openBlind10Modal(initialRoom = null) {
 // ────────────────────────────────────────────────────────
 export function showIncomingPartyModal(room) {
   const isEn = getLang() === 'en';
+  // Don't throw the player out of a game they are playing right now
+  if (isGameInProgress()) {
+    showToast(isEn
+      ? `🎉 ${room.hostNickname || 'A friend'} invited you to room #${room.code}. Open it from the push notification when you're done.`
+      : `🎉 ${room.hostNickname || 'En polare'} bjöd in dig till rum #${room.code}. Öppna inbjudan när du är klar.`, 'info');
+    return;
+  }
   playTone(587.33, 'sine', 0.25, 0.15); // D5 chime
   setTimeout(() => playTone(880, 'sine', 0.3, 0.15), 150);
 
@@ -4680,6 +4736,10 @@ export async function openAnyBetModal(initialBetId = null) {
 // ────────────────────────────────────────────────────────
 export function showIncomingAnyBetModal(bet) {
   const isEn = getLang() === 'en';
+  if (isGameInProgress()) {
+    showToast(isEn ? `🤝 New AnyBet: "${bet.title}"` : `🤝 Nytt AnyBet: "${bet.title}"`, 'info');
+    return;
+  }
   playTone(587.33, 'sine', 0.25, 0.15);
   setTimeout(() => playTone(880, 'sine', 0.3, 0.15), 150);
 
@@ -6151,7 +6211,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   function handleSpacePartyWsMessage(data) {
     if (data.type === 'party_updated' && data.room) {
       partyRoom = data.room;
-      renderPartyLobbyView();
+      // Only the lobby re-renders; never throw pilots out of a round in progress
+      if (data.room.status === 'lobby') renderPartyLobbyView();
     } else if (data.type === 'party_started' && data.room) {
       partyRoom = data.room;
       runPartyGameStartCountdown(data.countdownSec || 3);
@@ -6320,6 +6381,25 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         </div>
       </div>
     `;
+
+    // Fallback if the live connection dropped: ask the server until the round is decided
+    const roomId = partyRoom?.id;
+    if (!roomId) return;
+    const poll = setInterval(async () => {
+      if (!root.querySelector('#space-party-waiting-status')) {
+        clearInterval(poll);
+        return;
+      }
+      try {
+        const res = await getPartyRoom(roomId);
+        const room = res?.room;
+        if (room && (room.status === 'completed' || room.status === 'tie')) {
+          clearInterval(poll);
+          partyRoom = room;
+          showPartyResultsView(room, room.status === 'tie', room.tiedPlayerIds);
+        }
+      } catch {}
+    }, 3000);
   }
 
   function showPartyResultsView(room, isTie = false, tiedPlayerIds = []) {

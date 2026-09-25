@@ -4,7 +4,7 @@ import { initAds } from './components/ads.js';
 import { addFriend, getPartyRoom, joinPartyRoom, connectWebSocket } from './api.js';
 import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
-import { closeModal } from './components/modal.js';
+import { closeModal, isGameInProgress } from './components/modal.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal, openAllArcadeGamesModal, openFlashBetModal, openAnyBetModal, openLovenGameModal } from './components/minigames.js';
 import { initMaltaSupportWidget } from './components/maltaSupport.js';
 import { setDeferredPrompt, isAppStandalone, shouldShowAutoPrompt, showPwaInstallModal } from './components/pwaInstallModal.js';
@@ -163,14 +163,19 @@ function initPwa() {
 
   // If running in normal browser, gently offer installation guide after 12s of engagement
   if (shouldShowAutoPrompt()) {
-    setTimeout(() => {
-      if (!isAppStandalone() && shouldShowAutoPrompt()) {
-        const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
-        if (isMobile) {
-          showPwaInstallModal({ forced: false });
-        }
+    const offerInstall = () => {
+      if (isAppStandalone() || !shouldShowAutoPrompt()) return;
+      // Never interrupt a game in progress (it would replace the game dialog)
+      if (isGameInProgress()) {
+        setTimeout(offerInstall, 30000);
+        return;
       }
-    }, 12000);
+      const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+      if (isMobile) {
+        showPwaInstallModal({ forced: false });
+      }
+    };
+    setTimeout(offerInstall, 12000);
   }
 }
 
@@ -184,6 +189,8 @@ function checkFirstRunPushPrompt() {
 
   setTimeout(async () => {
     if (Notification.permission !== 'default') return;
+    // Ask later instead of interrupting a game in progress
+    if (isGameInProgress()) return;
     localStorage.setItem(PUSH_PROMPT_KEY, '1');
 
     const { showModal, closeModal } = await import('./components/modal.js');
@@ -251,12 +258,18 @@ function init() {
   function handleHashRoute() {
     const hash = (window.location.hash || '').replace(/^#\/?/, '');
     if (!hash) return;
-    // A notification link replaces whatever dialog was open (e.g. the games list)
-    closeModal();
+    // A notification link replaces whatever dialog was open (e.g. the games list),
+    // but never a game in progress: that would throw both players out of the round
+    const gameRunning = isGameInProgress();
+    if (!gameRunning) closeModal();
     const clearHash = () => window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
     // Game notifications open the right game on top of the betting page
     const openOnHome = (open) => {
       clearHash();
+      if (gameRunning) {
+        showToast('Avsluta spelet du är i först, öppna sedan notisen igen.', 'info');
+        return;
+      }
       if (currentPage !== 'home') navigate('home');
       open();
     };
@@ -439,6 +452,10 @@ function init() {
 }
 
 async function handlePartyRoomDeepLink(code) {
+  if (isGameInProgress()) {
+    showToast('Avsluta spelet du är i först, öppna sedan inbjudan igen.', 'info');
+    return;
+  }
   try {
     const res = await getPartyRoom(code);
     const room = res?.room;

@@ -3954,6 +3954,9 @@ app.post('/api/minigames/party/join', (req, res) => {
     return res.status(400).json({ error: 'Spelet har redan startat' });
   }
 
+  // Re-opening the invitation (e.g. tapping the notification again) must not disturb
+  // the others: only a genuinely new player is announced
+  const isNewPlayer = !player;
   if (!player) {
     player = {
       id: user.id,
@@ -3969,10 +3972,12 @@ app.post('/api/minigames/party/join', (req, res) => {
     room.players.push(player);
   }
 
-  broadcastToParty(room.id, {
-    type: 'party_updated',
-    room
-  });
+  if (isNewPlayer) {
+    broadcastToParty(room.id, {
+      type: 'party_updated',
+      room
+    });
+  }
 
   res.json({ room });
 });

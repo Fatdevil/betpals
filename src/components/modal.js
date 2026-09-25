@@ -1,6 +1,22 @@
 // ── Components: Modal ─────────────────────────────────
 import { getLang } from '../i18n.js';
 
+// The dialog currently on screen. Only one dialog exists at a time, so a new one replaces
+// it; this lets automatic pop-ups check first whether a game is in progress.
+let currentDialog = null;
+
+// True while a game dialog (e.g. a Blind 10 round or party room) is open and busy.
+// Automatic pop-ups (install prompt, invitations, ...) must not replace it.
+export function isGameInProgress() {
+  if (!currentDialog || !currentDialog.isGame) return false;
+  if (!document.getElementById('modal-root')?.childElementCount) return false;
+  try {
+    return currentDialog.isBusy();
+  } catch {
+    return false;
+  }
+}
+
 export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {}) {
   const root = document.getElementById('modal-root');
 
@@ -21,6 +37,8 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
 
   const isFullScreen = Boolean(options.fullScreen);
   const isGame = Boolean(options.isGame);
+  const dialogState = { isGame, isBusy: () => false };
+  currentDialog = dialogState;
   const preventBackdropClose = options.preventBackdropClose ?? (isGame || options.closeOnBackdrop === false);
   const backdropTriggersConfirm = Boolean(options.backdropTriggersConfirm);
   let confirmClose = options.confirmClose ?? isGame;
@@ -61,6 +79,7 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
   const forceClose = () => {
     window.removeEventListener('keydown', handleKeydown);
     root.innerHTML = '';
+    if (currentDialog === dialogState) currentDialog = null;
     if (onClose) onClose();
     try {
       root.dispatchEvent(new CustomEvent('modal-closed'));
@@ -200,6 +219,8 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
     if (customTexts) customConfirmTexts = customTexts;
   };
 
+  dialogState.isBusy = isBusy;
+
   const setConfirmClose = (val, customTexts = null) => {
     confirmClose = val;
     if (customTexts) customConfirmTexts = customTexts;
@@ -215,5 +236,6 @@ export function showModal(title, contentHtml, onCloseOrOptions, maybeOptions = {
 }
 
 export function closeModal() {
+  currentDialog = null;
   document.getElementById('modal-root').innerHTML = '';
 }
