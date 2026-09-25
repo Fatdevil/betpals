@@ -1,3 +1,5 @@
+process.env.NODE_ENV = 'test';
+
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import * as db from '../server/db.js';
@@ -17,7 +19,9 @@ describe('User Authentication & Swedish Phone Normalization Audit', () => {
     assert.equal(db.normalizePhone('+46701234567'), '0701234567');
     assert.equal(db.normalizePhone('46701234567'), '0701234567');
     assert.equal(db.normalizePhone('0046701234567'), '0701234567');
+    assert.equal(db.normalizePhone('00460701234567'), '0701234567');
     assert.equal(db.normalizePhone('+46 (0)70 123 45 67'), '0701234567');
+    assert.equal(db.normalizePhone('00356 99123456'), '35699123456');
 
     // Without leading 0 (9 digits starting with 7)
     assert.equal(db.normalizePhone('701234567'), '0701234567');
@@ -30,6 +34,25 @@ describe('User Authentication & Swedish Phone Normalization Audit', () => {
     assert.equal(db.normalizePhone(''), '');
     assert.equal(db.normalizePhone(null), '');
     assert.equal(db.normalizePhone(undefined), '');
+  });
+
+  test('utils.js: normalizeSwedishPhone and formatSwedishPhoneDisplay', async () => {
+    const { normalizeSwedishPhone, formatSwedishPhoneDisplay } = await import('../src/utils.js');
+
+    // Valid Swedish mobile
+    assert.equal(normalizeSwedishPhone('0701234567'), '0701234567');
+    assert.equal(normalizeSwedishPhone('+46 70 123 45 67'), '0701234567');
+    assert.equal(normalizeSwedishPhone('00460701234567'), '0701234567');
+    assert.equal(normalizeSwedishPhone('072-998 87 76'), '0729988776');
+
+    // Truncated (e.g. from old maxlength=15)
+    assert.equal(normalizeSwedishPhone('+46 70 123 45 6'), null);
+    assert.equal(normalizeSwedishPhone('070123456'), null);
+
+    // Display formatting
+    assert.equal(formatSwedishPhoneDisplay('0701234567'), '070-123 45 67');
+    assert.equal(formatSwedishPhoneDisplay('+46 70 123 45 67'), '070-123 45 67');
+    assert.equal(formatSwedishPhoneDisplay('0729988776'), '072-998 87 76');
   });
 
   test('getUserByNicknameOrSwish matches user via any phone format, real name, @nickname or nickname', () => {
@@ -111,5 +134,88 @@ describe('User Authentication & Swedish Phone Normalization Audit', () => {
     // Searching with +46 format should also find the legacy user
     const foundFromPlus46 = db.getUserByNicknameOrSwish(`+46 70 ${rand7.slice(0, 3)} ${rand7.slice(3)}`);
     assert.equal(foundFromPlus46?.id, legacyId, 'Should find legacy 46 user when typing +46');
+  });
+
+  test('/api/users/register validates 10 digits for Swedish mobile and enables auto-login for existing users', async () => {
+    const { server } = await import('../server/server.js');
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      const rand = Math.floor(1000000 + Math.random() * 9000000);
+      const swishNumber = `070${rand}`;
+      const nickname = `SwishTester${rand}`;
+      const realName = 'Swish Testare';
+      const pin = '9876';
+
+      // 1. Incomplete 9-digit Swedish number should fail with descriptive error
+      const resIncomplete = await fetch(`${base}/api/users/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: realName,
+          nickname: nickname + 'x',
+          swishNumber: '070123456', // only 9 digits
+          pin: '1234'
+        })
+      });
+      const errIncomplete = await resIncomplete.json();
+      assert.equal(resIncomplete.status, 400);
+      assert.match(errIncomplete.error, /10 siffror/);
+
+      // 2. Register valid user with international format (+46 70 ...)
+      const resReg = await fetch(`${base}/api/users/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: realName,
+          nickname,
+          swishNumber: `+46 70 ${String(rand).slice(0, 3)} ${String(rand).slice(3, 5)} ${String(rand).slice(5)}`,
+          pin
+        })
+      });
+      const dataReg = await resReg.json();
+      assert.equal(resReg.status, 200);
+      assert.equal(dataReg.swishNumber, swishNumber, 'Should store canonical 10-digit 070 number');
+      assert.ok(dataReg.token, 'Should return auth token');
+
+      // 3. User comes back to register form and enters same Swish with CORRECT PIN:
+      // Should seamlessly log in and return alreadyRegistered: true
+      const resReLogin = await fetch(`${base}/api/users/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: realName,
+          nickname,
+          swishNumber,
+          pin
+        })
+      });
+      const dataReLogin = await resReLogin.json();
+      assert.equal(resReLogin.status, 200);
+      assert.equal(dataReLogin.id, dataReg.id, 'Should identify existing user');
+      assert.equal(dataReLogin.alreadyRegistered, true, 'Should flag as already registered');
+      assert.ok(dataReLogin.token, 'Should have new rotated token');
+
+      // 4. Someone else or user with WRONG PIN tries to register with same Swish:
+      // Should return 400 with SWISH_ALREADY_REGISTERED and nickname
+      const resWrongPin = await fetch(`${base}/api/users/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Another User',
+          nickname: 'AnotherNick' + rand,
+          swishNumber,
+          pin: '0000' // wrong PIN
+        })
+      });
+      const errWrongPin = await resWrongPin.json();
+      assert.equal(resWrongPin.status, 400);
+      assert.equal(errWrongPin.code, 'SWISH_ALREADY_REGISTERED');
+      assert.equal(errWrongPin.existingNickname, nickname);
+      assert.equal(errWrongPin.swishNumber, swishNumber);
+    } finally {
+      server.close();
+    }
   });
 });

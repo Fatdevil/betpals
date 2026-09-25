@@ -108,16 +108,40 @@ export function sanitizeUrl(url) {
   return '';
 }
 
+export function normalizePhone(phone) {
+  if (!phone) return '';
+  let digits = String(phone).replace(/[^0-9]/g, '');
+  if (!digits) return '';
+
+  // Strip international exit prefix 00 (e.g. 0046... -> 46...)
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+
+  // Handle +46 070... or 0046 070... (which after stripping 00 starts with 460)
+  if (digits.startsWith('460') && digits.length >= 10) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith('46') && digits.length >= 9 && digits.length <= 13) {
+    digits = '0' + digits.slice(2);
+  } else if (digits.length === 9 && digits.startsWith('7')) {
+    digits = '0' + digits;
+  }
+  return digits;
+}
+
 export function normalizeSwedishPhone(raw) {
   if (!raw) return null;
-  const digits = String(raw).replace(/\D/g, '');
-  let normalized = digits;
-  // +46701234567 → 46701234567 (11 digits) → 0701234567
-  if (digits.startsWith('46') && digits.length === 11) normalized = '0' + digits.slice(2);
-  // 467XXXXXXXX (10 digits, no leading 0) → 07XXXXXXXX
-  if (digits.startsWith('467') && digits.length === 10) normalized = '0' + digits.slice(1);
-  // Valid Swedish mobile: 07XXXXXXXX (10 digits)
-  return /^07\d{8}$/.test(normalized) ? normalized : null;
+  const norm = normalizePhone(raw);
+  return /^07\d{8}$/.test(norm) ? norm : null;
+}
+
+export function formatSwedishPhoneDisplay(raw) {
+  if (!raw) return '';
+  const norm = normalizePhone(raw);
+  if (/^07\d{8}$/.test(norm)) {
+    return `${norm.slice(0, 3)}-${norm.slice(3, 6)} ${norm.slice(6, 8)} ${norm.slice(8, 10)}`;
+  }
+  return String(raw).trim();
 }
 
 export function createSwishUrl({ phone, amount, message }) {

@@ -1,7 +1,7 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getFriendRequests, acceptFriendRequest, declineFriendRequest, buildFriendInviteUrl, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
@@ -114,8 +114,9 @@ function renderAuthScreen(content) {
 
           <div class="form-group">
             <label class="form-label">📱 ${t('profile.swishNumber')} <span class="text-gold">*</span></label>
-            <input type="tel" inputmode="numeric" class="form-input" id="reg-swish" 
-                   placeholder="${t('profile.swishPlaceholder')}" required minlength="8" maxlength="15" />
+            <input type="tel" inputmode="numeric" autocomplete="tel" class="form-input" id="reg-swish" 
+                   placeholder="${t('profile.swishPlaceholder')}" required minlength="8" maxlength="25" />
+            <div id="reg-swish-helper" style="font-size: 0.72rem; margin-top: 4px; min-height: 16px;"></div>
             <span class="form-help" style="font-size: 0.7rem; color: var(--text-muted);">${t('profile.swishHint')}</span>
           </div>
 
@@ -224,17 +225,60 @@ function renderAuthScreen(content) {
     });
   }
 
+  // Real-time helper and auto-formatting for register swish input
+  const regSwishInput = document.getElementById('reg-swish');
+  const regSwishHelper = document.getElementById('reg-swish-helper');
+  if (regSwishInput && regSwishHelper) {
+    const updateHelper = () => {
+      const val = regSwishInput.value.trim();
+      if (!val) {
+        regSwishHelper.innerHTML = '';
+        return;
+      }
+      const norm = normalizePhone(val);
+      if (norm.startsWith('07')) {
+        if (norm.length === 10) {
+          regSwishHelper.innerHTML = `<span style="color: var(--success, #22c55e);">✓ Giltigt svenskt mobilnummer: ${escapeHtml(formatSwedishPhoneDisplay(norm))}</span>`;
+        } else if (norm.length < 10) {
+          regSwishHelper.innerHTML = `<span style="color: var(--gold, #eab308);">${norm.length} av 10 siffror inskrivna</span>`;
+        } else {
+          regSwishHelper.innerHTML = `<span style="color: var(--danger, #ef4444);">För många siffror (${norm.length} av 10)</span>`;
+        }
+      } else if (norm.length >= 8) {
+        regSwishHelper.innerHTML = `<span style="color: var(--success, #22c55e);">✓ Telefonnummer godkänt: ${escapeHtml(norm)}</span>`;
+      } else {
+        regSwishHelper.innerHTML = `<span style="color: var(--text-muted);">${norm.length} siffror (minst 8 krävs)</span>`;
+      }
+    };
+
+    regSwishInput.addEventListener('input', updateHelper);
+    regSwishInput.addEventListener('blur', () => {
+      const norm = normalizePhone(regSwishInput.value.trim());
+      if (norm.startsWith('07') && norm.length === 10) {
+        regSwishInput.value = formatSwedishPhoneDisplay(norm);
+      }
+      updateHelper();
+    });
+  }
+
   // Register form submit
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = document.getElementById('reg-name').value.trim();
     const nickname = document.getElementById('reg-nickname').value.trim();
-    const swishNumber = document.getElementById('reg-swish').value.trim();
+    const rawSwish = document.getElementById('reg-swish').value.trim();
     const pin = document.getElementById('reg-pin').value.trim();
     const inviteCode = document.getElementById('reg-invite-code')?.value.trim() || undefined;
 
-    if (!swishNumber || swishNumber.replace(/[^0-9]/g, '').length < 8) {
+    const cleanSwish = normalizePhone(rawSwish) || rawSwish.replace(/[^0-9]/g, '');
+
+    if (!cleanSwish || cleanSwish.length < 8) {
       showToast('Ange ditt Swish-nummer (minst 8 siffror) 📱', 'error');
+      return;
+    }
+
+    if (cleanSwish.startsWith('07') && cleanSwish.length !== 10) {
+      showToast('Svenska mobilnummer för Swish ska ha 10 siffror (t.ex. 070-123 45 67)', 'error');
       return;
     }
 
@@ -248,14 +292,36 @@ function renderAuthScreen(content) {
     btn.textContent = 'Skapar profil... ⏳';
 
     try {
-      const user = await registerUser({ name, nickname, swishNumber, pin, avatarEmoji: '👤', inviteCode });
+      const user = await registerUser({ name, nickname, swishNumber: cleanSwish, pin, avatarEmoji: '👤', inviteCode });
       storeUser(user);
       await checkPendingFriendInvite();
       await checkPendingPartyJoin();
-      showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
+      if (user.alreadyRegistered) {
+        showToast(user.message || `Välkommen tillbaka, ${user.nickname || user.realName}! 👋`, 'success');
+      } else {
+        showToast(`Välkommen, ${user.nickname || user.realName}! 🎉`, 'success');
+      }
       renderProfile();
     } catch (err) {
-      showToast(err.message, 'error');
+      if (err.data?.code === 'SWISH_ALREADY_REGISTERED') {
+        showToast(err.message || 'Ditt Swish-nummer är redan registrerat. Ange din PIN för att logga in!', 'info');
+        // Switch to login tab
+        document.querySelectorAll('.auth-tab').forEach(t => {
+          t.classList.toggle('active', t.dataset.tab === 'login');
+        });
+        document.getElementById('register-form').style.display = 'none';
+        document.getElementById('login-form').style.display = '';
+        const idInput = document.getElementById('login-identifier');
+        if (idInput) {
+          idInput.value = err.data.swishNumber || cleanSwish;
+        }
+        const pinInput = document.getElementById('login-pin');
+        if (pinInput) {
+          pinInput.focus();
+        }
+      } else {
+        showToast(err.message, 'error');
+      }
       btn.disabled = false;
       btn.textContent = t('profile.startBetting');
     }
@@ -476,7 +542,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         <div style="font-size: 1.3rem; font-weight: 700; margin-top: var(--space-sm);">${escapeHtml(user.realName || user.nickname)}</div>
         <div style="display: flex; justify-content: center; gap: 8px; margin-top: 4px; align-items: center; flex-wrap: wrap;">
           <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.8rem; font-weight: 600;">@${escapeHtml(user.nickname)}</span>
-          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 ${escapeHtml(user.swishNumber)}</span>` : ''}
+          ${user.swishNumber ? `<span class="badge badge-outline" style="font-size: 0.75rem;">📱 ${escapeHtml(formatSwedishPhoneDisplay(user.swishNumber))}</span>` : ''}
         </div>
       </div>
 
@@ -763,7 +829,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
 
         <div class="form-group mb-md">
           <label class="form-label" style="font-size: 0.75rem;">📱 ${t('profile.swishNumber')}</label>
-          <input type="tel" id="edit-swish" class="form-input" placeholder="0701234567" value="${user.swishNumber || ''}" />
+          <input type="tel" id="edit-swish" class="form-input" placeholder="070-123 45 67" value="${escapeHtml(formatSwedishPhoneDisplay(user.swishNumber) || '')}" maxlength="25" />
           <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">${t('profile.swishHint')}</div>
         </div>
 
@@ -1135,14 +1201,26 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   document.getElementById('save-profile-btn')?.addEventListener('click', async () => {
     const realName = document.getElementById('edit-real-name').value.trim();
     const nickname = document.getElementById('edit-nickname').value.trim();
-    const swishNumber = document.getElementById('edit-swish').value.trim();
+    const rawSwish = document.getElementById('edit-swish').value.trim();
+    let swishNumber = '';
+    if (rawSwish) {
+      swishNumber = normalizePhone(rawSwish) || rawSwish.replace(/[^0-9]/g, '');
+      if (swishNumber.startsWith('07') && swishNumber.length !== 10) {
+        showToast('Svenska mobilnummer för Swish ska ha 10 siffror (t.ex. 070-123 45 67)', 'error');
+        return;
+      }
+      if (swishNumber.length < 8 || swishNumber.length > 15) {
+        showToast('Ogiltigt Swish-nummer (ange 8-15 siffror)', 'error');
+        return;
+      }
+    }
 
     const btn = document.getElementById('save-profile-btn');
     btn.disabled = true;
     btn.textContent = 'Sparar... ⏳';
 
     try {
-      const res = await updateProfile({ realName, nickname, swishNumber });
+      const res = await updateProfile({ realName, nickname, swishNumber: swishNumber || null });
       const u = getStoredUser();
       if (res.user) {
         storeUser({ ...u, ...res.user });

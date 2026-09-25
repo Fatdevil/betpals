@@ -1201,18 +1201,85 @@ app.post('/api/users/register', (req, res) => {
     return res.status(400).json({ error: 'Välj en 4-siffrig personlig PIN-kod (exakt 4 siffror)' });
   }
 
-  const existingNick = db.getUserByNickname(finalNickname);
-  if (existingNick) {
-    return res.status(400).json({ error: 'Detta bettarnamn är redan taget. Välj ett annat!' });
-  }
-
-  const cleanSwish = swishNumber ? (db.normalizePhone(swishNumber) || swishNumber.replace(/[^0-9]/g, '')) : null;
+  const cleanSwish = swishNumber ? (db.normalizePhone(swishNumber) || String(swishNumber).replace(/[^0-9]/g, '')) : null;
   if (!cleanSwish || cleanSwish.length < 8) {
     return res.status(400).json({ error: 'Swish-nummer är obligatoriskt (minst 8 siffror)' });
   }
+
+  // Swedish mobile numbers start with 07 and must be exactly 10 digits
+  if (cleanSwish.startsWith('07') && cleanSwish.length !== 10) {
+    return res.status(400).json({
+      error: 'Svenska mobilnummer för Swish ska ha 10 siffror (t.ex. 070-123 45 67). Kontrollera numret.'
+    });
+  }
+
+  if (cleanSwish.length > 15) {
+    return res.status(400).json({ error: 'Ogiltigt telefonnummer för Swish (ange 8-15 siffror)' });
+  }
+
+  // Check if Swish is already registered BEFORE nickname check so returning users aren't falsely blocked
   const existingSwish = db.getUserBySwish(cleanSwish);
   if (existingSwish) {
-    return res.status(400).json({ error: 'Detta Swish-nummer är redan registrerat på en användare' });
+    // If account has a PIN set, verify it
+    if (existingSwish.pin_hash) {
+      const limitCheck = checkPinRateLimit(existingSwish.id);
+      if (!limitCheck.allowed) {
+        return res.status(429).json({
+          error: `Detta Swish-nummer är redan registrerat och kontot är tillfälligt spärrat på grund av felaktiga PIN-försök. Försök igen om ${limitCheck.minutesLeft} minuter.`
+        });
+      }
+
+      if (db.verifyUserPin(existingSwish, pin)) {
+        // Correct PIN! Returning user logging in via register form
+        clearPinAttempts(existingSwish.id);
+        db.clearRateLimit(regKey);
+        const newToken = crypto.randomBytes(32).toString('hex');
+        db.updateUserToken(existingSwish.id, newToken);
+        return res.json({
+          id: existingSwish.id,
+          nickname: existingSwish.nickname,
+          realName: existingSwish.real_name,
+          swishNumber: existingSwish.swish_number,
+          token: newToken,
+          avatar: existingSwish.avatar_emoji,
+          avatarUrl: existingSwish.avatar_url,
+          alreadyRegistered: true,
+          message: `Välkommen tillbaka, ${existingSwish.nickname}! Du var redan registrerad, så du loggades in automatiskt.`
+        });
+      }
+
+      // Wrong PIN entered
+      recordFailedPinAttempt(existingSwish.id);
+      return res.status(400).json({
+        error: `Det här Swish-numret är redan registrerat på "${existingSwish.nickname}". Logga in med din 4-siffriga PIN-kod istället.`,
+        code: 'SWISH_ALREADY_REGISTERED',
+        existingNickname: existingSwish.nickname,
+        swishNumber: cleanSwish
+      });
+    }
+
+    // Legacy account without a PIN: set PIN and log in
+    db.setUserPin(existingSwish.id, pin);
+    db.clearRateLimit(regKey);
+    const newToken = crypto.randomBytes(32).toString('hex');
+    db.updateUserToken(existingSwish.id, newToken);
+    return res.json({
+      id: existingSwish.id,
+      nickname: existingSwish.nickname,
+      realName: existingSwish.real_name,
+      swishNumber: existingSwish.swish_number,
+      token: newToken,
+      avatar: existingSwish.avatar_emoji,
+      avatarUrl: existingSwish.avatar_url,
+      alreadyRegistered: true,
+      message: `Välkommen tillbaka, ${existingSwish.nickname}! Vi har uppdaterat ditt konto med din PIN-kod och loggat in dig.`
+    });
+  }
+
+  // Nickname check for new registrations
+  const existingNick = db.getUserByNickname(finalNickname);
+  if (existingNick) {
+    return res.status(400).json({ error: 'Detta bettarnamn är redan taget. Välj ett annat!' });
   }
 
   const id = generateId();
@@ -1524,8 +1591,11 @@ app.put('/api/users/me/profile', (req, res) => {
   }
   if (swishNumber !== undefined && swishNumber !== null && String(swishNumber).trim() !== '') {
     const cleanSwish = db.normalizePhone(swishNumber) || String(swishNumber).replace(/[^0-9]/g, '');
-    if (cleanSwish.length < 8) {
-      return res.status(400).json({ error: 'Ogiltigt Swish-nummer (minst 8 siffror)' });
+    if (cleanSwish.startsWith('07') && cleanSwish.length !== 10) {
+      return res.status(400).json({ error: 'Svenska mobilnummer för Swish ska ha 10 siffror (t.ex. 070-123 45 67)' });
+    }
+    if (cleanSwish.length < 8 || cleanSwish.length > 15) {
+      return res.status(400).json({ error: 'Ogiltigt Swish-nummer (ange 8-15 siffror)' });
     }
     const existingSwish = db.getUserBySwish(cleanSwish);
     if (existingSwish && existingSwish.id !== user.id) {
@@ -1559,8 +1629,11 @@ app.put('/api/users/me/swish', (req, res) => {
   const raw = req.body.swishNumber;
   if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
     const cleanSwish = db.normalizePhone(raw) || String(raw).replace(/[^0-9]/g, '');
-    if (cleanSwish.length < 8) {
-      return res.status(400).json({ error: 'Ogiltigt Swish-nummer (minst 8 siffror)' });
+    if (cleanSwish.startsWith('07') && cleanSwish.length !== 10) {
+      return res.status(400).json({ error: 'Svenska mobilnummer för Swish ska ha 10 siffror (t.ex. 070-123 45 67)' });
+    }
+    if (cleanSwish.length < 8 || cleanSwish.length > 15) {
+      return res.status(400).json({ error: 'Ogiltigt Swish-nummer (ange 8-15 siffror)' });
     }
     const existingSwish = db.getUserBySwish(cleanSwish);
     if (existingSwish && existingSwish.id !== user.id) {

@@ -698,6 +698,8 @@ const stmts = {
     SELECT * FROM users 
     WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(swish_number, ' ', ''), '-', ''), '+', ''), '.', ''), '(', ''), ')', '') = ?
        OR swish_number = ?
+    ORDER BY CASE WHEN pin_hash IS NOT NULL THEN 0 ELSE 1 END, created_at DESC
+    LIMIT 1
   `),
   getUserByGoogleId: db.prepare('SELECT * FROM users WHERE google_id = ?'),
   getAllUsers: db.prepare('SELECT id, nickname, real_name, swish_number, avatar_emoji, avatar_url, email, needs_pin_reset, CASE WHEN pin_hash IS NOT NULL THEN 1 ELSE 0 END as has_pin, created_at FROM users ORDER BY created_at DESC'),
@@ -1545,9 +1547,13 @@ export function normalizePhone(phone) {
   let digits = String(phone).replace(/[^0-9]/g, '');
   if (!digits) return '';
 
-  if (digits.startsWith('0046') && digits.length >= 10) {
-    digits = '0' + digits.slice(4);
-  } else if (digits.startsWith('460') && digits.length >= 10) {
+  // Strip international exit prefix 00 (e.g. 0046... -> 46...)
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+
+  // Handle +46 070... or 0046 070... (which after stripping 00 starts with 460)
+  if (digits.startsWith('460') && digits.length >= 10) {
     digits = digits.slice(2);
   } else if (digits.startsWith('46') && digits.length >= 9 && digits.length <= 13) {
     digits = '0' + digits.slice(2);
