@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments, getActiveFlashLives, getFriendRequests, getPendingDuels, getSettlementsOverview } from '../api.js';
-import { formatCurrency, formatDate, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
+import { formatCurrency, formatDate, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
@@ -413,11 +413,14 @@ async function initHomeActionFeed(isEn, events = []) {
     const now = Date.now();
     const urgentEvent = (events || []).find(e => {
       if (e.status !== 'open' || !e.closesAt) return false;
-      const t = new Date(e.closesAt).getTime();
+      const dt = parseDateSafe(e.closesAt);
+      if (!dt) return false;
+      const t = dt.getTime();
       return t > now && (t - now) < 30 * 60 * 1000;
     });
     if (urgentEvent) {
-      const minLeft = Math.max(1, Math.round((new Date(urgentEvent.closesAt).getTime() - now) / 60000));
+      const dt = parseDateSafe(urgentEvent.closesAt);
+      const minLeft = dt ? Math.max(1, Math.round((dt.getTime() - now) / 60000)) : 1;
       items.push({
         id: 'urgent-event',
         icon: '⏱️',

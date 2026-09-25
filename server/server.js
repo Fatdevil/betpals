@@ -2044,8 +2044,9 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // ── Events ───────────────────────────────────────────
-app.get('/api/events', requireAuth, (req, res) => {
-  const includeAll = req.query.all === '1';
+app.get('/api/events', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const includeAll = req.query.all !== '0';
   res.json(db.getEventSummaries(includeAll));
 });
 
@@ -2145,7 +2146,8 @@ app.get('/api/events/active', (req, res) => {
   res.json({ activeEvent });
 });
 
-app.get('/api/events/:idOrCode', requireAuth, (req, res) => {
+app.get('/api/events/:idOrCode', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   const event = db.getFullEvent(req.params.idOrCode);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   res.json(event);

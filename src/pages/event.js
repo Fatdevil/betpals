@@ -1,5 +1,5 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
@@ -277,7 +277,7 @@ function renderEventContent(event, content, code) {
         </div>
       </div>
 
-      ${event.closesAt && !dl.isExpired ? `
+      ${event.closesAt && dl && !dl.isExpired ? `
         <!-- Active Deadline Banner -->
         <div class="card mb-md" id="deadline-banner" style="border: 1.5px solid var(--gold); background: linear-gradient(135deg, rgba(245,166,35,0.12) 0%, rgba(20,24,39,0.8) 100%); padding: 12px 16px;">
           <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -291,7 +291,7 @@ function renderEventContent(event, content, code) {
                   ${dl.text}
                 </div>
                 <div style="font-size: 0.72rem; color: var(--text-muted);">
-                  Stänger: ${new Date(event.closesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${new Date(event.closesAt).toLocaleDateString([], { month: 'short', day: 'numeric' })})
+                  Stänger: ${(parseDateSafe(event.closesAt) || new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${(parseDateSafe(event.closesAt) || new Date()).toLocaleDateString([], { month: 'short', day: 'numeric' })})
                 </div>
               </div>
             </div>
@@ -300,7 +300,7 @@ function renderEventContent(event, content, code) {
             </button>
           </div>
         </div>
-      ` : event.closesAt && dl.isExpired && !isFinished && event.status !== 'cancelled' ? `
+      ` : event.closesAt && dl && dl.isExpired && !isFinished && event.status !== 'cancelled' ? `
         <!-- Expired Deadline Banner -->
         <div class="card mb-md" style="border: 1.5px solid #e74c3c; background: rgba(231,76,60,0.1); padding: 12px 16px;">
           <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -776,7 +776,7 @@ function renderEventContent(event, content, code) {
 }
 
 function openCalendarModal(event) {
-  const startDate = event.closesAt ? new Date(event.closesAt) : (event.date ? new Date(event.date) : new Date());
+  const startDate = parseDateSafe(event.closesAt) || parseDateSafe(event.date) || new Date();
   const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
   const baseUrl = getAppBaseUrl();
   const title = `Malta Betting: ${event.name}`;

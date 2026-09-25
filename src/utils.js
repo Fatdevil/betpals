@@ -19,20 +19,37 @@ export function getAppBaseUrl() {
   return origin.replace(/\/$/, '');
 }
 
+export function parseDateSafe(dateVal) {
+  if (!dateVal) return null;
+  if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? null : dateVal;
+  if (typeof dateVal === 'number') {
+    const d = new Date(dateVal);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let str = String(dateVal).trim();
+  // If it's in SQL format "YYYY-MM-DD HH:mm:ss" or similar with space, replace space with 'T'
+  // WebKit / Safari fails on "YYYY-MM-DD HH:mm:ss"
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(str)) {
+    str = str.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)(\s*.*)?$/, '$1T$2$3');
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export function formatOdds(odds) {
   if (odds === null || odds === undefined) return '—';
   return odds.toFixed(2) + 'x';
 }
 
 export function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
+  const d = parseDateSafe(dateStr);
+  if (!d) return '';
   return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function formatTime(isoStr) {
-  if (!isoStr) return '';
-  const d = new Date(isoStr);
+  const d = parseDateSafe(isoStr);
+  if (!d) return '';
   return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -158,8 +175,9 @@ export function createSwishUrl({ phone, amount, message }) {
 
 export function formatDeadline(closesAt) {
   if (!closesAt) return null;
-  const target = new Date(closesAt).getTime();
-  if (isNaN(target)) return null;
+  const d = parseDateSafe(closesAt);
+  if (!d) return null;
+  const target = d.getTime();
   const diff = target - Date.now();
   if (diff <= 0) {
     return {
@@ -207,8 +225,10 @@ export function formatDeadline(closesAt) {
 
 export function generateIcsDataUrl({ title, description, startDate, endDate, url }) {
   const formatIcsDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const start = formatIcsDate(new Date(startDate || Date.now()));
-  const end = formatIcsDate(new Date(endDate || (new Date(startDate || Date.now()).getTime() + 60 * 60 * 1000)));
+  const startObj = parseDateSafe(startDate) || new Date();
+  const start = formatIcsDate(startObj);
+  const endObj = parseDateSafe(endDate) || new Date(startObj.getTime() + 60 * 60 * 1000);
+  const end = formatIcsDate(endObj);
   const ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -233,8 +253,10 @@ export function generateIcsDataUrl({ title, description, startDate, endDate, url
 
 export function generateGoogleCalendarUrl({ title, description, startDate, endDate, location }) {
   const formatGDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const start = formatGDate(new Date(startDate || Date.now()));
-  const end = formatGDate(new Date(endDate || (new Date(startDate || Date.now()).getTime() + 60 * 60 * 1000)));
+  const startObj = parseDateSafe(startDate) || new Date();
+  const start = formatGDate(startObj);
+  const endObj = parseDateSafe(endDate) || new Date(startObj.getTime() + 60 * 60 * 1000);
+  const end = formatGDate(endObj);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: title,
