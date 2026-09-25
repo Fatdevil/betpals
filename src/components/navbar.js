@@ -61,13 +61,23 @@ export function renderNavbar(activePage) {
       </div>
     </div>
     <div class="navbar">
-      ${items.map(item => `
-        <button class="nav-item ${activePage === item.id ? 'active' : ''}"
-                data-nav="${item.id}" id="nav-${item.id}">
-          <span class="nav-icon">${item.icon}</span>
-          <span>${item.label}</span>
-        </button>
-      `).join('')}
+      <div class="navbar-items">
+        ${items.map(item => `
+          <button class="nav-item ${activePage === item.id ? 'active' : ''}"
+                  data-nav="${item.id}" id="nav-${item.id}">
+            <span class="nav-icon">${item.icon}</span>
+            <span>${item.label}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="beta-ticker-bar" aria-label="Version info">
+        <div class="beta-ticker-track">
+          <span class="beta-ticker-text">Malta Betting Betaversion 0.00001 - But still awesome...</span>
+          <span class="beta-ticker-separator">✦</span>
+          <span class="beta-ticker-text">Malta Betting Betaversion 0.00001 - But still awesome...</span>
+          <span class="beta-ticker-separator">✦</span>
+        </div>
+      </div>
     </div>
   `;
 }
