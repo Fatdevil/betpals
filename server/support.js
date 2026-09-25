@@ -332,7 +332,7 @@ export function getMaltaPushFallback({ eventType, userName = 'Kompis', details =
       return {
         title: '🇲🇹 Malta Support: Aj aj aj...',
         body: templates[Math.floor(Math.random() * templates.length)],
-        url: '/duels'
+        url: '/#arcade'
       };
     }
     case 'duel_win': {
@@ -343,21 +343,21 @@ export function getMaltaPushFallback({ eventType, userName = 'Kompis', details =
       return {
         title: '🇲🇹 Malta Support: Kungligt! 🏆',
         body: templates[Math.floor(Math.random() * templates.length)],
-        url: '/duels'
+        url: '/#arcade'
       };
     }
     case 'duel_challenge': {
       return {
         title: '🇲🇹 Malta Support: Duell utlyst! ⚔️',
         body: `${opponentName} tror han kan tvåla dit dig i ${gameType} om ${stakeAmount} kr! Vågar du anta eller fegar du ur? 🏌️‍♂️🎲`,
-        url: '/duels'
+        url: '/#arcade'
       };
     }
     case 'debt_reminder': {
       return {
         title: '🇲🇹 Malta Support: Swish väntar... 💸',
         body: `Psst ${userName}! Du ligger back ${Math.abs(netAmount || stakeAmount)} kr mot ${creditorName}. Sköt det snyggt så bjuder hen kanske på nästa runda på 19:e! 🏖️🍹`,
-        url: '/leaderboard'
+        url: '/#swishlist'
       };
     }
     case 'tournament_settled': {
@@ -365,19 +365,19 @@ export function getMaltaPushFallback({ eventType, userName = 'Kompis', details =
         return {
           title: '🇲🇹 Malta Support: Slutavräkning klar! 🥂',
           body: `Grattis ${userName}! ${tournamentName} är avgjord och du går plus ${netAmount} kr. Dags att hålla fram Swish! 🏆💰`,
-          url: '/leaderboard'
+          url: '/#swishlist'
         };
       } else if (netAmount < 0) {
         return {
           title: '🇲🇹 Malta Support: Slutavräkning klar! 📊',
           body: `${tournamentName} är avgjord och du ligger back ${Math.abs(netAmount)} kr. In på 'Vem swishar vem' och städa upp innan kvällen spårar! 🍻`,
-          url: '/leaderboard'
+          url: '/#swishlist'
         };
       } else {
         return {
           title: '🇲🇹 Malta Support: Jämnt skägg! ⚖️',
           body: `${tournamentName} är avgjord och du går ut på exakt nollan! Inte en krona back. Grabben i supporten lyfter på hatten! ⛳`,
-          url: '/leaderboard'
+          url: '/#swishlist'
         };
       }
     }

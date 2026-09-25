@@ -66,7 +66,7 @@ test('Malta Support Push — generateMaltaSupportPush returns valid push object'
 
   assert.ok(push.title.includes('Malta Support'));
   assert.ok(push.body.length > 10);
-  assert.equal(push.url, '/duels');
+  assert.equal(push.url, '/#arcade'); // /duels was not a route the app could open
 });
 
 test('Malta Support Push — User notification preferences include notifySupport', async () => {
