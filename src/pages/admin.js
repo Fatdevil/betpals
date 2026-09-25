@@ -133,6 +133,7 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
       </div>
 
       ${hasPinSession ? '<div id="admin-users-list"></div>' : ''}
+      ${hasPinSession ? '<div id="admin-debts-list"></div>' : ''}
     </div>
   `;
 
@@ -161,6 +162,7 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
   await loadAdminEvents(loggedIn, hasPinSession, user);
   if (hasPinSession) {
     await loadAdminUsers(getPin());
+    await loadAdminDebts(getPin());
   }
 }
 
@@ -1516,4 +1518,112 @@ async function loadAdminUsers(pin) {
   } catch (err) {
     container.innerHTML = `<div class="text-red text-center">${escapeHtml(err.message)}</div>`;
   }
+}
+
+// ── Admin Debt Management ────────────────────────────
+async function loadAdminDebts(pin) {
+  const container = document.getElementById('admin-debts-list');
+  if (!container) return;
+
+  try {
+    const duels = await api.adminGetDebts(pin);
+    if (!Array.isArray(duels) || duels.length === 0) {
+      container.innerHTML = `
+        <div class="card mt-md">
+          <h3 style="font-size: 0.95rem; margin-bottom: var(--space-sm);">⚖️ Skulder & Tvister</h3>
+          <div class="empty-state">
+            <div class="empty-state-icon">✅</div>
+            <p class="empty-state-text">Inga dueller med skuld</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const unsettled = duels.filter(d => !d.is_settled);
+    const settled = duels.filter(d => d.is_settled);
+
+    container.innerHTML = `
+      <div class="card mt-md">
+        <h3 style="font-size: 0.95rem; margin-bottom: var(--space-sm);">⚖️ Skulder & Tvister</h3>
+        <p class="text-muted" style="font-size: 0.75rem; margin-bottom: var(--space-sm);">
+          ${unsettled.length} öppna skulder · ${settled.length} kvitterade
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          ${unsettled.map(d => renderDuelCard(d, 'unsettled')).join('')}
+          ${settled.length > 0 ? `
+            <details style="margin-top: 8px;">
+              <summary class="text-muted" style="font-size: 0.8rem; cursor: pointer;">Visa ${settled.length} kvitterade dueller</summary>
+              <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                ${settled.map(d => renderDuelCard(d, 'settled')).join('')}
+              </div>
+            </details>
+          ` : ''}
+        </div>
+      </div>`;
+
+    // Wire up buttons
+    container.querySelectorAll('.admin-delete-duel-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm('Vill du verkligen MAKULERA denna duell? Skulden försvinner helt.')) return;
+        btn.disabled = true;
+        try {
+          await api.adminDeleteDuel(id, pin);
+          showToast('Duell makulerad', 'success');
+          await loadAdminDebts(pin);
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+
+    container.querySelectorAll('.admin-unsettle-duel-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm('Ångra kvitteringen? Skulden återöppnas.')) return;
+        btn.disabled = true;
+        try {
+          await api.adminUnsettleDuel(id, pin);
+          showToast('Kvittering ångrad – skulden är åter öppen', 'info');
+          await loadAdminDebts(pin);
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<div class="text-red text-center">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderDuelCard(d, type) {
+  const winner = escapeHtml(d.winner_nickname || d.winner_name || '?');
+  const creator = escapeHtml(d.creator_nickname || d.creator_name || '?');
+  const opponent = escapeHtml(d.opponent_nickname || d.opponent_name || '?');
+  const amount = formatCurrency(d.stake_amount);
+  const date = d.created_at ? formatDate(d.created_at) : '';
+  const gameLabel = d.game_type === 'blind10' ? '🎯 Blind 10' :
+    d.game_type === 'spaceblitz' ? '🚀 Space Blitz' :
+    d.game_type === 'party' ? '🎉 Party' : (d.game_type || '🎮');
+
+  const isSettled = type === 'settled';
+  const borderColor = isSettled ? 'var(--success)' : 'var(--gold)';
+
+  return `
+    <div style="border-left: 3px solid ${borderColor}; padding: 8px 10px; background: var(--card-bg); border-radius: var(--radius-sm); font-size: 0.8rem;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px;">
+        <div>
+          <div style="font-weight: 600;">${gameLabel} · ${amount}</div>
+          <div class="text-muted" style="font-size: 0.7rem;">${creator} vs ${opponent}</div>
+          <div class="text-muted" style="font-size: 0.7rem;">🏆 ${winner} · ${date}</div>
+          ${isSettled ? '<span class="badge badge-success" style="font-size: 0.6rem;">✅ Kvitterad</span>' : '<span class="badge badge-warning" style="font-size: 0.6rem;">⏳ Öppen skuld</span>'}
+        </div>
+        <div style="display: flex; gap: 4px; flex-shrink: 0;">
+          ${isSettled ? `<button class="btn btn-sm btn-secondary admin-unsettle-duel-btn" data-id="${d.id}" style="font-size: 0.65rem; padding: 3px 6px;" title="Ångra kvittering">↩️</button>` : ''}
+          <button class="btn btn-sm btn-danger admin-delete-duel-btn" data-id="${d.id}" style="font-size: 0.65rem; padding: 3px 6px;" title="Makulera duell">🗑</button>
+        </div>
+      </div>
+    </div>`;
 }

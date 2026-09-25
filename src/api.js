@@ -151,6 +151,9 @@ export const adminSetup = (pin) => request('/admin/setup', { method: 'POST', bod
 export const adminVerify = (pin) => request('/admin/verify', { method: 'POST', body: { pin } });
 export const adminGetUsers = (pin) => request('/admin/users', { method: 'POST', body: { pin } });
 export const adminResetUserPin = (userId, pin) => request(`/admin/users/${userId}/reset-pin`, { method: 'POST', body: { pin } });
+export const adminGetDebts = (pin) => request('/admin/debts', { method: 'POST', body: { pin } });
+export const adminDeleteDuel = (id, pin) => request(`/admin/duels/${id}`, { method: 'DELETE', body: { pin } });
+export const adminUnsettleDuel = (id, pin) => request(`/admin/duels/${id}/unsettle`, { method: 'POST', body: { pin } });
 
 // ── Events ─────────────────────────────────────────────
 export const getEvents = () => request('/events');

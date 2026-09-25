@@ -77,6 +77,8 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (err) => {
   console.error('💥 [uncaughtException] Uncaught Exception:', err);
+  console.error('💥 Processen avslutas om 5 sekunder – Railway startar om automatiskt.');
+  setTimeout(() => process.exit(1), 5000).unref();
 });
 
 const app = express();
@@ -375,10 +377,8 @@ wss.on('connection', (ws, req) => {
     return false;
   }
 
-  if (eventCode) {
-    if (!eventClients.has(eventCode)) eventClients.set(eventCode, new Set());
-    eventClients.get(eventCode).add(ws);
-  }
+  // Don't join event channel yet – wait until auth confirms tournament access
+  let pendingEventCode = eventCode || null;
 
   if (duelId) {
     tryJoinDuel(duelId);
@@ -398,6 +398,18 @@ wss.on('connection', (ws, req) => {
           ws.betpalsUserId = user.id;
           if (!userClients.has(user.id)) userClients.set(user.id, new Set());
           userClients.get(user.id).add(ws);
+
+          // Join pending event channel after verifying tournament access
+          if (pendingEventCode) {
+            const tourney = db.getTournamentByCode(pendingEventCode);
+            if (tourney && db.canUserAccessTournament(tourney, boundUserId)) {
+              if (!eventClients.has(pendingEventCode)) eventClients.set(pendingEventCode, new Set());
+              eventClients.get(pendingEventCode).add(ws);
+              boundEventCode = pendingEventCode;
+            }
+            pendingEventCode = null;
+          }
+
           if (boundLiveId) {
             tryJoinLive(boundLiveId);
           }
@@ -479,6 +491,11 @@ wss.on('connection', (ws, req) => {
             const isAllowed = session && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)));
             if (!isAllowed) return;
           }
+          // Validate tournament access for comments sent to a tournament channel
+          if (msg.tournamentCode && !msg.liveId) {
+            const tourney = db.getTournamentByCode(msg.tournamentCode);
+            if (!tourney || !db.canUserAccessTournament(tourney, boundUserId)) return;
+          }
           const authUser = db.getUserById(boundUserId);
           const payload = {
             type: 'live_comment_received',
@@ -507,6 +524,11 @@ wss.on('connection', (ws, req) => {
           const isAllowed = session && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)));
           if (!isAllowed) return;
         }
+        // Validate tournament access for reactions sent to a tournament channel
+        if (msg.tournamentCode && !msg.liveId) {
+          const tourney = db.getTournamentByCode(msg.tournamentCode);
+          if (!tourney || !db.canUserAccessTournament(tourney, boundUserId)) return;
+        }
         const payload = {
           type: 'live_reaction_received',
           tournamentCode: msg.tournamentCode || null,
@@ -518,6 +540,10 @@ wss.on('connection', (ws, req) => {
       } else if (msg.type === 'webrtc_viewer_join' && msg.liveId && boundUserId) {
         const session = activeFlashLiveStreams.get(msg.liveId);
         if (session && session.hostId) {
+          // Verify viewer is allowed in this live session
+          const viewerOk = session.hostId === boundUserId ||
+            (session.targetUserIds && session.targetUserIds.includes(boundUserId));
+          if (!viewerOk) return;
           broadcastToUser(session.hostId, {
             type: 'webrtc_viewer_join',
             liveId: msg.liveId,
@@ -525,6 +551,14 @@ wss.on('connection', (ws, req) => {
           });
         }
       } else if (msg.type === 'webrtc_signal' && msg.liveId && msg.targetUserId && boundUserId) {
+        // Verify both sender and target belong to the live session
+        const session = activeFlashLiveStreams.get(msg.liveId);
+        if (!session) return;
+        const senderOk = session.hostId === boundUserId ||
+          (session.targetUserIds && session.targetUserIds.includes(boundUserId));
+        const targetOk = session.hostId === msg.targetUserId ||
+          (session.targetUserIds && session.targetUserIds.includes(msg.targetUserId));
+        if (!senderOk || !targetOk) return;
         broadcastToUser(msg.targetUserId, {
           type: 'webrtc_signal',
           liveId: msg.liveId,
@@ -626,6 +660,15 @@ function broadcastGlobal(message) {
     if (client.readyState === 1) {
       try { client.send(data); } catch {}
     }
+  }
+}
+
+// Broadcast a FlashBet event only to the creator and the target audience
+function broadcastFlashBetToTargets(flashBet, payload) {
+  broadcastToUser(flashBet.creatorId, payload);
+  const targets = flashBet.targetUserIds || [];
+  for (const tid of targets) {
+    if (tid !== flashBet.creatorId) broadcastToUser(tid, payload);
   }
 }
 
@@ -792,6 +835,20 @@ function getUserFromToken(req) {
   }
   if (!token) return null;
   return db.getUserByToken(token);
+}
+
+// Validate that a tournamentId refers to an existing, active tournament the user can access
+function validateTournamentContext(user, tournamentId) {
+  if (!tournamentId) return { valid: true, tournament: null };
+  const t = db.getFullTournament(tournamentId);
+  if (!t) return { valid: false, error: 'Turneringen hittades inte' };
+  if (t.status === 'settled' || t.status === 'cancelled') {
+    return { valid: false, error: 'Turneringen är avslutad' };
+  }
+  if (!db.canUserAccessTournament(t, user.id)) {
+    return { valid: false, error: 'Du har inte tillgång till denna turnering' };
+  }
+  return { valid: true, tournament: t };
 }
 
 // Middleware: require authenticated user
@@ -964,6 +1021,37 @@ app.get('/api/admin/backup/download', (req, res) => {
   res.download(latest.path, latest.name);
 });
 
+// ── Admin Debt Management ────────────────────────────
+app.post('/api/admin/debts', (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+  try {
+    const duels = db.getAllUnsettledDuels();
+    res.json(duels);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/duels/:id', (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+  try {
+    const deleted = db.adminDeleteDuel(req.params.id);
+    res.json({ ok: true, message: 'Duell makulerad', duel: deleted });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/duels/:id/unsettle', (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+  try {
+    const duel = db.adminUnsettleDuel(req.params.id);
+    res.json({ ok: true, message: 'Kvittering ångrad', duel });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
 // ── Users ────────────────────────────────────────────
 const BETPALS_INVITE_CODE = process.env.BETPALS_INVITE_CODE || null;
 
@@ -1097,6 +1185,16 @@ function isValidHttpUrl(str) {
 }
 
 app.post('/api/users/login', (req, res) => {
+  // IP-based rate limit to prevent brute-force from a single source
+  const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
+  const ipKey = 'login_ip:' + clientIp;
+  const ipLimit = db.checkRateLimit(ipKey);
+  if (!ipLimit.allowed) {
+    return res.status(429).json({
+      error: `För många inloggningsförsök från denna adress. Försök igen om ${ipLimit.minutesLeft} minuter.`
+    });
+  }
+
   const { identifier, nickname, swishNumber, pin } = req.body;
   const query = (identifier || nickname || swishNumber || '').trim();
   if (!query) {
@@ -1105,6 +1203,7 @@ app.post('/api/users/login', (req, res) => {
 
   const user = db.getUserByNicknameOrSwish(query);
   if (!user) {
+    db.recordFailedAttempt(ipKey, 15, 15); // 15 attempts per IP before lockout
     return res.status(404).json({ error: 'Ingen användare hittades med det namnet eller mobilnumret. Skapa profil först!' });
   }
 
@@ -1128,6 +1227,7 @@ app.post('/api/users/login', (req, res) => {
 
     if (!pin || !db.verifyUserPin(user, pin)) {
       const rec = recordFailedPinAttempt(user.id);
+      db.recordFailedAttempt(ipKey, 15, 15); // Also track per IP
       if (rec.count >= 5) {
         return res.status(429).json({
           error: 'För många felaktiga PIN-försök. Kontot har spärrats i 15 minuter.'
@@ -1138,6 +1238,9 @@ app.post('/api/users/login', (req, res) => {
 
     clearPinAttempts(user.id);
   }
+
+  // Clear IP rate limit on successful login
+  db.clearRateLimit(ipKey);
 
   // Rotate token on every successful login
   const newToken = crypto.randomBytes(32).toString('hex');
@@ -4925,13 +5028,14 @@ app.post('/api/flashbets', async (req, res) => {
   }
 
   if (tournamentId) {
-    const t = db.getFullTournament(tournamentId);
-    if (t && t.creatorId && !targetUserIds.includes(t.creatorId)) {
-      targetUserIds.push(t.creatorId);
+    const tv = validateTournamentContext(user, tournamentId);
+    if (!tv.valid) return res.status(400).json({ error: tv.error });
+    if (tv.tournament && tv.tournament.creatorId && !targetUserIds.includes(tv.tournament.creatorId)) {
+      targetUserIds.push(tv.tournament.creatorId);
     }
   }
 
-  const storedTargets = isTargetedSubset ? targetUserIds : null;
+  const storedTargets = targetUserIds.length > 0 ? targetUserIds : null;
 
   const id = generateId();
   db.createFlashBet(id, user.id, tournamentId, finalQuestion, duration, expiresAt, stake, storedTargets);
@@ -4947,24 +5051,11 @@ app.post('/api/flashbets', async (req, res) => {
 
   const created = db.getFlashBet(id, user.id);
 
-  // Broadcast WebSocket event
-  if (isTargetedSubset) {
-    broadcastToUser(user.id, {
-      type: 'flash_bet_created',
-      flashBet: created
-    });
-    for (const tid of targetUserIds) {
-      broadcastToUser(tid, {
-        type: 'flash_bet_created',
-        flashBet: created
-      });
-    }
-  } else {
-    broadcastGlobal({
-      type: 'flash_bet_created',
-      flashBet: created
-    });
-  }
+  // Broadcast to creator + target audience only
+  broadcastFlashBetToTargets(created, {
+    type: 'flash_bet_created',
+    flashBet: created
+  });
 
   const durationLabel = duration >= 60
     ? `${Math.round(duration / 60)} min`
@@ -4981,8 +5072,9 @@ app.post('/api/flashbets', async (req, res) => {
 
 app.get('/api/flashbets/active', (req, res) => {
   const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
   const tournamentId = req.query.tournamentId || null;
-  res.json(db.getActiveFlashBets(user ? user.id : null, tournamentId));
+  res.json(db.getActiveFlashBets(user.id, tournamentId));
 });
 
 app.get('/api/flashbets/:id', (req, res) => {
@@ -5012,27 +5104,20 @@ app.post('/api/flashbets/:id/bet', (req, res) => {
   const fb = db.getFlashBet(req.params.id);
   if (!fb) return res.status(404).json({ error: 'BlixtBet hittades inte' });
 
+  // Kontrollera att användaren tillhör målgruppen
+  if (fb.targetUserIds && fb.targetUserIds.length > 0 &&
+      fb.creatorId !== user.id && !fb.targetUserIds.includes(user.id)) {
+    return res.status(403).json({ error: 'Du har inte tillgång till detta BlixtBet' });
+  }
+
   try {
     const entryId = generateId();
     const updated = db.placeFlashBetEntry(entryId, fb.id, user.id, choice, fb.stakeAmount);
 
-    if (updated.targetUserIds && updated.targetUserIds.length > 0) {
-      broadcastToUser(updated.creatorId, {
-        type: 'flash_bet_updated',
-        flashBet: updated
-      });
-      for (const tid of updated.targetUserIds) {
-        broadcastToUser(tid, {
-          type: 'flash_bet_updated',
-          flashBet: updated
-        });
-      }
-    } else {
-      broadcastGlobal({
-        type: 'flash_bet_updated',
-        flashBet: updated
-      });
-    }
+    broadcastFlashBetToTargets(updated, {
+      type: 'flash_bet_updated',
+      flashBet: updated
+    });
 
     res.json(updated);
   } catch (err) {
@@ -5053,23 +5138,10 @@ app.post('/api/flashbets/:id/settle', (req, res) => {
   try {
     const settled = db.settleFlashBet(req.params.id, winnerChoice, user.id);
 
-    if (settled.targetUserIds && settled.targetUserIds.length > 0) {
-      broadcastToUser(settled.creatorId, {
-        type: 'flash_bet_settled',
-        flashBet: settled
-      });
-      for (const tid of settled.targetUserIds) {
-        broadcastToUser(tid, {
-          type: 'flash_bet_settled',
-          flashBet: settled
-        });
-      }
-    } else {
-      broadcastGlobal({
-        type: 'flash_bet_settled',
-        flashBet: settled
-      });
-    }
+    broadcastFlashBetToTargets(settled, {
+      type: 'flash_bet_settled',
+      flashBet: settled
+    });
 
     const participantUserIds = settled.entries.map(e => e.userId).filter(uid => uid !== user.id);
     sendPushToUsers(participantUserIds, {
@@ -5098,13 +5170,11 @@ app.delete('/api/flashbets/:id', (req, res) => {
       tournamentId: result.tournamentId
     };
 
-    if (result.targetUserIds && result.targetUserIds.length > 0) {
-      broadcastToUser(user.id, wsPayload);
-      for (const tid of result.targetUserIds) {
-        broadcastToUser(tid, wsPayload);
-      }
-    } else {
-      broadcastGlobal(wsPayload);
+    // Broadcast to creator + targets
+    broadcastToUser(user.id, wsPayload);
+    const targets = result.targetUserIds || [];
+    for (const tid of targets) {
+      if (tid !== user.id) broadcastToUser(tid, wsPayload);
     }
 
     res.json({ success: true, message: 'BlixtBet borttaget' });
@@ -5658,6 +5728,12 @@ app.post('/api/loven-games', (req, res) => {
     return res.status(400).json({ error: 'Vänligen ange matchdatum och tid' });
   }
 
+  // Validate tournament context if provided
+  if (tournamentId) {
+    const tv = validateTournamentContext(user, tournamentId);
+    if (!tv.valid) return res.status(400).json({ error: tv.error });
+  }
+
   const numericStake = Math.max(0, Math.min(10000, Number(stakeAmount) || 0));
   if (numericStake > 0 && !user.swish_number) {
     return res.status(400).json({ error: 'Du måste ange ditt Swish-nummer i profilen innan du skapar spel med insats.' });
@@ -5682,22 +5758,17 @@ app.post('/api/loven-games', (req, res) => {
     }
 
     // Broadcast notification to friends if provided
-    if (Array.isArray(targetFriendIds) && targetFriendIds.length > 0) {
-      for (const fId of targetFriendIds) {
-        broadcastToUser(fId, {
-          type: 'loven_game_created',
-          gameId: game.id,
-          opponentTeam: game.opponent_team,
-          creatorName: user.real_name || user.nickname
-        });
-      }
-    } else {
-      broadcastGlobal({
-        type: 'loven_game_created',
-        gameId: game.id,
-        opponentTeam: game.opponent_team,
-        creatorName: user.real_name || user.nickname
-      });
+    const lovenPayload = {
+      type: 'loven_game_created',
+      gameId: game.id,
+      opponentTeam: game.opponent_team,
+      creatorName: user.real_name || user.nickname
+    };
+    const lovenTargets = (Array.isArray(targetFriendIds) && targetFriendIds.length > 0)
+      ? targetFriendIds
+      : db.getFriends(user.id).map(f => f.id);
+    for (const fId of lovenTargets) {
+      broadcastToUser(fId, lovenPayload);
     }
 
     const fullGame = db.getLovenGame(game.id);
@@ -5751,12 +5822,15 @@ app.post('/api/loven-games/:id/join', (req, res) => {
       predShotsOnGoal
     });
 
-    broadcastGlobal({
-      type: 'loven_game_joined',
-      gameId: req.params.id,
-      userId: user.id,
-      nickname: user.nickname
-    });
+    const gameData = db.getLovenGame(req.params.id);
+    if (gameData && gameData.creator_id) {
+      broadcastToUser(gameData.creator_id, {
+        type: 'loven_game_joined',
+        gameId: req.params.id,
+        userId: user.id,
+        nickname: user.nickname
+      });
+    }
 
     res.json({ ok: true, game: sanitizeLovenGame(updatedGame, user) });
   } catch (err) {
@@ -5770,10 +5844,11 @@ app.post('/api/loven-games/:id/lock', (req, res) => {
 
   try {
     const updatedGame = db.lockLovenGame(req.params.id, user.id, !!user.is_admin);
-    broadcastGlobal({
-      type: 'loven_game_locked',
-      gameId: req.params.id
-    });
+    const lockPayload = { type: 'loven_game_locked', gameId: req.params.id };
+    broadcastToUser(updatedGame.creator_id, lockPayload);
+    for (const e of (updatedGame.entries || [])) {
+      if (e.user_id !== updatedGame.creator_id) broadcastToUser(e.user_id, lockPayload);
+    }
     res.json({ ok: true, game: sanitizeLovenGame(updatedGame, user) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -5816,11 +5891,15 @@ app.post('/api/loven-games/:id/settle', (req, res) => {
       resultShotsOnGoal
     }, user.id, !!user.is_admin);
 
-    broadcastGlobal({
+    const settlePayload = {
       type: 'loven_game_settled',
       gameId: req.params.id,
       game: settledGame
-    });
+    };
+    broadcastToUser(settledGame.creator_id, settlePayload);
+    for (const e of (settledGame.entries || [])) {
+      if (e.user_id !== settledGame.creator_id) broadcastToUser(e.user_id, settlePayload);
+    }
 
     // Notify participants via push
     const participantIds = (settledGame.entries || []).map(e => e.user_id);
@@ -5845,10 +5924,11 @@ app.post('/api/loven-games/:id/cancel', (req, res) => {
 
   try {
     const cancelledGame = db.cancelLovenGame(req.params.id, user.id, !!user.is_admin);
-    broadcastGlobal({
-      type: 'loven_game_cancelled',
-      gameId: req.params.id
-    });
+    const cancelPayload = { type: 'loven_game_cancelled', gameId: req.params.id };
+    broadcastToUser(cancelledGame.creator_id || user.id, cancelPayload);
+    for (const e of (cancelledGame.entries || [])) {
+      if (e.user_id !== user.id) broadcastToUser(e.user_id, cancelPayload);
+    }
     res.json({ ok: true, game: cancelledGame });
   } catch (err) {
     const status = (err.message.includes('Endast skaparen') || err.message.includes('Behörighet saknas')) ? 403 : 400;
@@ -5858,6 +5938,10 @@ app.post('/api/loven-games/:id/cancel', (req, res) => {
 
 // ── Malta AI Support Chat & Diagnostics ─────────────
 app.get('/api/support/health', async (req, res) => {
+  // Require at least user auth to see health status
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+
   const apiKey = (process.env.GEMINI_API_KEY || db.getSetting('gemini_api_key') || '').trim();
   if (!apiKey) {
     return res.json({ live: false, reason: 'GEMINI_API_KEY is not configured in env or database' });
@@ -5870,9 +5954,11 @@ app.get('/api/support/health', async (req, res) => {
     lastApiDiagnostic: getLastApiDiagnostic()
   };
 
-  // Only perform a live API test probe if explicitly asked via ?test=1
+  // Only perform a live API test probe if explicitly asked via ?test=1 AND admin PIN is provided
   if (req.query.test === '1') {
-    const probeModel = req.query.model || 'gemini-2.5-flash';
+    if (!requireAdminPin(req, res)) return;
+    const allowedModels = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    const probeModel = allowedModels.includes(req.query.model) ? req.query.model : 'gemini-2.5-flash';
     try {
       const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${probeModel}:generateContent?key=${apiKey}`, {
         method: 'POST',

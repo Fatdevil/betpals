@@ -506,9 +506,9 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   // Lightbox for photos in live feed
   content.querySelectorAll('.photo-feed-img').forEach(img => {
     img.addEventListener('click', () => {
-      const url = img.dataset.url;
-      const caption = img.dataset.caption;
-      const uploader = img.dataset.uploader;
+      const url = sanitizeUrl(img.dataset.url || '');
+      const caption = escapeHtml(img.dataset.caption || '');
+      const uploader = escapeHtml(img.dataset.uploader || '');
       showModal('📸 Foto', `
         <div class="photo-lightbox-modal text-center">
           <div style="max-height: 70vh; display: flex; align-items: center; justify-content: center; background: #000; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm);">

@@ -4588,5 +4588,39 @@ export function cancelLovenGame(gameId, requesterId, isAdmin = false) {
 }
 
 
+// ── Admin Debt Management ───────────────────────────
+
+export function getAllUnsettledDuels() {
+  return db.prepare(`
+    SELECT d.id, d.game_type, d.stake_amount, d.status, d.is_settled,
+      d.winner_id, d.creator_id, d.opponent_id, d.tournament_id,
+      d.created_at, d.settled_at,
+      c.nickname as creator_nickname, c.real_name as creator_name,
+      o.nickname as opponent_nickname, o.real_name as opponent_name,
+      w.nickname as winner_nickname, w.real_name as winner_name
+    FROM minigame_duels d
+    LEFT JOIN users c ON d.creator_id = c.id
+    LEFT JOIN users o ON d.opponent_id = o.id
+    LEFT JOIN users w ON d.winner_id = w.id
+    WHERE d.status = 'completed' AND d.stake_amount > 0
+    ORDER BY d.is_settled ASC, d.created_at DESC
+    LIMIT 200
+  `).all();
+}
+
+export function adminDeleteDuel(duelId) {
+  const duel = getDuelById(duelId);
+  if (!duel) throw new Error('Duellen hittades inte');
+  db.prepare('DELETE FROM minigame_duels WHERE id = ?').run(duelId);
+  return duel;
+}
+
+export function adminUnsettleDuel(duelId) {
+  const duel = getDuelById(duelId);
+  if (!duel) throw new Error('Duellen hittades inte');
+  db.prepare('UPDATE minigame_duels SET is_settled = 0, settled_at = NULL WHERE id = ?').run(duelId);
+  return getDuelById(duelId);
+}
+
 
 

@@ -6,3 +6,4 @@ server/betpals.db*
 *.db-wal
 .env
 *.log
+server/data.json
