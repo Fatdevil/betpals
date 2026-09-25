@@ -1492,6 +1492,20 @@ export function getAllUsers() {
   return stmts.getAllUsers.all();
 }
 
+export const deleteUser = db.transaction((userId) => {
+  if (!userId) return false;
+  // Clean up tables without CASCADE / SET NULL constraints
+  db.prepare('UPDATE tournament_participants SET user_id = NULL WHERE user_id = ?').run(userId);
+  db.prepare('UPDATE tournament_settlement_receipts SET from_user_id = NULL WHERE from_user_id = ?').run(userId);
+  db.prepare('UPDATE tournament_settlement_receipts SET to_user_id = NULL WHERE to_user_id = ?').run(userId);
+  db.prepare('DELETE FROM atomic_clearings WHERE user_id = ? OR friend_id = ?').run(userId, userId);
+  db.prepare('DELETE FROM rate_limits WHERE key LIKE ?').run(`%:${userId}%`);
+
+  // Delete user (SQLite foreign keys handle cascading child rows and SET NULL references)
+  const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  return result.changes > 0;
+});
+
 // ── Rate Limiting (Persistent) ────────────────────────
 export function checkRateLimit(key) {
   const row = stmts.getRateLimit.get(key);

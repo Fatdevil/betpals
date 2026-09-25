@@ -1024,6 +1024,36 @@ app.post('/api/admin/users/:id/reset-pin', (req, res) => {
   });
 });
 
+// Delete user (Superadmin only)
+app.delete('/api/admin/users/:id', (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+  const targetUser = db.getUserById(req.params.id);
+  if (!targetUser) return res.status(404).json({ error: 'Användare hittades inte' });
+
+  // Disconnect any active WebSockets for this user
+  const clients = userClients.get(targetUser.id);
+  if (clients) {
+    for (const ws of clients) {
+      try {
+        ws.send(JSON.stringify({ type: 'account_deleted', message: 'Ditt konto har raderats av administratör' }));
+        ws.close(1008, 'Account deleted');
+      } catch {}
+    }
+    userClients.delete(targetUser.id);
+  }
+
+  const success = db.deleteUser(targetUser.id);
+  if (!success) {
+    return res.status(500).json({ error: 'Kunde inte ta bort användaren' });
+  }
+
+  res.json({
+    ok: true,
+    message: `Användaren @${targetUser.nickname} (${targetUser.real_name || targetUser.nickname}) har tagits bort.`
+  });
+});
+
+
 // ── Admin Database Backup Operations ─────────────────
 app.post('/api/admin/backup', async (req, res) => {
   if (!requireAdminPin(req, res)) return;

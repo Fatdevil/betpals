@@ -186,6 +186,9 @@ export const sv = {
     resetPinBtn: '🔑 Nollställ PIN',
     pinResetToast: 'PIN nollställd för användaren!',
     resetPinConfirm: 'Vill du nollställa PIN-koden för',
+    deleteUserBtn: '🗑 Ta bort',
+    deleteUserConfirm: 'Vill du permanent ta bort användaren',
+    deleteUserToast: 'Användaren togs bort',
     noUsers: 'Inga registrerade användare ännu.'
   },
   profile: {

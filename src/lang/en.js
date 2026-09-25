@@ -185,6 +185,9 @@ export const en = {
     resetPinBtn: '🔑 Reset PIN',
     pinResetToast: 'PIN reset for user!',
     resetPinConfirm: 'Do you want to reset the PIN code for',
+    deleteUserBtn: '🗑 Delete',
+    deleteUserConfirm: 'Are you sure you want to permanently delete user',
+    deleteUserToast: 'User was deleted',
     noUsers: 'No registered users yet.'
   },
   profile: {

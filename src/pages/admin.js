@@ -1416,9 +1416,14 @@ async function loadAdminUsers(pin) {
                   ${u.needs_pin_reset ? '· <span class="text-red font-bold">PIN Nollställd</span>' : (u.has_pin ? '· <span class="text-green">PIN Aktiv</span>' : '· Ingen PIN')}
                 </div>
               </div>
-              <button class="btn btn-secondary btn-sm reset-user-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.nickname)}" style="font-size: 0.75rem;">
-                ${t('admin.resetPinBtn')}
-              </button>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <button class="btn btn-secondary btn-sm reset-user-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.nickname)}" style="font-size: 0.75rem;">
+                  ${t('admin.resetPinBtn')}
+                </button>
+                <button class="btn btn-danger btn-sm delete-user-btn" data-id="${u.id}" data-name="${escapeHtml(u.nickname)}" data-realname="${escapeHtml(u.real_name || u.nickname)}" style="font-size: 0.75rem; padding: 5px 9px;" title="Ta bort användare">
+                  ${t('admin.deleteUserBtn')}
+                </button>
+              </div>
             </div>
           `).join('')}
         </div>
@@ -1541,6 +1546,35 @@ async function loadAdminUsers(pin) {
           showToast(err.message, 'error');
           btn.disabled = false;
           btn.textContent = t('admin.resetPinBtn');
+        }
+      });
+    });
+
+    container.querySelectorAll('.delete-user-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const userId = btn.dataset.id;
+        const userName = btn.dataset.name;
+        const realName = btn.dataset.realname;
+        const currentUser = getStoredUser();
+        const isSelf = currentUser && currentUser.id === userId;
+
+        const warningMsg = isSelf 
+          ? `⚠️ OBS: Detta är ditt eget inloggade konto!\n\n`
+          : '';
+        const confirmMsg = `${warningMsg}${t('admin.deleteUserConfirm')} @${userName} (${realName})?\n\nDetta raderar användarens inloggning, PIN och relationer permanent. Lagda bets frikopplas men matchens pott behålls.`;
+
+        if (!confirm(confirmMsg)) return;
+
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          const res = await api.adminDeleteUser(userId, pin);
+          showToast(res?.message || t('admin.deleteUserToast'), 'success');
+          await loadAdminUsers(pin);
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = t('admin.deleteUserBtn');
         }
       });
     });
