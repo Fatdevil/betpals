@@ -4,7 +4,8 @@ import { initAds } from './components/ads.js';
 import { addFriend, getPartyRoom, joinPartyRoom, connectWebSocket } from './api.js';
 import { isLoggedIn, getStoredUser } from './auth.js';
 import { showToast } from './utils.js';
-import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal, openAllArcadeGamesModal } from './components/minigames.js';
+import { closeModal } from './components/modal.js';
+import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal, openAllArcadeGamesModal, openFlashBetModal, openAnyBetModal, openLovenGameModal } from './components/minigames.js';
 import { initMaltaSupportWidget } from './components/maltaSupport.js';
 import { setDeferredPrompt, isAppStandalone, shouldShowAutoPrompt, showPwaInstallModal } from './components/pwaInstallModal.js';
 import { isPushSupported, subscribeToPush, syncPushSubscription } from './push.js';
@@ -250,12 +251,34 @@ function init() {
   function handleHashRoute() {
     const hash = (window.location.hash || '').replace(/^#\/?/, '');
     if (!hash) return;
+    // A notification link replaces whatever dialog was open (e.g. the games list)
+    closeModal();
+    const clearHash = () => window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+    // Game notifications open the right game on top of the betting page
+    const openOnHome = (open) => {
+      clearHash();
+      if (currentPage !== 'home') navigate('home');
+      open();
+    };
     if (hash === 'admin' || hash === 'home' || hash === 'profile' || hash === 'join') {
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      clearHash();
       navigate(hash);
-    } else if (hash === 'leaderboard' || hash === 'swishlist') {
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+    } else if (hash === 'leaderboard' || hash === 'swishlist' || hash === 'the-tab') {
+      clearHash();
       navigate('leaderboard', { tab: hash === 'swishlist' ? 'swishlist' : 'tournaments' });
+    } else if (hash.startsWith('tournament?code=')) {
+      // Older notification links
+      const tCode = decodeURIComponent(hash.split('code=')[1] || '');
+      clearHash();
+      if (tCode) navigate('tournament', { code: tCode });
+    } else if (hash.startsWith('flashbet/')) {
+      const id = decodeURIComponent(hash.split('/')[1] || '');
+      openOnHome(() => openFlashBetModal(id || null));
+    } else if (hash.startsWith('anybet/')) {
+      const id = decodeURIComponent(hash.split('/')[1] || '');
+      openOnHome(() => openAnyBetModal(id || null));
+    } else if (hash === 'loven' || hash.startsWith('loven/')) {
+      openOnHome(() => openLovenGameModal());
     } else if (hash.startsWith('tournament/')) {
       const tCode = hash.split('/')[1];
       window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
@@ -264,11 +287,9 @@ function init() {
       const eCode = hash.split('/')[1];
       window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
       navigate('event', { code: eCode });
-    } else if (hash === 'arcade') {
+    } else if (hash === 'arcade' || hash === 'duels') {
       // Used by duel and game notifications: open the games from the betting page
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
-      navigate('home');
-      openAllArcadeGamesModal();
+      openOnHome(() => openAllArcadeGamesModal());
     }
   }
 
@@ -297,6 +318,12 @@ function init() {
       }
     });
     navigator.serviceWorker.startMessages?.();
+  }
+
+  // Older notifications linked to paths such as /duels or /leaderboard that do not exist
+  const legacyPaths = { '/duels': '#arcade', '/leaderboard': '#swishlist', '/the-tab': '#swishlist' };
+  if (legacyPaths[window.location.pathname]) {
+    window.history.replaceState({}, '', `/${window.location.search}${legacyPaths[window.location.pathname]}`);
   }
   if (window.location.hash) handleHashRoute();
 

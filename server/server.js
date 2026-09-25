@@ -2828,7 +2828,7 @@ app.post('/api/tournaments', (req, res) => {
         sendPushToUsers([friendUser.id], {
           title: '🏆 Inbjudan till event!',
           body: `${creatorName} har bjudit in dig till ${finalName}!`,
-          url: `/#tournament?code=${shareCode}`
+          url: `/#tournament/${shareCode}`
         }, 'tournaments').catch(() => {});
 
         broadcastToUser(friendUser.id, {
@@ -2870,7 +2870,7 @@ app.post('/api/tournaments/:id/invite', (req, res) => {
       sendPushToUsers([friendUser.id], {
         title: '🏆 Inbjudan till event!',
         body: `${creatorName} har bjudit in dig till ${tournament.name}!`,
-        url: `/#tournament?code=${tournament.share_code}`
+        url: `/#tournament/${tournament.share_code}`
       }, 'tournaments').catch(() => {});
 
       broadcastToUser(friendUser.id, {
@@ -3242,7 +3242,7 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
         tournamentName: tournament.name,
         netAmount: 0
       },
-      url: '/leaderboard'
+      url: `/#tournament/${tournament.shareCode}`
     }).catch(() => {});
   }
 
@@ -3546,7 +3546,7 @@ app.post('/api/settlement/clear-with/:friendId', (req, res) => {
     sendPushToUsers([friendId], {
       title: '✅ Skulder kvitterade!',
       body: `${settlerName} har kvitterat alla era gemensamma skulder (${result.totalCleared} kr)!`,
-      url: '/#the-tab'
+      url: '/#swishlist'
     }, 'settlement').catch(() => {});
 
     res.json(result);
@@ -5023,6 +5023,13 @@ app.post('/api/anybets/create', (req, res) => {
       });
     }
 
+    const creatorName = user.nickname || user.real_name || 'En polare';
+    sendPushToUsers(validParticipantIds, {
+      title: '🤝 Nytt AnyBet!',
+      body: `${creatorName} utmanar dig: "${bet.title}"${bet.stake_amount > 0 ? ` (${bet.stake_amount} kr)` : ''}. Tryck för att svara!`,
+      url: `/#anybet/${bet.id}`
+    }, 'duels').catch(() => {});
+
     res.json({ ok: true, bet: sanitizeAnyBet(bet, user.id) });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Kunde inte skapa bettet' });
@@ -5185,6 +5192,15 @@ app.post('/api/anybets/:id/settle', (req, res) => {
       }
     }
 
+    const notifyIds = (settledBet?.participants || [])
+      .filter(p => p.status === 'accepted' && p.user_id !== user.id)
+      .map(p => p.user_id);
+    sendPushToUsers(notifyIds, {
+      title: '🏁 AnyBet avgjort!',
+      body: `"${settledBet.title}" är avgjort av domaren. Se hur det gick!`,
+      url: `/#anybet/${settledBet.id}`
+    }, 'duels').catch(() => {});
+
     res.json({ ok: true, bet: sanitizeAnyBet(settledBet, user.id) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -5311,7 +5327,7 @@ app.post('/api/flashbets', async (req, res) => {
   sendPushToUsers(targetUserIds, {
     title: `⚡ BLIXTBET (${durationLabel} kvar!)`,
     body: `${user.real_name || user.nickname}: "${finalQuestion}"`,
-    url: tournamentId ? `/#tournament/${tournamentId}` : `/#arcade`
+    url: tournamentId ? `/#tournament/${tournamentId}` : `/#flashbet/${id}`
   }, 'flashbets').catch(() => {});
 
   res.json(created);
@@ -5394,7 +5410,7 @@ app.post('/api/flashbets/:id/settle', (req, res) => {
     sendPushToUsers(participantUserIds, {
       title: `🏁 BlixtBet avgjort!`,
       body: `"${settled.question}" vanns av ${winnerChoice === 'yes' ? '👍 JA' : '👎 NEJ'}!`,
-      url: settled.tournamentId ? `/#tournament/${settled.tournamentId}` : `/#arcade`
+      url: settled.tournamentId ? `/#tournament/${settled.tournamentId}` : `/#flashbet/${settled.id}`
     }, 'flashbets').catch(() => {});
 
     res.json(settled);
@@ -5866,7 +5882,7 @@ app.post('/api/tab/expenses', async (req, res) => {
       sendPushToUsers([p.user_id], {
         title: `🧾 Ny nota delad (${myShare} kr)`,
         body: `${payerName} har delat "${cleanTitle}". Din del är ${myShare} kr. Kvitto finns i Swishlistan.`,
-        url: '/#leaderboard'
+        url: '/#swishlist'
       }, 'duels').catch(() => {});
     }
 
@@ -5919,7 +5935,7 @@ app.delete('/api/tab/expenses/:id', (req, res) => {
       sendPushToUsers([result.expense.payer_id], {
         title: '⚠️ Nota bestriden',
         body: `${actorName} har bestridit sin del av "${result.expense.title}".`,
-        url: '/#leaderboard'
+        url: '/#swishlist'
       }, 'duels').catch(() => {});
     }
     res.json({ ok: true, removed: result.removed });
@@ -6154,7 +6170,7 @@ app.post('/api/loven-games/:id/settle', (req, res) => {
       sendPushToUsers(participantIds, {
         title: '🟢 Löven Game rättat!',
         body: `Matchen mot ${settledGame.opponent_team} är avgjord! Kolla THE TAB för resultat och Swish-avräkning.`,
-        url: '/#arcade'
+        url: '/#loven'
       }, 'duels').catch(() => {});
     }
 
