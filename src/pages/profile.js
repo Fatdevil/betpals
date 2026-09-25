@@ -1,7 +1,7 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getFriendRequests, acceptFriendRequest, declineFriendRequest, buildFriendInviteUrl, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
@@ -1334,7 +1334,7 @@ function showAddFriendModal(currentFriends = []) {
   const friendIdSet = new Set(currentFriends.map(f => f.id));
   const currentUser = getStoredUser();
   const myNick = currentUser?.nickname || '';
-  let inviteUrl = `${window.location.origin}/?addFriend=${encodeURIComponent(myNick)}`;
+  let inviteUrl = `${getAppBaseUrl()}/?addFriend=${encodeURIComponent(myNick)}`;
   let inviteText = `Tja! Häng med på Malta Betting och betta med oss: ${inviteUrl}`;
   buildFriendInviteUrl().then(url => {
     inviteUrl = url;

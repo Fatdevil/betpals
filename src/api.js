@@ -1,4 +1,5 @@
 // ── API layer + WebSocket client ──────────────────────
+import { getAppBaseUrl } from './utils.js';
 
 const BASE = '/api';
 const WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
@@ -164,7 +165,7 @@ export const getAllEvents = () => request('/events?all=1');
 export const getEvent = (idOrCode) => request(`/events/${idOrCode}`);
 export const createEvent = (data) => request('/events', { method: 'POST', body: data });
 export const deleteEvent = (id, pin) => request(`/events/${id}`, { method: 'DELETE', body: { pin } });
-export const getEventQR = (idOrCode, baseUrl) => {
+export const getEventQR = (idOrCode, baseUrl = getAppBaseUrl()) => {
   const params = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : '';
   return request(`/events/${idOrCode}/qr${params}`);
 };
@@ -246,7 +247,7 @@ export const getFriendInviteToken = () => request('/friends/invite-token');
 // Personal invite link: opening it creates the friendship directly (the sharer has consented)
 export async function buildFriendInviteUrl() {
   const { token, nickname } = await getFriendInviteToken();
-  return `${window.location.origin}/?addFriend=${encodeURIComponent(nickname)}&ft=${encodeURIComponent(token)}`;
+  return `${getAppBaseUrl()}/?addFriend=${encodeURIComponent(nickname)}&ft=${encodeURIComponent(token)}`;
 }
 export const searchUsers = (q) => request(`/users/search?q=${encodeURIComponent(q || '')}`);
 
@@ -283,7 +284,7 @@ export const settleTournament = (id, data = {}) =>
   request('/tournaments/' + id + '/settle', { method: 'POST', body: data });
 export const reopenTournament = (id, data = {}) =>
   request('/tournaments/' + id + '/reopen', { method: 'POST', body: data });
-export const getTournamentQR = (code, baseUrl) => {
+export const getTournamentQR = (code, baseUrl = getAppBaseUrl()) => {
   const params = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : '';
   return request('/tournaments/' + code + '/qr' + params);
 };
@@ -337,7 +338,7 @@ export const startPartyGame = (id) => request('/minigames/party/' + id + '/start
 export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof stoppedTime === 'object' && stoppedTime !== null ? stoppedTime : { stoppedTime } });
 export const submitPartyScore = (id, data) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof data === 'object' && data !== null ? data : { score: data } });
 export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
-export const getPartyRoomQR = (query, baseUrl) => request('/minigames/party/' + encodeURIComponent(query) + '/qr' + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : ''));
+export const getPartyRoomQR = (query, baseUrl = getAppBaseUrl()) => request('/minigames/party/' + encodeURIComponent(query) + '/qr' + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : ''));
 
 // ── Mafia (Varulv) Party Game ────────────────────────
 export const startMafiaGame = (id, data) => request('/minigames/mafia/' + id + '/start', { method: 'POST', body: data || {} });
@@ -390,7 +391,7 @@ export const getTabExpense = (id) => request('/tab/expenses/' + id);
 export const deleteTabExpense = (id) => request('/tab/expenses/' + id, { method: 'DELETE' });
 
 // ── App QR Code ───────────────────────────────────────
-export const getAppQr = (url) => request('/app/qr' + (url ? `?url=${encodeURIComponent(url)}` : ''));
+export const getAppQr = (url = getAppBaseUrl()) => request('/app/qr' + (url ? `?url=${encodeURIComponent(url)}` : ''));
 
 // ── Löven Game (Björklöven Matchtips 4-3-2p) ────────────
 export const createLovenGame = (data) => request('/loven-games', { method: 'POST', body: data });

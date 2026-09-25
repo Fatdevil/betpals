@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v11';
+const CACHE_NAME = 'betpals-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -7,6 +7,8 @@ const STATIC_ASSETS = [
   '/apple-touch-icon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/icon-maskable-192.png',
+  '/icons/icon-maskable-512.png',
   '/dice-gold.png',
   '/coin-head.jpg',
   '/slots-machine.png',

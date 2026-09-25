@@ -1,5 +1,5 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { renderOddsBoard } from '../components/odds-board.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
@@ -778,14 +778,15 @@ function renderEventContent(event, content, code) {
 function openCalendarModal(event) {
   const startDate = event.closesAt ? new Date(event.closesAt) : (event.date ? new Date(event.date) : new Date());
   const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+  const baseUrl = getAppBaseUrl();
   const title = `Malta Betting: ${event.name}`;
-  const description = `Spela och lägg dina bets på "${event.name}" i Malta Betting!\nKod: ${event.shareCode}\nLänk: ${window.location.origin}/?page=event&code=${event.shareCode}`;
+  const description = `Spela och lägg dina bets på "${event.name}" i Malta Betting!\nKod: ${event.shareCode}\nLänk: ${baseUrl}/?page=event&code=${event.shareCode}`;
   const icsUrl = generateIcsDataUrl({
     title,
     description,
     startDate,
     endDate,
-    url: `${window.location.origin}/?page=event&code=${event.shareCode}`
+    url: `${baseUrl}/?page=event&code=${event.shareCode}`
   });
   const googleCalUrl = generateGoogleCalendarUrl({
     title,
@@ -916,7 +917,7 @@ function openDeadlineModal(event, content, code) {
 
 async function openEventShareModal(code, eventName) {
   try {
-    const baseUrl = window.location.origin;
+    const baseUrl = getAppBaseUrl();
     const data = await getEventQR(code, baseUrl);
     const shareUrl = `${baseUrl}/?page=event&code=${code}`;
     const shareMsg = `🎲 Häng på och lägg dina bets på "${eventName || 'spelet'}" i Malta Betting! Länk: ${shareUrl}`;

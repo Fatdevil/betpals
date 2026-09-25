@@ -9,6 +9,16 @@ export function formatPoints(amount) {
 // Alias for backward compat during migration
 export const formatCurrency = formatPoints;
 
+export function getAppBaseUrl() {
+  if (typeof window === 'undefined') return 'https://betpals-production.up.railway.app';
+  let origin = window.location.origin;
+  if (!origin || origin === 'null') return 'https://betpals-production.up.railway.app';
+  if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+    origin = origin.replace(/^http:\/\//i, 'https://');
+  }
+  return origin.replace(/\/$/, '');
+}
+
 export function formatOdds(odds) {
   if (odds === null || odds === undefined) return '—';
   return odds.toFixed(2) + 'x';

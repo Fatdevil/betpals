@@ -1,6 +1,6 @@
 // ── Components: Minigames Arcade ────────────────────────
 import { showModal, closeModal } from './modal.js';
-import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl, normalizeSwedishPhone } from '../utils.js';
+import { launchConfetti, escapeHtml, showToast, createSwishUrl, sanitizeUrl, normalizeSwedishPhone, getAppBaseUrl } from '../utils.js';
 import { 
   getFriends, 
   createDuel, 
@@ -1505,7 +1505,7 @@ function openWheelModal() {
 export async function showPartyRoomQRModal(roomCode, gameType = 'party') {
   const isEn = getLang() === 'en';
   try {
-    const res = await getPartyRoomQR(roomCode);
+    const res = await getPartyRoomQR(roomCode, getAppBaseUrl());
     if (!res || !res.qr) throw new Error('Ingen QR');
 
     const isMafia = gameType === 'mafia';

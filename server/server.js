@@ -2090,12 +2090,28 @@ app.get('/api/events/:idOrCode', requireAuth, (req, res) => {
   res.json(event);
 });
 
+// ── Helper for public HTTPS base URL ────────────────
+function getPublicBaseUrl(req) {
+  let base = req.query?.baseUrl;
+  if (!base) {
+    const host = req.get('host') || 'betpals-production.up.railway.app';
+    const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : req.protocol) || 'https';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+    const formattedHost = isLocal ? host.replace('3001', '5173') : host;
+    base = `${proto}://${formattedHost}`;
+  }
+  if (!base.includes('localhost') && !base.includes('127.0.0.1')) {
+    base = base.replace(/^http:\/\//i, 'https://');
+  }
+  return base.replace(/\/$/, '');
+}
+
 // ── QR Code ──────────────────────────────────────────
 app.get('/api/events/:idOrCode/qr', async (req, res) => {
   const event = db.getFullEvent(req.params.idOrCode);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
 
-  const baseUrl = req.query.baseUrl || `${req.protocol}://${req.get('host').replace('3001', '5173')}`;
+  const baseUrl = getPublicBaseUrl(req);
   const url = `${baseUrl}/?page=event&code=${event.shareCode}`;
 
   try {
@@ -2115,7 +2131,7 @@ app.get('/api/tournaments/:code/qr', async (req, res) => {
   const tournament = db.getTournamentByCode(req.params.code);
   if (!tournament) return res.status(404).json({ error: 'Turnering hittades inte' });
 
-  const baseUrl = req.query.baseUrl || `${req.protocol}://${req.get('host').replace('3001', '5173')}`;
+  const baseUrl = getPublicBaseUrl(req);
   const url = `${baseUrl}/?page=tournament&code=${tournament.share_code}`;
 
   try {
@@ -3734,7 +3750,7 @@ app.get('/api/minigames/party/:query/qr', async (req, res) => {
   const room = partyRooms.get(roomId);
   if (!room) return res.status(404).json({ error: 'Rummet hittades inte' });
 
-  const baseUrl = req.query.baseUrl || `${req.protocol}://${req.get('host').replace('3001', '5173')}`;
+  const baseUrl = getPublicBaseUrl(req);
   const url = `${baseUrl}/?party=${room.code}`;
 
   try {
@@ -3751,12 +3767,15 @@ app.get('/api/minigames/party/:query/qr', async (req, res) => {
 
 // General App QR Code (for sharing the web app)
 app.get('/api/app/qr', async (req, res) => {
-  const defaultBase = `${req.protocol}://${req.get('host').replace('3001', '5173')}`;
+  const defaultBase = getPublicBaseUrl(req);
   let targetUrl = req.query.url || defaultBase;
   try {
     new URL(targetUrl);
   } catch {
     targetUrl = defaultBase;
+  }
+  if (!targetUrl.includes('localhost') && !targetUrl.includes('127.0.0.1')) {
+    targetUrl = targetUrl.replace(/^http:\/\//i, 'https://');
   }
 
   try {

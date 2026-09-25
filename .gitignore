@@ -7,3 +7,4 @@ server/betpals.db*
 .env
 *.log
 server/data.json
+server/backups/

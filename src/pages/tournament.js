@@ -1,5 +1,5 @@
 import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, lockEvent, reopenEvent, boostEvent, updateEventDeadline, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
-import { formatCurrency, formatDeadline, showToast, launchConfetti, escapeHtml, sanitizeUrl } from '../utils.js';
+import { formatCurrency, formatDeadline, showToast, launchConfetti, escapeHtml, sanitizeUrl, getAppBaseUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
@@ -1067,7 +1067,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   // Share button
   const handleOpenShareModal = async () => {
     try {
-      const baseUrl = window.location.origin;
+      const baseUrl = getAppBaseUrl();
       const { qr, url } = await getTournamentQR(t.shareCode, baseUrl);
       const shareMsg = `🏆 Häng med på eventet ${t.name} i BetPals! Se ställningen och betta här: ${url}`;
       showModal('📱 Dela event', `

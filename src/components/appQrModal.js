@@ -2,11 +2,11 @@
 import { showModal } from './modal.js';
 import { getAppQr } from '../api.js';
 import { getLang } from '../i18n.js';
-import { escapeHtml } from '../utils.js';
+import { escapeHtml, getAppBaseUrl } from '../utils.js';
 
 export async function openAppQrModal(customUrl) {
   const isEn = getLang() === 'en';
-  const targetUrl = customUrl || (window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://betpals.se');
+  const targetUrl = customUrl || getAppBaseUrl();
   
   const modalTitle = isEn ? 'Share Malta Betting 📱' : 'Dela Malta Betting 📱';
 
