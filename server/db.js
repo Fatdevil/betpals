@@ -545,6 +545,24 @@ try {
 try { db.exec('ALTER TABLE events ADD COLUMN was_finished INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("UPDATE events SET was_finished = 1 WHERE status = 'finished'"); } catch {}
 
+// The bell's inbox: things that happened to you (e.g. "Bosse accepted your friend request")
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      icon TEXT,
+      text TEXT NOT NULL,
+      url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      read_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_user ON user_notifications(user_id, created_at);
+  `);
+} catch {}
+
 // Friendships require consent: requests live here until accepted
 try {
   db.exec(`
@@ -2855,6 +2873,37 @@ export function acceptFriendRequest(fromUserId, toUserId) {
 
 export function declineFriendRequest(fromUserId, toUserId) {
   return stmts.deleteFriendRequest.run(fromUserId, toUserId).changes > 0;
+}
+
+export function addUserNotification(userId, { type, icon = '🔔', text, url = null }) {
+  if (!userId || !text) return;
+  db.prepare('INSERT INTO user_notifications (id, user_id, type, icon, text, url) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(crypto.randomUUID(), userId, type, icon, text, url);
+  // Keep the latest 50 per person
+  db.prepare(`DELETE FROM user_notifications WHERE user_id = ? AND id NOT IN (
+    SELECT id FROM user_notifications WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 50)`).run(userId, userId);
+}
+
+// What the bell shows: things waiting for you, then what happened to you
+export function getInbox(userId) {
+  const requests = getFriendRequests(userId).incoming;
+  const items = db.prepare('SELECT id, type, icon, text, url, created_at, read_at FROM user_notifications WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30')
+    .all(userId)
+    .map(n => ({ id: n.id, type: n.type, icon: n.icon, text: n.text, url: n.url, createdAt: n.created_at, read: Boolean(n.read_at) }));
+  const unreadItems = items.filter(n => !n.read).length;
+  return {
+    friendRequests: requests,
+    items,
+    count: requests.length + unreadItems
+  };
+}
+
+export function markInboxRead(userId) {
+  db.prepare("UPDATE user_notifications SET read_at = datetime('now') WHERE user_id = ? AND read_at IS NULL").run(userId);
+}
+
+export function clearInbox(userId) {
+  db.prepare('DELETE FROM user_notifications WHERE user_id = ?').run(userId);
 }
 
 export function getFriendRequests(userId) {

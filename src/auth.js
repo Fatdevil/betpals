@@ -11,7 +11,13 @@ export function getStoredUser() {
   } catch { return null; }
 }
 
+// Lets per-account UI (like the bell) reset when someone logs in, out or switches account
+function announceAuthChange() {
+  try { window.dispatchEvent(new CustomEvent('auth-changed')); } catch { /* not in a browser */ }
+}
+
 export function storeUser(user) {
+  const previousToken = localStorage.getItem(STORAGE_KEY);
   if (user.token) {
     localStorage.setItem(STORAGE_KEY, user.token);
   }
@@ -24,11 +30,13 @@ export function storeUser(user) {
     avatarUrl: user.avatarUrl || user.avatar_url || null,
     email: user.email || null
   }));
+  if (user.token && user.token !== previousToken) announceAuthChange();
 }
 
 export function clearUser() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(USER_KEY);
+  announceAuthChange();
 }
 
 export function isLoggedIn() {
