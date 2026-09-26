@@ -3139,7 +3139,17 @@ app.get('/api/tournaments/:code', (req, res) => {
     }
   }
 
-  res.json(db.getFullTournament(tournament.id));
+  const full = db.getFullTournament(tournament.id);
+  // Each game card shows the viewer's own bets ("✓ Du bettade: …")
+  if (user && full) {
+    const mine = db.getUserBetsInTournament(user.id, tournament.id);
+    for (const g of [...(full.rounds || []), ...(full.sideBets || [])]) {
+      g.myBets = mine
+        .filter(b => b.eventId === g.id)
+        .map(b => ({ playerName: (g.players.find(p => p.id === b.playerId) || {}).name || '?', amount: b.amount }));
+    }
+  }
+  res.json(full);
 });
 
 app.post('/api/tournaments/:id/rounds', (req, res) => {

@@ -139,51 +139,56 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     }
   }
 
-  const renderSideBetBadge = (sb) => {
-    const modeBadge = sb.betMode === 'self' ? '🦅' : '🎲';
-    const dl = sb.closesAt ? formatDeadline(sb.closesAt) : null;
-    if (sb.status === 'finished') {
-      return `<span class="badge badge-success" style="font-size: 0.6rem;">${sb.isTie ? '🤝 Delad seger: ' : '✅ '}${escapeHtml(sb.winnerName || 'Klar')}</span>`;
-    }
-    if (sb.status === 'cancelled') {
-      return `<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>`;
-    }
-    if (sb.status === 'locked' || (dl && dl.isExpired)) {
-      return `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 ${dl && dl.isExpired ? 'Tid ute' : 'Låst'}</span>`;
-    }
-    if (dl) {
-      return `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} ${dl.shortText}</span>`;
-    }
-    return `<span class="badge badge-accent" style="font-size: 0.6rem;">${modeBadge} Öppen</span>`;
-  };
+  // One card design for every game (rounds and side bets): options as chips, one status
+  // line, a clear call to action and the organiser's actions behind "⋯"
+  const renderGameCard = (g, nested = false) => {
+    const dl = g.closesAt ? formatDeadline(g.closesAt) : null;
+    const isExpired = Boolean(dl && dl.isExpired);
+    const isOpen = g.status === 'open' && !isExpired;
+    const isSelf = g.betMode === 'self';
+    const mine = g.myBets || [];
+    const stake = g.minBet === g.maxBet ? formatCurrency(g.minBet) : `${formatCurrency(g.minBet)}–${formatCurrency(g.maxBet)}`;
+    const shown = (g.players || []).slice(0, 4);
+    const more = (g.players || []).length - shown.length;
 
-  const renderSideBetCard = (sb, isNested = false) => {
-    const dl = sb.closesAt ? formatDeadline(sb.closesAt) : null;
-    const isLockedOrExpired = sb.status === 'locked' || (dl && dl.isExpired);
-    const isOpenAndActive = sb.status === 'open' && (!dl || !dl.isExpired);
+    let meta;
+    let cta;
+    if (g.status === 'finished') {
+      meta = `<span class="game-card-win">🏆 ${escapeHtml(g.winnerName || 'Avgjort')}${g.isTie ? ' 🤝' : ''}</span> · pott ${formatCurrency(g.totalPool)}`;
+      cta = '<span class="game-card-link">Se resultat →</span>';
+    } else if (g.status === 'cancelled') {
+      meta = '🛑 Avbrutet';
+      cta = '<span class="game-card-link">Se spel →</span>';
+    } else if (isSelf) {
+      meta = `👥 Alla med · ${formatCurrency(g.minBet)}/st · pott ${formatCurrency(g.totalPool)}`;
+      cta = '<span class="game-card-wait">⏳ Väntar på resultat</span>';
+    } else if (isOpen) {
+      meta = `${dl ? `<span class="game-card-time">⏱ ${escapeHtml(dl.shortText)}</span> · ` : ''}${stake} · ${g.betCount} ${g.betCount === 1 ? 'bet' : 'bets'}`;
+      cta = mine.length > 0 ? '<span class="game-card-link">Se spel →</span>' : '<span class="game-card-cta">Betta →</span>';
+    } else {
+      meta = `🔒 Stängt för bets · pott ${formatCurrency(g.totalPool)}`;
+      cta = '<span class="game-card-link">Se spel →</span>';
+    }
+
+    const mineLine = !isSelf && mine.length > 0
+      ? `<div class="game-card-mine">✓ Du bettade: ${mine.map(b => `${escapeHtml(b.playerName)} · ${formatCurrency(b.amount)}`).join(', ')}</div>`
+      : '';
 
     return `
-      <div class="bet-item card-clickable round-link" data-code="${escapeHtml(sb.shareCode)}" style="${isNested ? 'border-left: 3px solid var(--accent); margin-left: var(--space-sm);' : ''}">
-        <div style="flex: 1; min-width: 0;">
-          <div class="bet-item-name" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-            <span>${isNested ? '🎯 ' : ''}${escapeHtml(sb.name)}</span>
-            ${dl && !dl.isExpired ? `<span style="font-size: 0.68rem; color: var(--gold); font-weight: 700; white-space: nowrap;">⏱️ ${dl.shortText}</span>` : ''}
-          </div>
-          <div class="bet-item-player">${sb.players.map(p => escapeHtml(p.name)).join(', ')} · ${sb.betMode === 'self' ? 'Alla bettar ' + formatCurrency(sb.minBet) : sb.betCount + ' bets'}</div>
+      <div class="game-card card-clickable round-link${nested ? ' game-card-nested' : ''}" data-code="${escapeHtml(g.shareCode)}" id="round-${g.id}">
+        <div class="game-card-top">
+          ${g.imageUrl ? `<img src="${sanitizeUrl(g.imageUrl)}" alt="" class="game-card-img" loading="lazy" />` : ''}
+          <h3 class="game-card-title">${escapeHtml(g.name)}</h3>
+          ${isCreator ? `<button type="button" class="game-card-menu" data-id="${g.id}" data-name="${escapeHtml(g.name)}" data-open="${isOpen ? '1' : ''}" data-reopenable="${!isOpen && g.status !== 'finished' && g.status !== 'cancelled' ? '1' : ''}" aria-label="Spelledarval">⋯</button>` : ''}
         </div>
-        <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-          <div class="bet-item-amount">${formatCurrency(sb.totalPool)}</div>
-          <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap; justify-content: flex-end;">
-            ${renderSideBetBadge(sb)}
-            ${isCreator && isOpenAndActive ? `
-              <button type="button" class="btn btn-sm btn-secondary boost-game-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Boosta spelet med pushnotis">🚀</button>
-              <button type="button" class="btn btn-sm btn-secondary lock-game-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Stäng bettning nu">🔒</button>
-            ` : ''}
-            ${isCreator && isLockedOrExpired && sb.status !== 'finished' && sb.status !== 'cancelled' ? `
-              <button type="button" class="btn btn-sm btn-secondary reopen-game-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Öppna bettning igen">🔓</button>
-            ` : ''}
-            ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${sb.id}" data-name="${escapeHtml(sb.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
-          </div>
+        <div class="game-card-chips">
+          ${shown.map(p => `<span class="game-chip">${escapeHtml(p.name)}</span>`).join('')}
+          ${more > 0 ? `<span class="game-chip game-chip-more">+${more}</span>` : ''}
+        </div>
+        ${mineLine}
+        <div class="game-card-foot">
+          <span class="game-card-meta">${meta}</span>
+          ${cta}
         </div>
       </div>
     `;
@@ -268,46 +273,12 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           `}
         </div>
       ` : `
-        <div class="bet-list">
-          ${t.rounds.map((r, i) => {
-            const dl = r.closesAt ? formatDeadline(r.closesAt) : null;
-            const isLockedOrExpired = r.status === 'locked' || (dl && dl.isExpired);
-            const isOpenAndActive = r.status === 'open' && (!dl || !dl.isExpired);
-            return `
-            <div class="bet-item card-clickable round-link" data-code="${escapeHtml(r.shareCode)}" id="round-${r.id}">
-              <div style="flex: 1; min-width: 0;">
-                <div class="bet-item-name" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                  <span>${escapeHtml(r.name)}</span>
-                  ${dl && !dl.isExpired ? `<span style="font-size: 0.68rem; color: var(--gold); font-weight: 700; white-space: nowrap;">⏱️ ${dl.shortText}</span>` : ''}
-                </div>
-                <div class="bet-item-player">${r.players.map(p => escapeHtml(p.name)).join(', ')} · ${r.betCount} bets</div>
-              </div>
-              <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-                <div class="bet-item-amount">${formatCurrency(r.totalPool)}</div>
-                <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap; justify-content: flex-end;">
-                  ${r.status === 'finished' 
-                    ? '<span class="badge badge-success" style="font-size: 0.6rem;">' + (r.isTie ? '🤝 Delad seger: ' : '✅ ') + escapeHtml(r.winnerName || 'Klar') + '</span>'
-                    : r.status === 'cancelled'
-                      ? '<span class="badge badge-danger" style="font-size: 0.6rem;">🛑 Avbruten</span>'
-                      : isLockedOrExpired
-                        ? `<span class="badge badge-warning" style="font-size: 0.6rem;">🔒 ${dl && dl.isExpired ? 'Tid ute' : 'Låst'}</span>`
-                        : `<span class="badge badge-accent" style="font-size: 0.6rem;">🟢 ${dl ? dl.shortText : 'Öppen'}</span>`
-                  }
-                  ${isCreator && isOpenAndActive ? `
-                    <button type="button" class="btn btn-sm btn-secondary boost-game-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Boosta spelet med pushnotis">🚀</button>
-                    <button type="button" class="btn btn-sm btn-secondary lock-game-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Stäng bettning nu">🔒</button>
-                  ` : ''}
-                  ${isCreator && isLockedOrExpired && r.status !== 'finished' && r.status !== 'cancelled' ? `
-                    <button type="button" class="btn btn-sm btn-secondary reopen-game-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Öppna bettning igen">🔓</button>
-                  ` : ''}
-                  ${isCreator ? `<button type="button" class="btn btn-sm btn-danger delete-event-btn" data-id="${r.id}" data-name="${escapeHtml(r.name)}" style="padding: 2px 6px; font-size: 0.7rem;" title="Ta bort spel">🗑️</button>` : ''}
-                </div>
-              </div>
-            </div>
-            ${(sideBetsByRound[r.id] || []).map(sb => renderSideBetCard(sb, true)).join('')}
-            `;
-          }).join('')}
-          ${unlinkedSideBets.map(sb => renderSideBetCard(sb, false)).join('')}
+        <div class="game-list">
+          ${t.rounds.map(r => `
+            ${renderGameCard(r)}
+            ${(sideBetsByRound[r.id] || []).map(sb => renderGameCard(sb, true)).join('')}
+          `).join('')}
+          ${unlinkedSideBets.map(sb => renderGameCard(sb)).join('')}
         </div>
       `}
 
@@ -990,73 +961,65 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     }
   });
 
-  // Delete side-bet or round
-  content.querySelectorAll('.delete-event-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const evName = btn.dataset.name || 'detta spel';
-      if (!confirm(`Vill du ta bort "${evName}"?`)) return;
-      try {
-        const pin = sessionStorage.getItem('betpals_pin') || '';
-        await deleteEvent(btn.dataset.id, pin);
-        showToast('Spelet togs bort', 'success');
-        const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated, photos, tournamentFlashBets);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-  });
+  // Organiser actions for a game, reached through the "⋯" on its card
+  const refreshAfterGameAction = async () => {
+    const updated = await getTournament(t.shareCode);
+    renderTournamentContent(content, updated, photos, tournamentFlashBets);
+  };
+  const gameActions = {
+    boost: async (id, name) => {
+      if (!confirm(`🚀 Boosta "${name}"?\n\nDetta skickar en pushnotis till alla deltagare i eventet för att påminna dem om att lägga sina bets!`)) return;
+      await boostEvent(id);
+      launchConfetti();
+      showToast('Spelet boostat med pushnotis! 🚀', 'success');
+    },
+    lock: async (id, name) => {
+      if (!confirm(`Vill du stänga bettningen för "${name}" nu? Inga fler bets kommer tas emot.`)) return;
+      await lockEvent(id, sessionStorage.getItem('betpals_pin') || '');
+      showToast('Bettning stängd! 🔒', 'info');
+      await refreshAfterGameAction();
+    },
+    reopen: async (id, name) => {
+      if (!confirm(`Vill du öppna bettningen för "${name}" igen?`)) return;
+      const reopenRes = await reopenEvent(id, sessionStorage.getItem('betpals_pin') || '');
+      showToast(reopenRes?.status === 'locked' ? reopenRes.message : 'Bettningen är öppen igen! 🔓', reopenRes?.status === 'locked' ? 'info' : 'success');
+      await refreshAfterGameAction();
+    },
+    remove: async (id, name) => {
+      if (!confirm(`Vill du ta bort "${name}"?`)) return;
+      await deleteEvent(id, sessionStorage.getItem('betpals_pin') || '');
+      showToast('Spelet togs bort', 'success');
+      await refreshAfterGameAction();
+    }
+  };
 
-  // Lock game now
-  content.querySelectorAll('.lock-game-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+  content.querySelectorAll('.game-card-menu').forEach(btn => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const evName = btn.dataset.name || 'spelet';
-      if (!confirm(`Vill du stänga bettningen för "${evName}" nu? Inga fler bets kommer tas emot.`)) return;
-      try {
-        const pin = sessionStorage.getItem('betpals_pin') || '';
-        await lockEvent(btn.dataset.id, pin);
-        showToast('Bettning stängd! 🔒', 'info');
-        const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated, photos, tournamentFlashBets);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-  });
-
-  // Reopen game
-  content.querySelectorAll('.reopen-game-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const evName = btn.dataset.name || 'spelet';
-      if (!confirm(`Vill du öppna bettningen för "${evName}" igen?`)) return;
-      try {
-        const pin = sessionStorage.getItem('betpals_pin') || '';
-        const reopenRes = await reopenEvent(btn.dataset.id, pin);
-        showToast(reopenRes?.status === 'locked' ? reopenRes.message : 'Bettningen är öppen igen! 🔓', reopenRes?.status === 'locked' ? 'info' : 'success');
-        const updated = await getTournament(t.shareCode);
-        renderTournamentContent(content, updated, photos, tournamentFlashBets);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-  });
-
-  // Boost game with Web Push
-  content.querySelectorAll('.boost-game-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const evName = btn.dataset.name || 'spelet';
-      if (!confirm(`🚀 Boosta "${evName}"?\n\nDetta skickar en pushnotis till alla deltagare i eventet för att påminna dem om att lägga sina bets!`)) return;
-      try {
-        await boostEvent(btn.dataset.id);
-        launchConfetti();
-        showToast('Spelet boostat med pushnotis! 🚀', 'success');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+      const { id, name } = btn.dataset;
+      const items = [
+        btn.dataset.open ? ['boost', '🚀 Boosta med pushnotis'] : null,
+        btn.dataset.open ? ['lock', '🔒 Stäng bettning nu'] : null,
+        btn.dataset.reopenable ? ['reopen', '🔓 Öppna bettning igen'] : null,
+        ['remove', '🗑️ Ta bort spelet']
+      ].filter(Boolean);
+      showModal(`👑 ${escapeHtml(name)}`, `
+        <div class="game-action-sheet">
+          ${items.map(([key, label]) => `
+            <button type="button" class="btn btn-block ${key === 'remove' ? 'game-action-danger' : 'btn-secondary'}" data-action="${key}">${label}</button>
+          `).join('')}
+        </div>
+      `);
+      document.querySelectorAll('.game-action-sheet [data-action]').forEach(actionBtn => {
+        actionBtn.addEventListener('click', async () => {
+          closeModal();
+          try {
+            await gameActions[actionBtn.dataset.action](id, name);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      });
     });
   });
 

@@ -1885,6 +1885,14 @@ export function canUserAccessTournament(tournament, userId = null) {
   return true;
 }
 
+export function getUserBetsInTournament(userId, tournamentId) {
+  return db.prepare(`
+    SELECT b.event_id AS eventId, b.player_id AS playerId, b.amount
+    FROM bets b JOIN events e ON e.id = b.event_id
+    WHERE b.user_id = ? AND e.tournament_id = ?
+  `).all(userId, tournamentId);
+}
+
 export function getTournamentParticipants(tournamentId) {
   return stmts.getTournamentParticipants.all(tournamentId);
 }
@@ -2039,7 +2047,8 @@ export function getFullTournament(idOrCode) {
       minBet: e.min_bet,
       maxBet: e.max_bet,
       closesAt: e.closes_at || null,
-      lastBoostedAt: e.last_boosted_at || null
+      lastBoostedAt: e.last_boosted_at || null,
+      imageUrl: e.image_url || null
     };
   };
 
