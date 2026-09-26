@@ -2887,22 +2887,14 @@ export function addUserNotification(userId, { type, icon = '🔔', text, url = n
 // What the bell shows: things waiting for you, then what happened to you
 export function getInbox(userId) {
   const requests = getFriendRequests(userId).incoming;
-  const challenges = getPendingDuelsForUser(userId).map(d => ({
-    id: d.id,
-    gameType: d.game_type,
-    stakeAmount: d.stake_amount,
-    fromNickname: d.creator_nickname,
-    fromAvatarEmoji: d.creator_avatar_emoji
-  }));
   const items = db.prepare('SELECT id, type, icon, text, url, created_at, read_at FROM user_notifications WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30')
     .all(userId)
     .map(n => ({ id: n.id, type: n.type, icon: n.icon, text: n.text, url: n.url, createdAt: n.created_at, read: Boolean(n.read_at) }));
   const unreadItems = items.filter(n => !n.read).length;
   return {
     friendRequests: requests,
-    challenges,
     items,
-    count: requests.length + challenges.length + unreadItems
+    count: requests.length + unreadItems
   };
 }
 

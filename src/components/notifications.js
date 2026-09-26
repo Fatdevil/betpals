@@ -1,15 +1,15 @@
 // ── Notifications System ──────────────────────────────
-// The bell is an inbox: things waiting for you (friend requests, challenges) with the
+// The bell is an inbox: things waiting for you (friend requests) with the
 // action right there, then what happened to you. The server keeps it, so it survives
 // closing the app. Game-page events seen in this session are listed below.
 import { getInbox, markInboxRead, clearInbox, acceptFriendRequest, declineFriendRequest } from '../api.js';
-import { isLoggedIn } from '../auth.js';
+import { isLoggedIn, getToken } from '../auth.js';
 import { escapeHtml, showToast } from '../utils.js';
 
 const MAX_NOTIFICATIONS = 20;
 let notifications = [];
 let unreadCount = 0;
-let inbox = { friendRequests: [], challenges: [], items: [], count: 0 };
+let inbox = { friendRequests: [], items: [], count: 0 };
 let inboxTimer = null;
 let outsideClickBound = false;
 
@@ -72,19 +72,38 @@ function updateBellBadge() {
   }
 }
 
+const EMPTY_INBOX = { friendRequests: [], items: [], count: 0 };
+
 export async function refreshInbox() {
   if (!isLoggedIn()) {
-    inbox = { friendRequests: [], challenges: [], items: [], count: 0 };
+    inbox = { ...EMPTY_INBOX };
     updateBellBadge();
     return;
   }
+  const token = getToken();
+  let fresh;
   try {
-    inbox = await getInbox();
+    fresh = await getInbox();
   } catch (e) {
     return;
   }
+  // A reply for an account that has since logged out or switched is thrown away
+  if (getToken() !== token) return;
+  inbox = fresh;
+  const dropdown = document.getElementById('notif-dropdown');
+  if (dropdown) {
+    renderDropdown(dropdown);
+    markShownAsRead();
+  }
   updateBellBadge();
-  if (document.getElementById('notif-dropdown')) renderDropdown(document.getElementById('notif-dropdown'));
+}
+
+// Whatever the open bell shows has been seen
+function markShownAsRead() {
+  if (isLoggedIn() && (inbox.items || []).some(n => !n.read)) {
+    markInboxRead().catch(() => {});
+    inbox = { ...inbox, items: inbox.items.map(n => ({ ...n, read: true })), count: (inbox.friendRequests || []).length };
+  }
 }
 
 export function renderBell() {
@@ -110,6 +129,16 @@ export function initBellListeners() {
   if (!inboxTimer) {
     inboxTimer = setInterval(refreshInbox, 60 * 1000);
     window.addEventListener('friends-changed', () => refreshInbox());
+    window.addEventListener('auth-changed', () => {
+      // Never show one account's notifications to the next
+      inbox = { ...EMPTY_INBOX };
+      notifications = [];
+      unreadCount = 0;
+      save();
+      document.getElementById('notif-dropdown')?.remove();
+      updateBellBadge();
+      refreshInbox();
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') refreshInbox();
     });
@@ -126,8 +155,6 @@ export function initBellListeners() {
     toggleDropdown();
   });
 }
-
-const GAME_NAMES = { blind10: 'Blind 10.00', gimme: 'Gimme', coinflip: 'Singla slant', 'coin-flip': 'Singla slant', space: 'Space Blitz' };
 
 function timeLabel(createdAt) {
   const d = new Date(String(createdAt).replace(' ', 'T') + (String(createdAt).includes('Z') ? '' : 'Z'));
@@ -147,8 +174,8 @@ function goTo(url) {
 }
 
 function renderDropdown(dropdown) {
-  const { friendRequests = [], challenges = [], items = [] } = inbox;
-  const hasTodo = friendRequests.length > 0 || challenges.length > 0;
+  const { friendRequests = [], items = [] } = inbox;
+  const hasTodo = friendRequests.length > 0;
   const empty = !hasTodo && items.length === 0 && notifications.length === 0;
 
   dropdown.innerHTML = empty ? `
@@ -174,15 +201,6 @@ function renderDropdown(dropdown) {
             </div>
           </div>
         </div>
-      `).join('')}
-      ${challenges.map(c => `
-        <button type="button" class="notif-item notif-todo notif-link" data-url="/#arcade">
-          <span class="notif-icon">⚔️</span>
-          <div class="notif-content">
-            <div class="notif-text"><b>${escapeHtml(c.fromNickname || 'En kompis')}</b> utmanar dig i ${escapeHtml(GAME_NAMES[c.gameType] || c.gameType || 'ett spel')}${c.stakeAmount > 0 ? ` · ${Math.round(c.stakeAmount)} kr` : ''}</div>
-            <div class="notif-time">Tryck för att svara →</div>
-          </div>
-        </button>
       `).join('')}
       ${items.length > 0 ? '<div class="notif-group">Senaste</div>' : ''}
       ${items.map(n => `
@@ -234,7 +252,7 @@ function renderDropdown(dropdown) {
     notifications = [];
     unreadCount = 0;
     save();
-    inbox = { ...inbox, items: [], count: (inbox.friendRequests || []).length + (inbox.challenges || []).length };
+    inbox = { ...inbox, items: [], count: (inbox.friendRequests || []).length };
     renderDropdown(dropdown);
     updateBellBadge();
     if (isLoggedIn()) clearInbox().catch(() => {});
@@ -268,10 +286,7 @@ function toggleDropdown() {
   // Opening the bell marks what happened as seen; things waiting for you stay counted
   unreadCount = 0;
   save();
-  if (isLoggedIn() && (inbox.items || []).some(n => !n.read)) {
-    markInboxRead().catch(() => {});
-    inbox = { ...inbox, items: inbox.items.map(n => ({ ...n, read: true })), count: (inbox.friendRequests || []).length + (inbox.challenges || []).length };
-  }
+  markShownAsRead();
   updateBellBadge();
 }
 

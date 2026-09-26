@@ -80,3 +80,13 @@ test('the bell renders requests with accept/decline and escapes what it shows', 
   const profile = readFileSync(new URL('../src/pages/profile.js', import.meta.url), 'utf8');
   assert.match(profile, /friend-request-withdraw/);
 });
+
+test('the bell resets on login/logout, ignores stale replies and marks late-loaded items read', () => {
+  const bell = readFileSync(new URL('../src/components/notifications.js', import.meta.url), 'utf8');
+  assert.match(bell, /window\.addEventListener\('auth-changed'/);
+  assert.match(bell, /if \(getToken\(\) !== token\) return;/);
+  assert.match(bell, /renderDropdown\(dropdown\);\s+markShownAsRead\(\);/);
+  const auth = readFileSync(new URL('../src/auth.js', import.meta.url), 'utf8');
+  assert.match(auth, /if \(user\.token && user\.token !== previousToken\) announceAuthChange\(\);/);
+  assert.match(auth, /localStorage\.removeItem\(USER_KEY\);\s+announceAuthChange\(\);/);
+});
