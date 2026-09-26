@@ -919,6 +919,7 @@ const stmts = {
     ORDER BY d.created_at DESC
   `),
   settleDuel: db.prepare(`UPDATE minigame_duels SET is_settled = 1, settled_at = datetime('now') WHERE id = ?`),
+  setDuelTitle: db.prepare(`UPDATE minigame_duels SET custom_title = ? WHERE id = ?`),
   settleDuelsBetweenUsers: db.prepare(`
     UPDATE minigame_duels
     SET is_settled = 1, settled_at = datetime('now')
@@ -1989,6 +1990,8 @@ export function getAllTournaments(userId = null) {
       roundCount: rounds.length,
       finishedCount: finishedRounds.length,
       openGameCount: openGames.length,
+      // Games whose result is still missing: The Tab warns that amounts can change
+      undecidedCount: rounds.filter(r => r.status !== 'finished' && r.status !== 'cancelled').length,
       openUnbetCount: openGames.filter(r => !myBetEventIds.has(r.id)).length,
       participantCount: (() => {
         // The creator counts even before opening the event (which registers them)
@@ -2997,6 +3000,7 @@ export function getUnifiedSettlementOverview(userId) {
       duelIds: f.duelIds || [],
       details: (f.duels || []).map(d => ({
         type: d.expenseId ? 'expense' : 'duel',
+        gameType: d.gameType || null,
         title: d.customTitle || (d.expenseId ? 'Utlägg/Nota' : `Duell (${d.gameType || '1v1'})`),
         amount: d.youWon ? d.stakeAmount : -d.stakeAmount,
         date: d.createdAt
@@ -3597,6 +3601,7 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
             winner_id: winnerId,
             status: 'completed'
           });
+          stmts.setDuelTitle.run(bet.title || null, duelId);
         }
       } else if (bet.bet_type === 'yes_no' && winningSide) {
         const opposingSide = winningSide === 'yes' ? 'no' : 'yes';
@@ -3626,6 +3631,7 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
                 winner_id: winner.user_id,
                 status: 'completed'
               });
+              stmts.setDuelTitle.run(bet.title || null, duelId);
             }
           }
         }
@@ -4015,6 +4021,7 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
             winner_id: winner.user_id,
             status: 'completed'
           });
+          stmts.setDuelTitle.run(fb.question || null, duelId);
         }
       }
     }
