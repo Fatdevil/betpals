@@ -116,6 +116,9 @@ export async function renderTournament(params = {}) {
   }
 }
 
+// A long live feed would push everything else far down: show the newest, the rest on request
+const PHOTOS_SHOWN = 6;
+
 function renderTournamentContent(content, t, photos = [], tournamentFlashBets = []) {
   const code = t.shareCode;
   const user = getStoredUser();
@@ -235,6 +238,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <button class="btn btn-secondary btn-sm" id="share-tournament-btn">
             📱 Dela event
           </button>
+          ${isCreator ? `<button type="button" class="btn btn-secondary btn-sm event-host-menu" id="event-host-menu-btn" aria-label="Hantera eventet">⋯</button>` : ''}
         </div>
       </div>
 
@@ -471,8 +475,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             ${user ? '<button type="button" class="btn btn-secondary btn-sm" id="empty-add-photo-btn">📸 Dela första bilden</button>' : ''}
           </div>
         ` : ''}
-        ${photos.map(p => `
-          <div class="photo-card card animate-in">
+        ${photos.map((p, i) => `
+          <div class="photo-card card${i < PHOTOS_SHOWN ? ' animate-in' : ' photo-card-more'}"${i < PHOTOS_SHOWN ? '' : ' hidden'}>
             <div class="photo-header flex-between mb-sm" style="align-items: center;">
               <div class="flex" style="align-items: center; gap: 8px;">
                 ${p.uploaderAvatar 
@@ -496,15 +500,10 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             </div>
           </div>
         `).join('')}
+        ${photos.length > PHOTOS_SHOWN ? `
+          <button type="button" class="btn btn-secondary btn-block" id="show-all-photos-btn">📸 Visa alla ${photos.length} bilder</button>
+        ` : ''}
       </div>
-
-      ${isCreator ? `
-        <div class="event-danger-zone">
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-tournament-btn" title="Radera hela eventet">
-            🗑️ Radera eventet
-          </button>
-        </div>
-      ` : ''}
 
     </div>
   `;
@@ -1001,8 +1000,13 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     }
   });
 
-  // Delete entire tournament
-  document.getElementById('delete-tournament-btn')?.addEventListener('click', async () => {
+  document.getElementById('show-all-photos-btn')?.addEventListener('click', (e) => {
+    content.querySelectorAll('.photo-card-more').forEach(card => { card.hidden = false; });
+    e.currentTarget.remove();
+  });
+
+  // The host's event tools sit behind "⋯" at the top, so nobody scrolls past every photo to find them
+  async function deleteWholeEvent() {
     if (!confirm(`Är du säker på att du vill radera hela eventet "${t.name}" och alla dess spel? Detta kan INTE ångras!`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
@@ -1012,6 +1016,23 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     } catch (err) {
       showToast(err.message, 'error');
     }
+  }
+
+  document.getElementById('event-host-menu-btn')?.addEventListener('click', () => {
+    showModal(`👑 ${escapeHtml(t.name)}`, `
+      <div class="game-action-sheet">
+        <button type="button" class="btn btn-block btn-secondary" data-host-action="people">👥 Deltagare</button>
+        <button type="button" class="btn btn-block game-action-danger" data-host-action="delete">🗑️ Radera eventet</button>
+        <p class="text-muted" style="font-size: 0.75rem; margin: 4px 0 0;">Ett event med pengar i kan inte raderas. Avsluta det i stället så hamnar allt på THE TAB.</p>
+      </div>
+    `);
+    document.querySelectorAll('.game-action-sheet [data-host-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        closeModal();
+        if (btn.dataset.hostAction === 'people') document.getElementById('event-people-btn')?.click();
+        else deleteWholeEvent();
+      });
+    });
   });
 
   // Organiser actions for a game, reached through the "⋯" on its card

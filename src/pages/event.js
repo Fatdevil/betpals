@@ -448,7 +448,7 @@ function renderEventContent(event, content, code) {
 
   content.innerHTML = `
     <div class="animate-in game-page">
-      ${event.imageUrl ? `
+      ${event.imageUrl && !event.tournamentId ? `
         <div class="event-hero-banner" id="event-hero-banner">
           <img src="${safeImageSrc(event.imageUrl)}" alt="" class="event-hero-backdrop" aria-hidden="true" />
           <img src="${safeImageSrc(event.imageUrl)}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
