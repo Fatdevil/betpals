@@ -5081,7 +5081,8 @@ app.post('/api/anybets/create', (req, res) => {
     if (parsed > 10000) {
       return res.status(400).json({ error: 'Insatsen får vara högst 10 000 kr' });
     }
-    stake = Math.round(parsed * 100) / 100;
+    // Whole kronor: Swish only takes kronor, and The Tab settles in whole kronor
+    stake = Math.round(parsed);
   }
 
   if (deadline) {
