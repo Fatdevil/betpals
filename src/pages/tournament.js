@@ -5,6 +5,7 @@ import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { navigate } from '../main.js';
+import { isShowing } from '../backNav.js';
 import { compressImage } from '../imageUtils.js';
 
 let wsUnsubscribe = null;
@@ -23,9 +24,11 @@ export function cleanupTournament() {
 }
 
 export async function renderTournament(params = {}) {
+  const code = params.code;
+  // A delayed refresh after the user already left: do nothing
+  if (code && !isShowing('tournament', code)) return;
   cleanupTournament();
   const content = document.getElementById('page-content');
-  const code = params.code;
   if (!code) {
     content.innerHTML = '<div class="text-center text-muted mt-lg">Inget event valt</div>';
     return;
@@ -39,6 +42,7 @@ export async function renderTournament(params = {}) {
       getTournamentPhotos(t.id).catch(() => []),
       getActiveFlashBets(t.id).catch(() => [])
     ]);
+    if (!isShowing('tournament', code)) return;
     const tournamentFlashBets = (activeFlashBets || []).filter(fb => (fb.tournamentId || fb.tournament_id) === t.id);
     renderTournamentContent(content, t, photos, tournamentFlashBets);
 
@@ -54,6 +58,7 @@ export async function renderTournament(params = {}) {
     });
 
   } catch (err) {
+    if (!isShowing('tournament', code)) return;
     if (err.data?.error === 'ACCESS_RESTRICTED' || err.message === 'ACCESS_RESTRICTED') {
       const rest = err.data || {};
       const creatorName = escapeHtml(rest.creatorName || 'Arrangören');
@@ -121,6 +126,8 @@ const PHOTOS_SHOWN = 6;
 
 function renderTournamentContent(content, t, photos = [], tournamentFlashBets = []) {
   const code = t.shareCode;
+  // Reload with the code this page was opened with (a share code or the event's id)
+  const reloadHere = () => renderTournament({ code: new URL(window.location.href).searchParams.get('code') || t.shareCode });
   const user = getStoredUser();
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
   const isCreator = (user && t.creatorId === user.id) || hasPinSession;
@@ -704,7 +711,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         });
         closeModal();
         showToast('Bild delad! 📸', 'success');
-        renderTournament({ code: t.shareCode }); // Reload to show new photo
+        reloadHere(); // Reload to show new photo
       } catch (err) {
         showToast(err.message, 'error');
         if (submitBtn) {
@@ -746,7 +753,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       } catch (err) {
         // Revert on error
         showToast('Kunde inte gilla: ' + err.message, 'error');
-        renderTournament({ code: t.shareCode }); 
+        reloadHere(); 
       }
     });
   });
@@ -760,7 +767,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         const pin = sessionStorage.getItem('betpals_pin') || '';
         await deleteTournamentPhoto(t.id, btn.dataset.id, { pin });
         showToast('Bild borttagen', 'success');
-        renderTournament({ code: t.shareCode });
+        reloadHere();
       } catch (err) {
         showToast(err.message, 'error');
       }

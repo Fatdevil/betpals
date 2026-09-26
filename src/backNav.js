@@ -36,3 +36,14 @@ export function resetBack() {
 export function requestBack() {
   window.dispatchEvent(new Event('app-back'));
 }
+
+// Is this page still the one on screen? A page that was loading (or a delayed refresh)
+// when the user went back or elsewhere must not draw over the page shown now
+export function isShowing(page, code) {
+  try {
+    const url = new URL(window.location.href);
+    return (url.searchParams.get('page') || 'home') === page && (!code || url.searchParams.get('code') === code);
+  } catch {
+    return true;
+  }
+}

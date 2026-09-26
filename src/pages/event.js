@@ -4,7 +4,7 @@ import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
 import { t } from '../i18n.js';
-import { setBackParent, setBackInterceptor } from '../backNav.js';
+import { setBackParent, setBackInterceptor, isShowing } from '../backNav.js';
 import { openFinishEventModal } from '../components/finish-event-modal.js';
 
 let wsUnsubscribe = null;
@@ -156,9 +156,11 @@ function renderSettlementSection(event, payoutInfo) {
 }
 
 export async function renderEvent(params = {}) {
+  const code = params.code;
+  // A delayed refresh after the user already left: do nothing
+  if (code && !isShowing('event', code)) return;
   cleanupEvent();
   const content = document.getElementById('page-content');
-  const code = params.code;
 
   if (!code) {
     content.innerHTML = `
@@ -178,6 +180,7 @@ export async function renderEvent(params = {}) {
 
   try {
     const event = await getEvent(code);
+    if (!isShowing('event', code)) return;
 
     // Where back leads: the game's event
     if (event.tournamentId) {
@@ -187,6 +190,7 @@ export async function renderEvent(params = {}) {
         event.tournamentCode = tour?.shareCode || null;
         if (tour?.creatorId) tournamentCreatorById[event.tournamentId] = tour.creatorId;
       } catch (_) {}
+      if (!isShowing('event', code)) return;
     }
 
     renderEventContent(event, content, code);
@@ -228,6 +232,7 @@ export async function renderEvent(params = {}) {
       }
     });
   } catch (err) {
+    if (!isShowing('event', code)) return;
     if (err?.authRequired) {
       showLoginPrompt();
       return;

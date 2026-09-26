@@ -61,3 +61,21 @@ test('a page opened directly gets a guard entry, so the phone\'s back stays in t
   assert.match(main, /if \(window\.history\.state\?\.guard\) \{\s*const parent = getBackParent\(\) \|\| \{ page: 'home', params: \{\} \};\s*navigate\(parent\.page, parent\.params, \{ replace: true \}\);/);
   assert.match(main, /guardSubPage\(\);\s*renderApp\(\);/);
 });
+
+test('a page that was still loading never draws over the page shown now', async () => {
+  const { isShowing } = await import('../src/backNav.js');
+  globalThis.window = { location: { href: 'https://x.test/?page=tournament&code=GOLF26' } };
+  try {
+    assert.equal(isShowing('tournament', 'GOLF26'), true);
+    assert.equal(isShowing('event', 'ABC'), false, 'user went back from the game');
+    assert.equal(isShowing('tournament', 'OTHER'), false);
+  } finally {
+    delete globalThis.window;
+  }
+  const ev = read('src/pages/event.js');
+  assert.match(ev, /const event = await getEvent\(code\);\s*if \(!isShowing\('event', code\)\) return;/);
+  assert.match(ev, /export async function renderEvent\(params = \{\}\) \{\s*const code = params\.code;\s*\/\/ A delayed refresh[^\n]*\n\s*if \(code && !isShowing\('event', code\)\) return;/);
+  const tour = read('src/pages/tournament.js');
+  assert.match(tour, /getActiveFlashBets\(t\.id\)\.catch\(\(\) => \[\]\)\s*\]\);\s*if \(!isShowing\('tournament', code\)\) return;/);
+  assert.doesNotMatch(tour, /renderTournament\(\{ code: t\.shareCode \}\)/);
+});
