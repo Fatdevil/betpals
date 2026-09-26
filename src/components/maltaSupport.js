@@ -37,24 +37,18 @@ export function openMaltaSupportModal(initialQuestion = null) {
   const contentHtml = `
     <div class="malta-chat-container">
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-        <div class="malta-chat-badge" style="margin: 0;">
+        <div class="malta-chat-badge" id="malta-chat-status" style="margin: 0;">
           <span class="malta-live-indicator"></span>
-          <span>${isEn ? 'AI Concierge Online • St. Julian’s • 24/7' : 'AI-Concierge Online • St. Julian’s • 24/7'}</span>
+          <span>${isEn ? 'Checking…' : 'Kollar läget…'}</span>
         </div>
         <button type="button" id="malta-toggle-fab-visibility-btn" class="btn btn-xs ${isFabDisabled ? 'btn-primary' : 'btn-secondary'}" style="font-size: 0.72rem; padding: 4px 9px; border-radius: 999px; opacity: 0.95;">
           ${isFabDisabled ? (isEn ? '📌 Show floating button' : '📌 Fäst ikon på skärmen') : (isEn ? '👁️ Hide floating button' : '👁️ Dölj flytande ikon')}
         </button>
       </div>
 
-      <!-- Quick topic chips -->
-      <div class="malta-quick-chips">
-        <button class="malta-chip-btn" data-topic="Hur sätter vi bäst upp våra rundor och matcher i turneringen?">🏌️ Ronder & matcher</button>
-        <button class="malta-chip-btn" data-topic="Hur gör vi vadslagning för mest birdies med AnyBet?">🎯 Mest birdies</button>
-        <button class="malta-chip-btn" data-topic="Akut svinghjälp! Hur botar jag min slice ute på banan?">🏌️‍♂️ Svingtips & slice</button>
-        <button class="malta-chip-btn" data-topic="Hur funkar BlixtBet ute på banan?">⚡ BlixtBet</button>
-        <button class="malta-chip-btn" data-topic="Hur delar vi öl och lunch på The Tab?">🍻 The Tab</button>
-        <button class="malta-chip-btn" data-topic="Hur funkar Swish-avräkningen?">💸 Swish</button>
-        <button class="malta-chip-btn" data-topic="Någon har glömt sin PIN-kod, hur nollställer vi?">🔑 Glömt PIN</button>
+      <!-- Quick topics: the most asked questions (filled from the server) -->
+      <div class="malta-quick-chips" id="malta-quick-chips">
+        ${DEFAULT_TOPICS.map(t => `<button type="button" class="malta-chip-btn" data-topic="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}
       </div>
 
       <!-- Chat messages log -->
@@ -63,8 +57,8 @@ export function openMaltaSupportModal(initialQuestion = null) {
           <img src="/malta-chip-sm.webp" class="malta-msg-avatar" alt="Malta" />
           <div class="malta-msg-bubble">
             ${isEn
-              ? "Welcome to Malta Betting VIP Support! 🇲🇹🎰 Heading out on a legendary golf trip with the crew? Ask me about tournaments, AnyBet for most birdies, sharing drinks on The Tab, or Swish settlements!"
-              : "Tjena mästaren! 🇲🇹🎰 Välkommen till Malta Betting VIP Kundtjänst! Peggar ni upp för en episk golfresa med gänget? Fråga mig om hur ni lägger upp turneringen, AnyBet på flest birdies, The Tab för bärsen eller hur Swish-avräkningen funkar!"}
+              ? "Welcome to Malta Betting support! 🇲🇹 Ask me how to decide a match, who swishes whom on The Tab, adding games, friends – or get a quick swing tip. ⛳"
+              : "Tjena mästaren! 🇲🇹 Välkommen till Malta Betting-supporten! Fråga hur du avgör en match, vem som swishar vem på THE TAB, hur du lägger till spel och vänner – eller be om ett snabbt svingtips. ⛳"}
           </div>
         </div>
       </div>
@@ -75,12 +69,12 @@ export function openMaltaSupportModal(initialQuestion = null) {
           type="text" 
           id="malta-chat-input" 
           class="malta-chat-field" 
-          placeholder="${isEn ? 'Fråga om golf, bets, PIN...' : 'Fråga Malta Support om golf, bets, PIN...'}" 
+          placeholder="${isEn ? 'Ask about games, The Tab, friends…' : 'Fråga om spel, THE TAB, vänner…'}" 
           autocomplete="off" 
-          maxlength="400"
+          maxlength="500"
         />
         <button type="submit" id="malta-chat-send-btn" class="btn btn-primary malta-send-btn">
-          <span>Skicka</span> 🚀
+          <span>${isEn ? 'Send' : 'Skicka'}</span> 🚀
         </button>
       </form>
     </div>
@@ -141,16 +135,17 @@ export function openMaltaSupportModal(initialQuestion = null) {
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Quick chips click
-    document.querySelectorAll('.malta-chip-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const topic = btn.getAttribute('data-topic');
-        if (topic && input) {
-          input.value = topic;
-          handleSend();
-        }
-      });
+    // Topic chips (top row and the suggestions under answers) send their question
+    document.querySelector('.malta-chat-container')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.malta-chip-btn');
+      const topic = btn?.getAttribute('data-topic');
+      if (topic && input) {
+        input.value = topic;
+        handleSend();
+      }
     });
+
+    loadSupportStatus(isEn);
 
     if (form) {
       form.addEventListener('submit', (e) => {
@@ -198,7 +193,7 @@ async function handleSend() {
       <span class="malta-typing-dots">
         <span></span><span></span><span></span>
       </span>
-      <span style="font-size: 0.78rem; opacity: 0.7; margin-left: 6px;">Malta Support funderar...</span>
+      <span style="font-size: 0.78rem; opacity: 0.7; margin-left: 6px;">${getLang() === 'en' ? 'Malta Support is thinking…' : 'Malta Support funderar…'}</span>
     </div>
   `;
   chatBox.appendChild(typingEl);
@@ -218,12 +213,14 @@ async function handleSend() {
       })
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     document.getElementById('malta-typing-indicator')?.remove();
 
-    const reply = data?.reply || 'Hoppsan! Nätet svajade till, men Malta Support finns alltid här. Prova igen!';
-    appendChatMessage('bot', reply, true);
-    sessionChatHistory.push({ role: 'bot', text: reply });
+    // Our own limit ("support is on a break") comes back as an error message: show it as is
+    const reply = data?.reply || data?.error || 'Hoppsan! Nätet svajade till, men Malta Support finns alltid här. Prova igen!';
+    appendChatMessage('bot', reply, true, data?.suggestions || []);
+    if (data?.reply) sessionChatHistory.push({ role: 'bot', text: reply });
+    if (data?.mode) setSupportStatus(data.mode, getLang() === 'en');
   } catch (err) {
     document.getElementById('malta-typing-indicator')?.remove();
     appendChatMessage('bot', 'Kunde inte nå Malta Support just nu. Kontrollera din internetuppkoppling!', true);
@@ -234,22 +231,59 @@ async function handleSend() {
   }
 }
 
-function appendChatMessage(sender, rawText, scroll = true) {
+// Escaped first, then a little markdown: **bold**, *italic* and tappable https links
+export function formatSupportText(rawText) {
+  return escapeHtml(rawText)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s).,!?:]|$)/g, '$1<em>$2</em>')
+    .replace(/https:\/\/[^\s<]+[^\s<.,!?)]/g, url => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
+    .replace(/\n/g, '<br/>');
+}
+
+const DEFAULT_TOPICS = ['🏆 Avgöra en match', '💸 Swish & THE TAB', '⏳ Löpande skulder', '➕ Lägga till spel', '🎯 Välj flera', '👥 Vänner', '🔔 Notiser', '🔑 Glömt PIN'];
+
+async function loadSupportStatus(isEn) {
+  try {
+    const res = await fetch('/api/support/status');
+    const data = await res.json();
+    setSupportStatus(data.mode || (data.live ? 'live' : 'offline'), isEn);
+    const chips = document.getElementById('malta-quick-chips');
+    if (chips && Array.isArray(data.topics) && data.topics.length) {
+      chips.innerHTML = data.topics.map(t => `<button type="button" class="malta-chip-btn" data-topic="${escapeHtml(t.label)}">${escapeHtml(t.label)}</button>`).join('');
+    }
+  } catch {
+    setSupportStatus('offline', isEn);
+  }
+}
+
+// Honest status: the AI, or quick answers from the built-in handbook
+function setSupportStatus(mode, isEn) {
+  const el = document.getElementById('malta-chat-status');
+  if (!el) return;
+  const live = mode === 'live';
+  el.classList.toggle('is-offline', !live);
+  el.innerHTML = `<span class="malta-live-indicator"></span><span>${live
+    ? (isEn ? 'AI support online' : 'AI-support online')
+    : mode === 'resting'
+      ? (isEn ? 'AI resting – quick answers' : 'AI:n vilar – snabbsvar')
+      : (isEn ? 'Quick answers (AI offline)' : 'Snabbsvar (AI offline)')}</span>`;
+}
+
+function appendChatMessage(sender, rawText, scroll = true, suggestions = []) {
   const chatBox = document.getElementById('malta-chat-messages');
   if (!chatBox) return;
 
   const msgEl = document.createElement('div');
   msgEl.className = `malta-msg malta-msg-${sender}`;
 
-  // Simple formatting: newlines to <br>, bold **text** to <strong>
-  let formatted = escapeHtml(rawText)
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br/>');
+  const formatted = formatSupportText(rawText);
 
   if (sender === 'bot') {
     msgEl.innerHTML = `
       <img src="/malta-chip-sm.webp" class="malta-msg-avatar" alt="Malta" />
-      <div class="malta-msg-bubble">${formatted}</div>
+      <div class="malta-msg-bubble">${formatted}
+        ${suggestions.length ? `<div class="malta-suggest">${suggestions.map(t => `<button type="button" class="malta-chip-btn" data-topic="${escapeHtml(t.label)}">${escapeHtml(t.label)}</button>`).join('')}</div>` : ''}
+      </div>
     `;
   } else {
     msgEl.innerHTML = `

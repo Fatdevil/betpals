@@ -10,13 +10,13 @@ test('Malta Support — Generates rich fallback replies for golf, birdies, tab a
   assert.ok(birdieReply.includes('Sarah'), 'Should personalize greeting');
 
   const tabReply = getMaltaFallbackReply('Hur delar vi öl på tabben?', 'Micke');
-  assert.ok(tabReply.includes('The Tab'), 'Should explain The Tab');
+  assert.ok(tabReply.includes('THE TAB'), 'Should explain The Tab');
 
   const pinReply = getMaltaFallbackReply('Jag har glömt min PIN-kod', 'Kalle');
   assert.ok(pinReply.includes('Nollställ PIN'), 'Should guide on PIN reset via admin');
 
   const internetReply = getMaltaFallbackReply('Har ni internet eller surf?', 'Sarah');
-  assert.ok(internetReply.includes('internet är slut') || internetReply.includes('surf'), 'Should mention internet/surf out playfully');
+  assert.ok(internetReply.includes('surf'), 'Should mention internet/surf out playfully');
 
   const lovenReply = getMaltaFallbackReply('Ska vi köra löven game på golfen?', 'Erik');
   assert.ok(lovenReply.includes('Björklöven') || lovenReply.includes('hockey'), 'Should warn about Löven hockey');
@@ -24,11 +24,11 @@ test('Malta Support — Generates rich fallback replies for golf, birdies, tab a
   const stockReply = getMaltaFallbackReply('Vad står börsen i?', 'Sarah');
   assert.ok(stockReply.includes('börsen') && stockReply.includes('golfresa'), 'Should tell user to focus on golf/beer rather than stock market');
 
+  // Nothing matched: a short list of topics instead of a dead end
   const generalReply = getMaltaFallbackReply('Tja vad kan du hjälpa till med?', 'Alex');
-  assert.ok(generalReply.includes('Malta Support') && generalReply.includes('rast'), 'General reply should announce that Malta Support has a break (rast)');
+  assert.ok(generalReply.includes('Välj ett ämne'), 'General reply offers topics');
   assert.ok(generalReply.includes('Malta Betting'), 'Should refer to Malta Betting');
   assert.ok(!generalReply.includes('BetPals'), 'Should never refer to BetPals');
-  assert.ok(generalReply.includes('https://youtu.be/0EoEY4fi3vo'), 'Should promote official video');
 
   const videoReply = getMaltaFallbackReply('Visa en video för att tagga!', 'Alex');
   assert.ok(videoReply.includes('https://youtu.be/0EoEY4fi3vo'), 'Should provide official YouTube link');

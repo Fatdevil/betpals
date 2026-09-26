@@ -2,163 +2,269 @@
 // Provides intelligent AI responses for Malta Betting via Gemini API with a rich offline fallback.
 import * as db from './db.js';
 
-const MALTA_SYSTEM_PROMPT = `
-Du är "Malta Support 🇲🇹🎰" – den officiella AI-kundtjänsten för Malta Betting (denna app heter "Malta Betting", kalla den ALDRIG för BetPals!) under en episk golfresa med kompisgänget som bettar på sina golfrundor.
+// What Malta Support knows about the app. Kept in one place and in the words the app
+// uses on its buttons, so the AI and the offline answers never drift apart.
+const APP_FACTS = `
+Så fungerar Malta Betting (använd exakt dessa knappnamn):
 
-VIKTIG NAMNREGEL:
-- Appen heter uteslutande **Malta Betting**.
-- Du får ALDRIG nämna eller kalla appen för "BetPals". Använd ALLTID namnet **Malta Betting**!
-
-Din personlighet:
-- Du är en skön, solbränd, trevlig men professionell Malta-supportagent (tänk: "VIP Concierge på ett soligt kasino i St. Julian's").
-- Du älskar golf, iskall lager, fairways, birdies och hederliga vadslagningar där ingen smiter från sina skulder.
-- Du svarar alltid på svenska (om användaren inte skriver på engelska), rappt, roligt och med glimten i ögat. Använd passande emojis som 🇲🇹, 🏌️‍♂️, 🍻, 🎰, ⛳, 💰.
-- Du ger alltid konkreta och korrekta instruktioner om hur Malta Betting-appen fungerar.
-
-Dina djupa kunskaper om Malta Betting & Golfresan:
-1. **Turnering & Ronder**:
-   - Skapa en övergripande Turnering i appen (t.ex. "Golfresan 2026"). Alla deltagare i gänget bjuds in via länk/QR (oavsett hur många ni blir).
-   - För varje runda ni spelar kan man skapa del-events eller matcher (Runda 1, Runda 2 osv.).
-   - Man kan spela Head-to-Head (1X2-matcher i bollen) eller sätta odds på vem som vinner rundan.
-   - När sista rundan spelats klickar man "Avsluta Turnering" för att kora totalsegraren och kvitta alla bets.
-2. **"Mest Birdies" & Specialspel (AnyBet)**:
-   - Använd "AnyBet" i appen! Klicka på Skapa AnyBet, skriv t.ex. "Vem gör flest birdies under resan?", sätt en insats (t.ex. 50 kr) och utse en opartisk domare.
-   - Alla deltagare som vill vara med klickar "Gå med". Domaren eller skaparen avgör vinnaren efter finalrundan.
-3. **FlashBet (BlixtBet på banan)**:
-   - Snabba realtidsspel direkt på banan (t.ex. "Sätter Mackan 3-metersputten på hål 14? Ja/Nej").
-   - TIPS: Sätt minst 2-3 minuters tidsgräns så kompisarna med svag 4G-täckning i ruffen hinner svara!
-4. **The Tab (Utläggskassan – Resans räddare)**:
-   - Perfekt för golfbilar, lunch, rangebollar, taxi och bärs på 19:e hålet!
-   - Den som betalar lägger in utlägget, anger belopp och bockar för vilka i gänget som var med.
-   - Malta Betting fördelar örena exakt och bakar automatiskt in det i slutavräkningen mot bets.
-5. **Swish & Saldon**:
-   - Appen flyttar inga pengar från banken. Den räknar ut vem som är skyldig vem och minimerar antalet överföringar.
-   - Klicka på Swish-knappen i appen så öppnas Swish automatiskt med förifyllt mobilnummer och exakt belopp.
-6. **Glömt PIN / Inloggningsproblem**:
-   - Om någon glömt sin 4-siffriga PIN: Gå till Admin-sidan (/admin) med admin-PIN -> scrolla till användaren -> klicka "Nollställ PIN". Användaren får en 6-siffrig engångskod och kan sätta ny PIN!
-7. **Löven-game**:
-   - OBS! Löven-game i appen är hårdkodat för ishockeylaget Björklöven (mål, skott etc.). Använd INTE det för golf! Använd vanliga Turneringsevent eller AnyBet för golftips.
-8. **Minispel (Space Blitz, Mafia etc.)**:
-   - Spelas bäst på hotellrummet eller klubbhuset över WiFi på kvällen.
-9. **Golfcoach, Svingtips & Mental Caddie (Akut svinghjälp på banan)**:
-   - Du är inte bara supportagent utan också gängets inofficiella PGA-coach och mentala caddie!
-   - Du ger skarpa, enkla och pedagogiska råd om golfsvingen ute på banan:
-     * **Slice**: Vrid vänsterhanden så 2–3 knogar syns (starkare grepp), lossa grepptrycket och svinga inifrån-och-ut mot klockan 13:00.
-     * **Duff / Fet träff**: Sluta skopa! Flytta vikten till främre foten och behåll ryggradsvinkeln genom träffen.
-     * **Toppad boll**: Lita på klubbans loft istället för att resa på kroppen för att "hjälpa bollen upp".
-     * **Shank**: Kliv bak 2–3 cm från bollen och låt armarna hänga ledigt under axlarna.
-     * **Puttning för seger**: Lås handlederna, pendla från axlarna och fokusera på jämn fart snarare än hålet.
-   - Svara med massor av pepp, humor och charmig Malta-psykologi (tänk: "Släpp dödsgreppet om klubban, andas djupt och tänk på den kalla ölen i klubbhuset!").
-
-10. **Realtidssökning via Google & Allmän Concierge-service**:
-    - Du har tillgång till Google Search i realtid!
-    - När användaren frågar om dagsaktuella saker – som **dagens börs (OMXS30, aktiekurser, fonder, index, valutor)**, sportresultat, nyheter eller väder:
-      * OM du har Google Search och kan hämta faktiska siffror: Svara med de korrekta siffrorna kort och koncist i din sköna Malta-ton!
-      * OM du INTE kan söka live just nu, om sökningen misslyckas, eller om du inte har live-kurser: SÄG ALDRIG att du 'ska kolla upp det' eller att du återkommer! Svara istället direkt och bestämt med glimten i ögat att man bör fokusera på helt andra saker än börsen på en golfresa! (T.ex. att lägga ner Avanza-appen, att en dålig dag på golfbanan slår vilken dag som helst på börsen, och att fokusera på fairway, svingen och den kalla ölen på 19:e hålet istället för röda eller gröna siffror! 🏌️‍♂️💼🍻).
-      * Säg aldrig att en fråga är 'utanför ditt område'. Som gängets VIP Concierge hjälper du till med allt med ett leende och glimten i ögat!
-
-11. **Officiell Malta-video & Hype**:
-    - Promota lite då och då (när användaren frågar om pepp, stämning, svinghjälp, golfresan, fest eller bara behöver inspiration) den episka videon:
-      👉 https://youtu.be/0EoEY4fi3vo
-    - Släng in den lite då och då med en skön kommentar, t.ex:
-      * "Kolla in den här mästerliga videon för att få in rätt gung och feeling i gänget: https://youtu.be/0EoEY4fi3vo 🏌️‍♂️🔥"
-      * "När svingen svajar eller festen börjar på 19:e – spana in denna klassiker: https://youtu.be/0EoEY4fi3vo 🎬🍻"
-    - Droppa länken snyggt och naturligt lite då och då när det passar stämningen!
-
-Håll svaren hjälpsamma, koncisa och underhållande!
+1. EVENT: Ett event samlar gänget, t.ex. "Golfhelg Malta". Skapa via Admin → "SKAPA EVENT". Bjud in via "📱 Dela event" (länk/QR) eller "Bjud in vänner" (push).
+2. SPEL I EVENTET: På eventsidan → "➕ Lägg till spel". Speltyper:
+   - 🏆 Vem vinner? – betta på en spelare, odds från potten.
+   - 👥 Vinnare tar allt – alla lägger lika, vinnaren tar potten.
+   - ⚽ Match 1 X 2 – hemma, oavgjort eller borta.
+   - 👍 Ja eller nej – en snabb fråga.
+   - 🎯 Välj flera – alla väljer lika många (t.ex. "Vilka 4 kommer sist?"). Flest rätt tar potten, den delas vid lika, har ingen rätt går insatserna tillbaka. Andras tips syns först efter spelstopp.
+3. AVGÖRA: Öppna spelet → "👑 Spelledare" → "🏆 Avgör matchen" → "Välj vinnare 🏆" (kryssa flera = delad seger). Går även från Admin → "🏆 Avgör". Potten delas ut direkt.
+4. TA BORT / AVBRYTA: Ett spel utan bets kan tas bort ("🗑️ Ta bort spelet"). Har någon bettat: "🛑 Avbryt spelet" – alla insatser går tillbaka. Ett avgjort spel kan inte tas bort; det flyttas automatiskt till "✅ Avgjorda spel" längst ner på eventsidan.
+5. AVSLUTA EVENTET: När alla spel är avgjorda trycker värden "🏆 Avsluta event & kora vinnare". Då räknas allt ihop och alla får en push med vad de ska swisha eller få.
+6. THE TAB (hela avräkningen): Allt räknas ihop PER PERSON – event, BlixtBet, AnyBet, dueller och notor – i hela kronor. Man swishar en gång per person.
+   - "Klart att swisha": skulder till folk du inte har ett pågående event med. Swish-knappen öppnar Swish med rätt nummer och belopp.
+   - "Löpande – görs upp när eventet är slut": pengar i ett pågående event väntar tills eventet avslutas (så man swishar en gång). Vill man ändå betala direkt finns "Swisha ändå", och mottagaren trycker "Markera som betalt".
+   - Mottagaren bekräftar alltid med "Markera som betalt ✓" när pengarna kommit.
+   - Dela en nota (lunch, taxi, golfbil): THE TAB → "🧾 Dela på en nota".
+7. BLIXTBET: Snabb ja/nej-fråga med tidsgräns till utvalda vänner. Tips: 2–3 minuter så alla hinner svara.
+8. ANYBET: Ett eget vad med en domare, t.ex. "Vem gör flest birdies under resan?". Inbjudna svarar, domaren avgör.
+9. MINISPEL: The Blind 10.00 (stoppa klockan på exakt 10.00 – närmast vinner), Space Blitz, Maffia, Not-Roulette, Singla slant, Gimme, Hjulet, Enarmad bandit (spelpengar), Livebet och Löven-spelet (för ishockeylaget Björklöven, inte golf). Spel med insats på egna mobiler (partyrum) hamnar på THE TAB; spelar ni på samma telefon gör ni upp sinsemellan. The Blind 10.00: vid lika på första plats väljer värden en avgörande omgång eller att dela potten.
+10. NOTISER: Klockan uppe till höger. "Väntar på dig" = saker att göra (vänförfrågningar, swisha, BlixtBets, spel att avgöra). "Senaste" = vad som hänt, t.ex. dina resultat.
+11. VÄNNER: Min profil → VÄNNER → "Lägg till" (skickar förfrågan som mottagaren godkänner) eller "Bjud in" (din personliga länk – den som öppnar blir vän direkt). Förfrågningar kan godkännas direkt i klockan. Skickade förfrågningar kan ångras.
+12. GLÖMT PIN: En admin går till Admin, låser upp med admin-PIN, letar upp personen och trycker "🔑 Nollställ PIN". Personen får en engångskod och väljer "Glömt PIN" vid inloggning.
+13. Appen flyttar aldrig pengar själv – den räknar ut vem som ska swisha vem.
 `.trim();
 
+const MALTA_SYSTEM_PROMPT = `
+Du är "Malta Support 🇲🇹" – kundtjänsten i appen Malta Betting. Appen heter alltid Malta Betting, aldrig BetPals.
+
+Personlighet: en solbränd, trevlig och professionell VIP-concierge i St. Julian's. Rapp, rolig och med glimten i ögat – golf, kall lager och hederliga vad där ingen smiter från sina skulder. Svara på svenska (engelska om användaren skriver engelska), kort och konkret, med några passande emojis.
+
+Viktigast: ge KORREKTA instruktioner om appen, med knappnamnen nedan. Hitta aldrig på knappar eller funktioner. Vet du inte, säg det rakt och föreslå närmaste funktion.
+
+${APP_FACTS}
+
+Golfcoach: du ger gärna korta, peppiga svingtips (slice, duff, toppar, shank, puttning) med humor.
+
+Aktuella frågor (resultat, väder, nyheter, börs): kan du söka, svara kort med fakta. Kan du inte söka, säg det ärligt – lova aldrig att "kolla upp och återkomma". Börsfrågor på en golfresa får gärna ett skämt om att lägga ner Avanza.
+
+Officiella Malta-videon (https://youtu.be/0EoEY4fi3vo): nämn den bara om någon ber om pepp, stämning eller en video.
+`.trim();
+
+// ── Offline answers: a small knowledge base scored on whole words ──
+// A keyword ending in * matches word beginnings (Swedish inflections: "avgör*" → "avgöra",
+// "avgjord"); other keywords must match a whole word, so "tab" never matches "tabellen".
+// A trailing ! counts double: what someone wants to DO ("ta bort") beats what the thing is
+// ("avgjort").
+const KB = [
+  {
+    id: 'decide', label: '🏆 Avgöra en match',
+    keywords: ['avgör*', 'avgjor*', 'vinnare', 'vinnaren', 'kora', 'resultat*', 'vann', 'rätta'],
+    answer: (n) => `Så avgör du en match, ${n}! 🏆
+1. Öppna spelet och fäll ut **👑 Spelledare**.
+2. Tryck **🏆 Avgör matchen**.
+3. Tryck **Välj vinnare 🏆** vid rätt alternativ – eller kryssa i flera för delad seger.
+Appen frågar innan något händer. Potten delas ut direkt och skulderna hamnar på THE TAB. Det går även från **Admin → 🏆 Avgör**. ⛳`
+  },
+  {
+    id: 'remove', label: '🗑️ Ta bort eller avbryta spel',
+    keywords: ['bort!', 'radera*!', 'avbryt*!', 'ångra', 'arkiv*', 'fel spel'],
+    answer: (n) => `Bra fråga, ${n}! 🧹
+- **Ingen har bettat än:** 👑 Spelledare/⋯ → **🗑️ Ta bort spelet**.
+- **Någon har bettat:** **🛑 Avbryt spelet** – alla insatser går tillbaka och spelet räknas inte.
+- **Avgjort spel:** kan inte tas bort (då skulle vinster och skulder försvinna). Det flyttas automatiskt till **✅ Avgjorda spel** längst ner på eventsidan, så det blir plats för nya matcher. 📦`
+  },
+  {
+    id: 'picks', label: '🎯 Välj flera',
+    keywords: ['välj flera', 'flest rätt', 'topp*', 'vilka*', 'sist', 'först', 'flera'],
+    answer: (n) => `🎯 **Välj flera** är perfekt för "Vilka 4 kommer sist i loppet?", ${n}!
+1. Eventet → **➕ Lägg till spel** → **🎯 Välj flera**.
+2. Skriv frågan, lägg till alla alternativ med **＋ Namn** och välj hur många man ska välja.
+3. Alla trycker i sina val och lägger tipset. Andras tips syns först efter spelstopp.
+4. Spelledaren kryssar i vad som faktiskt hände. **Flest rätt tar potten** (delas vid lika). Har ingen rätt går insatserna tillbaka. 🏁`
+  },
+  {
+    id: 'games', label: '➕ Lägga till spel',
+    keywords: ['lägg* till spel', 'nytt spel', 'skapa spel', 'speltyp*', '1x2', 'ja eller nej', 'match', 'matchen', 'odds'],
+    answer: (n) => `Nytt spel i eventet, ${n}? ⚽ Eventsidan → **➕ Lägg till spel** och välj typ:
+- 🏆 **Vem vinner?** – betta på en spelare, odds från potten
+- 👥 **Vinnare tar allt** – alla lägger lika, vinnaren tar allt
+- ⚽ **Match 1 X 2** – hemma, oavgjort eller borta
+- 👍 **Ja eller nej** – en snabb fråga
+- 🎯 **Välj flera** – flest rätt tar potten
+Sätt insats och gärna ett spelstopp, så stänger bettningen av sig själv. ⏱️`
+  },
+  {
+    id: 'event', label: '🏌️ Event & gå med',
+    keywords: ['event*', 'turnering*', 'gå med', 'bjud* in', 'inbjud*', 'qr', 'länk*', 'golfresa*', 'rund*', 'ronder'],
+    answer: (n) => `Så funkar event, ${n}! 🏌️
+1. Skapa via **Admin → SKAPA EVENT**, t.ex. *"Golfhelg Malta"*.
+2. Få med gänget via **📱 Dela event** (länk eller QR) – eller **Bjud in vänner** så får de en push.
+3. Lägg upp spelen med **➕ Lägg till spel** allteftersom.
+4. När allt är avgjort: **🏆 Avsluta event & kora vinnare** – då räknas allt ihop på THE TAB. 🇲🇹`
+  },
+  {
+    id: 'running', label: '⏳ Löpande skulder',
+    keywords: ['löpande', 'pågå*', 'fast eventet', 'swisha nu', 'redan swisha*', 'mitt i', 'vänta*'],
+    answer: (n) => `Smart fråga, ${n}! ⏳ Pengar i ett **pågående event** är *löpande* – de räknas ihop när eventet avslutas, så att ni bara swishar **en gång per person**.
+- Startsidan visar "Ditt läge just nu" på eventkortet, men ber dig inte swisha än.
+- När värden trycker **🏆 Avsluta event & kora vinnare** får alla en push med exakt belopp.
+- Vill du ändå betala direkt: THE TAB → **Swisha ändå**, och mottagaren trycker **Markera som betalt ✓**. Senare resultat räknas bara på det som är kvar. 💸`
+  },
+  {
+    id: 'swish', label: '💸 Swish & THE TAB',
+    keywords: ['swish*', 'betala*', 'skuld*', 'saldo', 'peng*', 'skyldig', 'kvitt', 'the tab', 'tab', 'tabben', 'avräkning*'],
+    answer: (n) => `THE TAB i korthet, ${n}! 💸
+- Allt räknas ihop **per person** – event, BlixtBet, AnyBet, dueller och notor – i hela kronor. Du swishar **en gång per person**.
+- **Klart att swisha:** tryck Swish-knappen, så öppnas Swish med rätt nummer och belopp.
+- **Löpande:** pengar i pågående event väntar tills eventet avslutas.
+- Mottagaren trycker **Markera som betalt ✓** när pengarna kommit – då försvinner raden.
+Appen flyttar aldrig pengar själv, den räknar bara ut vem som ska swisha vem. 📊`
+  },
+  {
+    id: 'bill', label: '🧾 Dela en nota',
+    keywords: ['nota*', 'utlägg*', 'lunch', 'middag', 'taxi', 'golfbil*', 'öl', 'bärs', 'kvitto', 'dela på', 'notan'],
+    answer: (n) => `Dela notan, ${n}! 🍻
+1. **THE TAB → 🧾 Dela på en nota** (fristående eller i ett pågående event).
+2. Ange beloppet och vilka som var med.
+3. Allas del hamnar direkt på THE TAB och räknas ihop med allt annat – ingen smiter undan! 🧾`
+  },
+  {
+    id: 'blixt', label: '⚡ BlixtBet',
+    keywords: ['blixt*', 'flashbet', 'snabbt', 'snabbvad'],
+    answer: (n) => `⚡ **BlixtBet** är en snabb ja/nej-fråga, ${n} – t.ex. *"Sänker Johan par-putten?"*.
+Välj vilka som ska få den och sätt en tidsgräns. Tips från Malta-kontoret: **2–3 minuter**, så polarna med svag täckning i ruffen hinner svara. Resultatet hamnar på THE TAB. 🌲📱`
+  },
+  {
+    id: 'anybet', label: '🎯 AnyBet & birdies',
+    keywords: ['anybet', 'birdie*', 'domare', 'eget vad', 'vad om'],
+    answer: (n) => `Tjena ${n}! 🏌️‍♂️ För t.ex. *"Mest birdies under resan"* är **AnyBet** perfekt:
+1. Skapa AnyBet, skriv frågan och sätt insats.
+2. Välj en opartisk domare som håller koll på scorekorten.
+3. De inbjudna svarar, och domaren avgör vinnaren – potten hamnar på THE TAB. 🏆`
+  },
+  {
+    id: 'bell', label: '🔔 Notiser',
+    keywords: ['notis*', 'klock*', 'push*', 'meddelande*', 'aviser*'],
+    answer: (n) => `🔔 **Klockan** uppe till höger är din inkorg, ${n}:
+- **Väntar på dig:** vänförfrågningar (godkänn direkt), vad du ska swisha, BlixtBets att svara på och spel att avgöra.
+- **Senaste:** vad som hänt, t.ex. *"Du vann 50 kr"*.
+Slå gärna på pushnotiser under Min profil så missar du inget. 📲`
+  },
+  {
+    id: 'friends', label: '👥 Vänner',
+    keywords: ['vän', 'vänner', 'vänförfrågan', 'kompis*', 'polare*', 'lägga till'],
+    answer: (n) => `Vänner, ${n}! 👥
+- **Min profil → VÄNNER → Lägg till:** sök och skicka en förfrågan. Mottagaren godkänner (direkt i klockan 🔔).
+- **Bjud in:** dela din personliga länk – den som öppnar den blir vän direkt.
+- En skickad förfrågan kan **ångras** under VÄNNER.`
+  },
+  {
+    id: 'blind10', label: '⏱️ The Blind 10.00',
+    keywords: ['blind*', '10.00', 'stoppur', 'klockan 10'],
+    answer: (n) => `⏱️ **The Blind 10.00**, ${n}: stoppa klockan på exakt 10.00 sekunder – blint! Den som kommer närmast vinner potten.
+Kör **Egna mobiler** (partyrum med kod – insatserna hamnar på THE TAB) eller **Samma telefon** (turas om – där gör ni upp sinsemellan). Servern mäter tiden, så ingen kan fuska. Vid lika på första plats väljer värden **avgörande omgång** eller att **dela potten**. 🎯`
+  },
+  {
+    id: 'minigames', label: '🎮 Minispel',
+    keywords: ['minispel*', 'partyspel*', 'space', 'maffia', 'mafia', 'roulette', 'slant', 'gimme', 'hjulet', 'bandit', 'livebet'],
+    answer: (n) => `Minispelen, ${n}! 🎮 The Blind 10.00, Space Blitz, Maffia, Not-Roulette, Singla slant, Gimme, Hjulet och Livebet – plus Enarmad bandit med spelpengar.
+Spel med insats på **egna mobiler** hamnar automatiskt på THE TAB – spelar ni på **samma telefon** gör ni upp sinsemellan. Partyspelen funkar bäst över WiFi på hotellet eller i klubbhuset. 🍻`
+  },
+  {
+    id: 'pin', label: '🔑 Glömt PIN',
+    keywords: ['pin*', 'glömt', 'lösenord', 'login', 'logga*', 'inlogg*'],
+    answer: (n) => `Ingen panik, ${n}! 🔑
+1. En admin går till **Admin** och låser upp med admin-PIN.
+2. Leta upp personen och tryck **🔑 Nollställ PIN** – en engångskod visas.
+3. Personen väljer **"Glömt PIN"** vid inloggning, skriver koden och väljer en ny PIN. 🏖️`
+  },
+  {
+    id: 'loven', label: '🏒 Löven-spelet',
+    keywords: ['löven*', 'björklöven', 'hockey*'],
+    answer: (n) => `Se upp, ${n}! 🏒 **Löven-spelet** är gjort för ishockeylaget Björklöven (mål, skott och så vidare). För golfen kör ni vanliga spel i eventet eller AnyBet istället! ⛳`
+  },
+  {
+    id: 'swing', label: '🏌️‍♂️ Svingtips',
+    keywords: ['sving*', 'slice*', 'hook*', 'shank*', 'duff*', 'grepp*', 'toppa*', 'putt*', 'driver'],
+    answer: (n) => `Akut svinghjälp från Malta Pro Desk, ${n}! 🏌️‍♂️
+1. **Slice:** starkare grepp (2–3 knogar synliga) och sving inifrån-och-ut mot klockan 13.
+2. **Duff/toppar:** vikten på främre foten, behåll ryggvinkeln – lita på loften.
+3. **Shank:** kliv bak 2 cm och låt armarna hänga fritt.
+4. **Puttar:** lås handlederna och pendla från axlarna.
+Guldregeln: grepptryck 4 av 10 och 80 % tempo! 🍻
+🎬 Behöver ni pepp? https://youtu.be/0EoEY4fi3vo`
+  },
+  {
+    id: 'stocks', label: '📈 Börsen',
+    keywords: ['börs*', 'aktie*', 'omx*', 'fond*', 'avanza', 'finans*'],
+    answer: (n) => `Hallå där ${n}! 🏌️‍♂️💼 Live-kurser kan jag inte hämta just nu – och ärligt talat, du är ju på golfresa! Lägg ner Avanza, träffa fairway och ta hem potten i Malta Betting istället. Ölen på 19:e smakar lika gott oavsett om börsen är röd eller grön! ⛳🍻`
+  },
+  {
+    id: 'internet', label: '📶 Internet',
+    keywords: ['internet', 'surf*', 'wifi', 'söka', 'google'],
+    answer: (n) => `Haha ${n}! 🌴📶 Just nu kör Malta-kontoret utan surf – men jag kan fortfarande allt om Malta Betting: event, spel, THE TAB, notiser och svingen. Vad vill du ha hjälp med? 🏌️‍♂️`
+  },
+  {
+    id: 'video', label: '🎬 Malta-videon',
+    keywords: ['video*', 'film*', 'youtube', 'pepp*', 'hype', 'tagga*', 'låt', 'musik'],
+    answer: (n) => `Jajamän ${n}! 🔥🎬 Officiella Malta Betting-videon som sätter stämningen: https://youtu.be/0EoEY4fi3vo 🏌️‍♂️🍻`
+  }
+];
+
+// The chips shown in the chat and when nothing matched
+export const SUPPORT_TOPICS = ['decide', 'swish', 'running', 'games', 'picks', 'friends', 'bell', 'pin']
+  .map(id => KB.find(t => t.id === id)).map(t => ({ id: t.id, label: t.label }));
+
+function normalize(text) {
+  return String(text || '').toLowerCase().replace(/[^\p{L}\p{N}.\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function keywordHits(words, text, rawKeyword) {
+  const weight = rawKeyword.endsWith('!') ? 2 : 1;
+  const keyword = weight === 2 ? rawKeyword.slice(0, -1) : rawKeyword;
+  return weight * keywordMatch(words, keyword);
+}
+
+function keywordMatch(words, keyword) {
+  if (keyword.includes(' ')) {
+    // Phrase: every word must follow in order ("lägg* till spel")
+    const parts = keyword.split(' ');
+    for (let i = 0; i + parts.length <= words.length; i++) {
+      if (parts.every((p, j) => (p.endsWith('*') ? words[i + j].startsWith(p.slice(0, -1)) : words[i + j] === p))) return 2;
+    }
+    return 0;
+  }
+  if (keyword.endsWith('*')) return words.some(w => w.startsWith(keyword.slice(0, -1))) ? 1 : 0;
+  return words.includes(keyword) ? 1 : 0;
+}
+
+// Best matching topics for a question, best first
+export function matchSupportTopics(message) {
+  const text = normalize(message);
+  const words = text.split(' ').filter(Boolean);
+  return KB
+    .map(t => ({ topic: t, score: t.keywords.reduce((sum, k) => sum + keywordHits(words, text, k), 0) }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+
 /**
- * Fallback response engine when Gemini API key is missing or offline.
+ * Offline answer (no AI key, AI unreachable): the best matching topic, or a short
+ * "pick a topic" list instead of a dead end.
  */
 export function getMaltaFallbackReply(message, userName = 'Kompis') {
-  const q = (message || '').toLowerCase();
+  const best = matchSupportTopics(message)[0];
+  if (best) return best.topic.answer(userName);
+  return `Tjena ${userName}! 🌴 Det där hittar jag inget färdigt svar på i Malta Betting-handboken just nu. Välj ett ämne nedan – eller skriv med andra ord, t.ex. *"hur avgör jag en match?"* ⛳`;
+}
 
-  if (q.includes('birdie') || q.includes('birdies') || q.includes('flest')) {
-    return `Tjena ${userName}! 🏌️‍♂️ Birdies är golfens finaste valuta! För "Mest birdies" under resan rekommenderar jag starkt **AnyBet**:
-1. Gå till fliken för AnyBet och klicka på **"Skapa AnyBet"**.
-2. Döp det till t.ex. *"Mest birdies (hela resan)"* och sätt insats (t.ex. 50 eller 100 kr).
-3. Välj en pålitlig domare som håller räkningen på scorekorten.
-4. Alla som vill vara med trycker **"Gå med"**. Den som hålar flest birdies tar hem hela potten! 🏆💰`;
-  }
+// Suggestions to show under an offline answer: other close topics, else the main ones
+export function getSupportSuggestions(message) {
+  const matched = matchSupportTopics(message).map(x => x.topic);
+  const pool = matched.length > 1 ? matched.slice(1, 4) : KB.filter(t => SUPPORT_TOPICS.some(s => s.id === t.id)).slice(0, 4);
+  return pool.map(t => ({ id: t.id, label: t.label }));
+}
 
-  if (q.includes('blixt') || q.includes('flash') || q.includes('live')) {
-    return `Halloj ${userName}! ⚡ **BlixtBet (FlashBet)** är kungligt ute på banan! När ni står på green kan du slänga ut t.ex. *"Sänker Johan par-putten här? Ja/Nej"*.
-Ett hett tips från Malta-kontoret: Sätt **minst 2–3 minuters tidsgräns** på banan så hinner grabbarna i bollen bakom svara även om 4G-nätet svajar bland tallarna! 🌲📱`;
-  }
-
-  if (q.includes('tab') || q.includes('utlägg') || q.includes('öl') || q.includes('lunch') || q.includes('golfbil') || q.includes('kvitto')) {
-    return `Tjenare ${userName}! 🍻 **The Tab** är er bästa vän under resan! När någon tar notan för lunch, hyr 4 golfbilar eller köper en runda på 19:e hålet:
-1. Öppna **The Tab**.
-2. Ange totalbelopp och välj vilka som ska dela.
-3. Malta Betting delar upp örena på millimetern och bakar ihop det med alla golfbets i slutavräkningen. Ingen slipper undan sin del! 📊⛳`;
-  }
-
-  if (q.includes('pin') || q.includes('glömt') || q.includes('lösenord') || q.includes('login') || q.includes('inlogg')) {
-    return `Ingen panik, ${userName}! 🔑 Har någon supit bort sin 4-siffriga PIN? Så här fixar ni det på 10 sekunder:
-1. Admin går in på **/admin** och låser upp med superadmin-PIN.
-2. Leta upp personen i användarlistan och klicka **"Nollställ PIN"**.
-3. En 6-siffrig engångskod visas på skärmen – skicka den till polaren via SMS eller rop över fairway.
-4. Polaren klickar på *"Glömt PIN"* vid inloggning, knappar in koden och väljer en ny PIN! Smidigt va? 🏖️`;
-  }
-
-  if (q.includes('swish') || q.includes('betala') || q.includes('skuld') || q.includes('saldo') || q.includes('peng')) {
-    return `Hej ${userName}! 💸 Malta Betting är en smart avräkningsmotor, ingen bank. Så här funkar Swish:
-När rundan eller turneringen är avslutad räknar appen ut vem som ska betala vem med så få transaktioner som möjligt. Klicka bara på **Swish-knappen** så öppnas Swish-appen i telefonen med rätt mottagare och exakt öresbelopp färdigt! Bara att signera med BankID. 💳✨`;
-  }
-
-  if (q.includes('löven') || q.includes('björklöven') || q.includes('hockey')) {
-    return `Haha, se upp ${userName}! 🏒 **Löven-game** i appen är för hockeylaget Björklöven (mål, skott på mål etc.). Om ni inte ska kolla hockey på hotellrummet ska ni **inte** använda Löven-game för golfscoren! Kör på vanliga **Turneringsevent** eller **AnyBet** för golfen istället! ⛳`;
-  }
-
-  if (q.includes('runda') || q.includes('turnering') || q.includes('match') || q.includes('tävling')) {
-    return `Tjena mästaren! 🏌️‍♂️ För era rundor på golfresan gör ni så här:
-1. Skapa en **Turnering** med namnet *"Golfresan 2026"*.
-2. Bjud in alla deltagare i gänget med er inbjudningskod eller QR-kod.
-3. För varje runda ni spelar lägger ni upp del-events eller matcher (t.ex. bästboll, scratch eller Head-to-Head mellan bollar).
-4. När sista rundan spelats klickar ni **"Avsluta Turnering"** så koras totalsegraren och alla skulder kvittas automatiskt! 🏆🇲🇹`;
-  }
-
-  if (q.includes('video') || q.includes('film') || q.includes('youtube') || q.includes('länk') || q.includes('pepp') || q.includes('hype') || q.includes('tagga') || q.includes('låt') || q.includes('musik')) {
-    return `Jajamän ${userName}! 🔥🎬 Här har du den officiella videon för Malta Betting som sätter stämningen på topp: https://youtu.be/0EoEY4fi3vo 🏌️‍♂️🍻
-Sätt på helskärm, vrid upp volymen och ladda upp inför nästa runda på banan eller kvällens betting!`;
-  }
-
-  if (q.includes('sving') || q.includes('slice') || q.includes('hook') || q.includes('shank') || q.includes('duff') || q.includes('grepp')) {
-    return `Halloj mästaren ${userName}! 🏌️‍♂️⛳ Akut svinghjälp från Malta Pro Desk:
-1. **Slicar du ut i tallarna?** Vrid vänsterhanden så du ser 2–3 knogar vid adressering (starkare grepp) och tänk att du svingar inifrån-och-ut mot klockan 13:00!
-2. **Duffar eller toppar du?** Flytta vikten till främre foten i nersvingen och behåll ryggradsvinkeln genom träffen. Lita på klubbans loft – du behöver inte hjälpa bollen upp!
-3. **Shankar du mot skaftfästet?** Kliv bak 2 cm från bollen och låt armarna hänga ledigt rakt under axlarna.
-4. **Den gyllene Malta-regeln:** Släpp dödsgreppet om klubban (grepptryck 4 av 10) och svinga i 80% tempo. Bollen flyger både rakare och längre, och ölen på 19:e smakar dubbelt så gott! 🚀🍻
-
-🎬 *Behöver du hitta rätt gung och feeling i gänget? Kolla in denna klassiker:* https://youtu.be/0EoEY4fi3vo 🏌️‍♂️✨`;
-  }
-
-  if (q.includes('internet') || q.includes('surf')) {
-    return `Haha ${userName}! 🌴📶 Här på Malta-kontoret har vi dragit ur modemsladden – internet är slut! Månadens fria satellitsurf är förbrukad, men oroa dig inte: jag har fortfarande hela golfhjärnan full med tips om The Tab, AnyBet, FlashBet och hur du rätar ut din slice! Vad vill du ha hjälp med? 🏌️‍♂️🍻`;
-  }
-
-  if (q.includes('putt') || q.includes('vatten') || q.includes('ruff')) {
-    return `Ojojoj ${userName}... 🏌️‍♂️💨 På Malta har vi en gyllene regel: En missad putt eller boll i vattnet kan alltid räddas av ett iskallt AnyBet på nästa hål och en kall lager i baren! Släpp prestigen, fokusera på nästa slag och låt Malta Betting hålla koll på ställningen! 🍻⛳`;
-  }
-
-  if (q.includes('börs') || q.includes('aktie') || q.includes('omx') || q.includes('fond') || q.includes('kurs') || q.includes('finans')) {
-    return `Hallå där ${userName}! 🏌️‍♂️💼 Lägg ner Avanza och släpp börsen för guds skull – du är ju på golfresa! 🌴☀️ Just nu kan jag inte surfa fram live-kurser, och ärligt talat: en dålig dag på golfbanan slår ändå vilken toppdag som helst på Stockholmsbörsen! Släpp indexstressen, fokusera på att träffa fairway, räta ut slicen och ta hem potten i AnyBet istället. Ölen på 19:e hålet smakar lika gott oavsett om börsen är röd eller grön! ⛳🍻💰`;
-  }
-
-  return `Tjena ${userName}! 🌴🍹 Malta Support har rast just nu från fria frågor och sippar på en kall öl i solen! ☕🏖️
-Men lugn, Malta Support har stenkoll på Malta Betting-reglerna även under rasten. Vad vill du ha hjälp med?
-- 🏌️‍♂️ **Tävling & Ronder** (Hur ni sätter upp turneringen & delmatcher)
-- 🎯 **Mest birdies** (Regler & tips för AnyBet)
-- 🏌️‍♀️ **Svingtips & Akut slice-hjälp** (PGA-råd ute på banan)
-- ⚡ **BlixtBet** (Realtidsbets på puttar och drives)
-- 🍻 **The Tab** (Dela golfbilar, lunch och bira)
-- 💸 **Swish & Saldon** (Hur avräkningen fungerar)
-- 🔑 **Nollställa PIN** om någon glömt koden
-
-Bara fråga om någon av punkterna ovan så guidar jag dig direkt! ⛳🎰
-
-🎬 *P.S. Tagga till med officiella videon:* https://youtu.be/0EoEY4fi3vo 🔥`;
+export function getSupportTopicQuestion(id) {
+  const t = KB.find(x => x.id === id);
+  return t ? t.label.replace(/^\S+\s/, '') : null;
 }
 
 export const MAX_MONTHLY_SEARCHES = 5000;
@@ -177,6 +283,22 @@ export function getSearchQuotaInfo() {
 }
 
 let lastApiDiagnostic = null;
+// How the latest AI attempt went, so the chat badge shows what people will actually get
+let lastReplyMode = null;
+let lastReplyAt = 0;
+
+export function getSupportMode() {
+  if (!isGeminiLive()) return 'offline';
+  // A failure is remembered for 10 minutes; after that the AI is given a new chance
+  if (lastReplyMode && lastReplyMode !== 'live' && Date.now() - lastReplyAt < 10 * 60 * 1000) return lastReplyMode;
+  return 'live';
+}
+
+function rememberMode(mode) {
+  lastReplyMode = mode;
+  lastReplyAt = Date.now();
+  return mode;
+}
 
 export function getLastApiDiagnostic() {
   return lastApiDiagnostic;
@@ -190,11 +312,18 @@ export function isGeminiLive() {
   return Boolean(key && String(key).trim());
 }
 
+const MAX_MESSAGE_CHARS = 500;
+const MAX_HISTORY_CHARS = 1000;
+const PER_MODEL_TIMEOUT_MS = 8000;
+const TOTAL_TIMEOUT_MS = 15000;
+
 /**
- * Calls Gemini API with Google Search grounding (capped at 5,000 searches/month).
+ * Calls Gemini (with Google Search grounding while the monthly quota lasts).
+ * Returns { text, mode: 'live' | 'offline' | 'resting' }.
  */
 export async function generateMaltaSupportReply(message, history = [], userName = 'Kompis') {
   const apiKey = (process.env.GEMINI_API_KEY || (db?.getSetting ? db.getSetting('gemini_api_key') : null) || '').trim();
+  const question = String(message || '').slice(0, MAX_MESSAGE_CHARS);
 
   lastApiDiagnostic = {
     time: new Date().toISOString(),
@@ -205,50 +334,36 @@ export async function generateMaltaSupportReply(message, history = [], userName 
 
   if (!apiKey) {
     lastApiDiagnostic.offlineReason = 'No API key provided';
-    return getMaltaFallbackReply(message, userName);
+    return { text: getMaltaFallbackReply(question, userName), mode: 'offline' };
   }
 
   const quota = getSearchQuotaInfo();
 
-  // Format contents for Gemini API
+  // Only the last few turns, trimmed; anything that is not the user is the assistant
   const formattedContents = [];
-  if (Array.isArray(history) && history.length > 0) {
+  if (Array.isArray(history)) {
     for (const h of history.slice(-6)) {
-      if (h.role && h.text) {
+      if (h && typeof h.text === 'string' && h.text.trim()) {
         formattedContents.push({
           role: h.role === 'user' ? 'user' : 'model',
-          parts: [{ text: String(h.text) }]
+          parts: [{ text: h.text.slice(0, MAX_HISTORY_CHARS) }]
         });
       }
     }
   }
-
-  // Append current message
-  formattedContents.push({
-    role: 'user',
-    parts: [{ text: `[Användare: ${userName}]: ${message}` }]
-  });
+  formattedContents.push({ role: 'user', parts: [{ text: `[Användare: ${userName}]: ${question}` }] });
 
   let systemInstructionText = MALTA_SYSTEM_PROMPT;
   if (quota.exhausted) {
-    systemInstructionText += `\n\n[VIKTIGT OM SURFPOTT & BÖRSEN: Månadens fria internet/Google-sökkvot är slut! Du har INTE tillgång till live-sökning på Google just nu. Säg ALDRIG att du ska kolla upp realtidsinfo eller börsen. Om användaren frågar om börsen eller aktier, svara med glimten i ögat att man ska släppa börsen helt och hållet – lägg ner Avanza-appen, fokusera på golfresan, svingen och den kalla ölen på 19:e hålet istället! 🏌️‍♂️💼🍻]`;
+    systemInstructionText += '\n\n[Månadens sökkvot är slut: du kan INTE söka på nätet just nu. Säg det ärligt om någon frågar om aktuella saker.]';
   }
 
   const primaryPayload = {
-    system_instruction: {
-      parts: [{ text: systemInstructionText }]
-    },
+    system_instruction: { parts: [{ text: systemInstructionText }] },
     contents: formattedContents,
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 600
-    }
+    generationConfig: { temperature: 0.6, maxOutputTokens: 600 }
   };
-
-  // Only enable Google Search grounding tool if under 5,000 searches this month!
-  if (!quota.exhausted) {
-    primaryPayload.tools = [{ google_search: {} }];
-  }
+  if (!quota.exhausted) primaryPayload.tools = [{ google_search: {} }];
 
   const models = [
     'gemini-2.5-flash',
@@ -258,62 +373,59 @@ export async function generateMaltaSupportReply(message, history = [], userName 
     'gemini-3.6-flash'
   ];
 
+  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
   for (const model of models) {
+    const timeLeft = deadline - Date.now();
+    if (timeLeft < 1000) {
+      lastApiDiagnostic.attempts.push({ model, skipped: 'total timeout' });
+      break;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(PER_MODEL_TIMEOUT_MS, timeLeft));
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
+      // The key goes in a header, never in the URL (URLs end up in logs)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(primaryPayload)
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify(primaryPayload),
+        signal: controller.signal
       });
 
       if (!response.ok) {
         const errText = await response.text();
-        console.warn(`[malta-support] Gemini API error on ${model} (${response.status}): ${errText}`);
-        lastApiDiagnostic.attempts.push({ model, status: response.status, ok: false, error: errText });
+        console.warn(`[malta-support] Gemini API error on ${model} (${response.status}): ${errText.slice(0, 300)}`);
+        lastApiDiagnostic.attempts.push({ model, status: response.status, ok: false, error: errText.slice(0, 500) });
         continue;
       }
 
       const data = await response.json();
       const cand = data?.candidates?.[0];
-      const candidateText = cand?.content?.parts?.[0]?.text;
+      const candidateText = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
       const gm = cand?.groundingMetadata || cand?.grounding_metadata;
       const queries = gm?.webSearchQueries || gm?.web_search_queries;
 
-      lastApiDiagnostic.attempts.push({
-        model,
-        status: response.status,
-        ok: true,
-        candidateLength: candidateText ? candidateText.length : 0,
-        queries: queries || []
-      });
+      lastApiDiagnostic.attempts.push({ model, status: response.status, ok: true, candidateLength: candidateText.length, queries: queries || [] });
 
-      if (candidateText && candidateText.trim()) {
-        // Increment search count if Google Search queries were executed
+      if (candidateText) {
         if (Array.isArray(queries) && queries.length > 0 && db?.incrementMonthlySearchCount) {
           db.incrementMonthlySearchCount(queries.length);
         }
-        return candidateText.trim();
+        return { text: candidateText, mode: rememberMode('live') };
       }
     } catch (fetchErr) {
-      console.warn(`[malta-support] Fetch exception on ${model}:`, fetchErr.message);
-      lastApiDiagnostic.attempts.push({ model, exception: fetchErr.message });
+      const reason = fetchErr.name === 'AbortError' ? 'timeout' : fetchErr.message;
+      console.warn(`[malta-support] ${model} failed: ${reason}`);
+      lastApiDiagnostic.attempts.push({ model, exception: reason });
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  // If rate limited by Google API (429 Too Many Requests) or offline
-  const isRateLimited = lastApiDiagnostic.attempts.some(a => a.status === 429);
-  const q = (message || '').toLowerCase();
-
-  if (isRateLimited) {
-    if (q.includes('börs') || q.includes('aktie') || q.includes('omx') || q.includes('fond') || q.includes('kurs') || q.includes('finans')) {
-      return `Hallå där ${userName}! 🏌️‍♂️💼 Lägg ner Avanza och släpp börsen för guds skull – du är ju på golfresa! 🌴☀️ Just nu kan jag inte surfa fram live-kurser, och ärligt talat: en dålig dag på golfbanan slår ändå vilken toppdag som helst på Stockholmsbörsen! Släpp indexstressen, fokusera på att träffa fairway, räta ut slicen och ta hem potten i AnyBet istället. Ölen på 19:e hålet smakar lika gott oavsett om börsen är röd eller grön! ⛳🍻💰`;
-    }
-    return `Tjena ${userName}! 🌴🍹 Malta Support har rast just nu! Grabben i supporten har lagt upp fötterna på skrivbordet, sippar på en iskall Cisk i skuggan och tar en välförtjänt espresso i solen! ☕🏖️ Det går inte att ställa vanliga frågor just nu då servrarna vilar. Ta en paus du också, njut av en kall bärs och prova igen om en liten stund så är jag tillbaka vid tangentbordet! 🏌️‍♂️🍻`;
+  // Google's own limit hit: answer from the handbook, and say the AI rests for a while
+  if (lastApiDiagnostic.attempts.some(a => a.status === 429)) {
+    return { text: getMaltaFallbackReply(question, userName), mode: rememberMode('resting') };
   }
-
-  // If all Gemini models failed or had empty responses, use rich offline fallback
-  return getMaltaFallbackReply(message, userName);
+  return { text: getMaltaFallbackReply(question, userName), mode: rememberMode('offline') };
 }
 
 /**
@@ -431,10 +543,10 @@ Krav:
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1800);
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       signal: controller.signal,
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
