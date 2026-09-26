@@ -4792,3 +4792,73 @@ body.betslip-open #malta-support-fab {
   color: #fff;
   font-size: 0.65rem;
 }
+
+/* ── Admin ───────────────────────────────────────── */
+.adm-chip {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  background: rgba(255, 215, 0, 0.06);
+  color: var(--gold);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.adm-chip.is-super { background: rgba(255, 215, 0, 0.16); }
+.adm-sub { margin: -4px 0 14px; font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
+.adm-list { display: flex; flex-direction: column; gap: 8px; }
+.adm-event {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-card);
+  color: var(--text-primary, #fff);
+  text-align: left;
+  cursor: pointer;
+}
+.adm-event-main { flex: 1; min-width: 0; }
+.adm-event-main b { display: block; font-size: 0.98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adm-event-main small { display: block; margin-top: 2px; font-size: 0.75rem; color: var(--text-muted); }
+.adm-super-head {
+  margin: 28px 0 8px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(255, 215, 0, 0.3);
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--gold);
+}
+.adm-panel {
+  margin-bottom: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-card);
+}
+.adm-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 14px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  cursor: pointer;
+  list-style: none;
+}
+.adm-panel > summary::-webkit-details-marker { display: none; }
+.adm-panel > summary::after { content: '›'; margin-left: auto; color: var(--text-muted); transition: transform 0.2s; }
+.adm-panel[open] > summary::after { transform: rotate(90deg); }
+.adm-panel > div { padding: 0 12px 12px; }
+.adm-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.adm-count:empty { display: none; }
