@@ -5056,8 +5056,11 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         return;
       }
 
+      // Running bets first, results last
+      flashBets.sort((x, y) => (x.status === 'settled') - (y.status === 'settled'));
       flashBets.forEach(fb => {
-        countdowns.set(fb.id, fb.secondsLeft);
+        flashBetsById.set(fb.id, fb);
+        if (fb.status !== 'settled') countdowns.set(fb.id, fb.secondsLeft);
       });
 
       tabContent.innerHTML = `
@@ -5073,11 +5076,61 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     }
   }
 
+  const flashBetsById = new Map();
+
+  // What settling will do, in words, before the creator confirms
+  function settlePreview(fb, winner) {
+    const label = winner === 'yes' ? (isEn ? 'YES' : 'JA') : (isEn ? 'NO' : 'NEJ');
+    if (!fb) return isEn ? `Did ${label} win?` : `Vann ${label}?`;
+    const winners = winner === 'yes' ? fb.yesCount : fb.noCount;
+    const losers = winner === 'yes' ? fb.noCount : fb.yesCount;
+    const stake = fb.stakeAmount;
+    let money;
+    if (!winners || !losers) {
+      money = isEn ? 'Nobody on the other side – no money changes hands.' : 'Ingen på andra sidan – inga pengar byter ägare.';
+    } else {
+      const each = Math.round((losers * stake) / winners);
+      money = isEn
+        ? `${losers} pay ${stake} kr each. ${winners} winner(s) get about ${each} kr each.`
+        : `${losers} betalar ${stake} kr var. ${winners} vinnare får ca ${each} kr var.`;
+    }
+    return isEn
+      ? `${label} won?\n\n${money}\n\nThis cannot be undone.`
+      : `${label} vann?\n\n${money}\n\nDet går inte att ångra.`;
+  }
+
+  // A settled bet stays visible for a while with its result
+  function renderSettledCard(fb) {
+    const winLabel = fb.winningChoice === 'yes' ? (isEn ? '👍 YES won' : '👍 JA vann') : (isEn ? '👎 NO won' : '👎 NEJ vann');
+    const mine = fb.myEntry;
+    const won = mine && mine.choice === fb.winningChoice;
+    const sum = fb.settlementSummary || {};
+    const amount = Math.round(Math.abs(sum.netAmount ?? sum.amountWon ?? sum.amountOwed ?? 0));
+    const myLine = !mine
+      ? (isEn ? 'You hosted this bet.' : 'Du ledde bettet.')
+      : won
+        ? (isEn ? `You won${amount ? ` +${amount} kr` : ''}!` : `Du vann${amount ? ` +${amount} kr` : ''}!`)
+        : (isEn ? `You lost${amount ? ` ${amount} kr` : ''}.` : `Du förlorade${amount ? ` ${amount} kr` : ''}.`);
+    return `
+      <div class="card flashbet-card" style="padding: 14px; border: 1px solid var(--border-glass);">
+        <div class="flex-between" style="align-items: center; margin-bottom: 6px;">
+          <span class="badge badge-success" style="font-size: 0.72rem;">🏁 ${isEn ? 'Settled' : 'Avgjort'}</span>
+          <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Pot' : 'Pott'} ${fb.totalPool} kr</span>
+        </div>
+        <div style="font-weight: 800; margin-bottom: 8px;">"${escapeHtml(fb.question)}"</div>
+        <div class="fb-result ${fb.winningChoice === 'yes' ? 'yes' : 'no'}">${winLabel}</div>
+        <div style="font-size: 0.85rem; margin-top: 8px;">${myLine}</div>
+        ${mine ? `<button type="button" class="btn btn-secondary btn-sm btn-block mt-sm fb-goto-tab">${isEn ? 'See The Tab →' : 'Se THE TAB →'}</button>` : ''}
+      </div>`;
+  }
+
   function renderFlashBetCard(fb) {
     const isCreator = currentUser && fb.creatorId === currentUser.id;
     const hasVoted = !!fb.myEntry;
     const seconds = countdowns.get(fb.id) ?? fb.secondsLeft;
     const isExpired = seconds <= 0 || fb.status !== 'open';
+    if (fb.status === 'settled') return renderSettledCard(fb);
+    const entries = fb.entriesCount || fb.betCount || 0;
 
     return `
       <div class="card flashbet-card" data-fb-id="${fb.id}" style="border: 1.5px solid ${isExpired ? 'var(--border-light)' : 'var(--gold)'}; background: var(--bg-card); position: relative; overflow: hidden; padding: 14px;">
@@ -5102,7 +5155,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         <div style="margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 700; margin-bottom: 4px;">
             <span style="color: #2ecc71;">👍 JA: ${fb.yesCount}</span>
-            <span style="color: var(--text-muted);">Pott: ${fb.totalPool} kr</span>
+            <span style="color: var(--text-muted);">${isEn ? 'Pot' : 'Pott'}: ${fb.totalPool} kr</span>
             <span style="color: #e74c3c;">👎 NEJ: ${fb.noCount}</span>
           </div>
           <div style="height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; display: flex;">
@@ -5110,6 +5163,10 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
             <div style="height: 100%; width: ${fb.entriesCount > 0 ? (fb.noCount / fb.entriesCount * 100) : 50}%; background: #e74c3c; transition: width 0.3s;"></div>
           </div>
         </div>
+
+        <div class="fb-money-note">${isEn
+          ? `Everyone stakes ${fb.stakeAmount} kr. The winners share the losers' stakes.`
+          : `Alla satsar ${fb.stakeAmount} kr. Vinnarna delar på förlorarnas insatser.`}</div>
 
         <!-- User Voting Controls -->
         ${hasVoted ? `
@@ -5121,6 +5178,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
             🏌️ Ditt vad – vännerna röstar.
           </div>
         `) : !isExpired ? `
+          <div class="fb-lock-note">${isEn ? 'Your vote cannot be changed.' : 'Din röst går inte att ändra.'}</div>
           <div class="flex gap-sm" style="margin-top: 6px;">
             <button type="button" class="btn btn-block flashbet-vote-btn" data-fb-id="${fb.id}" data-choice="yes" style="flex: 1; padding: 10px; background: rgba(46,204,113,0.15); border: 1.5px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 0.95rem;">
               👍 JA (${fb.stakeAmount} kr)
@@ -5136,7 +5194,12 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         `}
 
         <!-- Settle Controls (Only for creator) -->
-        ${isCreator && fb.status !== 'settled' ? `
+        ${isCreator && isExpired && entries === 0 ? `
+          <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-glass); text-align: center;">
+            <div class="text-muted" style="font-size: 0.8rem; margin-bottom: 8px;">${isEn ? 'Nobody voted in time.' : 'Ingen hann rösta.'}</div>
+            <button type="button" class="btn btn-sm flashbet-delete-btn" data-fb-id="${escapeHtml(fb.id)}" data-question="${escapeHtml(fb.question || '')}" data-votes="0" style="width: 100%;">🗑️ ${isEn ? 'Remove and start a new one' : 'Ta bort och starta ett nytt'}</button>
+          </div>
+        ` : isCreator && fb.status !== 'settled' ? `
           <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-glass);">
             <div style="font-size: 0.78rem; font-weight: 800; color: ${isExpired ? '#f59e0b' : 'var(--gold)'}; margin-bottom: 6px; text-align: center;">
               ${isExpired ? '⏱️ Tiden har gått ut – dags att rätta vadet:' : `⚖️ ${t('arcade.flashbetSettlePrompt')}`}
@@ -5213,12 +5276,21 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
       });
     });
 
+    document.querySelectorAll('.fb-goto-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cleanupTimer();
+        closeModal();
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'overview' } }));
+      });
+    });
+
     // Settling
     document.querySelectorAll('.flashbet-settle-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const fbId = btn.dataset.fbId;
         const winner = btn.dataset.winner;
-        if (!confirm(`Är du säker på att ${winner === 'yes' ? 'JA' : 'NEJ'} vann? Vinsterna fördelas direkt!`)) return;
+        const card = flashBetsById.get(fbId);
+        if (!confirm(settlePreview(card, winner))) return;
 
         btn.disabled = true;
         try {
@@ -5267,7 +5339,6 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     let selectedDurationMinutes = 2;
     let selectedDuration = 120;
     let selectedStake = 20;
-    let selectedMyChoice = 'yes';
     let tournaments = [];
     let friends = [];
     let selectedFriendIds = new Set();
@@ -5315,26 +5386,32 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         <div class="form-group mb-xs">
           <label class="form-label" style="font-size: 0.8rem;">💰 ${t('arcade.flashbetStakeLabel')}</label>
           <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
-            <button type="button" class="btn btn-sm fb-stake-btn" data-stake="10" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">10 kr</button>
+            <button type="button" class="btn btn-sm btn-secondary fb-stake-btn" data-stake="10" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">10 kr</button>
             <button type="button" class="btn btn-sm btn-primary fb-stake-btn" data-stake="20" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">20 kr</button>
-            <button type="button" class="btn btn-sm fb-stake-btn" data-stake="50" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">50 kr</button>
-            <button type="button" class="btn btn-sm fb-stake-btn" data-stake="100" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">100 kr</button>
+            <button type="button" class="btn btn-sm btn-secondary fb-stake-btn" data-stake="50" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">50 kr</button>
+            <button type="button" class="btn btn-sm btn-secondary fb-stake-btn" data-stake="100" style="padding: 8px 4px; font-size: 0.8rem; font-weight: 700;">100 kr</button>
           </div>
         </div>
 
-        <!-- Creator's Own Choice -->
-        <div class="form-group mb-xs">
-          <label class="form-label" style="font-size: 0.8rem;">🎯 Ditt eget val direkt:</label>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <button type="button" class="btn btn-sm fb-choice-btn btn-primary" data-choice="yes" style="padding: 8px; font-weight: 800; font-size: 0.88rem;">👍 JA</button>
-            <button type="button" class="btn btn-sm fb-choice-btn btn-secondary" data-choice="no" style="padding: 8px; font-weight: 800; font-size: 0.88rem;">👎 NEJ</button>
+        <div class="fb-host-note">🎙️ ${isEn ? 'You host the bet and decide the answer – you do not vote yourself.' : 'Du leder bettet och avgör svaret – du röstar inte själv.'}</div>
+
+        <!-- Optional Tournament Link -->
+        ${tournaments && tournaments.length > 0 ? `
+          <div class="form-group mb-xs">
+            <label class="form-label" style="font-size: 0.8rem;">🏆 ${t('arcade.flashbetTournamentLink')}</label>
+            <select class="form-input" id="fb-tournament-select" style="font-size: 0.85rem; padding: 8px 10px;">
+              <option value="">${isEn ? '— No event (friends) —' : '— Inget event (vänner) —'}</option>
+              ${tournaments.map(t => `<option value="${t.id}" ${defaultTournamentId === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
           </div>
-        </div>
+        ` : ''}
+
+        <div id="fb-event-hint" class="fb-host-note" style="display: none;">🏆 ${isEn ? 'Everyone in the event can vote and gets a notification.' : 'Alla som är med i eventet kan rösta och får en notis.'}</div>
 
         <!-- Friends Selection -->
-        <div class="form-group mb-xs">
+        <div class="form-group mb-xs" id="fb-friends-group">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <label class="form-label" style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0;">👥 Välj vänner:</label>
+            <label class="form-label" style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0;">👥 ${isEn ? 'Who can vote?' : 'Vilka får rösta?'}</label>
             ${friends && friends.length > 0 ? `
               <label style="font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--text-secondary);">
                 <input type="checkbox" id="fb-toggle-all-friends" ${isAllFriends ? 'checked' : ''} style="cursor: pointer;" />
@@ -5376,17 +5453,6 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
             </div>
           `}
         </div>
-
-        <!-- Optional Tournament Link -->
-        ${tournaments && tournaments.length > 0 ? `
-          <div class="form-group mb-xs">
-            <label class="form-label" style="font-size: 0.8rem;">🏆 ${t('arcade.flashbetTournamentLink')}</label>
-            <select class="form-input" id="fb-tournament-select" style="font-size: 0.85rem; padding: 8px 10px;">
-              <option value="">— Fristående (Arcade / Vänner) —</option>
-              ${tournaments.map(t => `<option value="${t.id}" ${defaultTournamentId === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
-            </select>
-          </div>
-        ` : ''}
 
         <button type="submit" class="btn btn-primary btn-block mt-xs" id="btn-submit-flashbet" style="padding: 12px; font-size: 1rem; font-weight: 800; background: linear-gradient(135deg, var(--gold), #e67e22); border: none;">
           ⚡ Starta BlixtBet & Skicka Notis!
@@ -5447,7 +5513,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
         hint.textContent = isAllFriends
           ? 'Notis skickas till alla vänner'
           : (selectedFriendIds.size === 0
-              ? 'Inga vänner valda (endast du kan se det tills vänner bjuds in)'
+              ? 'Välj minst en vän'
               : `${selectedFriendIds.size} ${selectedFriendIds.size === 1 ? 'vän vald' : 'vänner valda'}`);
       }
     };
@@ -5481,26 +5547,34 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
     // Stake buttons
     document.querySelectorAll('.fb-stake-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.fb-stake-btn').forEach(b => b.className = 'btn btn-sm fb-stake-btn');
+        document.querySelectorAll('.fb-stake-btn').forEach(b => b.className = 'btn btn-sm btn-secondary fb-stake-btn');
         btn.className = 'btn btn-sm btn-primary fb-stake-btn';
         selectedStake = Number(btn.dataset.stake);
       });
     });
 
-    // Creator choice buttons
-    document.querySelectorAll('.fb-choice-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.fb-choice-btn').forEach(b => b.className = 'btn btn-sm fb-choice-btn btn-secondary');
-        btn.className = 'btn btn-sm fb-choice-btn btn-primary';
-        selectedMyChoice = btn.dataset.choice;
-      });
-    });
+    // In an event everyone in it is asked, so the friend picker only matters outside events
+    const eventSelect = document.getElementById('fb-tournament-select');
+    const syncAudience = () => {
+      const inEvent = Boolean(eventSelect?.value);
+      const group = document.getElementById('fb-friends-group');
+      const hint = document.getElementById('fb-event-hint');
+      if (group) group.style.display = inEvent ? 'none' : '';
+      if (hint) hint.style.display = inEvent ? 'block' : 'none';
+    };
+    eventSelect?.addEventListener('change', syncAudience);
+    syncAudience();
 
     // Form submit
     document.getElementById('create-flashbet-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const question = document.getElementById('fb-question-input').value.trim();
-      const tournamentId = document.getElementById('fb-tournament-select')?.value || defaultTournamentId || null;
+      // The dropdown decides: "no event" really means no event
+      const tournamentId = eventSelect ? (eventSelect.value || null) : null;
+      if (!tournamentId && !isAllFriends && selectedFriendIds.size === 0) {
+        showToast(isEn ? 'Pick at least one friend' : 'Välj minst en vän som kan rösta', 'warning');
+        return;
+      }
       const submitBtn = document.getElementById('btn-submit-flashbet');
       submitBtn.disabled = true;
       submitBtn.textContent = 'Skapar BlixtBet... ⚡';
@@ -5512,7 +5586,6 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
           durationMinutes: selectedDurationMinutes,
           stakeAmount: selectedStake,
           tournamentId,
-          initialChoice: selectedMyChoice,
           targetFriendIds: Array.from(selectedFriendIds),
           notifyAllFriends: isAllFriends
         });

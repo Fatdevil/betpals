@@ -31,7 +31,8 @@ test('Unified Event: 32 participants (12 on-site + 20 remote), split pots, minig
 
   // 1. Create the unified Event (Tournament)
   const tournamentId = 'tour_' + crypto.randomUUID();
-  const shareCode = 'EVT' + crypto.randomInt(1000, 9999);
+  // Random 4-digit codes collided with codes left by earlier runs in the shared test DB
+  const shareCode = 'EVT' + crypto.randomBytes(4).toString('hex').toUpperCase();
   db.createTournament(tournamentId, 'Måndagsgolfen & Soffliggarna', shareCode, creatorId, 'friends');
 
   // 2. Game 1: "Vinnare" (Main Round - Vem vinner måndagsgolfen?)

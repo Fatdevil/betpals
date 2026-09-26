@@ -2366,3 +2366,23 @@
   font-size: 0.78rem;
   line-height: 1.4;
 }
+
+/* ── BlixtBet ────────────────────────────────────── */
+.fb-host-note {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.fb-money-note { margin: -4px 0 10px; font-size: 0.75rem; color: var(--text-muted); }
+.fb-lock-note { font-size: 0.72rem; color: var(--text-muted); text-align: center; }
+.fb-result {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+.fb-result.yes { background: rgba(46, 204, 113, 0.14); color: #2ecc71; }
+.fb-result.no { background: rgba(231, 76, 60, 0.14); color: #f87171; }
