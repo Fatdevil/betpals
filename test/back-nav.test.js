@@ -32,7 +32,7 @@ test('back steps through in-app history, else goes to the parent, and never leav
   const main = read('src/main.js');
   assert.match(main, /function goBack\(\) \{\s*if \(interceptBack\(\)\) return;\s*if \(historyDepth\(\) > 0\) \{\s*window\.history\.back\(\);/);
   assert.match(main, /const parent = getBackParent\(\) \|\| \{ page: 'home', params: \{\} \};\s*navigate\(parent\.page, parent\.params, \{ replace: true \}\);/);
-  assert.match(main, /else window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', url\);/);
+  assert.match(main, /\} else \{\s*window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', url\);/);
   // The phone's back closes an open slip and stays on the game
   assert.match(main, /if \(interceptBack\(\)\) \{\s*window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', pageUrl\(currentPage, currentParams\)\);\s*return;/);
   // Opening a notification link straight into a game: nothing underneath, back goes to the parent
