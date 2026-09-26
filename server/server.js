@@ -4061,6 +4061,12 @@ app.post('/api/minigames/party/join', (req, res) => {
   // Re-opening the invitation (e.g. tapping the notification again) must not disturb
   // the others: only a genuinely new player is announced
   const isNewPlayer = !player;
+  if (!player && room.status === 'completed') {
+    // A rematch with a new player: back to the lobby so the host gets the start button
+    room.status = 'lobby';
+    room.results = [];
+    room.tiedPlayerIds = [];
+  }
   if (!player) {
     player = {
       id: user.id,
@@ -4484,13 +4490,44 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
   res.json({ ok: true, room, stoppedTime: finalTime, diff, latencyCompensationMs: Math.round(compensationMs) });
 });
 
+// Server clock, so phones can estimate their clock offset (half the round trip is transit)
+app.get('/api/time', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ now: Date.now() });
+});
+
 // ── Space Blitz solo: best score per player, compared with friends ──
+// A solo round is started on the server and its result can be handed in once, within the
+// round's time, and is checked against the time that really passed
+const spaceSoloRounds = new Map(); // roundId → { userId, startedAt }
+
+app.post('/api/space/solo-start', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const now = Date.now();
+  for (const [id, r] of spaceSoloRounds) {
+    if (now - r.startedAt > SPACE_BLITZ_DURATION_MS + SPACE_BLITZ_GRACE_MS) spaceSoloRounds.delete(id);
+  }
+  const roundId = crypto.randomUUID();
+  spaceSoloRounds.set(roundId, { userId: user.id, startedAt: now });
+  res.json({ roundId });
+});
+
 app.post('/api/space/solo-score', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
-  const { score, aliensKilled, waveReached } = req.body || {};
-  // A solo round is at most 60 s; the same rule check as money games keeps the list honest
-  const reason = spaceBlitzImplausibilityReason({ score, aliensKilled, wave: waveReached, elapsedMs: SPACE_BLITZ_DURATION_MS + 1000 });
+  const { roundId, score, aliensKilled, waveReached } = req.body || {};
+  const round = roundId ? spaceSoloRounds.get(roundId) : null;
+  if (!round || round.userId !== user.id) {
+    return res.status(400).json({ error: 'Ingen pågående runda att lämna in' });
+  }
+  spaceSoloRounds.delete(roundId);
+  const elapsedMs = Date.now() - round.startedAt;
+  if (elapsedMs > SPACE_BLITZ_DURATION_MS + SPACE_BLITZ_GRACE_MS) {
+    return res.status(400).json({ error: 'Rundan är för gammal för att lämnas in' });
+  }
+  // The same rule check as money games, against the time that really passed
+  const reason = spaceBlitzImplausibilityReason({ score, aliensKilled, wave: waveReached, elapsedMs });
   if (reason) return res.status(400).json({ error: 'Resultatet går inte ihop med spelets regler' });
   res.json(db.recordSpaceSoloScore(user.id, score, waveReached));
 });

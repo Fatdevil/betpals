@@ -19,6 +19,8 @@ import {
   submitPartyScore,
   resolvePartyTie,
   submitSpaceSoloScore,
+  startSpaceSoloRound,
+  getServerTime,
   getSpaceLeaderboard,
   getPartyRoomQR,
   createAnyBet,
@@ -5781,6 +5783,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
   const modalTitle = `<img src="/space-invaders.png" alt="Space Invaders" style="width: 24px; height: 24px; object-fit: contain; vertical-align: -3px; margin-right: 6px;" />${t('arcade.spaceInvadersTitle')}`;
   let soloGameStarted = false;
+  // The server times each solo round so only real rounds reach the friends' leaderboard
+  let soloRoundId = null;
+  const beginSoloRound = () => {
+    soloRoundId = null;
+    if (!currentUser) return;
+    startSpaceSoloRound().then(r => { soloRoundId = r?.roundId || null; }).catch(() => {});
+  };
 
   function renderContent() {
     return `
@@ -6073,6 +6082,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         const stage = root.querySelector('#space-stage-content');
         stage?.querySelector('#btn-start-solo-game')?.addEventListener('click', () => {
           soloGameStarted = true;
+          beginSoloRound();
           stage.innerHTML = renderPlayStageHtml();
           initSpaceEngine({
             onGameOver: (result) => {
@@ -6118,11 +6128,34 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     } catch (_) {}
   }
 
+  // Clock offset to the server, measured with a round trip (half of it is transit), so a
+  // message that arrives late does not make this phone start late
+  let measuredClockOffset = null;
+  async function measureClockOffset() {
+    let best = null;
+    for (let i = 0; i < 3; i++) {
+      const sentAt = Date.now();
+      try {
+        const r = await getServerTime();
+        const receivedAt = Date.now();
+        const rtt = receivedAt - sentAt;
+        if (typeof r?.now === 'number' && (!best || rtt < best.rtt)) {
+          best = { rtt, offset: r.now + rtt / 2 - receivedAt };
+        }
+      } catch (_) {}
+    }
+    if (best) measuredClockOffset = best.offset;
+    return measuredClockOffset;
+  }
+
   // The server says when the round starts; count down to that moment on every phone
   function countdownFromServer(data) {
-    if (typeof data.startTime === 'number' && typeof data.serverNow === 'number') {
-      const clockOffset = data.serverNow - Date.now();
-      return { startAtLocal: data.startTime - clockOffset };
+    if (typeof data.startTime === 'number') {
+      if (measuredClockOffset !== null) return { startAtLocal: data.startTime - measuredClockOffset };
+      if (typeof data.serverNow === 'number') {
+        // Until the offset is measured: assume the message just arrived (refined below)
+        return { startAtLocal: data.startTime - (data.serverNow - Date.now()), serverStartTime: data.startTime };
+      }
     }
     return { startAtLocal: Date.now() + (data.countdownSec || 3) * 1000 };
   }
@@ -6171,8 +6204,10 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     `;
 
     // Your best counts on the friends' leaderboard
-    if (currentUser) {
-      submitSpaceSoloScore({ score: result.score, aliensKilled: result.aliensKilled, waveReached: result.wave })
+    if (currentUser && soloRoundId) {
+      const roundId = soloRoundId;
+      soloRoundId = null;
+      submitSpaceSoloScore({ roundId, score: result.score, aliensKilled: result.aliensKilled, waveReached: result.wave })
         .then(r => {
           const el = stage.querySelector('#space-solo-record');
           if (!el || !r) return;
@@ -6185,6 +6220,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
     stage.querySelector('#btn-space-play-again')?.addEventListener('click', () => {
       soloGameStarted = true;
+      beginSoloRound();
       stage.innerHTML = renderPlayStageHtml();
       initSpaceEngine({
         onGameOver: (res) => {
@@ -6316,6 +6352,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   function renderPartyLobbyView() {
     const stage = root.querySelector('#space-stage-content');
     if (!stage || !partyRoom) return;
+    if (measuredClockOffset === null) measureClockOffset();
 
     const isHost = currentUser && partyRoom.hostId === currentUser.id;
     const totalPot = (partyRoom.players.length || 0) * (partyRoom.stakeAmount || 0);
@@ -6385,9 +6422,15 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   function runPartyGameStartCountdown(timing = {}) {
     const stage = root.querySelector('#space-stage-content');
     if (!stage) return;
-    const startAtLocal = typeof timing === 'object' && timing.startAtLocal
+    let startAtLocal = typeof timing === 'object' && timing.startAtLocal
       ? timing.startAtLocal
       : Date.now() + (Number(timing) || 3) * 1000;
+    // Refine with a measured offset if we did not have one yet
+    if (typeof timing === 'object' && timing.serverStartTime) {
+      measureClockOffset().then(offset => {
+        if (offset !== null) startAtLocal = timing.serverStartTime - offset;
+      });
+    }
     let sec = Math.max(0, Math.ceil((startAtLocal - Date.now()) / 1000));
 
     const renderCountdown = () => {
@@ -6456,6 +6499,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
             ${isEn ? 'The tied players fly one more round. Results in about a minute.' : 'De som delade förstaplatsen flyger en omgång till. Resultat om ungefär en minut.'}
           </p>
         </div>`;
+      pollForPartyResult();
       return;
     }
     stage.innerHTML = `
@@ -6484,7 +6528,11 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       </div>
     `;
 
-    // Fallback if the live connection dropped: ask the server until the round is decided
+    pollForPartyResult();
+  }
+
+  // Fallback if the live connection dropped: ask the server until the round is decided
+  function pollForPartyResult() {
     const roomId = partyRoom?.id;
     if (!roomId) return;
     const poll = setInterval(async () => {

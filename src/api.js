@@ -402,7 +402,9 @@ export const inviteToParty = (id, friendIds) => request('/minigames/party/' + id
 export const startPartyGame = (id) => request('/minigames/party/' + id + '/start', { method: 'POST', body: {} });
 export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof stoppedTime === 'object' && stoppedTime !== null ? stoppedTime : { stoppedTime } });
 export const submitPartyScore = (id, data) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof data === 'object' && data !== null ? data : { score: data } });
+export const startSpaceSoloRound = () => request('/space/solo-start', { method: 'POST', body: {} });
 export const submitSpaceSoloScore = (data) => request('/space/solo-score', { method: 'POST', body: data });
+export const getServerTime = () => request('/time');
 export const getSpaceLeaderboard = () => request('/space/leaderboard');
 export const resolvePartyTie = (id, decision) => request('/minigames/party/' + id + '/resolve-tie', { method: 'POST', body: { decision } });
 export const getPartyRoomQR = (query, baseUrl = getAppBaseUrl()) => request('/minigames/party/' + encodeURIComponent(query) + '/qr' + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : ''));
