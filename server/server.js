@@ -2872,6 +2872,11 @@ app.post('/api/events/:id/cancel', (req, res) => {
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
+  // A decided game keeps its result (cancelling would wipe the wins and debts)
+  if (event.status === 'finished') {
+    return res.status(400).json({ error: 'Ett avgjort spel kan inte avbrytas' });
+  }
+
   if (event.tournament_id) {
     const t = db.getTournamentById(event.tournament_id);
     if (t && t.status === 'settled') {
@@ -2898,6 +2903,14 @@ app.delete('/api/events/:id', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+
+  // Deleting erases the bets, and with them the wins and debts on The Tab
+  if (event.status === 'finished') {
+    return res.status(400).json({ error: 'Ett avgjort spel kan inte tas bort – resultatet ligger på THE TAB' });
+  }
+  if (event.status !== 'cancelled' && db.getBetCountForEvent(event.id) > 0) {
+    return res.status(400).json({ error: 'Spelet har bets – avbryt det i stället så går insatserna tillbaka' });
+  }
 
   db.deleteEvent(req.params.id);
   res.json({ ok: true });
@@ -3491,6 +3504,9 @@ app.delete('/api/tournaments/:id', (req, res) => {
   const hasPin = lazyAdminPin(req, req.body?.pin);
   if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet att radera turneringen' });
+  }
+  if (db.tournamentHasMoney(tournament.id)) {
+    return res.status(400).json({ error: 'Eventet har spel med insatser – det kan inte raderas, då försvinner vinster och skulder från THE TAB. Avbryt spelen som inte är avgjorda, eller låt eventet ligga kvar.' });
   }
 
   db.deleteTournament(tournament.id);

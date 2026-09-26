@@ -1461,6 +1461,21 @@ export function updateEventLastBoosted(eventId) {
   stmts.updateEventLastBoosted.run(new Date().toISOString(), eventId);
 }
 
+// Money in an event: bets on games that were not cancelled, or real debts linked to it.
+// Deleting such an event would erase wins and debts from The Tab.
+export function tournamentHasMoney(tournamentId) {
+  const bets = db.prepare(`
+    SELECT 1 FROM bets b JOIN events e ON b.event_id = e.id
+    WHERE e.tournament_id = ? AND e.status != 'cancelled' LIMIT 1
+  `).get(tournamentId);
+  if (bets) return true;
+  return Boolean(db.prepare(`SELECT 1 FROM minigame_duels d WHERE d.tournament_id = ? AND ${SETTLED_EVENT_DEBT_SQL} LIMIT 1`).get(tournamentId));
+}
+
+export function getBetCountForEvent(eventId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM bets WHERE event_id = ?').get(eventId).n;
+}
+
 export function deleteEvent(eventId) {
   stmts.deleteEvent.run(eventId);
 }

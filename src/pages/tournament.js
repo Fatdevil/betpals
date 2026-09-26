@@ -178,7 +178,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         <div class="game-card-top">
           ${g.imageUrl ? `<img src="${safeImageSrc(g.imageUrl)}" alt="" class="game-card-img" loading="lazy" />` : ''}
           <h3 class="game-card-title">${escapeHtml(g.name)}</h3>
-          ${isCreator ? `<button type="button" class="game-card-menu" data-id="${g.id}" data-name="${escapeHtml(g.name)}" data-open="${isOpen ? '1' : ''}" data-reopenable="${!isOpen && g.status !== 'finished' && g.status !== 'cancelled' ? '1' : ''}" aria-label="Spelledarval">⋯</button>` : ''}
+          ${isCreator && g.status !== 'finished' ? `<button type="button" class="game-card-menu" data-id="${g.id}" data-name="${escapeHtml(g.name)}" data-open="${isOpen ? '1' : ''}" data-reopenable="${!isOpen && g.status !== 'cancelled' ? '1' : ''}" data-has-bets="${g.status !== 'cancelled' && (g.betCount > 0 || g.totalPool > 0) ? '1' : ''}" aria-label="Spelledarval">⋯</button>` : ''}
         </div>
         <div class="game-card-chips">
           ${shown.map(p => `<span class="game-chip">${escapeHtml(p.name)}</span>`).join('')}
@@ -192,6 +192,18 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       </div>
     `;
   };
+
+  // Decided games move to a folded list at the bottom, so running games stay on top and
+  // nothing is lost. A round stays on top while any of its side bets is still running.
+  const isDone = (g) => g.status === 'finished' || g.status === 'cancelled';
+  const groups = [
+    ...t.rounds.map(r => [r, ...(sideBetsByRound[r.id] || [])]),
+    ...unlinkedSideBets.map(sb => [sb])
+  ];
+  const activeGroups = groups.filter(gr => !gr.every(isDone));
+  const doneGroups = groups.filter(gr => gr.every(isDone));
+  const doneCount = doneGroups.reduce((n, gr) => n + gr.length, 0);
+  const renderGroup = ([main, ...nested]) => renderGameCard(main) + nested.map(sb => renderGameCard(sb, true)).join('');
 
   const top3 = [...t.settlement.balances].sort((a, b) => b.net - a.net).slice(0, 3);
 
@@ -273,12 +285,17 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         </div>
       ` : `
         <div class="game-list">
-          ${t.rounds.map(r => `
-            ${renderGameCard(r)}
-            ${(sideBetsByRound[r.id] || []).map(sb => renderGameCard(sb, true)).join('')}
-          `).join('')}
-          ${unlinkedSideBets.map(sb => renderGameCard(sb)).join('')}
+          ${activeGroups.map(renderGroup).join('') || `<div class="game-list-empty">Alla spel är avgjorda – lägg till nästa! 🎲</div>`}
         </div>
+        ${doneGroups.length > 0 ? `
+          <details class="game-done">
+            <summary>
+              <span>✅ Avgjorda spel (${doneCount})</span>
+              <span class="game-done-hint">Visa ›</span>
+            </summary>
+            <div class="game-list">${doneGroups.map(renderGroup).join('')}</div>
+          </details>
+        ` : ''}
       `}
 
       <!-- Sponsor Banners -->
@@ -984,8 +1001,14 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       showToast(reopenRes?.status === 'locked' ? reopenRes.message : 'Bettningen är öppen igen! 🔓', reopenRes?.status === 'locked' ? 'info' : 'success');
       await refreshAfterGameAction();
     },
+    cancel: async (id, name) => {
+      if (!confirm(`Avbryta "${name}"?\n\nSpelet räknas inte och alla insatser går tillbaka. Det kan inte ångras.`)) return;
+      await cancelEvent(id, sessionStorage.getItem('betpals_pin') || '');
+      showToast('Spelet avbröts – insatserna gick tillbaka', 'success');
+      await refreshAfterGameAction();
+    },
     remove: async (id, name) => {
-      if (!confirm(`Vill du ta bort "${name}"?`)) return;
+      if (!confirm(`Ta bort "${name}"? Ingen har bettat än.`)) return;
       await deleteEvent(id, sessionStorage.getItem('betpals_pin') || '');
       showToast('Spelet togs bort', 'success');
       await refreshAfterGameAction();
@@ -1000,12 +1023,13 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         btn.dataset.open ? ['boost', '🚀 Boosta med pushnotis'] : null,
         btn.dataset.open ? ['lock', '🔒 Stäng bettning nu'] : null,
         btn.dataset.reopenable ? ['reopen', '🔓 Öppna bettning igen'] : null,
-        ['remove', '🗑️ Ta bort spelet']
+        // With bets, removing would erase them: cancel instead so every stake goes back
+        btn.dataset.hasBets ? ['cancel', '🛑 Avbryt spelet – insatserna går tillbaka'] : ['remove', '🗑️ Ta bort spelet']
       ].filter(Boolean);
       showModal(`👑 ${escapeHtml(name)}`, `
         <div class="game-action-sheet">
           ${items.map(([key, label]) => `
-            <button type="button" class="btn btn-block ${key === 'remove' ? 'game-action-danger' : 'btn-secondary'}" data-action="${key}">${label}</button>
+            <button type="button" class="btn btn-block ${key === 'remove' || key === 'cancel' ? 'game-action-danger' : 'btn-secondary'}" data-action="${key}">${label}</button>
           `).join('')}
         </div>
       `);

@@ -262,7 +262,12 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           ${ev.status === 'open' ? `
             <button class="btn btn-sm btn-secondary admin-bets-btn" data-id="${ev.id}" data-code="${ev.shareCode}">${t('admin.btnBets')}</button>
           ` : ''}
-          <button class="btn btn-sm btn-danger admin-delete-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}" title="${t('admin.btnDelete')}">🗑</button>
+          ${(ev.status === 'open' || ev.status === 'locked') && ev.betCount > 0 ? `
+            <button class="btn btn-sm btn-danger admin-cancel-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}">🛑 Avbryt</button>
+          ` : ''}
+          ${ev.status === 'cancelled' || (ev.status !== 'finished' && !(ev.betCount > 0)) ? `
+            <button class="btn btn-sm btn-danger admin-delete-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}" title="${t('admin.btnDelete')}">🗑</button>
+          ` : ''}
         </div>
       </div>
     `).join('');
@@ -311,6 +316,18 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
 
     list.querySelectorAll('.admin-finish-btn').forEach(btn => {
       btn.addEventListener('click', () => showFinishModal(btn.dataset.id, btn.dataset.code, loggedIn, hasPinSession, user));
+    });
+
+    // A match with bets is cancelled (every stake goes back) instead of deleted
+    list.querySelectorAll('.admin-cancel-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Avbryta "${btn.dataset.name}"?\n\nMatchen räknas inte och alla insatser går tillbaka. Det kan inte ångras.`)) return;
+        try {
+          await api.cancelEvent(btn.dataset.id, getPin());
+          showToast('Matchen avbröts – insatserna gick tillbaka', 'success');
+          loadAdminEvents(loggedIn, hasPinSession, user);
+        } catch (err) { showToast(err.message, 'error'); }
+      });
     });
 
     list.querySelectorAll('.admin-delete-btn').forEach(btn => {
