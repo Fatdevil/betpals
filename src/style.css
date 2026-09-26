@@ -3341,3 +3341,50 @@ select.form-input option {
 
 
 
+
+/* ── Icon buttons (no browser default button look, e.g. iOS grey bevel) ── */
+.btn-icon {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.photo-delete-x {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 60, 60, 0.12);
+  border: 1px solid rgba(255, 60, 60, 0.35);
+  color: #ff6b6b;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-emoji: text;
+}
+
+.photo-delete-x:active {
+  background: rgba(255, 60, 60, 0.25);
+}
+
+/* File inputs opened through <label for="…">. Kept in the layout (not display: none)
+   because iPhone does not reliably open hidden inputs. */
+.file-input-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  pointer-events: none;
+}

@@ -479,12 +479,12 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
                   <div class="text-muted" style="font-size: 0.7rem;">${(parseDateSafe(p.createdAt) || new Date()).toLocaleString('sv-SE', {day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit'})}</div>
                 </div>
               </div>
-              ${(user && p.userId === user.id) || isCreator ? `<button class="btn-icon text-red delete-photo-btn" data-id="${p.id}" style="font-size: 0.8rem; background: rgba(255,0,0,0.1); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;" title="Radera bild">✕</button>` : ''}
+              ${(user && p.userId === user.id) || isCreator ? `<button type="button" class="btn-icon photo-delete-x delete-photo-btn" data-id="${p.id}" title="Radera bild" aria-label="Radera bild">✕</button>` : ''}
             </div>
             <img src="${p.url}" class="photo-img photo-feed-img" data-url="${p.url}" data-caption="${escapeHtml(p.caption || '')}" data-uploader="${escapeHtml(p.uploaderName)}" style="width: 100%; border-radius: var(--radius-sm); margin-bottom: var(--space-xs); object-fit: cover; max-height: 500px; cursor: pointer;" title="Klicka för helskärm" loading="lazy" />
             ${p.caption ? `<div class="photo-caption text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-sm);">${escapeHtml(p.caption)}</div>` : ''}
             <div class="photo-actions mt-xs">
-              <button class="btn-icon like-btn ${p.userLiked ? 'liked' : ''}" data-id="${p.id}" ${!user ? 'disabled style="opacity: 0.5;" title="Logga in för att gilla"' : ''} style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; background: ${p.userLiked ? 'rgba(255, 60, 60, 0.15)' : 'rgba(255,255,255,0.05)'}; transition: all 0.2s ease;">
+              <button type="button" class="btn-icon like-btn ${p.userLiked ? 'liked' : ''}" data-id="${p.id}" ${!user ? 'disabled title="Logga in för att gilla"' : ''} style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: ${p.userLiked ? 'rgba(255, 60, 60, 0.15)' : 'rgba(255,255,255,0.05)'}; transition: all 0.2s ease;${!user ? ' opacity: 0.5;' : ''}">
                 <span class="heart-icon" style="font-size: 1.1rem; filter: ${p.userLiked ? 'drop-shadow(0 0 4px rgba(255, 60, 60, 0.5))' : 'none'};">${p.userLiked ? '❤️' : '🤍'}</span> 
                 <span class="like-count text-secondary" style="font-size: 0.85rem; font-weight: 600;">${p.likeCount > 0 ? p.likeCount : 'Gilla'}</span>
               </button>
@@ -536,17 +536,21 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
               <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">Fota eller välj bild</div>
               <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka eller dra in en bild här</div>
             </div>
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="photo-file-input" style="display: none;" />
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" id="photo-camera-input" style="display: none;" />
           </div>
+          <!-- Real labels open the pickers natively; iPhone does not reliably open a hidden input from script -->
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="photo-file-input" class="file-input-hidden" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" id="photo-camera-input" class="file-input-hidden" />
           <div class="flex gap-xs mt-xs" style="justify-content: center; flex-wrap: wrap;">
-            <button type="button" class="btn btn-secondary btn-sm" id="photo-camera-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+            <label for="photo-camera-input" class="btn btn-secondary btn-sm" id="photo-camera-btn" role="button" style="font-size: 0.8rem; padding: 6px 12px; cursor: pointer;">
               📷 Ta foto med mobilen
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" id="photo-gallery-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+            </label>
+            <label for="photo-file-input" class="btn btn-secondary btn-sm" id="photo-gallery-btn" role="button" style="font-size: 0.8rem; padding: 6px 12px; cursor: pointer;">
               🖼️ Välj från galleri
-            </button>
+            </label>
           </div>
+          <p class="text-muted" style="font-size: 0.7rem; text-align: center; margin: 6px 0 0 0; line-height: 1.35;">
+            Öppnas inte kameran? Tryck "Välj från galleri" och välj "Ta bild", eller tillåt kameran under Inställningar → Safari → Kamera.
+          </p>
         </div>
         <div class="form-group">
           <label class="form-label">Bildtext (valfri)</label>
@@ -560,8 +564,6 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     const dropArea = document.getElementById('photo-drop-area');
     const fileInput = document.getElementById('photo-file-input');
     const cameraInput = document.getElementById('photo-camera-input');
-    const cameraBtn = document.getElementById('photo-camera-btn');
-    const galleryBtn = document.getElementById('photo-gallery-btn');
     const previewContainer = document.getElementById('photo-preview-container');
     const previewImg = document.getElementById('photo-preview-img');
     const placeholder = document.getElementById('photo-upload-placeholder');
@@ -588,34 +590,14 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       }
     };
 
-    dropArea?.addEventListener('click', (e) => {
-      if (e.target !== fileInput && e.target !== cameraInput) {
-        fileInput?.click();
-      }
-    });
+    // The camera and gallery buttons are <label for="…"> and open the pickers natively
+    dropArea?.addEventListener('click', () => fileInput?.click());
 
-    cameraBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      cameraInput?.click();
-    });
-
-    galleryBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fileInput?.click();
-    });
-
-    fileInput?.addEventListener('click', (e) => e.stopPropagation());
-    cameraInput?.addEventListener('click', (e) => e.stopPropagation());
-
-    fileInput?.addEventListener('change', (ev) => {
+    [fileInput, cameraInput].forEach(input => input?.addEventListener('change', (ev) => {
       const file = ev.target.files?.[0];
+      ev.target.value = ''; // so the same photo can be picked again
       if (file) handleFile(file);
-    });
-
-    cameraInput?.addEventListener('change', (ev) => {
-      const file = ev.target.files?.[0];
-      if (file) handleFile(file);
-    });
+    }));
 
     ['dragenter', 'dragover'].forEach(name => {
       dropArea?.addEventListener(name, (e) => {
@@ -728,17 +710,21 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
               <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 4px;">Fota eller välj bild</div>
               <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka här för att välja bild eller ta foto</div>
             </div>
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="banner-file-input" style="display: none;" />
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" id="banner-camera-input" style="display: none;" />
           </div>
+          <!-- Real labels open the pickers natively; iPhone does not reliably open a hidden input from script -->
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="banner-file-input" class="file-input-hidden" />
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" id="banner-camera-input" class="file-input-hidden" />
           <div class="flex gap-xs mt-xs" style="justify-content: center; flex-wrap: wrap;">
-            <button type="button" class="btn btn-secondary btn-sm" id="banner-camera-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+            <label for="banner-camera-input" class="btn btn-secondary btn-sm" id="banner-camera-btn" role="button" style="font-size: 0.8rem; padding: 6px 12px; cursor: pointer;">
               📷 Ta foto med mobilen
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" id="banner-gallery-btn" style="font-size: 0.8rem; padding: 6px 12px;">
+            </label>
+            <label for="banner-file-input" class="btn btn-secondary btn-sm" id="banner-gallery-btn" role="button" style="font-size: 0.8rem; padding: 6px 12px; cursor: pointer;">
               🖼️ Välj från galleri
-            </button>
+            </label>
           </div>
+          <p class="text-muted" style="font-size: 0.7rem; text-align: center; margin: 6px 0 0 0; line-height: 1.35;">
+            Öppnas inte kameran? Tryck "Välj från galleri" och välj "Ta bild", eller tillåt kameran under Inställningar → Safari → Kamera.
+          </p>
         </div>
         <div class="form-group">
           <label class="form-label">Etikett (valfri)</label>
@@ -756,8 +742,6 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     const dropArea = document.getElementById('banner-drop-area');
     const fileInput = document.getElementById('banner-file-input');
     const cameraInput = document.getElementById('banner-camera-input');
-    const cameraBtn = document.getElementById('banner-camera-btn');
-    const galleryBtn = document.getElementById('banner-gallery-btn');
     const previewContainer = document.getElementById('banner-preview-container');
     const previewImg = document.getElementById('banner-preview-img');
     const placeholder = document.getElementById('banner-upload-placeholder');
@@ -784,34 +768,14 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       }
     };
 
-    dropArea?.addEventListener('click', (e) => {
-      if (e.target !== fileInput && e.target !== cameraInput) {
-        fileInput?.click();
-      }
-    });
+    // The camera and gallery buttons are <label for="…"> and open the pickers natively
+    dropArea?.addEventListener('click', () => fileInput?.click());
 
-    cameraBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      cameraInput?.click();
-    });
-
-    galleryBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fileInput?.click();
-    });
-
-    fileInput?.addEventListener('click', (e) => e.stopPropagation());
-    cameraInput?.addEventListener('click', (e) => e.stopPropagation());
-
-    fileInput?.addEventListener('change', (ev) => {
+    [fileInput, cameraInput].forEach(input => input?.addEventListener('change', (ev) => {
       const file = ev.target.files?.[0];
+      ev.target.value = ''; // so the same photo can be picked again
       if (file) handleFile(file);
-    });
-
-    cameraInput?.addEventListener('change', (ev) => {
-      const file = ev.target.files?.[0];
-      if (file) handleFile(file);
-    });
+    }));
 
     ['dragenter', 'dragover'].forEach(name => {
       dropArea?.addEventListener(name, (e) => {

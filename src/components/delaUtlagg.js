@@ -194,11 +194,12 @@ export async function openDelaUtlaggModal(options = {}) {
 
           <!-- Receipt Image Upload -->
           <div class="mt-xs">
-            <input type="file" id="utlagg-receipt-file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" capture="environment" style="display: none;" />
+            <!-- No capture attribute: the phone offers both "take photo" and "photo library" -->
+            <input type="file" id="utlagg-receipt-file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" class="file-input-hidden" />
             <div class="flex align-center gap-xs">
-              <button type="button" class="btn btn-ghost btn-xs" id="btn-utlagg-receipt-trigger" style="font-size: 0.72rem; padding: 4px 8px; border: 1px dashed rgba(255,255,255,0.2);">
+              <label for="utlagg-receipt-file" role="button" class="btn btn-ghost btn-xs" id="btn-utlagg-receipt-trigger" style="font-size: 0.72rem; padding: 4px 8px; border: 1px dashed rgba(255,255,255,0.2); cursor: pointer;">
                 📷 ${receiptBase64 ? (isEn ? 'Change Receipt Photo' : 'Byt kvittofoto') : (isEn ? 'Attach Receipt Photo' : 'Fota/bifoga kvitto')}
-              </button>
+              </label>
               ${receiptBase64 ? `
                 <span class="badge badge-success" style="font-size: 0.65rem; padding: 2px 6px;">
                   ✓ ${isEn ? 'Receipt attached' : 'Kvitto bifogat'}
@@ -367,11 +368,7 @@ export async function openDelaUtlaggModal(options = {}) {
       });
     }
 
-    // Receipt upload trigger
-    root.querySelector('#btn-utlagg-receipt-trigger')?.addEventListener('click', () => {
-      root.querySelector('#utlagg-receipt-file')?.click();
-    });
-
+    // The receipt button is a <label for="utlagg-receipt-file"> and opens the picker natively
     root.querySelector('#utlagg-receipt-file')?.addEventListener('change', async (e) => {
       const file = e.target.files?.[0];
       if (file) {
