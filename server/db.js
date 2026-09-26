@@ -1461,6 +1461,10 @@ export function updateEventLastBoosted(eventId) {
   stmts.updateEventLastBoosted.run(new Date().toISOString(), eventId);
 }
 
+export function getBetCountForEvent(eventId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM bets WHERE event_id = ?').get(eventId).n;
+}
+
 export function deleteEvent(eventId) {
   stmts.deleteEvent.run(eventId);
 }

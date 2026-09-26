@@ -3581,6 +3581,36 @@ select.form-input option {
 }
 
 /* ── Game cards on the event page ─────────────────── */
+.game-done {
+  margin: 4px 0 16px;
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.game-done > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  list-style: none;
+}
+.game-done > summary::-webkit-details-marker { display: none; }
+.game-done-hint { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
+.game-done[open] .game-done-hint { visibility: hidden; }
+.game-done > .game-list { padding: 0 10px 10px; }
+.game-list-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border: 1px dashed var(--border-glass);
+  border-radius: 14px;
+}
+
 .game-list {
   display: flex;
   flex-direction: column;
