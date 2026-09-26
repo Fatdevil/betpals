@@ -209,18 +209,18 @@ test('Space Blitz — SB-02 & SB-03: Score Submission, Anti-Cheat Clamping & Dup
   const room = partyRooms.get(roomId);
   room.startTime = Date.now() - 60000; // full 60s round played
 
-  // 1. Submit a plausible score for host: 2 cleared waves (1120) + 4 kills (80) + 1 UFO (200)
+  // 1. Submit a plausible score for host: 2 cleared waves (2 × (560 + 300 bonus)) + 4 kills (80) + 1 UFO (200)
   const hostSub = await invoke('POST', `/api/minigames/party/${roomId}/submit`, {
-    body: { score: 1400, aliensKilled: 60, waveReached: 3 },
+    body: { score: 2000, aliensKilled: 60, waveReached: 3 },
     headers: { Authorization: `Bearer ${host.token}` }
   });
   assert.equal(hostSub.status, 200);
-  assert.equal(hostSub.body.score, 1400);
+  assert.equal(hostSub.body.score, 2000);
   assert.equal(hostSub.body.invalidated, false);
 
   // 2. Host tries to submit again — duplicate prevented
   const hostSub2 = await invoke('POST', `/api/minigames/party/${roomId}/submit`, {
-    body: { score: 1400, aliensKilled: 60, waveReached: 3 },
+    body: { score: 2000, aliensKilled: 60, waveReached: 3 },
     headers: { Authorization: `Bearer ${host.token}` }
   });
   assert.equal(hostSub2.status, 400);
@@ -260,13 +260,13 @@ test('Space Blitz — SB-05: Tie Game Handling (No Debt Created on Ties)', async
   const room = partyRooms.get(roomId);
   room.startTime = Date.now() - 60000;
 
-  // Both submit identical (plausible) scores: 1 cleared wave (560) + 2 kills (40)
+  // Both submit identical (plausible) scores: 1 cleared wave (560 + 300 bonus) + 2 kills (40)
   await invoke('POST', `/api/minigames/party/${roomId}/submit`, {
-    body: { score: 600, aliensKilled: 30, waveReached: 2 },
+    body: { score: 900, aliensKilled: 30, waveReached: 2 },
     headers: { Authorization: `Bearer ${host.token}` }
   });
   await invoke('POST', `/api/minigames/party/${roomId}/submit`, {
-    body: { score: 600, aliensKilled: 30, waveReached: 2 },
+    body: { score: 900, aliensKilled: 30, waveReached: 2 },
     headers: { Authorization: `Bearer ${p2.token}` }
   });
 
@@ -301,9 +301,9 @@ test('Space Blitz — Single Winner Debt Settlement on Stake Room', async () => 
   const room = partyRooms.get(roomId);
   room.startTime = Date.now() - 60000;
 
-  // Winner: 3 cleared waves (1680) + 10 kills (200) = 1880; loser: 14 kills in wave 1 = 280
+  // Winner: 3 cleared waves (3 × 860) + 10 kills (200) = 2780; loser: 14 kills in wave 1 = 280
   await invoke('POST', `/api/minigames/party/${roomId}/submit`, {
-    body: { score: 1880, aliensKilled: 94, waveReached: 4 },
+    body: { score: 2780, aliensKilled: 94, waveReached: 4 },
     headers: { Authorization: `Bearer ${winner.token}` }
   });
   await invoke('POST', `/api/minigames/party/${roomId}/submit`, {

@@ -510,6 +510,18 @@ try { db.exec('ALTER TABLE tab_expenses ADD COLUMN tournament_id TEXT'); } catch
 
 // Duel results require both parties to agree: first report is stored here until confirmed
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_by TEXT'); } catch {}
+// Best Space Blitz solo score per player (for the friends' leaderboard)
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS space_solo_scores (
+      user_id TEXT PRIMARY KEY,
+      best_score INTEGER NOT NULL DEFAULT 0,
+      best_wave INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+} catch {}
 // When a BlixtBet was settled, so its result stays visible for a while
 try { db.exec('ALTER TABLE flash_bets ADD COLUMN settled_at TEXT'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_creator_score INTEGER'); } catch {}
@@ -4763,5 +4775,42 @@ export function adminUnsettleDuel(duelId) {
   return getDuelById(duelId);
 }
 
+// ── Space Blitz solo leaderboard ─────────────────────
+export function recordSpaceSoloScore(userId, score, wave) {
+  const prev = db.prepare('SELECT best_score FROM space_solo_scores WHERE user_id = ?').get(userId);
+  const previousBest = prev ? prev.best_score : 0;
+  if (!prev || score > previousBest) {
+    db.prepare(`
+      INSERT INTO space_solo_scores (user_id, best_score, best_wave, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id) DO UPDATE SET best_score = excluded.best_score, best_wave = excluded.best_wave, updated_at = excluded.updated_at
+    `).run(userId, score, wave);
+  }
+  return { best: Math.max(previousBest, score), previousBest, isNewBest: score > previousBest };
+}
 
-
+// You and your friends, best first
+export function getSpaceSoloLeaderboard(userId) {
+  const rows = db.prepare(`
+    SELECT s.user_id, s.best_score, s.best_wave, u.nickname, u.real_name, u.avatar_emoji
+    FROM space_solo_scores s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.user_id = ? OR s.user_id IN (SELECT friend_id FROM friends WHERE user_id = ?)
+    ORDER BY s.best_score DESC
+    LIMIT 10
+  `).all(userId, userId);
+  const mine = rows.find(r => r.user_id === userId)
+    || db.prepare('SELECT best_score, best_wave FROM space_solo_scores WHERE user_id = ?').get(userId);
+  return {
+    myBest: mine ? mine.best_score : 0,
+    players: rows.map(r => ({
+      userId: r.user_id,
+      nickname: r.nickname,
+      name: r.real_name || r.nickname,
+      avatar: r.avatar_emoji || '👤',
+      best: r.best_score,
+      wave: r.best_wave,
+      isMe: r.user_id === userId
+    }))
+  };
+}

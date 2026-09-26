@@ -62,6 +62,10 @@ test('Malta Support — Search Quota tracking and 5000 cap', async () => {
 test('Malta Support — POST /api/support/chat handles HTTP requests and rate limits', async () => {
   const { app } = await import('../server/server.js');
   const { EventEmitter } = await import('events');
+  // The test database is kept between runs, so earlier runs' requests from this test IP
+  // add up to the chat's rate limit (40 per window); start from a clean count
+  const dbMod = await import('../server/db.js');
+  dbMod.clearRateLimit('support_chat:127.0.0.99');
 
   const res = await new Promise((resolve) => {
     const req = Object.assign(new EventEmitter(), {
