@@ -508,47 +508,28 @@ body::before {
 }
 
 .nav-item.active {
-  color: var(--bg-primary);
-  background: var(--accent);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 0 16px var(--accent-glow);
+  color: var(--gold);
 }
 
 .nav-icon {
-  font-size: 1.2rem;
-  line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 52px;
+  height: 30px;
+  border-radius: 15px;
+  transition: background 0.25s var(--ease-out);
 }
 
-.nav-icon svg {
-  transition: all 0.25s var(--ease-out);
-}
-
-.nav-item.active .nav-icon svg {
-  stroke: var(--bg-primary);
-  filter: none;
-}
-
-.nav-chip-icon {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
+.nav-svg {
+  width: 24px;
+  height: 24px;
   display: block;
-  transition: all 0.25s var(--ease-out);
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
 }
 
-.nav-item:not(.active) .nav-chip-icon {
-  opacity: 0.7;
-  filter: grayscale(0.25) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
-}
-
-.nav-item.active .nav-chip-icon {
-  opacity: 1;
-  transform: scale(1.15);
-  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.6));
+/* Active tab: gold icon on a soft gold pill; the rest stay quiet grey */
+.nav-item.active .nav-icon {
+  background: rgba(255, 215, 0, 0.14);
 }
 
 /* ── Page Content ─────────────────────────────────── */
@@ -642,7 +623,7 @@ body::before {
   justify-content: space-between;
   margin-top: var(--space-lg);
   margin-bottom: var(--space-xs);
-  padding: 0 4px;
+  padding: 0;
 }
 
 .section-header-title {
@@ -654,7 +635,34 @@ body::before {
   color: var(--gold);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+}
+
+/* A thin gold bar marks a section; the chip stays reserved for the logo */
+.section-header-title::before,
+.minigames-title::before {
+  content: '';
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--gold);
+  flex-shrink: 0;
+}
+
+.section-header-status {
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.section-header-status.is-live {
+  color: #22c55e;
+}
+
+.section-header-status.is-live::before {
+  content: '● ';
 }
 
 /* ── Cards (SWING_AI inspired — large radius) ────── */

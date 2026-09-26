@@ -29,7 +29,7 @@ export function openMaltaSupportModal(initialQuestion = null) {
 
   const modalTitle = `
     <div style="display: flex; align-items: center; gap: 8px;">
-      <img src="/chip-malta-transparent.png" alt="Malta" style="width: 24px; height: 24px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.5));" />
+      <img src="/malta-chip-sm.webp" alt="Malta" style="width: 24px; height: 24px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.5));" />
       <span>${isEn ? 'Malta VIP Support 🇲🇹' : 'Malta Kundtjänst 🇲🇹'}</span>
     </div>
   `;
@@ -60,7 +60,7 @@ export function openMaltaSupportModal(initialQuestion = null) {
       <!-- Chat messages log -->
       <div class="malta-chat-box" id="malta-chat-messages">
         <div class="malta-msg malta-msg-bot">
-          <img src="/chip-malta-transparent.png" class="malta-msg-avatar" alt="Malta" />
+          <img src="/malta-chip-sm.webp" class="malta-msg-avatar" alt="Malta" />
           <div class="malta-msg-bubble">
             ${isEn
               ? "Welcome to Malta Betting VIP Support! 🇲🇹🎰 Heading out on a legendary golf trip with the crew? Ask me about tournaments, AnyBet for most birdies, sharing drinks on The Tab, or Swish settlements!"
@@ -193,7 +193,7 @@ async function handleSend() {
   typingEl.className = 'malta-msg malta-msg-bot malta-typing-bubble';
   typingEl.id = 'malta-typing-indicator';
   typingEl.innerHTML = `
-    <img src="/chip-malta-transparent.png" class="malta-msg-avatar" alt="Malta" />
+    <img src="/malta-chip-sm.webp" class="malta-msg-avatar" alt="Malta" />
     <div class="malta-msg-bubble">
       <span class="malta-typing-dots">
         <span></span><span></span><span></span>
@@ -248,7 +248,7 @@ function appendChatMessage(sender, rawText, scroll = true) {
 
   if (sender === 'bot') {
     msgEl.innerHTML = `
-      <img src="/chip-malta-transparent.png" class="malta-msg-avatar" alt="Malta" />
+      <img src="/malta-chip-sm.webp" class="malta-msg-avatar" alt="Malta" />
       <div class="malta-msg-bubble">${formatted}</div>
     `;
   } else {
@@ -284,7 +284,7 @@ export function initMaltaSupportWidget() {
 
   fab.innerHTML = `
     <div class="malta-fab-content" id="malta-fab-main-content">
-      <img src="/chip-malta-transparent.png" class="malta-fab-icon" alt="Malta Support" draggable="false" />
+      <img src="/malta-chip-sm.webp" class="malta-fab-icon" alt="Malta Support" draggable="false" />
       <span class="malta-fab-label">Malta Support</span>
     </div>
     <span class="malta-fab-dot" aria-hidden="true"></span>

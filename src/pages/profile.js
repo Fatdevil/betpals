@@ -175,7 +175,7 @@ function renderAuthScreen(content) {
 
         <div style="margin-top: var(--space-md); padding-top: var(--space-sm); border-top: 1px solid var(--border-glass); text-align: center;">
           <button type="button" id="auth-malta-support-btn" style="background: none; border: none; color: var(--gold); font-size: 0.76rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: underline;">
-            <img src="/chip-malta-transparent.png" alt="Malta" style="width: 16px; height: 16px; object-fit: contain;" />
+            <img src="/malta-chip-sm.webp" alt="Malta" style="width: 16px; height: 16px; object-fit: contain;" />
             <span>${getLang() === 'en' ? 'Need help or forgot PIN? Ask Malta AI Support' : 'Frågor om inloggning eller PIN? Fråga Malta AI Kundtjänst'}</span>
           </button>
         </div>
@@ -777,7 +777,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       <div class="card mt-md" id="profile-malta-card" style="border: 1px solid rgba(255, 215, 0, 0.28); background: linear-gradient(180deg, rgba(255, 215, 0, 0.05) 0%, rgba(15, 15, 23, 0.7) 100%);">
         <div class="flex-between mb-xs" style="align-items: center;">
           <div style="font-weight: 700; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.07em; display: flex; align-items: center; gap: 8px; color: var(--gold);">
-            <img src="/chip-malta-transparent.png" alt="Malta AI" style="width: 22px; height: 22px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.4));" />
+            <img src="/malta-chip-sm.webp" alt="Malta AI" style="width: 22px; height: 22px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(255,215,0,0.4));" />
             <span>${currentLang === 'en' ? 'Malta AI VIP Concierge 🇲🇹' : 'Malta AI Concierge & Hjälp 🇲🇹'}</span>
           </div>
           <span class="badge" style="background: rgba(255,215,0,0.15); color: var(--gold); font-size: 0.68rem; font-weight: 700; border: 1px solid rgba(255,215,0,0.3); padding: 3px 8px; border-radius: 6px;">

@@ -25,7 +25,7 @@
   color: var(--gold);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
 
 /* Header View All Button */
