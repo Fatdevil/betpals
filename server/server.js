@@ -3485,9 +3485,12 @@ app.post('/api/tournaments/:id/settlement/receipt', (req, res) => {
 
   // Calculate current settlement first to find the authoritative server transfer
   const currentSettlement = db.getTournamentNetSettlement(tournament.id);
+  // Match on userId when the transfer has one; names only identify guests. Two people
+  // with the same name must never be able to settle each other's debts.
+  const sameParty = (tId, tName, reqId, reqName) => (tId && reqId) ? tId === reqId : tName === reqName;
   const matchingTransfer = (currentSettlement.transfers || []).find(t =>
-    (t.from === fromName || (t.fromUserId && fromUserId && t.fromUserId === fromUserId)) &&
-    (t.to === toName || (t.toUserId && toUserId && t.toUserId === toUserId))
+    sameParty(t.fromUserId, t.from, fromUserId, fromName) &&
+    sameParty(t.toUserId, t.to, toUserId, toName)
   );
 
   if (!matchingTransfer) {

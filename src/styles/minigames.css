@@ -2030,3 +2030,281 @@
 .arcade-card.minigame-card:hover {
   transform: translateY(-2px);
 }
+
+/* ── The Tab: "Att göra" ─────────────────────────── */
+.tabx-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 2px 10px;
+}
+.tabx-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.45rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
+.tabx-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.tabx-seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+}
+.tabx-seg .tab-nav-btn {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tabx-seg .tab-nav-btn.active {
+  background: rgba(255, 215, 0, 0.14);
+  color: var(--gold);
+}
+.tabx-hero {
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-card);
+}
+.tabx-hero.is-owe {
+  background: linear-gradient(160deg, rgba(239, 68, 68, 0.14), var(--bg-card) 70%);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.tabx-hero.is-due {
+  background: linear-gradient(160deg, rgba(34, 197, 94, 0.14), var(--bg-card) 70%);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+.tabx-hero.is-even {
+  background: linear-gradient(160deg, rgba(255, 215, 0, 0.08), var(--bg-card) 70%);
+}
+.tabx-hero-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.tabx-hero.is-owe .tabx-hero-label { color: #fca5a5; }
+.tabx-hero.is-due .tabx-hero-label { color: #86efac; }
+.tabx-hero-amount {
+  font-family: var(--font-heading);
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1.1;
+  margin: 2px 0 6px;
+  color: #fff;
+}
+.tabx-hero-amount small {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.tabx-hero-second {
+  font-size: 0.88rem;
+  color: #86efac;
+  margin-bottom: 6px;
+}
+.tabx-hero-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.tabx-warn {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.tabx-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 8px;
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+.tabx-section::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--gold);
+}
+.tabx-person {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.tabx-person-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tabx-avatar {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  overflow: hidden;
+}
+.tabx-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tabx-person-info {
+  flex: 1;
+  min-width: 0;
+}
+.tabx-person-info b {
+  display: block;
+  font-size: 0.98rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tabx-person-info span { font-size: 0.8rem; font-weight: 700; }
+.tabx-person .neg, .tabx-why .neg { color: #f87171; }
+.tabx-person .pos, .tabx-why .pos { color: #4ade80; }
+.tabx-btn {
+  flex-shrink: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tabx-btn-swish {
+  background: #22c55e;
+  color: #04130a;
+  border: none;
+}
+.tabx-btn-ghost {
+  background: none;
+  color: var(--gold);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+}
+.tabx-no-swish {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.tabx-why {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-glass);
+  font-size: 0.84rem;
+}
+.tabx-why-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  color: var(--text-secondary);
+}
+.tabx-why-row span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tabx-why-row span:last-child { font-weight: 700; flex-shrink: 0; }
+.tabx-why-sum {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-glass);
+  color: #fff;
+  font-weight: 800;
+}
+.tabx-why-more { font-size: 0.75rem; color: var(--text-muted); padding: 2px 0; }
+.tabx-note {
+  margin-top: 8px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+.tabx-paid {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 0 2px;
+  border: none;
+  border-top: 1px solid var(--border-glass);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.tabx-paid b { color: #4ade80; }
+.tabx-how {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.tabx-how b { color: var(--text-primary, #fff); }
+.tabx-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 215, 0, 0.35);
+  background: var(--bg-card);
+  color: var(--text-primary, #fff);
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tabx-split span { flex: 1; text-align: left; }
+.tabx-split i { font-style: normal; color: var(--gold); font-size: 0.82rem; }
+.tabx-pick-list { display: flex; flex-direction: column; gap: 8px; }
+.tabx-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-tertiary);
+  color: var(--text-primary, #fff);
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.tabx-pick-arrow { color: var(--gold); font-size: 1.2rem; }

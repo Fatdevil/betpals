@@ -473,7 +473,8 @@ test('Finding 10 — Receipt Spoofing: Attacker cannot forge toUserId to settle 
     }
   });
 
-  assert.equal(resAttacker.status, 403, 'Attacker spoofing toUserId must be rejected with 403');
+  // A forged toUserId matches no open transfer, so it is rejected before any receipt is made
+  assert.ok([400, 403].includes(resAttacker.status), 'Attacker spoofing toUserId must be rejected');
 
   // Verify debt is still intact
   const settlement = db.getTournamentNetSettlement(tourId);
