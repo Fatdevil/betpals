@@ -76,7 +76,39 @@ export function navigate(page, params = {}) {
   renderApp();
 }
 
+// After a new deploy, a phone that kept the old app open in the background asks for page
+// files that no longer exist. Reload once to get the new version instead of silently
+// staying on the previous page.
+const PAGE_RELOAD_KEY = 'betpals_page_reload_at';
+
+function reloadForNewVersion() {
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(PAGE_RELOAD_KEY)) || 0; } catch {}
+  if (Date.now() - last < 30000) return false;
+  try { sessionStorage.setItem(PAGE_RELOAD_KEY, String(Date.now())); } catch {}
+  window.location.reload();
+  return true;
+}
+
+function renderPageLoadError() {
+  const content = document.getElementById('page-content');
+  if (!content) return;
+  content.innerHTML = `
+    <div class="card text-center animate-in" style="padding: var(--space-lg); margin-top: var(--space-md);">
+      <div style="font-size: 2.2rem; margin-bottom: 6px;">📶</div>
+      <h3 style="font-size: 1.05rem; margin-bottom: 6px;">Sidan kunde inte laddas</h3>
+      <p class="text-muted" style="font-size: 0.85rem; margin-bottom: var(--space-md);">Kontrollera uppkopplingen och försök igen.</p>
+      <button type="button" class="btn btn-primary btn-block" id="btn-page-reload">Ladda om</button>
+    </div>
+  `;
+  document.getElementById('btn-page-reload')?.addEventListener('click', () => window.location.reload());
+}
+
+let renderSeq = 0;
+
 async function renderApp() {
+  const seq = ++renderSeq;
+
   // Render navbar
   document.getElementById('navbar').innerHTML = renderNavbar(currentPage);
 
@@ -88,44 +120,53 @@ async function renderApp() {
   });
 
   // Render current page (Home is instant, other pages lazy loaded on demand)
+  const loaders = {
+    event: () => import('./pages/event.js'),
+    join: () => import('./pages/join.js'),
+    admin: () => import('./pages/admin.js'),
+    profile: () => import('./pages/profile.js'),
+    leaderboard: () => import('./pages/leaderboard.js'),
+    tournament: () => import('./pages/tournament.js')
+  };
+  const loader = loaders[currentPage];
+  if (!loader) {
+    renderHome();
+    return;
+  }
+
+  let mod;
+  try {
+    mod = await loader();
+  } catch (err) {
+    console.warn('[nav] Could not load page', currentPage, err);
+    if (seq !== renderSeq) return;
+    if (!reloadForNewVersion()) renderPageLoadError();
+    return;
+  }
+  // A newer navigation happened while this page was loading
+  if (seq !== renderSeq) return;
+
   switch (currentPage) {
-    case 'home':
-      renderHome();
+    case 'event':
+      activeCleanup = mod.cleanupEvent;
+      mod.renderEvent(currentParams);
       break;
-    case 'event': {
-      const { renderEvent, cleanupEvent } = await import('./pages/event.js');
-      activeCleanup = cleanupEvent;
-      renderEvent(currentParams);
+    case 'join':
+      mod.renderJoin();
       break;
-    }
-    case 'join': {
-      const { renderJoin } = await import('./pages/join.js');
-      renderJoin();
+    case 'admin':
+      mod.renderAdmin();
       break;
-    }
-    case 'admin': {
-      const { renderAdmin } = await import('./pages/admin.js');
-      renderAdmin();
+    case 'profile':
+      mod.renderProfile();
       break;
-    }
-    case 'profile': {
-      const { renderProfile } = await import('./pages/profile.js');
-      renderProfile();
+    case 'leaderboard':
+      mod.renderLeaderboard(currentParams);
       break;
-    }
-    case 'leaderboard': {
-      const { renderLeaderboard } = await import('./pages/leaderboard.js');
-      renderLeaderboard(currentParams);
+    case 'tournament':
+      activeCleanup = mod.cleanupTournament;
+      mod.renderTournament(currentParams);
       break;
-    }
-    case 'tournament': {
-      const { renderTournament, cleanupTournament } = await import('./pages/tournament.js');
-      activeCleanup = cleanupTournament;
-      renderTournament(currentParams);
-      break;
-    }
-    default:
-      renderHome();
   }
 }
 

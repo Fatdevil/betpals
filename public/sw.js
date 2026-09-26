@@ -1,4 +1,4 @@
-const CACHE_NAME = 'betpals-v14';
+const CACHE_NAME = 'betpals-v15';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -65,7 +65,9 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request)
       .then(response => {
         // Cache successful GET responses
-        if (response.ok && event.request.method === 'GET') {
+        // Never store an HTML page under a script/style URL (e.g. a fallback from an old deploy)
+        const isHtml = (response.headers.get('content-type') || '').includes('text/html');
+        if (response.ok && event.request.method === 'GET' && (!isHtml || event.request.mode === 'navigate')) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => {
             cache.put(event.request, clone);

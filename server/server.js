@@ -112,7 +112,19 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Serve frontend in production
 const distPath = path.join(__dirname, '..', 'dist');
-app.use(express.static(distPath));
+app.use(express.static(distPath, {
+  setHeaders(res, filePath) {
+    // Hashed build files never change; index.html must always be fresh so phones get new deploys
+    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (filePath.endsWith('.html')) {
+      res.set('Cache-Control', 'no-cache');
+    }
+  }
+}));
+// A build file from an older deploy must 404, not fall through to index.html (the app
+// would then fail to load the page with a MIME type error)
+app.use('/assets', (req, res) => res.status(404).end());
 
 // ── Healthcheck (Public endpoint for Railway & uptime monitoring) ──
 app.get('/api/health', (req, res) => {
@@ -6363,6 +6375,7 @@ app.use((err, req, res, next) => {
 const indexHtml = path.join(distPath, 'index.html');
 if (fs.existsSync(indexHtml)) {
   app.get('{*path}', (req, res) => {
+    res.set('Cache-Control', 'no-cache');
     res.sendFile(indexHtml);
   });
 }
