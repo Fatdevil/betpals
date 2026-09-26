@@ -1,5 +1,5 @@
 // ── Page: Home / Dashboard ────────────────────────────
-import { getEvents, getTournaments, getActiveFlashLives, getFriendRequests, getPendingDuels, getSettlementsOverview } from '../api.js';
+import { getEvents, getTournaments, getActiveFlashLives, getInbox, getSettlementsOverview } from '../api.js';
 import { formatCurrency, formatDate, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
@@ -404,79 +404,34 @@ async function initHomeActionFeed(isEn, events = []) {
 
   const user = getStoredUser();
   try {
-    const [friendReqs, pendingDuels, settlements] = await Promise.all([
-      getFriendRequests().catch(() => []),
-      getPendingDuels().catch(() => []),
+    // Same list as the bell's "Väntar på dig", so the two always agree
+    const [inbox, settlements] = await Promise.all([
+      getInbox(isEn ? 'en' : 'sv').catch(() => null),
       getSettlementsOverview().catch(() => null)
     ]);
 
     const items = [];
-
-    // 1. Incoming Friend Requests
-    const incomingReqs = Array.isArray(friendReqs)
-      ? friendReqs.filter(r => r.direction === 'incoming' || !r.direction)
-      : (Array.isArray(friendReqs?.incoming) ? friendReqs.incoming : []);
-    if (incomingReqs.length > 0) {
+    const requests = inbox?.friendRequests || [];
+    if (requests.length > 0) {
       items.push({
-        id: 'friend-reqs',
         icon: '👥',
-        title: isEn ? `${incomingReqs.length} friend request${incomingReqs.length > 1 ? 's' : ''}` : `${incomingReqs.length} ny vänförfrågan`,
-        subtitle: isEn ? 'Tap to view and accept' : 'Tryck för att granska och godkänna',
-        badge: isEn ? 'Review' : 'Godkänn',
+        title: requests.length === 1
+          ? `${requests[0].realName || requests[0].nickname} ${isEn ? 'wants to be friends' : 'vill bli din vän'}`
+          : `${requests.length} ${isEn ? 'friend requests' : 'vänförfrågningar'}`,
+        subtitle: isEn ? 'Tap to accept or decline' : 'Tryck för att godkänna eller neka',
+        badge: isEn ? 'Answer' : 'Svara',
         badgeClass: 'badge-accent',
         link: '#profile'
       });
     }
-
-    // 2. Pending Duel Challenges
-    const challenges = Array.isArray(pendingDuels) ? pendingDuels.filter(d => user && d.opponent_id === user.id && d.status === 'pending') : [];
-    if (challenges.length > 0) {
+    for (const t of inbox?.todos || []) {
       items.push({
-        id: 'duel-challenges',
-        icon: '⚔️',
-        title: isEn ? `${challenges.length} duel challenge${challenges.length > 1 ? 's' : ''}` : `${challenges.length} utmaning${challenges.length > 1 ? 'ar' : ''} väntar!`,
-        subtitle: isEn ? 'Opponent is waiting for you' : 'En kompis utmanar dig på duell',
-        badge: isEn ? 'Play' : 'Svara',
-        badgeClass: 'badge-warning',
-        link: '#arcade'
-      });
-    }
-
-    // 3. Debts that are ready to pay. Money with people you share a running event with is
-    // added up when the event ends (swish once), so it shows on the event card instead.
-    const readyOwed = settlements ? (settlements.readyOwed ?? settlements.totalOwed) : 0;
-    if (readyOwed > 0) {
-      items.push({
-        id: 'debts',
-        icon: '💸',
-        title: isEn ? `You owe ${readyOwed} kr` : `Du ska swisha ${readyOwed} kr`,
-        subtitle: isEn ? 'Ready to pay – added up per person on The Tab' : 'Klart att swisha – ihopräknat per person på THE TAB',
-        badge: isEn ? 'Swish' : 'Swisha nu',
-        badgeClass: 'badge-danger',
-        link: '#leaderboard?tab=overview'
-      });
-    }
-
-    // 4. Closing Bets (< 30 min left)
-    const now = Date.now();
-    const urgentEvent = (events || []).find(e => {
-      if (e.status !== 'open' || !e.closesAt) return false;
-      const dt = parseDateSafe(e.closesAt);
-      if (!dt) return false;
-      const t = dt.getTime();
-      return t > now && (t - now) < 30 * 60 * 1000;
-    });
-    if (urgentEvent) {
-      const dt = parseDateSafe(urgentEvent.closesAt);
-      const minLeft = dt ? Math.max(1, Math.round((dt.getTime() - now) / 60000)) : 1;
-      items.push({
-        id: 'urgent-event',
-        icon: '⏱️',
-        title: isEn ? `Betting closes in ${minLeft} min!` : `Bettning stänger om ${minLeft} min!`,
-        subtitle: escapeHtml(urgentEvent.name),
-        badge: isEn ? 'Bet' : 'Lägg bet',
-        badgeClass: 'badge-accent',
-        link: `/?page=event&code=${urgentEvent.shareCode}`
+        icon: t.icon || '🔔',
+        title: t.title,
+        subtitle: t.subtitle || '',
+        badge: t.action || (isEn ? 'Open' : 'Öppna'),
+        badgeClass: t.key === 'swish' ? 'badge-danger' : 'badge-accent',
+        link: t.url || '#'
       });
     }
 
@@ -493,20 +448,20 @@ async function initHomeActionFeed(isEn, events = []) {
         </div>
         <div style="display: flex; flex-direction: column; gap: 6px;">
           ${items.map(item => `
-            <a href="${item.link}" class="card-clickable flex-between align-center p-xs" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); text-decoration: none; color: inherit;">
+            <a href="${escapeHtml(item.link)}" class="card-clickable flex-between align-center p-xs" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); text-decoration: none; color: inherit;">
               <div class="flex gap-xs align-center" style="min-width: 0; flex: 1;">
-                <span style="font-size: 1.15rem; min-width: 24px; text-align: center;">${item.icon}</span>
+                <span style="font-size: 1.15rem; min-width: 24px; text-align: center;">${escapeHtml(item.icon)}</span>
                 <div style="min-width: 0;">
                   <div style="font-weight: 700; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${item.title}
+                    ${escapeHtml(item.title)}
                   </div>
                   <div style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${item.subtitle}
+                    ${escapeHtml(item.subtitle)}
                   </div>
                 </div>
               </div>
               <span class="badge ${item.badgeClass}" style="font-size: 0.72rem; font-weight: 700; padding: 4px 8px; flex-shrink: 0; margin-left: 8px;">
-                ${item.badge} ➜
+                ${escapeHtml(item.badge)} ➜
               </span>
             </a>
           `).join('')}

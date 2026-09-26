@@ -793,9 +793,29 @@ webpush.setVapidDetails(
 
 // Sends a push to every device of the given users. Returns what happened so callers
 // (e.g. the test button) can report real delivery instead of assuming success.
-async function sendPushToUsers(userIds, payload, category = null) {
+//
+// Everything pushed to a person also lands in their bell, so nothing is lost when push is
+// off or missed. Pass { bell: false } for pushes the bell covers another way (friend
+// requests are shown as actions) or that lead nowhere in the app.
+async function sendPushToUsers(userIds, payload, category = null, { bell = true, bellType = null } = {}) {
   if (!userIds || userIds.length === 0) return { attempted: 0, sent: 0, failed: [] };
+  if (bell && category !== 'support') {
+    const { icon, text } = splitPushTitle(payload.title);
+    for (const uid of new Set(userIds)) {
+      try {
+        db.addUserNotification(uid, { type: bellType || category || 'push', icon, text, detail: payload.body || null, url: payload.url || null });
+      } catch (err) {
+        console.warn('[bell] could not save notification:', err.message);
+      }
+    }
+  }
   return sendPushToSubscriptions(db.getPushSubscriptionsForUsers(userIds, category), payload);
+}
+
+// "🏆 Inbjudan till event!" → icon 🏆 and the text without it
+function splitPushTitle(title = '') {
+  const m = String(title).match(/^(\p{Extended_Pictographic}(?:\uFE0F)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F)?)*)\s*(.*)$/u);
+  return m ? { icon: m[1], text: m[2] || String(title) } : { icon: '🔔', text: String(title) };
 }
 
 async function sendPushToSubscriptions(subscriptions, payload) {
@@ -2150,7 +2170,7 @@ app.post('/api/friends', (req, res) => {
     title: '👥 Ny vänförfrågan',
     body: `${requesterName} vill bli vän med dig i Malta Betting.`,
     url: '/#profile'
-  }).catch(() => {});
+  }, null, { bell: false }).catch(() => {});
 
   res.json({
     ok: true,
@@ -2171,17 +2191,16 @@ app.post('/api/friends/requests/:fromUserId/accept', requireAuth, (req, res) => 
 // Tell whoever asked that they are now friends (bell + push)
 function notifyFriendAccepted(requesterId, accepter) {
   const name = accepter.nickname || accepter.real_name || 'En vän';
-  db.addUserNotification(requesterId, { type: 'friend_accepted', icon: '🤝', text: `${name} godkände din vänförfrågan – ni är nu vänner!`, url: '/#profile' });
   sendPushToUsers([requesterId], {
     title: '🤝 Ny vän!',
-    body: `${name} godkände din vänförfrågan i Malta Betting.`,
+    body: `${name} godkände din vänförfrågan – ni är nu vänner!`,
     url: '/#profile'
-  }).catch(() => {});
+  }, null, { bellType: 'friend_accepted' }).catch(() => {});
 }
 
 // ── Inbox (the bell) ─────────────────────────────────
 app.get('/api/inbox', requireAuth, (req, res) => {
-  res.json(db.getInbox(req.user.id));
+  res.json(db.getInbox(req.user.id, req.query.lang === 'en' ? 'en' : 'sv'));
 });
 
 app.post('/api/inbox/read', requireAuth, (req, res) => {
@@ -2654,6 +2673,8 @@ app.post('/api/events/:id/reopen', (req, res) => {
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
   const newStatus = db.reopenEvent(req.params.id);
+  // The result was taken back: its result notifications no longer hold
+  db.deleteNotificationsByRef(`game:${req.params.id}`);
   broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code, status: newStatus });
 
   if (event.tournament_id) {
@@ -2870,6 +2891,33 @@ app.post('/api/events/:id/finish', (req, res) => {
   });
 
   const winnerNames = winnerPlayers.map(wp => wp.name).join(', ');
+
+  // Everyone who bet sees their own result in the bell
+  const netByUser = new Map();
+  for (const b of full.bets) {
+    if (!b.userId) continue;
+    const back = winnerIds.includes(b.playerId) ? b.amount * (oddsByWinner[b.playerId] || 0) : 0;
+    netByUser.set(b.userId, (netByUser.get(b.userId) || 0) + back - b.amount);
+  }
+  let resultUrl = `/#event/${event.share_code}`;
+  if (event.tournament_id) {
+    const tour = db.getTournamentById(event.tournament_id);
+    if (tour) resultUrl = `/#tournament/${tour.share_code}`;
+  }
+  // One result per game: a corrected result replaces the earlier one
+  const resultRef = `game:${event.id}`;
+  db.deleteNotificationsByRef(resultRef);
+  for (const [uid, net] of netByUser) {
+    const kr = Math.round(net);
+    db.addUserNotification(uid, {
+      type: 'game_result',
+      icon: kr > 0 ? '🏆' : kr < 0 ? '💸' : '🤝',
+      text: `${full.name}: ${winnerNames} vann`,
+      detail: kr > 0 ? `Du vann ${kr} kr` : kr < 0 ? `Du förlorade ${Math.abs(kr)} kr` : 'Du gick jämnt ut',
+      url: resultUrl,
+      ref: resultRef
+    });
+  }
 
   broadcastToEvent(event.share_code, {
     type: 'event_finished',
@@ -3691,7 +3739,7 @@ app.post('/api/duels', (req, res) => {
       title: `⚔️ Utmaning på ${gameName}!`,
       body: `${creatorName} utmanar dig (${stake} kr)! Anta utmaningen i Arcade.`,
       url: '/#arcade'
-    }, 'duels').catch(() => {});
+    }, 'duels', { bell: false }).catch(() => {});
 
     sendMaltaSupportNotification(opponentId, {
       eventType: 'duel_challenge',
@@ -3814,7 +3862,7 @@ app.post('/api/duels/:id/respond', (req, res) => {
       title: '⚔️ Utmaning antagen!',
       body: `${responderName} antog din duell! Gör ditt drag nu i Arcade.`,
       url: '/#arcade'
-    }, 'duels').catch(() => {});
+    }, 'duels', { bell: false }).catch(() => {});
   }
 
   res.json({ duel });
@@ -3885,7 +3933,7 @@ app.post(['/api/duels/:id/roll', '/api/duels/:id/result'], (req, res) => {
         title: '⚔️ Bekräfta duellresultat',
         body: `${reporterName} har rapporterat resultatet. Bekräfta det i Arcade.`,
         url: '/#arcade'
-      }, 'duels').catch(() => {});
+      }, 'duels', { bell: false }).catch(() => {});
     }
     return res.json({ duel: updated, awaitingConfirmation: true });
   }
@@ -5342,7 +5390,7 @@ app.post('/api/anybets/create', (req, res) => {
       title: '🤝 Nytt AnyBet!',
       body: `${creatorName} utmanar dig: "${bet.title}"${bet.stake_amount > 0 ? ` (${bet.stake_amount} kr)` : ''}. Tryck för att svara!`,
       url: `/#anybet/${bet.id}`
-    }, 'duels').catch(() => {});
+    }, 'duels', { bell: false }).catch(() => {}); // shown under "Väntar på dig" while open
 
     res.json({ ok: true, bet: sanitizeAnyBet(bet, user.id) });
   } catch (err) {
@@ -5640,7 +5688,7 @@ app.post('/api/flashbets', async (req, res) => {
     title: `⚡ BLIXTBET (${durationLabel} kvar!)`,
     body: `${user.real_name || user.nickname}: "${finalQuestion}"`,
     url: `/#flashbet/${id}`
-  }, 'flashbets').catch(() => {});
+  }, 'flashbets', { bell: false }).catch(() => {}); // shown under "Väntar på dig" while open
 
   res.json(created);
 });
