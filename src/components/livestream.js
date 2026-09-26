@@ -39,6 +39,7 @@ let viewerCount = 1;
 let wsUnsub = null;
 let activeLiveId = null;
 let heartbeatInterval = null;
+let countdownInterval = null;
 let isClosingLiveStream = false;
 let currentIsBroadcaster = false;
 
@@ -99,7 +100,8 @@ export async function openLiveStreamModal({
   initialFlashBet = null,
   livekitToken = null,
   livekitUrl = null,
-  livekitError = null
+  livekitError = null,
+  endsAt = null
 } = {}) {
   const user = getStoredUser();
   streamActive = true;
@@ -111,12 +113,13 @@ export async function openLiveStreamModal({
   let url = livekitUrl;
   let serverError = livekitError;
 
-  if (liveId && (!token || !url)) {
+  if (liveId && (!token || !url || !endsAt)) {
     try {
       const liveData = await getFlashLive(liveId);
-      token = liveData.livekitToken || token;
-      url = liveData.livekitUrl || url;
+      token = token || liveData.livekitToken;
+      url = url || liveData.livekitUrl;
       serverError = liveData.livekitError || serverError;
+      endsAt = endsAt || liveData.live?.endsAt || null;
       if (!initialFlashBet && liveData.flashBet) {
         initialFlashBet = liveData.flashBet;
       }
@@ -237,6 +240,21 @@ export async function openLiveStreamModal({
           ">
             👁️ ${viewerCount}
           </span>
+
+          <!-- Time left before the stream stops automatically -->
+          <span id="live-time-left" style="
+            display: none;
+            background: rgba(0,0,0,0.55);
+            color: #fff;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 4px 7px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.15);
+            white-space: nowrap;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+          "></span>
 
           <span style="
             color: rgba(255,255,255,0.9);
@@ -462,9 +480,49 @@ export async function openLiveStreamModal({
         </div>
       </div>
     </div>
-  `, () => closeLiveStream(), { fullScreen: true });
+  `, () => closeLiveStream(), {
+    fullScreen: true,
+    // Treat the live view like a game: automatic pop-ups (install app, invites, notification
+    // links) must not replace it, or the camera keeps streaming with no way to stop it
+    isGame: true,
+    confirmClose: false,
+    isBusy: () => streamActive
+  });
 
   const videoEl = document.getElementById('livestream-video');
+
+  // Countdown to the automatic stop (max 15 min per stream, set by the server)
+  const endsAtMs = endsAt ? new Date(endsAt).getTime() : NaN;
+  if (countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = null;
+  if (Number.isFinite(endsAtMs)) {
+    const warned = new Set();
+    const tick = () => {
+      if (!streamActive || activeLiveId !== liveId) return;
+      const left = Math.max(0, Math.round((endsAtMs - Date.now()) / 1000));
+      const el = document.getElementById('live-time-left');
+      if (el) {
+        el.style.display = 'inline-block';
+        el.textContent = `⏱️ ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+        el.style.background = left <= 120 ? 'rgba(255, 51, 75, 0.8)' : 'rgba(0,0,0,0.55)';
+      }
+      if (isBroadcaster) {
+        for (const at of [120, 30]) {
+          if (left <= at && left > 0 && !warned.has(at)) {
+            warned.add(at);
+            showToast(at === 120 ? '⏱️ Sändningen stoppas automatiskt om 2 minuter' : '⏱️ Sändningen stoppas om 30 sekunder', 'warning');
+          }
+        }
+      }
+      // The server stops the stream at the max time; this is the fallback if that message is missed
+      if (Date.now() > endsAtMs + 10000) {
+        showToast('Sändningen stoppades automatiskt efter 15 minuter.', 'info');
+        closeLiveStream();
+      }
+    };
+    tick();
+    countdownInterval = setInterval(tick, 1000);
+  }
 
   function handleIncomingLiveCommentOrReaction(data) {
     if (!data) return;
@@ -478,6 +536,7 @@ export async function openLiveStreamModal({
   }
 
   // Start LiveKit Cloud Session
+  let broadcasterConnected = false;
   if (isBroadcaster) {
     if (url && token) {
       startBroadcasterSession({
@@ -491,8 +550,16 @@ export async function openLiveStreamModal({
         },
         onDataReceived: (data) => {
           handleIncomingLiveCommentOrReaction(data);
+        },
+        onStatusChange: (status) => {
+          // LiveKit gave up reconnecting (or the room was closed): stop instead of streaming to no one
+          if (status === 'disconnected' && broadcasterConnected && streamActive && activeLiveId === liveId) {
+            showToast('Anslutningen till sändningen bröts. Sändningen avslutades.', 'info');
+            closeLiveStream();
+          }
         }
       }).then(() => {
+        broadcasterConnected = true;
         // Broadcaster heartbeat loop only once connected
         if (liveId) {
           if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -502,6 +569,12 @@ export async function openLiveStreamModal({
               headers: {
                 'Content-Type': 'application/json',
                 'x-user-token': localStorage.getItem('betpals_token') || ''
+              }
+            }).then(res => {
+              // The server no longer knows this stream (ended, or the server restarted): stop the camera
+              if (res.status === 404 && streamActive && activeLiveId === liveId) {
+                showToast('Sändningen har avslutats.', 'info');
+                closeLiveStream();
               }
             }).catch(() => {});
           }, 12000);
@@ -524,6 +597,7 @@ export async function openLiveStreamModal({
     }
   } else {
     // Viewer
+    let viewerConnected = false;
     if (url && token) {
       startViewerSession({
         livekitUrl: url,
@@ -531,8 +605,13 @@ export async function openLiveStreamModal({
         videoElement: videoEl,
         onStatusChange: (status) => {
           if (status === 'connected') {
+            viewerConnected = true;
             const ph = document.getElementById('livestream-placeholder');
             if (ph) ph.style.display = 'none';
+          } else if (status === 'disconnected' && viewerConnected && streamActive && activeLiveId === liveId) {
+            // The room was closed (stream ended) or the connection is gone for good
+            showToast('Sändningen har avslutats.', 'info');
+            closeLiveStream();
           }
         },
         onViewerCountChange: (count) => {
@@ -682,9 +761,12 @@ export async function openLiveStreamModal({
       const countEl = document.getElementById('live-viewer-count');
       if (countEl) countEl.innerHTML = `👁️ ${viewerCount} tittare`;
     } else if (msg.type === 'flashlive_stopped' && msg.liveId === liveId) {
-      const stopNotice = msg.cancelledBet
-        ? 'Sändningen avslutades. Pågående BlixtBet annullerades.'
-        : 'Sändningen avslutades av sändaren.';
+      const reasonNotice = msg.reason === 'max_duration'
+        ? 'Sändningen stoppades automatiskt efter 15 minuter.'
+        : msg.reason === 'heartbeat_timeout'
+          ? 'Sändningen bröts – sändaren tappade anslutningen.'
+          : 'Sändningen avslutades av sändaren.';
+      const stopNotice = msg.cancelledBet ? `${reasonNotice} Pågående BlixtBet annullerades.` : reasonNotice;
       showToast(stopNotice, 'info');
       closeLiveStream();
     } else if (msg.type === 'flashlive_bet_started' && msg.liveId === liveId) {
@@ -876,6 +958,10 @@ export function closeLiveStream() {
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
+    }
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
     }
     clearActiveLiveRoom();
     activeLiveId = null;
@@ -1407,6 +1493,10 @@ export async function openInstantLiveModal() {
           </div>
         ` : ''}
 
+        <div style="font-size: 0.74rem; color: var(--text-muted); text-align: center; margin-bottom: 8px;">
+          ⏱️ Max 15 min per sändning – den stoppas automatiskt
+        </div>
+
         <!-- Launch Button -->
         <button type="button" id="btn-start-instant-live" class="btn btn-primary btn-block" ${(!isAllFriends && selectedFriendIds.size === 0) ? 'disabled style="opacity: 0.5; cursor: not-allowed; font-weight: 800; font-size: 1rem; padding: 12px;"' : 'style="font-weight: 800; font-size: 1rem; padding: 12px;"'}>
           <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ff334b; box-shadow: 0 0 8px #ff334b;"></span>
@@ -1549,7 +1639,8 @@ export async function openInstantLiveModal() {
           initialFlashBet: res.flashBet,
           livekitToken: res.livekitToken,
           livekitUrl: res.livekitUrl,
-          livekitError: res.livekitError
+          livekitError: res.livekitError,
+          endsAt: res.live?.endsAt
         });
       } catch (err) {
         showToast('Kunde inte starta livesändning: ' + err.message, 'error');

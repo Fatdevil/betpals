@@ -287,7 +287,8 @@ async function initHomeLiveBanners() {
         liveId: s.id,
         flashBetId: s.flashBetId,
         tournamentName: `${s.hostName} sänder live ⚡`,
-        initialQuestion: s.question
+        initialQuestion: s.question,
+        endsAt: s.endsAt
       });
     });
   };

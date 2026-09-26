@@ -1534,6 +1534,11 @@ select.form-input option {
   color: #000;
 }
 
+.toast-warning {
+  background: #f97316;
+  color: #000;
+}
+
 /* ── Player Tag (admin add) ─────────────────────────── */
 .player-tags {
   display: flex;

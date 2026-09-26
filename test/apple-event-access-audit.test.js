@@ -62,7 +62,8 @@ test('Public access to GET /api/events and GET /api/events/:code without authent
 
   // Create a clean open event
   const testEventId = 'apple_test_' + Date.now();
-  const testCode = 'APL' + Math.floor(Math.random() * 900 + 100);
+  // Unique per run: the test database keeps earlier events, so a short random code can collide
+  const testCode = 'APL' + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1000);
   const p1Id = 'p1_' + Date.now();
   const p2Id = 'p2_' + Date.now();
   db.createEvent({
@@ -87,6 +88,7 @@ test('Public access to GET /api/events and GET /api/events/:code without authent
     { id: p2Id, name: 'Spelare B' }
   ]);
 
+  try {
   // 1. GET /api/events without auth header
   const eventsRes = await fetch(`${base}/api/events`);
   assert.equal(eventsRes.status, 200);
@@ -110,7 +112,8 @@ test('Public access to GET /api/events and GET /api/events/:code without authent
     body: JSON.stringify({ playerId: p1Id, amount: 20 })
   });
   assert.equal(betRes.status, 401, 'Placing bet without authentication must be rejected');
-
-  server.close();
+  } finally {
+    server.close();
+  }
 });
 

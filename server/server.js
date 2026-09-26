@@ -11,7 +11,7 @@ import QRCode from 'qrcode';
 import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { generateMaltaSupportReply, getMaltaFallbackReply, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -53,7 +53,9 @@ async function generateLiveKitToken({ roomName, identity, name, metadata = {}, i
     const at = new AccessToken(config.apiKey, config.apiSecret, {
       identity: String(identity),
       name: String(name || 'Användare'),
-      metadata: JSON.stringify(metadata)
+      metadata: JSON.stringify(metadata),
+      // A live stream lasts at most LIVE_MAX_DURATION_MS, so the join token never needs to live longer
+      ttl: '20m'
     });
     at.addGrant({
       room: String(roomName),
@@ -67,6 +69,23 @@ async function generateLiveKitToken({ roomName, identity, name, metadata = {}, i
   } catch (err) {
     console.error('Error creating LiveKit token:', err);
     return { token: null, url: config.url, error: err.message };
+  }
+}
+
+// Deleting the LiveKit room disconnects everyone in it, so no participant keeps using
+// streaming minutes after a live stream has ended (also when their app missed our message)
+async function deleteLiveKitRoom(roomName) {
+  const config = getLiveKitConfig();
+  if (!config.configured || !roomName) return;
+  try {
+    const host = String(config.url).replace(/^wss:/i, 'https:').replace(/^ws:/i, 'http:');
+    const client = new RoomServiceClient(host, config.apiKey, config.apiSecret);
+    await client.deleteRoom(String(roomName));
+  } catch (err) {
+    // The room is already gone when everyone has left; nothing to do then
+    if (!/not.?found|404/i.test(String(err?.message || err))) {
+      console.warn('[livekit] Could not delete room', roomName, err?.message || err);
+    }
   }
 }
 
@@ -168,7 +187,14 @@ const partyRooms = new Map();   // partyId → room object
 const partyClients = new Map(); // partyId → Set<ws>
 const partyCodeToId = new Map();// 4-char code → partyId
 const liveClients = new Map();  // liveId → Set<ws>
-const activeFlashLiveStreams = new Map(); // liveId → stream object { id, hostId, hostName, question, expiresAt, targetUserIds, flashBetId }
+const activeFlashLiveStreams = new Map();
+// Every live stream stops automatically after this long, so a forgotten stream cannot use up
+// the LiveKit minutes. Starting a new BlixtBet does not extend it.
+const LIVE_MAX_DURATION_MS = 15 * 60 * 1000;
+function liveEndsAtMs(session) {
+  const created = new Date(session.createdAt).getTime();
+  return (Number.isFinite(created) ? created : Date.now()) + LIVE_MAX_DURATION_MS;
+} // liveId → stream object { id, hostId, hostName, question, expiresAt, targetUserIds, flashBetId }
 
 // ── Party Room Cleanup ───────────────────────────────
 const ROOM_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
@@ -237,6 +263,7 @@ try {
   for (const s of dbActiveStreams) {
     try {
       db.updateFlashLiveStreamStatus(s.id, 'ended');
+      deleteLiveKitRoom(s.id).catch(() => {});
       const betId = s.flash_bet_id || s.flashBetId;
       if (betId) {
         const fb = db.getFlashBet(betId);
@@ -300,6 +327,7 @@ function endFlashLiveStream(id, session = null, reason = 'ended') {
   }
   broadcastToUser(session.hostId, stopPayload);
   broadcastGlobal(stopPayload);
+  deleteLiveKitRoom(id).catch(() => {});
 
   const clients = liveClients.get(id);
   if (clients) {
@@ -310,19 +338,16 @@ function endFlashLiveStream(id, session = null, reason = 'ended') {
   return { ok: true, cancelledBet };
 }
 
-// Background cleanup for stale FlashLive streams (heartbeat timeout > 35s or max age > 45m)
+// Background cleanup for stale FlashLive streams (heartbeat timeout > 35s or past the max duration)
 setInterval(() => {
   const now = Date.now();
   for (const [id, session] of activeFlashLiveStreams.entries()) {
     const isHeartbeatDead = session.lastHeartbeat && (now - session.lastHeartbeat > 35000);
-    const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
-    const isMaxAgeExceeded = baseTime + 2700000 < now;
-
-    if (isHeartbeatDead || isMaxAgeExceeded) {
-      endFlashLiveStream(id, session, isHeartbeatDead ? 'heartbeat_timeout' : 'max_age_exceeded');
+    if (isHeartbeatDead || now >= liveEndsAtMs(session)) {
+      endFlashLiveStream(id, session, isHeartbeatDead ? 'heartbeat_timeout' : 'max_duration');
     }
   }
-}, 15000).unref();
+}, 5000).unref();
 
 function updateLiveViewerCount(liveId) {
   if (!liveId) return;
@@ -5575,6 +5600,7 @@ app.post('/api/flashlive/start', async (req, res) => {
     lastHeartbeat: Date.now(),
     status: 'active'
   };
+  liveSession.endsAt = new Date(liveEndsAtMs(liveSession)).toISOString();
 
   activeFlashLiveStreams.set(liveId, liveSession);
   try {
@@ -5645,10 +5671,8 @@ app.get('/api/flashlive/active', (req, res) => {
       continue;
     }
 
-    // Keep active for up to 45 mins or until stopped
-    const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
-    if (baseTime + 2700000 < now) {
-      endFlashLiveStream(id, session, 'max_age_exceeded');
+    if (now >= liveEndsAtMs(session)) {
+      endFlashLiveStream(id, session, 'max_duration');
       continue;
     }
     // Check if user is host or in target audience
@@ -5675,10 +5699,9 @@ app.get('/api/flashlive/:id', async (req, res) => {
     return res.status(404).json({ error: 'Livesändningen avslutades pga tappad anslutning' });
   }
 
-  const baseTime = session.expiresAt ? new Date(session.expiresAt).getTime() : new Date(session.createdAt).getTime();
-  if (baseTime + 2700000 < now) {
-    endFlashLiveStream(req.params.id, session, 'max_age_exceeded');
-    return res.status(404).json({ error: 'Livesändningen har passerat maxtiden' });
+  if (now >= liveEndsAtMs(session)) {
+    endFlashLiveStream(req.params.id, session, 'max_duration');
+    return res.status(404).json({ error: 'Livesändningen har nått maxtiden på 15 minuter' });
   }
 
   // Verify that user is host or target audience
@@ -5711,11 +5734,11 @@ app.post('/api/flashlive/:id/heartbeat', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Ej inloggad' });
 
   const session = activeFlashLiveStreams.get(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Livesändningen hittades inte' });
+  if (!session) return res.status(404).json({ error: 'Livesändningen hittades inte', ended: true });
   if (session.hostId !== user.id) return res.status(403).json({ error: 'Bara sändaren kan skicka heartbeat' });
 
   session.lastHeartbeat = Date.now();
-  res.json({ ok: true });
+  res.json({ ok: true, endsAt: new Date(liveEndsAtMs(session)).toISOString() });
 });
 
 app.post('/api/flashlive/:id/settle', (req, res) => {
@@ -5784,6 +5807,12 @@ app.post('/api/flashlive/:id/bet', (req, res) => {
   const duration = Math.max(10, Math.min(600, Number(durationSeconds) || 60));
   const stake = Math.max(5, Math.min(5000, Number(stakeAmount) || 20));
   const expiresAt = new Date(Date.now() + duration * 1000).toISOString();
+
+  // The voting plus some time to settle must fit before the stream stops automatically
+  const secondsLeft = Math.floor((liveEndsAtMs(session) - Date.now()) / 1000);
+  if (duration + 60 > secondsLeft) {
+    return res.status(400).json({ error: `Sändningen stoppas automatiskt om ${Math.max(0, Math.ceil(secondsLeft / 60))} min. Det räcker inte för ett nytt vad – starta en ny sändning.` });
+  }
 
   const flashBetId = generateId();
   // Pass session.targetUserIds so bet participation is restricted to the stream audience
@@ -6415,6 +6444,7 @@ export {
   resolveMafiaDebts,
   partyRooms,
   partyCodeToId,
+  activeFlashLiveStreams,
   finalizePartyRound,
   recordUserRtt,
   getLatencyCompensationMs
