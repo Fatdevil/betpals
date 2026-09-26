@@ -1,4 +1,4 @@
-import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
+import { getEvent, getEventQR, placeBet, setEventPicks, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, safeImageSrc, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
@@ -242,6 +242,97 @@ export async function renderEvent(params = {}) {
 }
 
 // Every option as a big tappable card: name, money and bets on it, and the live odds
+// ── Pick N: everyone picks the same number of options, most correct takes the pot ──
+function renderPicksSection(event, { canPick, currentUser, isOpen, isFinished }) {
+  const n = event.pickCount || 0;
+  const optionName = (id) => event.players.find(p => p.id === id)?.name || '?';
+  const entries = event.entries || [];
+  const mine = currentUser ? entries.find(e => e.userId === currentUser.id) : null;
+  const result = new Set(event.pickResult || []);
+  const pot = formatCurrency(event.totalPool || 0);
+
+  const intro = `
+    <div class="game-info-card">
+      🎯 Välj <b>${n}</b> av ${event.players.length}. Den som har <b>flest rätt</b> tar potten (${pot}), och den delas vid lika.
+      ${isOpen ? 'Andras tips visas när spelstoppet har passerat.' : ''}
+    </div>`;
+
+  if (canPick) {
+    const chosen = new Set(mine?.picks || []);
+    return `${intro}
+      <div class="game-section-label">${mine ? 'Ditt tips – du kan ändra fram till spelstopp' : `Välj ${n}`}</div>
+      <div class="pick-grid" data-count="${n}">
+        ${event.players.map(p => `
+          <button type="button" class="pick-chip${chosen.has(p.id) ? ' on' : ''}" data-pick="${escapeHtml(p.id)}" aria-pressed="${chosen.has(p.id)}">${escapeHtml(p.name)}</button>
+        `).join('')}
+      </div>
+      <div class="pick-bar">
+        <span id="pick-counter">${chosen.size}/${n} valda</span>
+        <button type="button" class="btn btn-primary" id="pick-submit" ${chosen.size === n ? '' : 'disabled'}>${mine ? 'Spara ändringen' : `Lägg mitt tips · ${formatCurrency(event.minBet)}`}</button>
+      </div>
+      ${entries.length > 0 ? `<p class="pick-who">👥 ${entries.length} har tippat: ${entries.map(e => escapeHtml(e.nickname)).join(', ')}</p>` : ''}
+    `;
+  }
+
+  const winners = new Set(event.winnerIds || []);
+  const rows = [...entries].sort((a, b) => (b.correct ?? -1) - (a.correct ?? -1) || a.nickname.localeCompare(b.nickname));
+  return `${intro}
+    ${isFinished && result.size > 0 ? `
+      <div class="game-section-label">Rätt svar</div>
+      <div class="pick-grid">${[...result].map(id => `<span class="pick-chip on is-static">✓ ${escapeHtml(optionName(id))}</span>`).join('')}</div>
+    ` : ''}
+    <div class="game-section-label">${isFinished ? 'Resultat' : `Tips (${entries.length})`}</div>
+    ${rows.length === 0 ? '<p class="pick-who">Ingen har tippat.</p>' : `
+      <div class="pick-table">
+        ${rows.map(e => `
+          <div class="pick-row${isFinished && winners.has(e.playerId) ? ' is-winner' : ''}${mine && e.userId === mine.userId ? ' is-me' : ''}">
+            <div class="pick-row-head">
+              <b>${isFinished && winners.has(e.playerId) ? '🏆 ' : ''}${escapeHtml(e.nickname)}</b>
+              ${isFinished ? `<span class="pick-score">${e.correct ?? 0} rätt</span>` : ''}
+            </div>
+            <div class="pick-row-picks">${e.picks
+              ? e.picks.map(id => `<span class="pick-mini${result.has(id) ? ' hit' : ''}">${escapeHtml(optionName(id))}</span>`).join('')
+              : '<span class="pick-mini">🔒 dolt till spelstopp</span>'}</div>
+          </div>
+        `).join('')}
+      </div>
+    `}
+  `;
+}
+
+function bindPicks(event, content, code) {
+  const grid = content.querySelector('.pick-grid[data-count]');
+  if (!grid) return;
+  const n = Number(grid.dataset.count);
+  const submit = content.querySelector('#pick-submit');
+  const counter = content.querySelector('#pick-counter');
+  const chosen = () => [...grid.querySelectorAll('.pick-chip.on')].map(b => b.dataset.pick);
+  grid.querySelectorAll('.pick-chip').forEach(btn => btn.addEventListener('click', () => {
+    const on = btn.classList.contains('on');
+    if (!on && chosen().length >= n) {
+      showToast(`Du kan välja ${n} – ta bort ett först`, 'info');
+      return;
+    }
+    btn.classList.toggle('on', !on);
+    btn.setAttribute('aria-pressed', String(!on));
+    const count = chosen().length;
+    counter.textContent = `${count}/${n} valda`;
+    submit.disabled = count !== n;
+  }));
+  submit?.addEventListener('click', async () => {
+    submit.disabled = true;
+    try {
+      await setEventPicks(event.id, chosen());
+      showToast('Ditt tips är lagt! 🎯', 'success');
+      const updated = await getEvent(code);
+      renderEventContent(updated, content, code);
+    } catch (err) {
+      showToast(err.message, 'error');
+      submit.disabled = false;
+    }
+  });
+}
+
 function renderGameOptions(event, { interactive = false, selectedId = null, winnerIds = [], isYesNo = false, isSelf = false } = {}) {
   if (!event.players || event.players.length === 0) {
     return '<div class="game-closed-note">Inga alternativ ännu</div>';
@@ -334,7 +425,9 @@ function renderEventContent(event, content, code) {
     || (event.tournamentId && tournamentCreatorById[event.tournamentId] === currentUser.id))) || hasPinSession;
 
   const isSelf = event.betMode === 'self';
-  const canBet = isOpen && !isSelf && loggedIn && Boolean(currentUser?.swishNumber);
+  const isPicks = event.betMode === 'picks';
+  const canBet = isOpen && !isSelf && !isPicks && loggedIn && Boolean(currentUser?.swishNumber);
+  const canPick = isOpen && isPicks && loggedIn && Boolean(currentUser?.swishNumber);
   const myBets = currentUser ? event.bets.filter(b => b.userId === currentUser.id) : [];
   const stakeText = event.minBet === event.maxBet
     ? formatCurrency(event.minBet)
@@ -378,7 +471,7 @@ function renderEventContent(event, content, code) {
           <button type="button" class="game-link" id="event-share-modal-btn">📤 Dela</button>
           ${!isFinished && event.status !== 'cancelled' ? '<button type="button" class="game-link" id="calendar-export-btn">📅 Kalender</button>' : ''}
         </div>
-        ${myBets.length > 0 && !isSelf ? `
+        ${myBets.length > 0 && !isSelf && !isPicks ? `
           <div class="game-mine">✓ Du bettade: ${myBets.map(b => `${escapeHtml((event.players.find(p => p.id === b.playerId) || {}).name || '?')} · ${formatCurrency(b.amount)}`).join(', ')}</div>
         ` : ''}
       </div>
@@ -409,11 +502,15 @@ function renderEventContent(event, content, code) {
         </div>
       ` : ''}
 
+      ${isPicks ? `
+        <div id="picks-container">${renderPicksSection(event, { canPick, currentUser, isOpen, isFinished })}</div>
+      ` : `
       <!-- Options: tap one to open the bet slip -->
       <div class="game-section-label">${canBet ? (myBets.length > 0 ? 'Lägg ett bet till' : 'Välj ditt tips') : isSelf ? 'Deltagare' : 'Tips & odds'}</div>
       <div id="odds-board-container" class="game-options">
         ${renderGameOptions(event, { interactive: canBet, winnerIds, isYesNo, isSelf })}
       </div>
+      `}
 
       ${isOpen && !isSelf && !loggedIn ? `
         <div class="card text-center" style="padding: var(--space-lg) var(--space-md);">
@@ -444,7 +541,7 @@ function renderEventContent(event, content, code) {
       <!-- Key numbers -->
       <div class="game-stats">
         <div><b id="total-pool-display">${formatCurrency(event.totalPool || 0)}</b>Pott</div>
-        <div><b id="bet-count-display">${event.bets.length}</b>Bets</div>
+        <div><b id="bet-count-display">${event.bets.length}</b>${isPicks ? 'Tips' : 'Bets'}</div>
         <div><b>${stakeText}</b>Insats</div>
         ${event.payoutPercent !== 100 ? `<div><b>${event.payoutPercent}%</b>Utbetalning</div>` : ''}
       </div>
@@ -496,10 +593,11 @@ function renderEventContent(event, content, code) {
           <h2 class="section-title">📊 ${t('event.results')}</h2>
         </div>
         <div class="card">
+          ${isPicks ? '' : `
           <div class="flex-between mb-md">
             <span class="text-secondary">${t('event.odds')}:</span>
             <span class="text-gold font-bold">${formatOdds(payoutInfo.odds)}</span>
-          </div>
+          </div>`}
           <div class="flex-between mb-md">
             <span class="text-secondary">${t('event.payoutPool')}:</span>
             <span class="font-bold">${formatCurrency(payoutInfo.effectivePool)}</span>
@@ -528,8 +626,8 @@ function renderEventContent(event, content, code) {
         ${renderSettlementSection(event, payoutInfo)}
       ` : ''}
 
-      <!-- All Predictions -->
-      ${event.bets.length > 0 ? `
+      <!-- All Predictions (a pick game lists its tips above instead) -->
+      ${event.bets.length > 0 && !isPicks ? `
         <div class="section-header">
           <h2 class="section-title">📋 ${t('event.allBets')} (${event.bets.length})</h2>
         </div>
@@ -728,6 +826,8 @@ function renderEventContent(event, content, code) {
       showToast(err.message, 'error');
     }
   });
+
+  bindPicks(event, content, code);
 
   document.getElementById('creator-finish-btn')?.addEventListener('click', () => {
     openFinishEventModal(event, {

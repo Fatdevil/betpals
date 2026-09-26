@@ -29,7 +29,7 @@ test('stake can be fixed or free (min–max), winner-takes-all is always fixed',
   assert.match(form, /data-mode="fixed">Fast</);
   assert.match(form, /data-mode="free">Fri</);
   assert.match(form, /if \(fixedOnly\) state\.stakeMode = 'fixed';/);
-  assert.match(serverSrc, /if \(betMode !== 'self' && req\.body\.minBet !== undefined && req\.body\.maxBet !== undefined\)/);
+  assert.match(serverSrc, /if \(betMode === 'open' && req\.body\.minBet !== undefined && req\.body\.maxBet !== undefined\)/);
 });
 
 test('1X2 builds name and options from the two teams', () => {

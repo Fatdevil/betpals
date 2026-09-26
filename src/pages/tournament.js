@@ -162,7 +162,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       meta = `👥 Alla med · ${formatCurrency(g.minBet)}/st · pott ${formatCurrency(g.totalPool)}`;
       cta = '<span class="game-card-wait">⏳ Väntar på resultat</span>';
     } else if (isOpen) {
-      meta = `${dl ? `<span class="game-card-time">⏱ ${escapeHtml(dl.shortText)}</span> · ` : ''}${stake} · ${g.betCount} ${g.betCount === 1 ? 'bet' : 'bets'}`;
+      meta = `${dl ? `<span class="game-card-time">⏱ ${escapeHtml(dl.shortText)}</span> · ` : ''}${g.pickCount ? `🎯 Välj ${g.pickCount} · ` : ''}${stake} · ${g.betCount} ${g.pickCount ? (g.betCount === 1 ? 'tips' : 'tips') : g.betCount === 1 ? 'bet' : 'bets'}`;
       cta = mine.length > 0 ? '<span class="game-card-link">Se spel →</span>' : '<span class="game-card-cta">Betta →</span>';
     } else {
       meta = `🔒 Stängt för bets · pott ${formatCurrency(g.totalPool)}`;
@@ -1194,11 +1194,13 @@ const NEW_GAME_TYPES = [
   { id: 'winner', icon: '🏆', title: 'Vem vinner?', desc: 'Betta på en spelare – odds från potten' },
   { id: 'winner_takes_all', icon: '👥', title: 'Vinnare tar allt', desc: 'Alla lägger lika – vinnaren tar potten' },
   { id: '1x2', icon: '⚽', title: 'Match 1 X 2', desc: 'Hemma, oavgjort eller borta' },
-  { id: 'yes_no', icon: '👍', title: 'Ja eller nej', desc: 'En snabb fråga' }
+  { id: 'yes_no', icon: '👍', title: 'Ja eller nej', desc: 'En snabb fråga' },
+  { id: 'picks', icon: '🎯', title: 'Välj flera', desc: 'Alla väljer lika många – flest rätt tar potten' }
 ];
 const NAME_SUGGESTIONS = {
   winner: ['Vinnare av rundan', 'Längsta drive', 'Närmast hål'],
-  winner_takes_all: ['Flest birdies', 'Bästa score', 'Ölhävning']
+  winner_takes_all: ['Flest birdies', 'Bästa score', 'Ölhävning'],
+  picks: ['Vilka 4 kommer sist?', 'Vilka 3 går till final?', 'Topp 4 i loppet']
 };
 const FIXED_STAKES = [20, 50, 100, 200];
 const DEADLINES = [
@@ -1226,6 +1228,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
 
   const state = {
     type: 'winner',
+    pickCount: 4,
     name: '',
     home: '',
     away: '',
@@ -1282,7 +1285,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const fieldsEl = document.getElementById('ng-fields');
   const stakeEl = document.getElementById('ng-stake');
   const submitBtn = document.getElementById('ng-submit');
-  const isPeopleGame = () => state.type === 'winner' || state.type === 'winner_takes_all';
+  const isPeopleGame = () => state.type === 'winner' || state.type === 'winner_takes_all' || state.type === 'picks';
+  const isPicks = () => state.type === 'picks';
 
   // ── Type specific fields ──
   function renderFields() {
@@ -1316,20 +1320,34 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       const suggestions = NAME_SUGGESTIONS[state.type] || [];
       fieldsEl.innerHTML = `
         <div class="ng-label">Vad gäller det?</div>
-        <input type="text" class="form-input ng-input" id="ng-name" placeholder="${state.type === 'winner' ? 'Vinnare av rundan' : 'Flest birdies'}" maxlength="120" value="${escapeHtml(state.name)}" />
+        <input type="text" class="form-input ng-input" id="ng-name" placeholder="${state.type === 'winner' ? 'Vinnare av rundan' : state.type === 'picks' ? 'Vilka 4 kommer sist i loppet?' : 'Flest birdies'}" maxlength="120" value="${escapeHtml(state.name)}" />
         <div class="ng-suggest">Förslag: ${suggestions.map(sg => `<button type="button" class="ng-suggest-btn" data-suggest="${escapeHtml(sg)}">${escapeHtml(sg)}</button>`).join(' · ')}</div>
-        <div class="ng-label">Vilka är med? <span class="ng-count" id="ng-people-count"></span></div>
+        <div class="ng-label">${isPicks() ? 'Vilka kan man välja?' : 'Vilka är med?'} <span class="ng-count" id="ng-people-count"></span></div>
         <div class="ng-chips" id="ng-people"></div>
         <div class="ng-row" id="ng-add-person-row" style="display: none; margin-top: 8px;">
           <input type="text" class="form-input ng-input" id="ng-add-person" placeholder="Namn (t.ex. gäst utan konto)" maxlength="40" />
           <button type="button" class="btn btn-secondary btn-sm" id="ng-add-person-btn">Lägg till</button>
         </div>
         ${state.type === 'winner_takes_all' ? '<p class="ng-hint">Välj vänner med konto – då hamnar insatser och vinst i Swishlistan.</p>' : ''}
+        ${isPicks() ? `
+          <p class="ng-hint">Lägg till alla i loppet med ＋ Namn. Alla i eventet kan sedan tippa.</p>
+          <div class="ng-label">Hur många ska man välja?</div>
+          <div class="ng-stepper">
+            <button type="button" class="ng-step" data-step="-1" aria-label="Färre">−</button>
+            <b id="ng-pick-count">${state.pickCount}</b>
+            <button type="button" class="ng-step" data-step="1" aria-label="Fler">＋</button>
+          </div>
+        ` : ''}
       `;
       document.getElementById('ng-name').addEventListener('input', e => { state.name = e.target.value; updateSummary(); });
       fieldsEl.querySelectorAll('.ng-suggest-btn').forEach(btn => btn.addEventListener('click', () => {
         state.name = btn.dataset.suggest;
         document.getElementById('ng-name').value = state.name;
+        updateSummary();
+      }));
+      fieldsEl.querySelectorAll('.ng-step').forEach(btn => btn.addEventListener('click', () => {
+        state.pickCount = Math.max(1, Math.min(10, state.pickCount + Number(btn.dataset.step)));
+        document.getElementById('ng-pick-count').textContent = state.pickCount;
         updateSummary();
       }));
       document.getElementById('ng-add-person-btn').addEventListener('click', addCustomPerson);
@@ -1374,7 +1392,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
 
   // ── Stake: fixed amount, or free between min and max (not for winner-takes-all) ──
   function renderStake() {
-    const fixedOnly = state.type === 'winner_takes_all';
+    const fixedOnly = state.type === 'winner_takes_all' || state.type === 'picks';
     if (fixedOnly) state.stakeMode = 'fixed';
     document.getElementById('ng-stake-label').textContent = fixedOnly ? 'Insats per person' : 'Insats';
     stakeEl.innerHTML = `
@@ -1390,7 +1408,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
           <button type="button" class="ng-chip ng-chip-add${state.customStake ? ' gold' : ''}" data-stake="custom">Annat</button>
         </div>
         ${state.customStake ? `<input type="number" inputmode="numeric" class="form-input ng-input" id="ng-fixed-custom" min="1" max="10000" value="${state.fixedStake}" style="margin-top: 8px;" />` : ''}
-        <p class="ng-hint">${fixedOnly ? 'Alla lägger samma summa – vinnaren tar hela potten.' : 'Alla bettar med samma summa.'}</p>
+        <p class="ng-hint">${isPicks() ? 'Alla lägger samma summa – flest rätt tar hela potten (delas vid lika). Har ingen rätt går insatserna tillbaka.' : fixedOnly ? 'Alla lägger samma summa – vinnaren tar hela potten.' : 'Alla bettar med samma summa.'}</p>
       ` : `
         <div class="ng-row">
           <label class="ng-minmax">Min <input type="number" inputmode="numeric" class="form-input ng-input" id="ng-min" min="1" max="10000" value="${state.minBet}" /> kr</label>
@@ -1439,7 +1457,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     } else {
       name = state.name.trim();
       players = people.filter(p => p.selected).map(p => p.name);
-      if (name.length < 2) problem = 'Skriv vad spelet gäller';
+      if (name.length < 2) problem = isPicks() ? 'Skriv frågan' : 'Skriv vad spelet gäller';
+      else if (isPicks() && players.length <= state.pickCount) problem = `Lägg till minst ${state.pickCount + 1} att välja bland`;
       else if (players.length < 2) problem = 'Välj minst 2 som är med';
     }
     const fixed = state.stakeMode === 'fixed';
@@ -1465,7 +1484,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     const g = buildGame();
     const parts = [];
     if (g.name) parts.push(`<b>${escapeHtml(g.name.startsWith('⚽') ? g.name : `${g.type.icon} ${g.name}`)}</b>`);
-    if (isPeopleGame() && g.players.length) parts.push(`${g.players.length} med`);
+    if (isPicks() && g.players.length) parts.push(`välj ${state.pickCount} av ${g.players.length}`);
+    else if (isPeopleGame() && g.players.length) parts.push(`${g.players.length} med`);
     parts.push(escapeHtml(g.stake.text));
     if (g.closesAt) parts.push(`stänger ${new Date(g.closesAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
     document.getElementById('ng-summary').innerHTML = g.problem
@@ -1479,6 +1499,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     state.type = btn.dataset.type;
     form.querySelectorAll('.ng-type').forEach(b => b.classList.toggle('on', b === btn));
     if (state.type === 'winner_takes_all') state.fixedStake = 100;
+    // What you pick (runners, teams) is usually not the group itself: start from an empty list
+    if (state.type === 'picks') { state.fixedStake = 50; people.forEach(p => { p.selected = false; }); }
     renderFields();
     renderStake();
     updateSummary();
@@ -1544,7 +1566,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       const pin = sessionStorage.getItem('betpals_pin') || '';
       let players = g.players;
       // Friends picked here join the event first, so their bets are linked to their accounts
-      if (isPeopleGame()) {
+      // In a pick game the names are what you pick (e.g. runners), not players to invite
+      if (isPeopleGame() && !isPicks()) {
         const toInvite = people.filter(p => p.selected && p.userId && !p.inEvent);
         if (toInvite.length > 0) {
           const res = await inviteFriendsToTournament(t.id, toInvite.map(p => p.userId), pin);
@@ -1558,7 +1581,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       const updated = await createSideBet(t.id, {
         name: g.name,
         players,
-        betMode: state.type === 'winner_takes_all' ? 'self' : 'open',
+        betMode: state.type === 'winner_takes_all' ? 'self' : isPicks() ? 'picks' : 'open',
+        ...(isPicks() ? { pickCount: state.pickCount } : {}),
         betAmount: g.stake.betAmount,
         ...(g.stake.minBet !== undefined ? { minBet: g.stake.minBet, maxBet: g.stake.maxBet } : {}),
         closesAt: g.closesAt,
