@@ -108,3 +108,10 @@ test('pass & play: a sudden death keeps everyone else in the pot', () => {
   assert.match(passPlay, /const results = \[\.\.\.roundResults, \.\.\.alreadyPlaced/);
   assert.match(passPlay, /blind10-pay-list/);
 });
+
+test('the results Close button leaves the room; a new host gets the "new round" button', () => {
+  const close = blind10.slice(blind10.indexOf("getElementById('btn-party-close')"));
+  assert.match(close.slice(0, 200), /leavePartyRoom\(room\.id\)/);
+  assert.match(blind10, /data\.room\.status === 'completed' && resultsShown && hostChanged && lastResultsRoom/);
+  assert.match(blind10, /renderPartyResultsView\(\{ \.\.\.lastResultsRoom, hostId: data\.room\.hostId \}, false, \[\]\)/);
+});

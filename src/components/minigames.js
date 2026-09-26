@@ -1424,6 +1424,7 @@ export async function openBlind10Modal(initialRoom = null) {
   let activeTimeoutId = null;
   let waitingPollId = null;
   let resultsShown = false;
+  let lastResultsRoom = null;
   let currentRoom = initialRoom || null;
   let selectedStake = 20;
   let invitedFriendIds = new Set();
@@ -1841,14 +1842,21 @@ export async function openBlind10Modal(initialRoom = null) {
     resultsShown = true;
     stopWaitingPoll();
     currentRoom = room;
+    lastResultsRoom = room;
     renderPartyResultsView(room, isTie, tiedPlayerIds);
   }
 
   function handlePartyWsMessage(data) {
     if (data.type === 'party_updated' && data.room) {
+      const hostChanged = currentRoom && currentRoom.hostId !== data.room.hostId;
       currentRoom = data.room;
-      // Only the lobby re-renders; never throw players out of a round in progress
+      // Only the lobby re-renders; never throw players out of a round in progress.
+      // On the results screen a new host needs the "new round" button.
       if (data.room.status === 'lobby') renderPartyLobbyView();
+      else if (data.room.status === 'completed' && resultsShown && hostChanged && lastResultsRoom) {
+        // Keep the finished round's players and pot; only the host changes
+        renderPartyResultsView({ ...lastResultsRoom, hostId: data.room.hostId }, false, []);
+      }
     } else if (data.type === 'party_started' && data.room) {
       currentRoom = data.room;
       resultsShown = false;
@@ -2380,8 +2388,11 @@ export async function openBlind10Modal(initialRoom = null) {
       </div>
     `;
 
+    // Closing leaves the room too, so you can't be counted as a no-show in the next round
     document.getElementById('btn-party-close')?.addEventListener('click', () => {
       cleanup();
+      currentRoom = null;
+      leavePartyRoom(room.id).catch(() => {});
       closeModal();
     });
 
