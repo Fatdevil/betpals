@@ -1,5 +1,5 @@
 import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, lockEvent, reopenEvent, boostEvent, updateEventDeadline, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
-import { formatCurrency, formatDeadline, parseDateSafe, showToast, launchConfetti, escapeHtml, sanitizeUrl, getAppBaseUrl } from '../utils.js';
+import { formatCurrency, formatDeadline, parseDateSafe, showToast, launchConfetti, escapeHtml, sanitizeUrl, safeImageSrc, getAppBaseUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { openFlashBetModal } from '../components/minigames.js';
@@ -176,7 +176,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     return `
       <div class="game-card card-clickable round-link${nested ? ' game-card-nested' : ''}" data-code="${escapeHtml(g.shareCode)}" id="round-${g.id}">
         <div class="game-card-top">
-          ${g.imageUrl ? `<img src="${sanitizeUrl(g.imageUrl)}" alt="" class="game-card-img" loading="lazy" />` : ''}
+          ${g.imageUrl ? `<img src="${safeImageSrc(g.imageUrl)}" alt="" class="game-card-img" loading="lazy" />` : ''}
           <h3 class="game-card-title">${escapeHtml(g.name)}</h3>
           ${isCreator ? `<button type="button" class="game-card-menu" data-id="${g.id}" data-name="${escapeHtml(g.name)}" data-open="${isOpen ? '1' : ''}" data-reopenable="${!isOpen && g.status !== 'finished' && g.status !== 'cancelled' ? '1' : ''}" aria-label="Spelledarval">⋯</button>` : ''}
         </div>
@@ -525,7 +525,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   // Lightbox for photos in live feed
   content.querySelectorAll('.photo-feed-img').forEach(img => {
     img.addEventListener('click', () => {
-      const url = sanitizeUrl(img.dataset.url || '');
+      const url = safeImageSrc(img.dataset.url || '');
       const caption = escapeHtml(img.dataset.caption || '');
       const uploader = escapeHtml(img.dataset.uploader || '');
       showModal('📸 Foto', `
