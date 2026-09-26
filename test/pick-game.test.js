@@ -34,12 +34,12 @@ async function registerUser(prefix) {
 const RUNNERS = ['Adde', 'Brolle', 'Calle', 'Dino', 'Eddie', 'Figge'];
 
 // An event with a "pick 2 of 6" game; host + 3 friends
-async function pickGame({ closesAt = null } = {}) {
+async function pickGame({ closesAt = null, visibility = 'friends' } = {}) {
   const host = await registerUser('ph');
   const friends = [await registerUser('pa'), await registerUser('pb'), await registerUser('pc')];
   for (const f of friends) db.addFriend(host.id, f.id);
   const tId = crypto.randomUUID();
-  db.createTournament(tId, 'Loppkväll', crypto.randomBytes(4).toString('hex').toUpperCase(), host.id, 'friends',
+  db.createTournament(tId, 'Loppkväll', crypto.randomBytes(4).toString('hex').toUpperCase(), host.id, visibility,
     [host, ...friends].map(u => ({ name: u.nickname, userId: u.id })));
   const res = await call('POST', `/api/tournaments/${tId}/sidebets`, { name: 'Vilka 2 kommer sist?', players: RUNNERS, betMode: 'picks', pickCount: 2, betAmount: 50, closesAt }, host.token);
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -141,4 +141,27 @@ test('the UI: new game type, pick grid, host result dialog', () => {
   assert.match(e, /🔒 dolt till spelstopp/);
   const m = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
   assert.match(m, /if \(event\.betMode === 'picks'\) return openPickResultModal\(event, \{ pin, onDone \}\);/);
+});
+
+test('a deleted account\'s tip still counts (their stake is in the pot)', async () => {
+  const { host, friends, ev, id } = await pickGame();
+  const [a, b] = friends;
+  await tip(ev, a, [id('Adde'), id('Brolle')]); // 2 right, then deletes the account
+  await tip(ev, b, [id('Adde'), id('Calle')]);  // 1 right
+  db.deleteUser(a.id);
+  const fin = await call('POST', `/api/events/${ev.id}/finish`, { resultIds: [id('Adde'), id('Brolle')] }, host.token);
+  assert.equal(fin.status, 200);
+  const entry = db.getFullEvent(ev.id).entries.find(e => e.correct === 2);
+  assert.ok(entry, 'the deleted person\'s tip is still scored');
+  assert.equal(db.getUnifiedSettlementOverview(b.id).friends.reduce((s, f) => s + f.totalNet, 0), -50);
+});
+
+test('anonymous viewers never get account ids of those who tipped', async () => {
+  const { friends, ev, id } = await pickGame({ visibility: 'link' });
+  await tip(ev, friends[0], [id('Adde'), id('Brolle')]);
+  const res = await call('GET', `/api/events/${ev.shareCode}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.entries.length, 1);
+  assert.ok(res.body.entries.every(e => !('userId' in e)));
+  assert.equal(res.body.entries[0].picks, null, 'hidden while open');
 });

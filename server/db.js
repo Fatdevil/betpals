@@ -180,6 +180,9 @@ try { db.exec('ALTER TABLE events ADD COLUMN pick_count INTEGER'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN pick_result TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
+// The tip lives on the entry itself, so it survives the person deleting their account
+// (their stake stays in the pot and must still be scored)
+try { db.exec('ALTER TABLE players ADD COLUMN entry_picks TEXT'); } catch {}
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS event_picks (
@@ -193,6 +196,9 @@ try {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+} catch {}
+try {
+  db.exec("UPDATE players SET entry_picks = (SELECT picks FROM event_picks ep WHERE ep.player_id = players.id) WHERE is_entry = 1 AND entry_picks IS NULL");
 } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN finished_at TEXT'); } catch {}
 try { db.exec("UPDATE tournaments SET visibility = 'friends' WHERE visibility = 'public'"); } catch {}
@@ -1490,17 +1496,17 @@ export function getEventPicks(eventId) {
   const event = stmts.getEventById.get(eventId);
   const result = new Set(parseIds(event?.pick_result));
   return db.prepare(`
-    SELECT p.user_id, p.player_id, p.picks, p.updated_at, u.nickname
-    FROM event_picks p JOIN users u ON u.id = p.user_id WHERE p.event_id = ?
+    SELECT p.id AS player_id, p.entry_user_id AS user_id, p.entry_picks AS picks, p.name, u.nickname
+    FROM players p LEFT JOIN users u ON u.id = p.entry_user_id
+    WHERE p.event_id = ? AND p.is_entry = 1
   `).all(eventId).map(r => {
     const picks = parseIds(r.picks);
     return {
       userId: r.user_id,
       playerId: r.player_id,
-      nickname: r.nickname,
+      nickname: r.nickname || r.name,
       picks,
-      correct: result.size > 0 ? picks.filter(id => result.has(id)).length : null,
-      updatedAt: r.updated_at
+      correct: result.size > 0 ? picks.filter(id => result.has(id)).length : null
     };
   });
 }
@@ -1525,19 +1531,16 @@ export function setEventPicks(eventId, user, picks) {
   if (chosen.length !== event.pick_count || chosen.some(id => !options.has(id))) {
     throw Object.assign(new Error(`Välj exakt ${event.pick_count}`), { statusCode: 400 });
   }
-  const existing = db.prepare('SELECT player_id FROM event_picks WHERE event_id = ? AND user_id = ?').get(eventId, user.id);
+  const existing = db.prepare('SELECT id FROM players WHERE event_id = ? AND is_entry = 1 AND entry_user_id = ?').get(eventId, user.id);
   const tx = db.transaction(() => {
     if (existing) {
-      db.prepare("UPDATE event_picks SET picks = ?, updated_at = datetime('now') WHERE event_id = ? AND user_id = ?")
-        .run(JSON.stringify(chosen), eventId, user.id);
+      db.prepare('UPDATE players SET entry_picks = ? WHERE id = ?').run(JSON.stringify(chosen), existing.id);
       return;
     }
     const playerId = crypto.randomUUID();
-    db.prepare('INSERT INTO players (id, event_id, name, image_url, is_entry, entry_user_id) VALUES (?, ?, ?, NULL, 1, ?)')
-      .run(playerId, eventId, user.nickname, user.id);
+    db.prepare('INSERT INTO players (id, event_id, name, image_url, is_entry, entry_user_id, entry_picks) VALUES (?, ?, ?, NULL, 1, ?, ?)')
+      .run(playerId, eventId, user.nickname, user.id, JSON.stringify(chosen));
     addBet(crypto.randomUUID(), eventId, user.nickname, playerId, event.min_bet, user.id);
-    db.prepare('INSERT INTO event_picks (event_id, user_id, player_id, picks) VALUES (?, ?, ?, ?)')
-      .run(eventId, user.id, playerId, JSON.stringify(chosen));
   });
   tx();
   return getEventPicks(eventId).find(e => e.userId === user.id);

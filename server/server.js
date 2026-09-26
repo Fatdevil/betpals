@@ -2256,7 +2256,8 @@ function publicEventView(event) {
   const { swishNumber, winnerSwishNumber, ...rest } = event;
   return {
     ...rest,
-    bets: (event.bets || []).map(({ userId, ...bet }) => bet)
+    bets: (event.bets || []).map(({ userId, ...bet }) => bet),
+    ...(Array.isArray(event.entries) ? { entries: event.entries.map(({ userId, ...entry }) => entry) } : {})
   };
 }
 
