@@ -18,6 +18,8 @@ import {
   submitPartyTime,
   submitPartyScore,
   resolvePartyTie,
+  submitSpaceSoloScore,
+  getSpaceLeaderboard,
   getPartyRoomQR,
   createAnyBet,
   getAnyBets,
@@ -5820,7 +5822,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         <div class="flex gap-xs justify-center mb-md" style="flex-wrap: wrap;">
           <span class="badge badge-accent">⏱️ 60s Blitz</span>
           <span class="badge badge-success">❤️❤️❤️ ${isEn ? '3 Lives' : '3 Liv'}</span>
-          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🌊 ${isEn ? '+300 per cleared wave' : '+300 per rensad våg'}</span>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🪙 ${isEn ? 'Earn chips for Slots' : 'Tjäna marker till Enarmad bandit'}</span>
+          <span class="badge badge-accent">🌊 ${isEn ? '+300 per wave' : '+300 per våg'}</span>
         </div>
 
         <div class="card p-sm mb-md text-left" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); font-size: 0.78rem;">
@@ -5830,6 +5833,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
             ${isEn ? '• Tap 🔥 FIRE or Spacebar to shoot' : '• Tryck 🔥 FIRE eller Mellanslag för att skjuta'}
           </div>
         </div>
+
+        <div id="space-solo-leaderboard" class="space-lb"></div>
 
         <button type="button" class="btn btn-primary btn-block" id="btn-start-solo-game" style="font-weight: 800; font-size: 1.05rem; padding: 12px; box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);">
           🚀 ${isEn ? 'Start Blitz! (60s)' : 'Starta Spelet (60s) 🚀'}
@@ -6084,6 +6089,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           }
         });
       }
+      loadSoloLeaderboard();
     } else if (activeMode === 'duel') {
       attachDuelListeners();
     } else if (activeMode === 'party') {
@@ -6091,6 +6097,34 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     } else if (activeMode === 'pass') {
       attachPassListeners();
     }
+  }
+
+  async function loadSoloLeaderboard() {
+    const box = root.querySelector('#space-solo-leaderboard');
+    if (!box || !currentUser) return;
+    try {
+      const lb = await getSpaceLeaderboard();
+      if (!lb || !lb.players || lb.players.length === 0) {
+        box.innerHTML = `<div class="text-muted" style="font-size: 0.8rem;">${isEn ? 'Set the first score among your friends!' : 'Sätt första rekordet bland dina vänner!'}</div>`;
+        return;
+      }
+      box.innerHTML = `
+        <div class="space-lb-title">🏅 ${isEn ? 'Top among friends' : 'Topplista bland vänner'}</div>
+        ${lb.players.slice(0, 5).map((p, i) => `
+          <div class="space-lb-row ${p.isMe ? 'is-me' : ''}">
+            <span>${['🥇', '🥈', '🥉'][i] || `${i + 1}.`} ${escapeHtml(p.avatar)} ${escapeHtml(p.isMe ? (isEn ? 'You' : 'Du') : p.nickname)}</span>
+            <strong>${p.best.toLocaleString()}</strong>
+          </div>`).join('')}`;
+    } catch (_) {}
+  }
+
+  // The server says when the round starts; count down to that moment on every phone
+  function countdownFromServer(data) {
+    if (typeof data.startTime === 'number' && typeof data.serverNow === 'number') {
+      const clockOffset = data.serverNow - Date.now();
+      return { startAtLocal: data.startTime - clockOffset };
+    }
+    return { startAtLocal: Date.now() + (data.countdownSec || 3) * 1000 };
   }
 
   // ── 1. SOLO RESULTS ─────────────────────────────────────
@@ -6108,6 +6142,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       <div class="card p-lg text-center animate-in">
         <div style="font-size: 3rem; margin-bottom: 8px;">🏆</div>
         <h3 style="font-family: var(--font-heading); color: var(--gold);">${t('arcade.spaceGameOver')}</h3>
+        <div id="space-solo-record" class="space-record"></div>
         <p class="text-secondary" style="font-size: 0.85rem;">
           ${isEn ? 'Great flying, Captain!' : 'Grymt flugit, Kapten!'}
         </p>
@@ -6134,6 +6169,19 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         </div>
       </div>
     `;
+
+    // Your best counts on the friends' leaderboard
+    if (currentUser) {
+      submitSpaceSoloScore({ score: result.score, aliensKilled: result.aliensKilled, waveReached: result.wave })
+        .then(r => {
+          const el = stage.querySelector('#space-solo-record');
+          if (!el || !r) return;
+          el.innerHTML = r.isNewBest
+            ? `🏅 ${isEn ? 'New personal best!' : 'Nytt personligt rekord!'}${r.previousBest ? ` <span class="text-muted">(${isEn ? 'was' : 'förut'} ${r.previousBest.toLocaleString()})</span>` : ''}`
+            : `${isEn ? 'Your best' : 'Ditt rekord'}: <strong>${r.best.toLocaleString()}</strong>`;
+        })
+        .catch(() => {});
+    }
 
     stage.querySelector('#btn-space-play-again')?.addEventListener('click', () => {
       soloGameStarted = true;
@@ -6244,9 +6292,16 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       partyRoom = data.room;
       // Only the lobby re-renders; never throw pilots out of a round in progress
       if (data.room.status === 'lobby') renderPartyLobbyView();
-    } else if (data.type === 'party_started' && data.room) {
+    } else if ((data.type === 'party_started' || data.type === 'party_sudden_death_start') && data.room) {
       partyRoom = data.room;
-      runPartyGameStartCountdown(data.countdownSec || 3);
+      // Only players in the round (all, or the tied ones in a sudden death) fly
+      const inRound = data.type === 'party_started'
+        || (currentUser && (data.room.tiedPlayerIds || []).includes(currentUser.id));
+      if (inRound) runPartyGameStartCountdown(countdownFromServer(data));
+      else renderPartyWaitingScreen(null);
+    } else if (data.type === 'party_pot_split' && data.room) {
+      partyRoom = data.room;
+      showPartyResultsView(data.room, true, (data.tiedWinners || []).map(p => p.id), { split: true });
     } else if (data.type === 'party_player_stopped') {
       const waitingStatus = root.querySelector('#space-party-waiting-status');
       if (waitingStatus) {
@@ -6327,10 +6382,13 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     }
   }
 
-  function runPartyGameStartCountdown(countdownSec = 3) {
+  function runPartyGameStartCountdown(timing = {}) {
     const stage = root.querySelector('#space-stage-content');
     if (!stage) return;
-    let sec = countdownSec;
+    const startAtLocal = typeof timing === 'object' && timing.startAtLocal
+      ? timing.startAtLocal
+      : Date.now() + (Number(timing) || 3) * 1000;
+    let sec = Math.max(0, Math.ceil((startAtLocal - Date.now()) / 1000));
 
     const renderCountdown = () => {
       stage.innerHTML = `
@@ -6350,9 +6408,10 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
     renderCountdown();
     const countTimer = setInterval(() => {
-      sec--;
-      if (sec > 0) {
-        renderCountdown();
+      const left = startAtLocal - Date.now();
+      const nextSec = Math.max(0, Math.ceil(left / 1000));
+      if (left > 0) {
+        if (nextSec !== sec) { sec = nextSec; renderCountdown(); }
       } else {
         clearInterval(countTimer);
         // Launch canvas engine for synchronized party run!
@@ -6381,12 +6440,24 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           }
         });
       }
-    }, 1000);
+    }, 100);
   }
 
   function renderPartyWaitingScreen(myResult) {
     const stage = root.querySelector('#space-stage-content');
     if (!stage) return;
+    if (!myResult) {
+      // Watching a sudden death between the tied players
+      stage.innerHTML = `
+        <div class="card p-lg text-center animate-in">
+          <div style="font-size: 3rem; margin-bottom: 8px;">⚡</div>
+          <h3 style="font-family: var(--font-heading); color: var(--gold);">${isEn ? 'Sudden death!' : 'Avgörande omgång!'}</h3>
+          <p class="text-secondary" id="space-party-waiting-status" style="font-size: 0.85rem;">
+            ${isEn ? 'The tied players fly one more round. Results in about a minute.' : 'De som delade förstaplatsen flyger en omgång till. Resultat om ungefär en minut.'}
+          </p>
+        </div>`;
+      return;
+    }
     stage.innerHTML = `
       <div class="card p-lg text-center animate-in">
         <div style="font-size: 3rem; margin-bottom: 8px;">🛸</div>
@@ -6433,7 +6504,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     }, 3000);
   }
 
-  function showPartyResultsView(room, isTie = false, tiedPlayerIds = []) {
+  function showPartyResultsView(room, isTie = false, tiedPlayerIds = [], { split = false } = {}) {
     const stage = root.querySelector('#space-stage-content');
     if (!stage) return;
     playWinSound();
@@ -6451,22 +6522,37 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           <button type="button" class="btn btn-secondary btn-block mt-sm" id="btn-space-party-done">${isEn ? 'Close' : 'Stäng'}</button>
         </div>
       `;
-      stage.querySelector('#btn-space-party-done')?.addEventListener('click', close);
+      const resolveTie = async (decision) => {
+      stage.querySelectorAll('#btn-space-sudden-death, #btn-space-split-pot').forEach(b => { b.disabled = true; });
+      try {
+        await resolvePartyTie(room.id, decision);
+      } catch (err) {
+        showToast(err.message || 'Något gick fel', 'error');
+        stage.querySelectorAll('#btn-space-sudden-death, #btn-space-split-pot').forEach(b => { b.disabled = false; });
+      }
+    };
+    stage.querySelector('#btn-space-sudden-death')?.addEventListener('click', () => resolveTie('sudden_death'));
+    stage.querySelector('#btn-space-split-pot')?.addEventListener('click', () => resolveTie('split_pot'));
+
+    stage.querySelector('#btn-space-party-done')?.addEventListener('click', close);
       return;
     }
     const isUserWinner = currentUser && winner && winner.id === currentUser.id;
     const isRoomTie = isTie || room.status === 'tie';
+    // A tie waits for the host: one more round, or share the pot
+    const awaitingHost = isRoomTie && !split && room.status === 'tie';
+    const isHostHere = currentUser && room.hostId === currentUser.id;
 
     stage.innerHTML = `
       <div class="card p-md animate-in text-center">
         <div style="font-size: 2.8rem; margin-bottom: 4px;">${isRoomTie ? '🤝' : '🏆'}</div>
         <h3 style="color: var(--gold); font-family: var(--font-heading);">
-          ${isRoomTie 
-            ? (isEn ? 'IT\'S A TIE!' : 'DET BLEV OAVGJORT!')
+          ${isRoomTie
+            ? (split ? (isEn ? 'The pot is shared' : 'Potten delas') : (isEn ? 'IT\'S A TIE!' : 'DET BLEV OAVGJORT!'))
             : (isUserWinner ? (isEn ? 'YOU WON THE POT!' : 'DU VANN HELA POTTEN!') : `${escapeHtml(winner.nickname)} ${t('arcade.blind10WinnerWins')}`)}
         </h3>
         <div style="font-size: 1.8rem; font-weight: 800; color: #10b981; margin-bottom: 12px;">
-          ${(room.players.length || 0) * (room.stakeAmount || 0)} kr ${isRoomTie ? (isEn ? '(Split / Returned)' : '(Potten delas)') : ''}
+          ${(room.players.length || 0) * (room.stakeAmount || 0)} kr ${isRoomTie && split ? (isEn ? '(shared)' : '(delas)') : ''}
         </div>
 
         <div class="my-md text-left">
@@ -6490,6 +6576,16 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           }).join('')}
         </div>
 
+        ${awaitingHost ? (isHostHere ? `
+          <div class="my-md">
+            <div class="text-muted" style="font-size: 0.82rem; margin-bottom: 8px;">${isEn ? 'You are the host – decide the tie:' : 'Du är värd – avgör oavgjort:'}</div>
+            <button type="button" class="btn btn-primary btn-block" id="btn-space-sudden-death" style="font-weight: 800;">⚡ ${isEn ? 'Sudden death round' : 'Avgörande omgång'}</button>
+            <button type="button" class="btn btn-secondary btn-block mt-sm" id="btn-space-split-pot">🤝 ${isEn ? 'Share the pot' : 'Dela potten'}</button>
+          </div>
+        ` : `
+          <div class="my-md text-muted" style="font-size: 0.85rem;">⏳ ${isEn ? 'Waiting for the host to decide the tie…' : 'Väntar på att värden avgör oavgjort…'}</div>
+        `) : ''}
+
         ${!isRoomTie && room.stakeAmount > 0 && !isUserWinner ? `
           <div class="my-md">
             <div class="text-muted" style="font-size: 0.82rem; margin-bottom: 6px;">${isEn ? `You owe ${escapeHtml(winner.nickname)} ${room.stakeAmount} kr – it is on The Tab.` : `Du är skyldig ${escapeHtml(winner.nickname)} ${room.stakeAmount} kr – det ligger på THE TAB.`}</div>
@@ -6497,7 +6593,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           </div>
         ` : ''}
 
-        ${!isUserWinner && winner ? `
+        ${!awaitingHost && !isUserWinner && winner ? `
           <div class="my-sm">
             <button type="button" class="btn btn-warning btn-block animate-pulse" id="btn-space-party-rematch" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; font-weight: 800; padding: 12px; font-size: 0.95rem; border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(245,158,11,0.35);">
               🔥 REVANSCH! (Utmana ${escapeHtml(winner.nickname)} igen)
@@ -6532,6 +6628,18 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         if (btn) btn.disabled = false;
       }
     });
+
+    const resolveTie = async (decision) => {
+      stage.querySelectorAll('#btn-space-sudden-death, #btn-space-split-pot').forEach(b => { b.disabled = true; });
+      try {
+        await resolvePartyTie(room.id, decision);
+      } catch (err) {
+        showToast(err.message || 'Något gick fel', 'error');
+        stage.querySelectorAll('#btn-space-sudden-death, #btn-space-split-pot').forEach(b => { b.disabled = false; });
+      }
+    };
+    stage.querySelector('#btn-space-sudden-death')?.addEventListener('click', () => resolveTie('sudden_death'));
+    stage.querySelector('#btn-space-split-pot')?.addEventListener('click', () => resolveTie('split_pot'));
 
     stage.querySelector('#btn-space-party-done')?.addEventListener('click', close);
   }
@@ -7001,6 +7109,20 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       });
     }
 
+    // Hit feedback: the arcade frame shakes; phones that allow it (Android) also vibrate.
+    // iPhone does not let web apps vibrate.
+    const bezel = canvas.closest('.space-arcade-bezel');
+    function vibrate(ms) {
+      try { navigator.vibrate?.(ms); } catch (_) {}
+    }
+    function hitFeedback(ms) {
+      vibrate(ms);
+      if (!bezel) return;
+      bezel.classList.remove('space-shake');
+      void bezel.offsetWidth;
+      bezel.classList.add('space-shake');
+    }
+
     // Init game world
     spawnAliens();
     spawnShields();
@@ -7035,6 +7157,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           if (b.x + b.w >= a.x && b.x <= a.x + a.w && b.y <= a.y + a.h && b.y + b.h >= a.y) {
             score += a.points;
             aliensKilled++;
+            vibrate(12);
             spawnExplosion(a.x + a.w / 2, a.y + a.h / 2, a.color);
             playExplosionSound();
             aliens.splice(j, 1);
@@ -7083,6 +7206,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         if (ab.x + ab.w >= player.x && ab.x <= player.x + player.w && ab.y + ab.h >= player.y && ab.y <= player.y + player.h) {
           alienBullets.splice(i, 1);
           lives--;
+          hitFeedback(140);
           spawnExplosion(player.x + player.w / 2, player.y + player.h / 2, '#ef4444', 20);
           playExplosionSound();
           updateHud();
@@ -7146,14 +7270,17 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           }
         }
 
-        if (aliens.length > 0 && Math.random() < 0.35) {
+        // The pressure rises through the 60 seconds and with every wave
+        const elapsedShare = Math.min(1, (Date.now() - missionStartTime) / missionDurationMs);
+        const fireChance = Math.min(0.7, 0.3 + elapsedShare * 0.25 + (wave - 1) * 0.05);
+        if (aliens.length > 0 && Math.random() < fireChance) {
           const shooter = aliens[Math.floor(Math.random() * aliens.length)];
           alienBullets.push({
             x: shooter.x + shooter.w / 2 - 1.5,
             y: shooter.y + shooter.h + 2,
             w: 3,
             h: 8,
-            speed: 3.5
+            speed: 3.2 + elapsedShare * 1.6 + (wave - 1) * 0.3
           });
         }
       }

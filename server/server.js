@@ -4382,7 +4382,8 @@ app.post('/api/minigames/party/:id/start', (req, res) => {
     type: 'party_started',
     room,
     countdownSec,
-    startTime: room.startTime
+    startTime: room.startTime,
+    serverNow: Date.now()
   });
 
   res.json({ ok: true, room });
@@ -4483,6 +4484,23 @@ app.post('/api/minigames/party/:id/submit', (req, res) => {
   res.json({ ok: true, room, stoppedTime: finalTime, diff, latencyCompensationMs: Math.round(compensationMs) });
 });
 
+// ── Space Blitz solo: best score per player, compared with friends ──
+app.post('/api/space/solo-score', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const { score, aliensKilled, waveReached } = req.body || {};
+  // A solo round is at most 60 s; the same rule check as money games keeps the list honest
+  const reason = spaceBlitzImplausibilityReason({ score, aliensKilled, wave: waveReached, elapsedMs: SPACE_BLITZ_DURATION_MS + 1000 });
+  if (reason) return res.status(400).json({ error: 'Resultatet går inte ihop med spelets regler' });
+  res.json(db.recordSpaceSoloScore(user.id, score, waveReached));
+});
+
+app.get('/api/space/leaderboard', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  res.json(db.getSpaceSoloLeaderboard(user.id));
+});
+
 app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
@@ -4506,7 +4524,8 @@ app.post('/api/minigames/party/:id/resolve-tie', (req, res) => {
       type: 'party_sudden_death_start',
       room,
       countdownSec,
-      startTime: room.startTime
+      startTime: room.startTime,
+      serverNow: Date.now()
     });
     return res.json({ ok: true, room });
   }
