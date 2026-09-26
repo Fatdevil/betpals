@@ -4994,3 +4994,6 @@ button.notif-item {
 .ng-stepper { display: inline-flex; align-items: center; gap: 14px; padding: 4px; border-radius: 99px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.04); }
 .ng-stepper b { min-width: 22px; text-align: center; font-size: 1.1rem; }
 .ng-step { width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.08); color: var(--text-primary, #fff); font-size: 1.2rem; font-weight: 800; cursor: pointer; }
+.malta-chat-badge.is-offline .malta-live-indicator { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.6); }
+.malta-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.malta-msg-bubble a { color: var(--gold); text-decoration: underline; word-break: break-all; }

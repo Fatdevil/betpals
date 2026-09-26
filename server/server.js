@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
-import { generateMaltaSupportReply, getMaltaFallbackReply, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
+import { generateMaltaSupportReply, getMaltaFallbackReply, getSupportSuggestions, SUPPORT_TOPICS, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -6621,6 +6621,11 @@ app.post('/api/loven-games/:id/cancel', (req, res) => {
 });
 
 // ── Malta AI Support Chat & Diagnostics ─────────────
+// What the chat shows before the first question: online or quick answers, and the topics
+app.get('/api/support/status', (req, res) => {
+  res.json({ live: isGeminiLive(), topics: SUPPORT_TOPICS });
+});
+
 app.get('/api/support/health', async (req, res) => {
   // Require at least user auth to see health status
   const user = getUserFromToken(req);
@@ -6644,9 +6649,9 @@ app.get('/api/support/health', async (req, res) => {
     const allowedModels = ['gemini-2.5-flash', 'gemini-2.0-flash'];
     const probeModel = allowedModels.includes(req.query.model) ? req.query.model : 'gemini-2.5-flash';
     try {
-      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${probeModel}:generateContent?key=${apiKey}`, {
+      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${probeModel}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Ping. Svara med ordet PONG.' }] }]
         })
@@ -6688,13 +6693,13 @@ app.post('/api/support/chat', async (req, res) => {
   const user = getUserFromToken(req);
   const userName = user ? (user.nickname || user.realName || 'Kompis') : 'Kompis';
 
+  const question = message.trim().slice(0, 500);
   try {
-    const reply = await generateMaltaSupportReply(message.trim(), history || [], userName);
-    res.json({ ok: true, reply });
+    const { text, mode } = await generateMaltaSupportReply(question, Array.isArray(history) ? history : [], userName);
+    res.json({ ok: true, reply: text, mode, suggestions: mode === 'live' ? [] : getSupportSuggestions(question) });
   } catch (err) {
     console.error('Malta Support Chat error:', err);
-    const fallback = getMaltaFallbackReply(message.trim(), userName);
-    res.json({ ok: true, reply: fallback });
+    res.json({ ok: true, reply: getMaltaFallbackReply(question, userName), mode: 'offline', suggestions: getSupportSuggestions(question) });
   }
 });
 
