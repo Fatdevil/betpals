@@ -2133,12 +2133,14 @@ app.post('/api/friends', (req, res) => {
     db.declineFriendRequest(user.id, target.id);
     db.declineFriendRequest(target.id, user.id);
     broadcastToUser(target.id, { type: 'friend_added', friend: publicFriend(user) });
+    db.addUserNotification(target.id, { type: 'friend_via_link', icon: '👥', text: `${user.nickname || 'Någon'} blev din vän via din inbjudningslänk`, url: '/#profile' });
     return res.json({ ok: true, status: 'accepted', message: `${target.nickname} har lagts till som vän! 👥`, friend: publicFriend(target) });
   }
 
   const result = db.requestFriend(user.id, target.id);
   if (result.status === 'accepted') {
     broadcastToUser(target.id, { type: 'friend_added', friend: publicFriend(user) });
+    notifyFriendAccepted(target.id, user);
     return res.json({ ok: true, status: 'accepted', message: `Du och ${target.nickname} är nu vänner! 👥`, friend: publicFriend(target) });
   }
 
@@ -2162,6 +2164,33 @@ app.post('/api/friends/requests/:fromUserId/accept', requireAuth, (req, res) => 
   const ok = db.acceptFriendRequest(req.params.fromUserId, req.user.id);
   if (!ok) return res.status(404).json({ error: 'Vänförfrågan hittades inte' });
   broadcastToUser(req.params.fromUserId, { type: 'friend_added', friend: publicFriend(req.user) });
+  notifyFriendAccepted(req.params.fromUserId, req.user);
+  res.json({ ok: true });
+});
+
+// Tell whoever asked that they are now friends (bell + push)
+function notifyFriendAccepted(requesterId, accepter) {
+  const name = accepter.nickname || accepter.real_name || 'En vän';
+  db.addUserNotification(requesterId, { type: 'friend_accepted', icon: '🤝', text: `${name} godkände din vänförfrågan – ni är nu vänner!`, url: '/#profile' });
+  sendPushToUsers([requesterId], {
+    title: '🤝 Ny vän!',
+    body: `${name} godkände din vänförfrågan i Malta Betting.`,
+    url: '/#profile'
+  }).catch(() => {});
+}
+
+// ── Inbox (the bell) ─────────────────────────────────
+app.get('/api/inbox', requireAuth, (req, res) => {
+  res.json(db.getInbox(req.user.id));
+});
+
+app.post('/api/inbox/read', requireAuth, (req, res) => {
+  db.markInboxRead(req.user.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/inbox/clear', requireAuth, (req, res) => {
+  db.clearInbox(req.user.id);
   res.json({ ok: true });
 });
 

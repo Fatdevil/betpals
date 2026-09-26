@@ -14,6 +14,11 @@ import { isAppStandalone, isIosDevice, showPwaInstallModal } from '../components
 
 const EMPTY_STATS = { totalBets: 0, finishedBets: 0, wins: 0, losses: 0, pending: 0, winRate: 0, totalBet: 0, totalWon: 0, totalLost: 0, netProfit: 0, streak: 0, streakType: 'none' };
 
+// Accepting or declining from the bell refreshes the friend list if it is showing
+window.addEventListener('friends-changed', (e) => {
+  if (e.detail?.from !== 'profile' && document.getElementById('friend-requests-slot')) renderProfile();
+});
+
 export async function renderProfile() {
   const content = document.getElementById('page-content');
 
@@ -1064,8 +1069,14 @@ async function loadFriendRequests() {
       </div>
     ` : ''}
     ${outgoing.length > 0 ? `
-      <div class="text-muted" style="font-size: 0.72rem; margin-bottom: 8px;">
-        ⏳ Väntar på svar från: ${outgoing.map(r => '@' + escapeHtml(r.nickname)).join(', ')}
+      <div class="text-muted" style="font-size: 0.72rem; margin: 4px 0 6px;">⏳ Väntar på svar</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
+        ${outgoing.map(r => `
+          <div class="flex-between" style="padding: 6px 12px; border: 1px dashed var(--border-glass); border-radius: var(--radius-md); align-items: center; gap: 8px;">
+            <span style="font-size: 0.82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(r.avatarEmoji || '👤')} @${escapeHtml(r.nickname)}</span>
+            <button class="btn btn-sm btn-secondary friend-request-withdraw" data-id="${escapeHtml(r.id)}" data-nick="${escapeHtml(r.nickname)}" style="font-size: 0.72rem; padding: 3px 10px; flex-shrink: 0;">Ångra</button>
+          </div>
+        `).join('')}
       </div>
     ` : ''}
   `;
@@ -1076,7 +1087,22 @@ async function loadFriendRequests() {
       try {
         await acceptFriendRequest(btn.dataset.id);
         showToast('Ni är nu vänner! 👥🎉', 'success');
+        window.dispatchEvent(new CustomEvent('friends-changed', { detail: { from: 'profile' } }));
         renderProfile();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+  // Withdraw a request you sent (the same endpoint lets the sender take it back)
+  slot.querySelectorAll('.friend-request-withdraw').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await declineFriendRequest(btn.dataset.id);
+        showToast(`Förfrågan till @${btn.dataset.nick} är ångrad`, 'info');
+        loadFriendRequests();
       } catch (err) {
         showToast(err.message, 'error');
         btn.disabled = false;
@@ -1088,6 +1114,7 @@ async function loadFriendRequests() {
       btn.disabled = true;
       try {
         await declineFriendRequest(btn.dataset.id);
+        window.dispatchEvent(new CustomEvent('friends-changed', { detail: { from: 'profile' } }));
         loadFriendRequests();
       } catch (err) {
         showToast(err.message, 'error');
