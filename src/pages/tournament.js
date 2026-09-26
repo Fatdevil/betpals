@@ -1311,19 +1311,22 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
 
       <div class="form-group mb-sm">
         <div class="flex-between mb-xs">
-          <label class="form-label" style="margin: 0;">Spelare / Svarsalternativ</label>
-          <span style="font-size: 0.7rem; color: var(--text-muted);" id="alternatives-hint">Minst 2 alternativ</span>
+          <label class="form-label" style="margin: 0;" id="game-player-add-label">Lägg till spelare</label>
+          <span style="font-size: 0.7rem; color: var(--text-muted);" id="alternatives-hint">Minst 2</span>
         </div>
         <div class="flex gap-sm">
-          <input type="text" class="form-input" id="game-player-input" placeholder="Lägg till alternativ eller namn" style="flex: 1;" />
+          <input type="text" class="form-input" id="game-player-input" placeholder="Skriv ett namn" style="flex: 1;" />
           <button type="button" class="btn btn-sm btn-secondary" id="game-add-player">+</button>
         </div>
-        <button type="button" class="btn btn-sm btn-secondary btn-block mt-xs" id="game-pick-friends-btn" style="font-size: 0.78rem;">👥 Lägg till vän</button>
+        <button type="button" class="btn btn-sm btn-secondary btn-block mt-xs" id="game-pick-friends-btn" style="font-size: 0.78rem;">👥 Lägg till fler från vänlistan</button>
         <div id="game-friends-drawer" style="display: none; padding: var(--space-xs); background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); margin-top: 4px;">
+          <input type="search" class="form-input" id="game-friends-search" placeholder="🔍 Sök vän" autocomplete="off" style="display: none; font-size: 0.85rem; padding: 6px 10px; margin-bottom: 6px;" />
           <div id="game-friends-list" style="max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;"></div>
           <p class="text-muted" style="font-size: 0.68rem; margin: 6px 0 0 0; line-height: 1.3;">Vänner du väljer bjuds in till eventet och får en notis. Deras insatser och vinster hamnar i Swishlistan.</p>
         </div>
-        <div id="game-player-list" class="mt-sm"></div>
+        <label class="form-label" id="game-player-heading" style="margin: var(--space-md) 0 0 0;">✅ Med i spelet</label>
+        <p class="text-muted" id="game-player-prefill-note" style="font-size: 0.7rem; margin: 2px 0 0 0;">Förifyllt med eventets deltagare. Ta bort med ✕.</p>
+        <div id="game-player-list" class="mt-xs"></div>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block" style="padding: 12px; font-weight: 700;">
@@ -1340,9 +1343,27 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const amountHelp = document.getElementById('game-amount-help');
   const amountInput = document.getElementById('game-amount');
 
+  // Winner games are about people (friends picker); 1X2 and Ja/Nej are fixed answer options
+  const isPeopleGame = () => currentGt === 'winner' || currentGt === 'winner_takes_all';
+
   function renderPlayers() {
     const list = document.getElementById('game-player-list');
     if (!list) return;
+    const people = isPeopleGame();
+    const heading = document.getElementById('game-player-heading');
+    if (heading) heading.textContent = `${people ? '✅ Med i spelet' : '✅ Svarsalternativ'} (${players.length})`;
+    const addLabel = document.getElementById('game-player-add-label');
+    if (addLabel) addLabel.textContent = people ? 'Lägg till spelare' : 'Lägg till svarsalternativ';
+    const playerInput = document.getElementById('game-player-input');
+    if (playerInput) playerInput.placeholder = people ? 'Skriv ett namn' : 'Skriv ett alternativ';
+    const prefillNote = document.getElementById('game-player-prefill-note');
+    if (prefillNote) prefillNote.style.display = people && players.some(p => existingPlayerNames.includes(p)) ? 'block' : 'none';
+    const pickBtn = document.getElementById('game-pick-friends-btn');
+    if (pickBtn) pickBtn.style.display = people ? '' : 'none';
+    if (!people) {
+      const drawer = document.getElementById('game-friends-drawer');
+      if (drawer) drawer.style.display = 'none';
+    }
     list.innerHTML = players.map((p, i) => `
       <div class="flex-between" style="padding: var(--space-xs) 0; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
         <span>${escapeHtml(p)}</span>
@@ -1354,6 +1375,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       btn.addEventListener('click', () => {
         players.splice(Number(btn.dataset.remove), 1);
         renderPlayers();
+        if (friendsDrawer.style.display === 'block') renderFriendPicker();
       });
     });
   }
@@ -1366,6 +1388,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const pickedFriends = new Map();
   const friendsDrawer = document.getElementById('game-friends-drawer');
   const friendsListEl = document.getElementById('game-friends-list');
+  const friendsSearch = document.getElementById('game-friends-search');
+  let drawerFriends = [];
   const participantNameFor = (userId) => (t.participants || []).find(p => p.userId === userId)?.name || null;
 
   document.getElementById('game-pick-friends-btn')?.addEventListener('click', async () => {
@@ -1375,6 +1399,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     }
     friendsDrawer.style.display = 'block';
     friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>';
+    friendsSearch.style.display = 'none';
+    friendsSearch.value = '';
     let friends = [];
     try {
       friends = await getFriends();
@@ -1386,7 +1412,26 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Du har inga vänner tillagda än. Lägg till vänner under Profil! 👥</div>';
       return;
     }
-    friendsListEl.innerHTML = friends.map(f => {
+    drawerFriends = friends;
+    if (friends.length > 10) friendsSearch.style.display = 'block';
+    renderFriendPicker();
+  });
+
+  friendsSearch?.addEventListener('input', () => renderFriendPicker());
+
+  function renderFriendPicker() {
+    const nameOf = (f) => participantNameFor(f.id) || f.nickname;
+    const query = friendsSearch.value.trim().toLowerCase();
+    const shown = drawerFriends
+      .filter(f => !query || `${f.realName || ''} ${f.nickname || ''}`.toLowerCase().includes(query))
+      // Friends not yet in the game first, so new ones are easy to find
+      .map((f, i) => ({ f, i, added: players.includes(nameOf(f)) }))
+      .sort((a, b) => (a.added - b.added) || (a.i - b.i));
+    if (shown.length === 0) {
+      friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Ingen vän matchar sökningen</div>';
+      return;
+    }
+    friendsListEl.innerHTML = shown.map(({ f }) => {
       const name = participantNameFor(f.id) || f.nickname;
       const added = players.includes(name);
       return `
@@ -1413,7 +1458,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         renderPlayers();
       });
     });
-  });
+  }
 
   function applyGameType(gtId) {
     currentGt = gtId;

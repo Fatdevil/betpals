@@ -17,3 +17,15 @@ test('friends picked for a game are invited to the event before the game is crea
   const create = tournamentSource.indexOf('const updated = await createSideBet(t.id, {');
   assert.ok(invite > 0 && invite < create);
 });
+
+test('add-game form separates "in the game" from the friend list', () => {
+  assert.match(tournamentSource, /id="game-player-heading"/);
+  assert.match(tournamentSource, /✅ Med i spelet/);
+  assert.match(tournamentSource, /Förifyllt med eventets deltagare/);
+  assert.match(tournamentSource, /👥 Lägg till fler från vänlistan/);
+});
+
+test('friend picker lists friends not yet in the game first and gets a search box for long lists', () => {
+  assert.match(tournamentSource, /\.sort\(\(a, b\) => \(a\.added - b\.added\) \|\| \(a\.i - b\.i\)\)/);
+  assert.match(tournamentSource, /if \(friends\.length > 10\) friendsSearch\.style\.display = 'block';/);
+});
