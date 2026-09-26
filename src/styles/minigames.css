@@ -2,8 +2,8 @@
 
 /* Roller Banner Container */
 .minigames-section {
-  margin-bottom: var(--space-md);
-  padding: 0 4px;
+  margin: var(--space-lg) 0 var(--space-md);
+  padding: 0;
 }
 
 .minigames-header {
@@ -13,7 +13,7 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: var(--space-xs);
-  padding: 0 4px;
+  padding: 0;
 }
 
 .minigames-title {
@@ -1959,3 +1959,74 @@
 
 
 
+
+/* ── Home "Spel": two swipe rows, edge to edge, snapping cards ── */
+.arcade-row-label {
+  margin: 14px 0 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a3a3b2;
+}
+
+.arcade-row {
+  display: flex;
+  gap: 10px;
+  /* Reach the screen edges; the first card still lines up with the page content */
+  margin: 0 calc(-1 * var(--space-md));
+  padding: 2px var(--space-md) 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 var(--space-md);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.arcade-row::-webkit-scrollbar {
+  display: none;
+}
+
+.arcade-card.minigame-card {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 0 0 104px;
+  width: 104px;
+  height: auto;
+  min-height: 112px;
+  padding: 10px 6px 9px;
+  gap: 3px;
+  justify-content: flex-start;
+  font: inherit;
+  color: inherit;
+  scroll-snap-align: start;
+}
+
+.arcade-card .minigame-card-icon {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.arcade-card .minigame-card-name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.arcade-card .minigame-card-tag {
+  white-space: normal;
+  font-size: 0.56rem;
+  line-height: 1.25;
+}
+
+.arcade-card.minigame-card:hover {
+  transform: translateY(-2px);
+}
