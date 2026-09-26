@@ -382,7 +382,7 @@ export const submitDuelRoll = (id, data) => request('/duels/' + id + '/roll', { 
 export const settleDuel = (id) => request('/duels/' + id + '/settle', { method: 'POST', body: {} });
 export const settleDuelsWithFriend = (friendId) => request('/duels/settle-with/' + friendId, { method: 'POST', body: {} });
 export const clearSettlementWithFriend = (friendId, expectedAmount) =>
-  request('/settlement/clear-with/' + friendId, {
+  request('/settlement/clear-with/' + encodeURIComponent(friendId), {
     method: 'POST',
     body: { expectedAmount, idempotencyKey: crypto.randomUUID() }
   });

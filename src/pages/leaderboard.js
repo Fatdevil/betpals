@@ -8,7 +8,7 @@ import {
   settleDuelsWithFriend,
   clearSettlementWithFriend
 } from '../api.js';
-import { formatCurrency, showToast, escapeHtml, createSwishUrl, parseServerDate } from '../utils.js';
+import { formatCurrency, showToast, escapeHtml, createSwishUrl, parseServerDate, safeImageSrc } from '../utils.js';
 import { t, getLang } from '../i18n.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { openReceiptModal } from '../components/minigames.js';
@@ -16,6 +16,14 @@ import { openDelaUtlaggModal } from '../components/delaUtlagg.js';
 
 let activeTab = 'overview'; // 'overview' | 'tournaments' | 'swishlist' | 'history'
 let currentTournamentCode = null;
+
+// A person with an account is identified by userId only; names only identify guests.
+// Otherwise a guest who shares your name could show up as "Du" or get your debts.
+function isSameUser(user, userId, name) {
+  if (!user) return false;
+  if (userId) return userId === user.id;
+  return Boolean(name) && (name === user.nickname || name === user.realName);
+}
 
 export async function renderLeaderboard(params = {}) {
   const content = document.getElementById('page-content');
@@ -211,7 +219,12 @@ export async function renderLeaderboard(params = {}) {
     } else if (activeTab === 'swishlist') {
       renderSwishlistTab(tabBody, duelSettlement, user);
     } else {
-      renderHistoryTab(tabBody, pastTournaments, user);
+      // An archived event is only "settled" for you once none of your payments are open
+      const openTournamentIds = new Set((overviewData.friends || [])
+        .flatMap(f => f.details || [])
+        .filter(d => d.type === 'tournament' && d.tournamentId)
+        .map(d => d.tournamentId));
+      renderHistoryTab(tabBody, pastTournaments, user, openTournamentIds);
     }
   } catch (err) {
     const tabBody = document.getElementById('tab-body');
@@ -411,7 +424,7 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
             <div class="flex-between align-center">
               <div class="flex gap-sm align-center" style="min-width: 0; flex: 1;">
                 <div style="width: 38px; height: 38px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; border: 1px solid var(--border-glass);">
-                  ${f.friendAvatarUrl ? `<img src="${f.friendAvatarUrl}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (f.friendAvatarEmoji || '👤')}
+                  ${safeImageSrc(f.friendAvatarUrl) ? `<img src="${escapeHtml(safeImageSrc(f.friendAvatarUrl))}" alt="" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (f.friendAvatarEmoji || '👤')}
                 </div>
                 <div style="min-width: 0;">
                   <div style="font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -432,12 +445,14 @@ function renderOverviewTab(container, overview, user, overviewError = false) {
                     📱 Swisha
                   </a>
                 ` : owesYou && absAmount > 0 ? `
-                  <button type="button" class="btn btn-ghost btn-xs btn-remind-unified" data-phone="${f.friendSwish || ''}" data-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" style="color: var(--gold); padding: 6px 10px;">
+                  <button type="button" class="btn btn-ghost btn-xs btn-remind-unified" data-phone="${escapeHtml(f.friendSwish || '')}" data-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" style="color: var(--gold); padding: 6px 10px;">
                     ${isEn ? '💬 Remind' : '💬 Påminn'}
                   </button>
+                  ${f.isRegistered !== false ? `
                   <button type="button" class="btn btn-primary btn-xs btn-clear-all" data-friend-id="${escapeHtml(f.friendId)}" data-friend-name="${escapeHtml(f.friendName || f.friendNickname)}" data-amount="${absAmount}" data-duels="${f.duelsCount || 0}" data-tournaments="${(f.details || []).filter(d => d.type === 'tournament').length}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 6px 10px; font-size: 0.75rem;">
                     ${isEn ? '✅ Settle all' : '✅ Kvittera allt'}
                   </button>
+                  ` : ''}
                 ` : ''}
                 <button type="button" class="btn btn-secondary btn-xs btn-toggle-unified-details" data-target="details-${i}" title="${isEn ? 'View specification' : 'Visa underlag'}" style="padding: 6px 8px; font-size: 0.75rem;">
                   🔍
@@ -647,11 +662,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
   // Find user's balance
   let myBalance = null;
   if (user) {
-    myBalance = balances.find(b => 
-      (b.userId && b.userId === user.id) || 
-      b.name === user.nickname || 
-      b.name === user.realName
-    );
+    myBalance = balances.find(b => isSameUser(user, b.userId, b.name));
   }
 
   // Build Hero Status Card
@@ -660,9 +671,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
     if (myBalance.net < 0) {
       const debtAmount = -myBalance.net;
       // Find all transfers where user is the debtor
-      const myTransfers = transfers.filter(tr => 
-        tr.from === myBalance.name || (myBalance.userId && tr.fromUserId === myBalance.userId)
-      );
+      const myTransfers = transfers.filter(tr => tr.fromKey ? tr.fromKey === myBalance.key : isSameUser(user, tr.fromUserId, tr.from));
 
       let transfersListHtml = '';
       if (myTransfers.length <= 1) {
@@ -775,7 +784,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
   // Render Standings & Audit rows
   const sortedBalances = [...balances].sort((a, b) => b.net - a.net);
   const standingsRowsHtml = sortedBalances.map((b, i) => {
-    const isMe = user && ((b.userId && b.userId === user.id) || b.name === user.nickname || b.name === user.realName);
+    const isMe = isSameUser(user, b.userId, b.name);
     const medal = i === 0 ? '👑 🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
     const netClass = b.isDebtFree || b.net === 0 ? 'badge badge-success' : b.net > 0 ? 'text-green' : 'text-red';
     const netDisplay = b.isDebtFree || b.net === 0 ? t('tab.debtFreeBadge') : (b.net > 0 ? `+${formatCurrency(b.net)}` : formatCurrency(b.net));
@@ -854,8 +863,8 @@ async function renderTournamentTab(container, activeTournaments, user) {
       </div>`;
   } else {
     transfersHtml = transfers.map(tr => {
-      const isMeFrom = user && (tr.from === user.nickname || tr.from === user.realName || (tr.fromUserId && tr.fromUserId === user.id));
-      const isMeTo = user && (tr.to === user.nickname || tr.to === user.realName || (tr.toUserId && tr.toUserId === user.id));
+      const isMeFrom = isSameUser(user, tr.fromUserId, tr.from);
+      const isMeTo = isSameUser(user, tr.toUserId, tr.to);
       const isHost = user && tour.creatorId === user.id;
 
       // Create Swish URL
@@ -886,7 +895,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
             </div>
             ${isMeFrom && tr.toSwish ? `
               <a href="${swishUrl}" target="_blank" class="btn btn-primary btn-xs" style="background: #2ecc71; border: none; font-weight: 700; padding: 6px 10px;">
-                📱 ${t('tab.swishBtn')}
+                ${t('tab.swishBtn')}
               </a>
             ` : ''}
             ${isMeTo ? `
@@ -920,7 +929,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
             🏆 ${escapeHtml(tour.name)}
           </h2>
           <div class="text-muted" style="font-size: 0.75rem;">
-            Kod: <strong>${escapeHtml(tour.shareCode)}</strong> · ${settlement.finishedMainRounds ?? settlement.finishedRounds} av ${settlement.totalMainRounds ?? settlement.totalRounds} ${t('tab.roundsPlayed')}${(settlement.totalSideBets > 0) ? ` · ${settlement.finishedSideBets} av ${settlement.totalSideBets} sido-spel` : ''}
+            ${settlement.finishedRounds ?? 0} av ${settlement.totalRounds ?? 0} ${t('tab.roundsPlayed')}
           </div>
         </div>
         <button type="button" class="btn btn-secondary btn-sm btn-tab-open-tour" data-code="${escapeHtml(tour.shareCode)}" style="font-size: 0.75rem; padding: 6px 12px;">
@@ -1024,7 +1033,7 @@ async function renderTournamentTab(container, activeTournaments, user) {
       }
 
       const isHost = user && tour.creatorId === user.id;
-      const isCreditor = user && ((toUserId && user.id === toUserId) || (user.nickname === toName || user.realName === toName));
+      const isCreditor = isSameUser(user, toUserId, toName);
 
       if (isHost || isCreditor) {
         const confirmText = isEn
@@ -1374,7 +1383,7 @@ function renderSwishlistTab(container, duelSettlement, user) {
 }
 
 // ── 3. History & Archive Tab ───────────────────────────
-function renderHistoryTab(container, pastTournaments, user = null) {
+function renderHistoryTab(container, pastTournaments, user = null, openTournamentIds = new Set()) {
   const isEn = getLang() === 'en';
 
   if (!pastTournaments || pastTournaments.length === 0) {
@@ -1408,7 +1417,9 @@ function renderHistoryTab(container, pastTournaments, user = null) {
                 </div>
               </div>
               <div class="flex align-center gap-xs">
-                <span class="badge badge-success" style="font-size: 0.7rem;">${isEn ? 'Settled ✅' : 'Avräknad ✅'}</span>
+                ${openTournamentIds.has(tItem.id)
+                  ? `<span class="badge badge-warning" style="font-size: 0.7rem;">${isEn ? '⏳ Payments open' : '⏳ Betalningar kvar'}</span>`
+                  : `<span class="badge badge-success" style="font-size: 0.7rem;">${isEn ? 'Settled ✅' : 'Avräknad ✅'}</span>`}
               </div>
             </div>
             <div class="flex gap-xs mt-xs" style="margin-top: 8px;">
@@ -1489,8 +1500,8 @@ function renderHistoryTab(container, pastTournaments, user = null) {
               </div>
               <div style="display: flex; flex-direction: column; gap: 6px;">
                 ${transfers.map(tr => {
-                  const isMeFrom = user && (tr.from === user.nickname || tr.from === user.realName || (tr.fromUserId && tr.fromUserId === user.id));
-                  const isMeTo = user && (tr.to === user.nickname || tr.to === user.realName || (tr.toUserId && tr.toUserId === user.id));
+                  const isMeFrom = isSameUser(user, tr.fromUserId, tr.from);
+                  const isMeTo = isSameUser(user, tr.toUserId, tr.to);
 
                   let swishUrl = '#';
                   if (isMeFrom && tr.toSwish) {

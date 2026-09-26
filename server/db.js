@@ -514,6 +514,17 @@ try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_creator_score INTE
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_opponent_score INTEGER'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_winner_id TEXT'); } catch {}
 
+// Repair BlixtBet/AnyBet debts saved without a winner (the creator is always the winner
+// in these rows), so they reach The Tab again
+try {
+  db.exec(`
+    UPDATE minigame_duels
+    SET winner_id = creator_id, creator_score = 1, opponent_score = 0
+    WHERE game_type IN ('flashbet', 'anybet') AND mode IN ('flashbet', 'anybet')
+      AND status = 'completed' AND winner_id IS NULL
+  `);
+} catch {}
+
 // Once a result has been revealed, an event may never be opened for betting again
 try { db.exec('ALTER TABLE events ADD COLUMN was_finished INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("UPDATE events SET was_finished = 1 WHERE status = 'finished'"); } catch {}
@@ -2939,12 +2950,19 @@ export function getDuelSettlementSummary(userId) {
 
   let totalNet = 0;
   const friends = Array.from(friendsMap.values()).map(f => {
-    f.netAmount = Math.round(f.netAmount * 100) / 100;
+    // Swish only takes whole kronor, so every balance between two people is whole
+    // kronor too. Rounding the absolute value keeps both sides' numbers identical.
+    f.netAmount = roundKr(f.netAmount);
     totalNet += f.netAmount;
     return f;
   });
 
-  return { friends, totalNet: Math.round(totalNet * 100) / 100 };
+  return { friends: friends.filter(f => f.netAmount !== 0), totalNet };
+}
+
+function roundKr(value) {
+  const rounded = Math.round(Math.abs(Number(value) || 0));
+  return value < 0 ? -rounded : rounded;
 }
 
 export function settleDuelById(duelId) {
@@ -2971,6 +2989,7 @@ export function getUnifiedSettlementOverview(userId) {
       friendSwish: f.friendSwish,
       friendAvatarEmoji: f.friendAvatarEmoji,
       friendAvatarUrl: f.friendAvatarUrl,
+      isRegistered: true,
       duelNet: f.netAmount || 0,
       tournamentNet: 0,
       totalNet: f.netAmount || 0,
@@ -3020,11 +3039,12 @@ export function getUnifiedSettlementOverview(userId) {
 
         friendsMap.set(key, {
           friendId: otherUser ? otherUser.id : key,
-          friendName: otherUser ? (otherUser.nickname || otherUser.real_name) : otherName,
+          friendName: otherUser ? (otherUser.real_name || otherUser.nickname) : otherName,
           friendNickname: otherUser ? otherUser.nickname : otherName,
           friendSwish: otherUser ? otherUser.swish_number : otherSwish,
           friendAvatarEmoji: otherUser ? otherUser.avatar_emoji : '👤',
           friendAvatarUrl: otherUser ? otherUser.avatar_url : null,
+          isRegistered: Boolean(otherUser),
           duelNet: 0,
           tournamentNet: 0,
           totalNet: 0,
@@ -3142,8 +3162,8 @@ export function atomicSettleWithFriend(userId, friendId, expectedAmount, idempot
       for (const tr of settlement.transfers) {
         if (tr.isPaid) continue;
 
-        const isMeFrom = tr.fromUserId === userId || (myNick && tr.from === myNick) || (myName && tr.from === myName);
-        const isMeTo = tr.toUserId === userId || (myNick && tr.to === myNick) || (myName && tr.to === myName);
+        const isMeFrom = tr.fromUserId === userId || (!tr.fromUserId && myNick && tr.from === myNick) || (!tr.fromUserId && myName && tr.from === myName);
+        const isMeTo = tr.toUserId === userId || (!tr.toUserId && myNick && tr.to === myNick) || (!tr.toUserId && myName && tr.to === myName);
 
         if (!isMeFrom && !isMeTo) continue;
 
@@ -3567,7 +3587,7 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
             opponent_id: loser.user_id,
             stake_amount: bet.stake_amount,
             mode: 'anybet',
-            status: 'completed',
+            status: 'active',
             tournament_id: bet.tournament_id || null
           });
           stmts.updateDuelResult.run({
@@ -3596,7 +3616,7 @@ export function settleAnyBet({ betId, judgeId, winnerId, winningSide, proofImage
                 opponent_id: loser.user_id,
                 stake_amount: perWinnerStake,
                 mode: 'anybet',
-                status: 'completed',
+                status: 'active',
                 tournament_id: bet.tournament_id || null
               });
               stmts.updateDuelResult.run({
@@ -3985,7 +4005,7 @@ export function settleFlashBet(flashBetId, winningChoice, settleUserId) {
             opponent_id: loser.user_id,
             stake_amount: perWinnerStake,
             mode: 'flashbet',
-            status: 'completed',
+            status: 'active',
             tournament_id: fb.tournament_id || null
           });
           stmts.updateDuelResult.run({
