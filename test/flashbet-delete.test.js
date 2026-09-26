@@ -66,24 +66,37 @@ test('Delete FlashBet — Non-creator cannot delete the bet', () => {
   assert.ok(active.some(b => b.id === fbId), 'Bet still exists after unauthorized attempt');
 });
 
-test('Delete FlashBet — Cannot delete bet after someone has voted', () => {
+test('Delete FlashBet — Can delete while only one friend has voted (the vote is removed too)', () => {
+  const fbId = 'fb-del-onevote-' + Date.now();
+  const durationSeconds = 120;
+  const expiresAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
+
+  db.createFlashBet(fbId, creator.id, null, 'Går bollen i vattnet?', durationSeconds, expiresAt, 20);
+  db.placeFlashBetEntry('entry-' + Date.now(), fbId, friend.id, 'yes', 20);
+
+  const result = db.deleteFlashBet(fbId, creator.id);
+  assert.equal(result.success, true);
+  assert.deepEqual(result.removedEntryUserIds, [friend.id]);
+  assert.equal(db.getFlashBet(fbId, creator.id), null);
+});
+
+test('Delete FlashBet — Cannot delete bet after two or more friends have voted', () => {
   const fbId = 'fb-del-voted-' + Date.now();
   const durationSeconds = 120;
   const expiresAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
   db.createFlashBet(fbId, creator.id, null, 'Går bollen i vattnet?', durationSeconds, expiresAt, 20);
-
-  // Friend votes
-  db.placeFlashBetEntry('entry-' + Date.now(), fbId, friend.id, 'yes', 20);
+  db.placeFlashBetEntry('entry-a-' + Date.now(), fbId, friend.id, 'yes', 20);
+  db.placeFlashBetEntry('entry-b-' + Date.now(), fbId, otherUser.id, 'no', 20);
 
   assert.throws(() => {
     db.deleteFlashBet(fbId, creator.id);
-  }, /Det går inte att ta bort vadet eftersom någon redan har lagt ett bet/);
+  }, /flera redan har lagt bet/);
 
   // Bet remains intact
   const fetched = db.getFlashBet(fbId, creator.id);
   assert.ok(fetched !== null);
-  assert.equal(fetched.entriesCount, 1);
+  assert.equal(fetched.entriesCount, 2);
 });
 
 test('Delete FlashBet — Cannot delete already settled bet', () => {

@@ -5069,6 +5069,14 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
 
     try {
       let flashBets = await getActiveFlashBets(defaultTournamentId);
+      // Bets outside any event (e.g. from a live stream) must stay reachable to vote on and settle
+      if (defaultTournamentId) {
+        const allBets = await getActiveFlashBets().catch(() => []);
+        flashBets = flashBets || [];
+        for (const fb of allBets || []) {
+          if (!(fb.tournamentId || fb.tournament_id) && !flashBets.some(x => x.id === fb.id)) flashBets.push(fb);
+        }
+      }
       if (initialFlashBetId && (!flashBets || !flashBets.some(fb => fb.id === initialFlashBetId))) {
         try {
           const specific = await getFlashBet(initialFlashBetId);
@@ -5160,7 +5168,11 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
           <div style="padding: 10px; border-radius: var(--radius-md); background: rgba(255,255,255,0.04); text-align: center; font-size: 0.85rem; font-weight: 700;">
             ${fb.myEntry.choice === 'yes' ? '✅ Du röstade: <span style="color: #2ecc71;">👍 JA</span>' : '✅ Du röstade: <span style="color: #e74c3c;">👎 NEJ</span>'}
           </div>
-        ` : !isExpired ? `
+        ` : isCreator ? (isExpired ? '' : `
+          <div style="padding: 8px; text-align: center; font-size: 0.8rem; color: var(--text-muted); background: rgba(255,255,255,0.02); border-radius: var(--radius-sm);">
+            🏌️ Ditt vad – vännerna röstar.
+          </div>
+        `) : !isExpired ? `
           <div class="flex gap-sm" style="margin-top: 6px;">
             <button type="button" class="btn btn-block flashbet-vote-btn" data-fb-id="${fb.id}" data-choice="yes" style="flex: 1; padding: 10px; background: rgba(46,204,113,0.15); border: 1.5px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 0.95rem;">
               👍 JA (${fb.stakeAmount} kr)
@@ -5189,10 +5201,10 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
                 ${t('arcade.flashbetSettleNo')}
               </button>
             </div>
-            ${((fb.entriesCount || fb.betCount || 0) === 0) ? `
+            ${((fb.entriesCount || fb.betCount || 0) <= 1) ? `
               <div style="margin-top: 10px; text-align: center;">
-                <button type="button" class="btn btn-sm flashbet-delete-btn" data-fb-id="${fb.id}" style="background: rgba(231,76,60,0.12); border: 1px dashed rgba(231,76,60,0.45); color: #e74c3c; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; width: 100%; border-radius: var(--radius-sm); transition: all 0.2s; cursor: pointer;">
-                  🗑️ Ta bort vad (inga röster lagda)
+                <button type="button" class="btn btn-sm flashbet-delete-btn" data-fb-id="${fb.id}" data-question="${escapeHtml(fb.question || '')}" data-votes="${fb.entriesCount || fb.betCount || 0}" style="background: rgba(231,76,60,0.12); border: 1px dashed rgba(231,76,60,0.45); color: #e74c3c; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; width: 100%; border-radius: var(--radius-sm); transition: all 0.2s; cursor: pointer;">
+                  ${(fb.entriesCount || fb.betCount || 0) === 0 ? '🗑️ Ta bort vad (inga bet lagda)' : '🗑️ Ta bort vad (bara 1 bet lagt)'}
                 </button>
               </div>
             ` : ''}
@@ -5273,29 +5285,36 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
       });
     });
 
-    // Deleting (when 0 votes)
+    // Deleting (while at most one friend has bet) and starting over
     document.querySelectorAll('.flashbet-delete-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const fbId = btn.dataset.fbId;
-        if (!confirm('Vill du ta bort detta BlixtBet? Eftersom ingen har hunnit rösta än raderas det helt.')) return;
+        const originalText = btn.textContent;
+        const message = btn.dataset.votes === '1'
+          ? 'Vill du ta bort detta BlixtBet? Den som har lagt bet får en notis om att det inte räknas. Du kan sedan skapa ett nytt.'
+          : 'Vill du ta bort detta BlixtBet? Ingen har lagt bet än. Du kan sedan skapa ett nytt.';
+        if (!confirm(message)) return;
 
         btn.disabled = true;
         btn.textContent = 'Tar bort...';
         try {
           await deleteFlashBet(fbId);
-          showToast('🗑️ BlixtBet borttaget!', 'info');
-          renderActiveTab();
+          showToast('🗑️ BlixtBet borttaget – skapa ett nytt!', 'info');
+          activeTab = 'create';
+          updateTabs();
+          renderCreateTab(btn.dataset.question || '');
         } catch (err) {
           showToast(err.message, 'error');
           btn.disabled = false;
-          btn.textContent = '🗑️ Ta bort vad (inga röster lagda)';
+          btn.textContent = originalText;
+          renderActiveTab();
         }
       });
     });
   }
 
   // ── Render Create Tab ──────────────────────────────
-  async function renderCreateTab() {
+  async function renderCreateTab(prefillQuestion = '') {
     cleanupTimer();
     let selectedDurationMinutes = 2;
     let selectedDuration = 120;
@@ -5320,7 +5339,7 @@ export async function openFlashBetModal(initialFlashBetId = null, defaultTournam
       <form id="create-flashbet-form" style="display: flex; flex-direction: column; gap: 14px;">
         <div class="form-group mb-xs">
           <label class="form-label" style="font-weight: 700; font-size: 0.85rem;">⚡ Vad gäller bettet?</label>
-          <input type="text" class="form-input" id="fb-question-input" placeholder="${t('arcade.flashbetQuestionPlaceholder')}" required maxlength="120" style="padding: 10px 12px; font-weight: 700; font-size: 0.95rem;" />
+          <input type="text" class="form-input" id="fb-question-input" placeholder="${t('arcade.flashbetQuestionPlaceholder')}" value="${escapeHtml(prefillQuestion)}" required maxlength="120" style="padding: 10px 12px; font-weight: 700; font-size: 0.95rem;" />
         </div>
 
         <!-- Duration Picker (Custom minutes field + shortcuts) -->

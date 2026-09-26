@@ -482,7 +482,8 @@ function init() {
             initialQuestion: live.question,
             initialFlashBet: flashBet,
             livekitToken,
-            livekitUrl
+            livekitUrl,
+            endsAt: live.endsAt
           });
         }).catch(err => {
           showToast(err.message || 'Kunde inte ansluta till livesändningen', 'error');
