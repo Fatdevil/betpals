@@ -181,6 +181,39 @@ body::before {
   flex-shrink: 0;
 }
 
+/* Back on sub pages: a big, obvious target in the corner people reach for */
+.top-header-back-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 40px;
+  height: 40px;
+  margin-left: -4px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  background: rgba(255, 215, 0, 0.1);
+  color: var(--gold);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: transform 0.15s var(--ease-out), background 0.2s;
+}
+
+/* 44 px touch target */
+.top-header-back-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.top-header-back-btn:active {
+  transform: scale(0.92);
+  background: rgba(255, 215, 0, 0.2);
+}
+
 .top-header-qr-btn:hover {
   background: rgba(255, 215, 0, 0.12);
   border-color: rgba(255, 215, 0, 0.45);
@@ -3756,24 +3789,6 @@ select.form-input option {
 /* ── Game page (one match / bet) ──────────────────── */
 .game-head {
   margin-bottom: var(--space-md);
-}
-
-.game-crumb {
-  -webkit-appearance: none;
-  appearance: none;
-  background: none;
-  border: none;
-  padding: 4px 0;
-  margin-bottom: 8px;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .game-title {

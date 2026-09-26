@@ -13,6 +13,11 @@ const icons = {
 };
 
 import { openAppQrModal } from './appQrModal.js';
+import { requestBack } from '../backNav.js';
+
+// Pages below the main tabs get a back button where the QR button usually sits
+// (the logo still opens the QR code)
+const SUB_PAGES = new Set(['event', 'tournament']);
 
 export function renderNavbar(activePage) {
   const user = getStoredUser();
@@ -29,6 +34,7 @@ export function renderNavbar(activePage) {
 
   setTimeout(() => {
     initBellListeners();
+    document.getElementById('top-header-back-btn')?.addEventListener('click', requestBack);
     document.getElementById('top-header-qr-btn')?.addEventListener('click', () => {
       openAppQrModal();
     });
@@ -40,6 +46,11 @@ export function renderNavbar(activePage) {
   return `
     <div class="top-header">
       <div class="top-header-left">
+        ${SUB_PAGES.has(activePage) ? `
+        <button type="button" class="top-header-back-btn" id="top-header-back-btn" aria-label="${currentLang === 'sv' ? 'Tillbaka' : 'Back'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        ` : `
         <button class="top-header-qr-btn" id="top-header-qr-btn" title="${currentLang === 'sv' ? 'Dela app & QR-kod 📱' : 'Share app & QR code 📱'}" aria-label="Dela app och QR-kod">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7" rx="1"></rect>
@@ -52,6 +63,7 @@ export function renderNavbar(activePage) {
             <path d="M17 17h.01"></path>
           </svg>
         </button>
+        `}
       </div>
       <div class="top-header-center">
         <span class="top-header-logo" id="top-header-logo-btn" title="${currentLang === 'sv' ? 'Dela app / QR-kod 📱' : 'Share app / QR code 📱'}">THE SOCIAL BETWORK</span>
