@@ -385,6 +385,10 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
           ? `Waiting for ${escapeHtml(events)} to end – then it is added up and you swish once.`
           : `Väntar på att ${escapeHtml(events)} tar slut – då räknas allt ihop och ni swishar en gång.`}
           ${swishUrl ? ` <a href="${swishUrl}" class="tabx-swish-anyway" rel="noopener">${isEn ? 'Swish anyway' : 'Swisha ändå'} ${formatCurrency(amount)}</a>` : ''}</div>
+        ${f.totalNet > 0 && f.isRegistered !== false ? `
+          <button type="button" class="tabx-paid btn-clear-all" data-friend-id="${escapeHtml(f.friendId)}" data-friend-name="${escapeHtml(name)}" data-amount="${amount}" data-duels="${f.duelsCount || 0}" data-tournaments="${(f.details || []).filter(d => d.type === 'tournament').length}">
+            ${isEn ? 'Paid you already? <b>Mark as paid ✓</b>' : 'Har hen redan swishat? <b>Markera som betalt ✓</b>'}
+          </button>` : ''}
       </div>`;
   };
 

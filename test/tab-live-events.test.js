@@ -83,3 +83,23 @@ test('home asks only for money that is ready; the event card shows where you sta
   const server = readFileSync(new URL('../server/server.js', import.meta.url), 'utf8');
   assert.match(server, /Dags att göra upp: du ska swisha/);
 });
+
+test('someone who wants to can still pay mid-event: the receiver can mark it paid, and later results only add on', () => {
+  const tab = readFileSync(new URL('../src/pages/leaderboard.js', import.meta.url), 'utf8');
+  const liveCard = tab.slice(tab.indexOf('const liveCard = (f) =>'), tab.indexOf('container.innerHTML = `', tab.indexOf('const liveCard = (f) =>')));
+  assert.match(liveCard, /Swisha ändå/);
+  assert.match(liveCard, /f\.totalNet > 0 && f\.isRegistered !== false \? `\s+<button type="button" class="tabx-paid btn-clear-all"/);
+
+  const { a, b, tId } = eventWithResult();
+  const res = db.atomicSettleWithFriend(a.id, b.id, 50, 'k-' + uid());
+  assert.equal(res.totalCleared, 50);
+  assert.equal(db.getUnifiedSettlementOverview(b.id).friends.some(f => f.friendId === a.id && f.totalNet !== 0), false);
+
+  // Bosse loses another 30 kr later in the same event: only the new 30 kr is owed
+  const ev = uid(), p1 = uid(), p2 = uid();
+  db.createEvent({ id: ev, name: 'Nästa match', tournamentId: tId, creatorId: a.id }, [{ id: p1, name: 'A' }, { id: p2, name: 'B' }]);
+  db.addBet(uid(), ev, a.nickname, p1, 30, a.id);
+  db.addBet(uid(), ev, b.nickname, p2, 30, b.id);
+  db.finishEvent(ev, p1);
+  assert.equal(db.getUnifiedSettlementOverview(b.id).friends.find(f => f.friendId === a.id).totalNet, -30);
+});
