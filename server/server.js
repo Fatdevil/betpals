@@ -252,6 +252,27 @@ function remindHostsToSettle() {
 }
 setInterval(remindHostsToSettle, 60 * 60 * 1000).unref();
 
+// Reminders before betting closes: "15 min left – place your tip"
+function sendDeadlineReminders(now = Date.now()) {
+  try {
+    for (const e of db.getEventsDueForReminder(now)) {
+      db.markEventReminded(e.id);
+      const targets = db.getReminderTargets(e);
+      if (targets.length === 0) continue;
+      const mins = Math.max(1, Math.round((new Date(e.closes_at).getTime() - now) / 60000));
+      const tour = e.tournament_id ? db.getTournamentById(e.tournament_id) : null;
+      sendPushToUsers(targets, {
+        title: `⏰ ${mins} min kvar: ${e.name}`,
+        body: 'Bettningen stänger snart – du har inte lagt ditt tips än!',
+        url: tour ? `/#tournament/${tour.share_code}` : `/#event/${e.share_code}`
+      }, 'tournaments', { bellType: 'deadline_reminder' }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('Error sending deadline reminders:', err);
+  }
+}
+setInterval(sendDeadlineReminders, 60 * 1000).unref();
+
 // Run daily automated database backup (every 24 hours)
 setInterval(async () => {
   try {
@@ -2811,6 +2832,7 @@ app.put('/api/events/:id/deadline', (req, res) => {
   }
 
   db.updateEventClosesAt(event.id, validClosesAt);
+  if ('remindBeforeMin' in (req.body || {})) db.setEventReminder(event.id, validClosesAt ? req.body.remindBeforeMin : null);
 
   broadcastToEvent(event.share_code, {
     type: 'event_deadline_updated',
@@ -3476,6 +3498,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
   if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
+  if (validClosesAt && req.body.remindBeforeMin) db.setEventReminder(eventId, req.body.remindBeforeMin);
 
   // For 'self' mode: auto-create bets — each player bets on themselves
   if (betMode === 'self') {
@@ -6819,5 +6842,6 @@ export {
   finalizePartyRound,
   recordUserRtt,
   getLatencyCompensationMs,
-  remindHostsToSettle
+  remindHostsToSettle,
+  sendDeadlineReminders
 };

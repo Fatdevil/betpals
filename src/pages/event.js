@@ -941,6 +941,14 @@ function openDeadlineModal(event, content, code) {
           Spelet kommer vara öppet tills det stängs manuellt.
         </div>
       </div>
+      <div class="form-group mb-sm" id="modal-remind-wrap">
+        <label class="form-label mb-xs">⏰ Påminnelse till dem som inte har tippat</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          ${[[0, 'Ingen'], [5, '5 min före'], [15, '15 min före'], [30, '30 min före'], [60, '1 h före']].map(([m, l]) => `
+            <button type="button" class="btn btn-sm btn-secondary modal-remind-btn${(event.remindBeforeMin || 0) === m ? ' selected' : ''}" data-remind="${m}" style="font-size: 0.72rem; padding: 4px 8px;">${l}</button>
+          `).join('')}
+        </div>
+      </div>
       <button type="submit" class="btn btn-primary btn-block" style="padding: 10px; font-weight: 700;">
         Spara spelstopp 💾
       </button>
@@ -988,6 +996,16 @@ function openDeadlineModal(event, content, code) {
     });
   });
 
+  let remindBeforeMin = event.remindBeforeMin || 0;
+  const remindBtns = document.querySelectorAll('.modal-remind-btn');
+  const paintRemind = () => remindBtns.forEach(b => {
+    const on = Number(b.dataset.remind) === remindBeforeMin;
+    b.style.border = on ? '1.5px solid var(--gold)' : '1px solid var(--border-light)';
+    b.style.background = on ? 'rgba(245,166,35,0.12)' : 'var(--bg-card)';
+  });
+  remindBtns.forEach(b => b.addEventListener('click', () => { remindBeforeMin = Number(b.dataset.remind); paintRemind(); }));
+  paintRemind();
+
   customInp?.addEventListener('input', () => {
     if (customInp.value) {
       newClosesAt = new Date(customInp.value).toISOString();
@@ -998,7 +1016,7 @@ function openDeadlineModal(event, content, code) {
   document.getElementById('edit-deadline-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-      await updateEventDeadline(event.id, newClosesAt);
+      await updateEventDeadline(event.id, newClosesAt, newClosesAt ? remindBeforeMin : 0);
       closeModal();
       showToast('Spelstopp uppdaterat! ⏰', 'success');
       const updated = await getEvent(code);

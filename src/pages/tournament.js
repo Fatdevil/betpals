@@ -1247,6 +1247,14 @@ const DEADLINES = [
   { key: '120', label: '2 h', minutes: 120 },
   { key: 'custom', label: '📅', minutes: null }
 ];
+// Automatic push to those who have not bet yet, this long before betting closes
+const REMINDERS = [
+  { min: 0, label: 'Ingen' },
+  { min: 5, label: '5 min före' },
+  { min: 15, label: '15 min före' },
+  { min: 30, label: '30 min före' },
+  { min: 60, label: '1 h före' }
+];
 
 function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   // People who can be in a game: the event's participants (picked by default), names used
@@ -1266,6 +1274,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const state = {
     type: 'winner',
     pickCount: 4,
+    remind: 15,
     name: '',
     home: '',
     away: '',
@@ -1303,6 +1312,14 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         ${DEADLINES.map(d => `<button type="button" class="ng-chip${d.key === state.deadline ? ' gold' : ''}" data-deadline="${d.key}">${d.label}</button>`).join('')}
       </div>
       <input type="datetime-local" class="form-input ng-input" id="ng-custom-deadline" style="display: none; margin-top: 8px;" />
+
+      <div id="ng-remind-wrap" style="display: none;">
+        <div class="ng-label">Påminnelse</div>
+        <div class="ng-chips" id="ng-reminders">
+          ${REMINDERS.map(r => `<button type="button" class="ng-chip${r.min === state.remind ? ' gold' : ''}" data-remind="${r.min}">${r.label}</button>`).join('')}
+        </div>
+        <p class="ng-hint">⏰ En pushnotis går automatiskt till dem som inte har tippat än.</p>
+      </div>
 
       <label class="ng-image-row" for="ng-image-input">
         <span id="ng-image-text">📷 Lägg till bild (valfritt)</span>
@@ -1525,6 +1542,22 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     else if (isPeopleGame() && g.players.length) parts.push(`${g.players.length} med`);
     parts.push(escapeHtml(g.stake.text));
     if (g.closesAt) parts.push(`stänger ${new Date(g.closesAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
+    // A reminder only makes sense before the closing time
+    document.getElementById('ng-remind-wrap').style.display = g.closesAt ? 'block' : 'none';
+    if (g.closesAt) {
+      const minsLeft = (new Date(g.closesAt).getTime() - Date.now()) / 60000;
+      const fits = (m) => m === 0 || m < minsLeft;
+      // Default 15 min (or the longest that still fits) until someone picks something
+      if (!state.remindPicked || !fits(state.remind)) {
+        state.remind = [15, 5, 0].find(fits);
+      }
+      form.querySelectorAll('[data-remind]').forEach(b => {
+        const m = Number(b.dataset.remind);
+        b.disabled = !fits(m);
+        b.classList.toggle('gold', m === state.remind);
+      });
+      if (state.remind > 0) parts.push(`påminner ${state.remind} min före`);
+    }
     document.getElementById('ng-summary').innerHTML = g.problem
       ? `<span class="ng-summary-todo">${escapeHtml(g.problem)}</span>`
       : parts.join(' · ');
@@ -1540,6 +1573,12 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     if (state.type === 'picks') { state.fixedStake = 50; people.forEach(p => { p.selected = false; }); }
     renderFields();
     renderStake();
+    updateSummary();
+  }));
+
+  form.querySelectorAll('[data-remind]').forEach(btn => btn.addEventListener('click', () => {
+    state.remind = Number(btn.dataset.remind);
+    state.remindPicked = true;
     updateSummary();
   }));
 
@@ -1623,6 +1662,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         betAmount: g.stake.betAmount,
         ...(g.stake.minBet !== undefined ? { minBet: g.stake.minBet, maxBet: g.stake.maxBet } : {}),
         closesAt: g.closesAt,
+        ...(g.closesAt && state.remind > 0 ? { remindBeforeMin: state.remind } : {}),
         imageUrl: state.imageData || undefined,
         pin
       });
