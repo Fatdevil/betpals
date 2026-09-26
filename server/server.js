@@ -5410,8 +5410,6 @@ app.post('/api/flashbets', async (req, res) => {
     stakeAmount,
     stake: rawStake,
     tournamentId,
-    initialChoice,
-    myChoice,
     targetFriendIds,
     notifyAllFriends
   } = req.body || {};
@@ -5422,43 +5420,43 @@ app.post('/api/flashbets', async (req, res) => {
 
   const rawDuration = Number(durationSeconds) || (Number(durationMinutes) ? Number(durationMinutes) * 60 : null) || 60;
   const duration = Math.max(10, Math.min(86400, Math.round(rawDuration)));
-  const stake = Math.max(5, Math.min(5000, Number(stakeAmount || rawStake) || 20));
-  const choice = initialChoice || myChoice;
+  // Whole kronor, like Swish and The Tab
+  const stake = Math.round(Math.max(5, Math.min(5000, Number(stakeAmount || rawStake) || 20)));
   const expiresAt = new Date(Date.now() + duration * 1000).toISOString();
 
-  // Target users for Web Push & Visibility
+  // Who may see and vote. A BlixtBet is never public: without anyone to ask it is refused.
+  // In an event, everyone in the event is asked (also people who are not your friends);
+  // outside an event, all your friends or the ones you picked.
+  const friendIds = db.getFriends(user.id).map(f => f.id);
+  const picked = Array.isArray(targetFriendIds) ? targetFriendIds.map(String) : [];
   let targetUserIds = [];
-  const userFriends = db.getFriends(user.id);
-  const isTargetedSubset = !notifyAllFriends && Array.isArray(targetFriendIds) && targetFriendIds.length > 0;
-
-  if (isTargetedSubset) {
-    const friendIdSet = new Set(userFriends.map(f => f.id));
-    targetUserIds = targetFriendIds.filter(id => friendIdSet.has(id));
-  } else {
-    targetUserIds = userFriends.map(f => f.id);
-  }
 
   if (tournamentId) {
     const tv = validateTournamentContext(user, tournamentId);
     if (!tv.valid) return res.status(400).json({ error: tv.error });
-    if (tv.tournament && tv.tournament.creatorId && !targetUserIds.includes(tv.tournament.creatorId)) {
-      targetUserIds.push(tv.tournament.creatorId);
-    }
+    const eventPeople = new Set(db.getTournamentParticipantUserIds(tv.tournament.id));
+    if (tv.tournament.creatorId) eventPeople.add(tv.tournament.creatorId);
+    eventPeople.delete(user.id);
+    targetUserIds = [...eventPeople];
+  } else if (notifyAllFriends || picked.length === 0 && notifyAllFriends !== false) {
+    targetUserIds = friendIds;
+  } else {
+    const friendSet = new Set(friendIds);
+    targetUserIds = picked.filter(id => friendSet.has(id));
   }
 
-  const storedTargets = targetUserIds.length > 0 ? targetUserIds : null;
+  if (targetUserIds.length === 0) {
+    return res.status(400).json({
+      error: tournamentId
+        ? 'Ingen annan är med i eventet än – bjud in någon först'
+        : 'Välj minst en vän som kan rösta'
+    });
+  }
+
+  const storedTargets = targetUserIds;
 
   const id = generateId();
   db.createFlashBet(id, user.id, tournamentId, finalQuestion, duration, expiresAt, stake, storedTargets);
-
-  if (choice === 'yes' || choice === 'no') {
-    try {
-      const entryId = generateId();
-      db.placeFlashBetEntry(entryId, id, user.id, choice, stake);
-    } catch (e) {
-      // Skaparen kan inte rösta i eget vad - ignorera tyst istället för att krascha
-    }
-  }
 
   const created = db.getFlashBet(id, user.id);
 
@@ -5475,7 +5473,7 @@ app.post('/api/flashbets', async (req, res) => {
   sendPushToUsers(targetUserIds, {
     title: `⚡ BLIXTBET (${durationLabel} kvar!)`,
     body: `${user.real_name || user.nickname}: "${finalQuestion}"`,
-    url: tournamentId ? `/#tournament/${tournamentId}` : `/#flashbet/${id}`
+    url: `/#flashbet/${id}`
   }, 'flashbets').catch(() => {});
 
   res.json(created);

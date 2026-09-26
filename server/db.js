@@ -510,6 +510,8 @@ try { db.exec('ALTER TABLE tab_expenses ADD COLUMN tournament_id TEXT'); } catch
 
 // Duel results require both parties to agree: first report is stored here until confirmed
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_by TEXT'); } catch {}
+// When a BlixtBet was settled, so its result stays visible for a while
+try { db.exec('ALTER TABLE flash_bets ADD COLUMN settled_at TEXT'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_creator_score INTEGER'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_opponent_score INTEGER'); } catch {}
 try { db.exec('ALTER TABLE minigame_duels ADD COLUMN reported_winner_id TEXT'); } catch {}
@@ -1025,7 +1027,8 @@ const stmts = {
     ORDER BY fb.created_at DESC
   `),
   updateFlashBetStatus: db.prepare('UPDATE flash_bets SET status = ? WHERE id = ?'),
-  updateFlashBetSettle: db.prepare('UPDATE flash_bets SET status = \'settled\', winning_choice = ? WHERE id = ?'),
+  updateFlashBetSettle: db.prepare('UPDATE flash_bets SET status = \'settled\', winning_choice = ?, settled_at = datetime(\'now\') WHERE id = ?'),
+  getRecentlySettledFlashBets: db.prepare(`SELECT id FROM flash_bets WHERE status = 'settled' AND settled_at >= datetime('now', '-12 hours')`),
   deleteFlashBet: db.prepare('DELETE FROM flash_bets WHERE id = ?'),
 
   // Flash Bet Entries
@@ -3872,6 +3875,10 @@ export function getFlashBet(id, currentUserId = null) {
       hasVoted: !!myEntry,
       winnersCount: winners.length,
       losersCount: losers.length,
+      // Your result in whole kronor, the way The Tab shows it
+      netAmount: !myEntry || winners.length === 0 || losers.length === 0 ? 0
+        : isWinner ? Math.round(losers.reduce((sum, l) => sum + l.amount, 0) / winners.length)
+        : -Math.round(myEntry.amount),
       debts
     };
   }
@@ -3919,11 +3926,17 @@ export function getFlashBet(id, currentUserId = null) {
 
 export function getActiveFlashBets(userId = null, tournamentId = null) {
   const active = stmts.getActiveFlashBets.all();
-  return active
+  // Results stay visible for 12 hours to the creator and to those who voted
+  const recent = userId ? stmts.getRecentlySettledFlashBets.all() : [];
+  return [...active, ...recent]
     .map(fb => getFlashBet(fb.id, userId))
     .filter(fb => {
       if (!fb) return false;
-      if (fb.status === 'settled' || fb.status === 'cancelled') return false;
+      if (fb.status === 'cancelled') return false;
+      if (fb.status === 'settled') {
+        if (tournamentId && (fb.tournamentId || fb.tournament_id) !== tournamentId) return false;
+        return Boolean(userId && (fb.creatorId === userId || fb.myEntry));
+      }
       if (tournamentId && (fb.tournamentId || fb.tournament_id) !== tournamentId) return false;
       // Targeted bet filter: only creator and targetUserIds can see it
       if (fb.targetUserIds && Array.isArray(fb.targetUserIds) && fb.targetUserIds.length > 0) {
