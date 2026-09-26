@@ -116,6 +116,9 @@ export async function renderTournament(params = {}) {
   }
 }
 
+// A long live feed would push everything else far down: show the newest, the rest on request
+const PHOTOS_SHOWN = 6;
+
 function renderTournamentContent(content, t, photos = [], tournamentFlashBets = []) {
   const code = t.shareCode;
   const user = getStoredUser();
@@ -235,6 +238,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <button class="btn btn-secondary btn-sm" id="share-tournament-btn">
             📱 Dela event
           </button>
+          ${isCreator ? `<button type="button" class="btn btn-secondary btn-sm event-host-menu" id="event-host-menu-btn" aria-label="Hantera eventet">⋯</button>` : ''}
         </div>
       </div>
 
@@ -471,8 +475,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             ${user ? '<button type="button" class="btn btn-secondary btn-sm" id="empty-add-photo-btn">📸 Dela första bilden</button>' : ''}
           </div>
         ` : ''}
-        ${photos.map(p => `
-          <div class="photo-card card animate-in">
+        ${photos.map((p, i) => `
+          <div class="photo-card card${i < PHOTOS_SHOWN ? ' animate-in' : ' photo-card-more'}"${i < PHOTOS_SHOWN ? '' : ' hidden'}>
             <div class="photo-header flex-between mb-sm" style="align-items: center;">
               <div class="flex" style="align-items: center; gap: 8px;">
                 ${p.uploaderAvatar 
@@ -496,15 +500,10 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             </div>
           </div>
         `).join('')}
+        ${photos.length > PHOTOS_SHOWN ? `
+          <button type="button" class="btn btn-secondary btn-block" id="show-all-photos-btn">📸 Visa alla ${photos.length} bilder</button>
+        ` : ''}
       </div>
-
-      ${isCreator ? `
-        <div class="event-danger-zone">
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-tournament-btn" title="Radera hela eventet">
-            🗑️ Radera eventet
-          </button>
-        </div>
-      ` : ''}
 
     </div>
   `;
@@ -1001,8 +1000,13 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     }
   });
 
-  // Delete entire tournament
-  document.getElementById('delete-tournament-btn')?.addEventListener('click', async () => {
+  document.getElementById('show-all-photos-btn')?.addEventListener('click', (e) => {
+    content.querySelectorAll('.photo-card-more').forEach(card => { card.hidden = false; });
+    e.currentTarget.remove();
+  });
+
+  // The host's event tools sit behind "⋯" at the top, so nobody scrolls past every photo to find them
+  async function deleteWholeEvent() {
     if (!confirm(`Är du säker på att du vill radera hela eventet "${t.name}" och alla dess spel? Detta kan INTE ångras!`)) return;
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
@@ -1012,6 +1016,23 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     } catch (err) {
       showToast(err.message, 'error');
     }
+  }
+
+  document.getElementById('event-host-menu-btn')?.addEventListener('click', () => {
+    showModal(`👑 ${escapeHtml(t.name)}`, `
+      <div class="game-action-sheet">
+        <button type="button" class="btn btn-block btn-secondary" data-host-action="people">👥 Deltagare</button>
+        <button type="button" class="btn btn-block game-action-danger" data-host-action="delete">🗑️ Radera eventet</button>
+        <p class="text-muted" style="font-size: 0.75rem; margin: 4px 0 0;">Ett event med pengar i kan inte raderas. Avsluta det i stället så hamnar allt på THE TAB.</p>
+      </div>
+    `);
+    document.querySelectorAll('.game-action-sheet [data-host-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        closeModal();
+        if (btn.dataset.hostAction === 'people') document.getElementById('event-people-btn')?.click();
+        else deleteWholeEvent();
+      });
+    });
   });
 
   // Organiser actions for a game, reached through the "⋯" on its card
@@ -1247,6 +1268,14 @@ const DEADLINES = [
   { key: '120', label: '2 h', minutes: 120 },
   { key: 'custom', label: '📅', minutes: null }
 ];
+// Automatic push to those who have not bet yet, this long before betting closes
+const REMINDERS = [
+  { min: 0, label: 'Ingen' },
+  { min: 5, label: '5 min före' },
+  { min: 15, label: '15 min före' },
+  { min: 30, label: '30 min före' },
+  { min: 60, label: '1 h före' }
+];
 
 function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   // People who can be in a game: the event's participants (picked by default), names used
@@ -1266,6 +1295,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const state = {
     type: 'winner',
     pickCount: 4,
+    remind: 15,
     name: '',
     home: '',
     away: '',
@@ -1303,6 +1333,14 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         ${DEADLINES.map(d => `<button type="button" class="ng-chip${d.key === state.deadline ? ' gold' : ''}" data-deadline="${d.key}">${d.label}</button>`).join('')}
       </div>
       <input type="datetime-local" class="form-input ng-input" id="ng-custom-deadline" style="display: none; margin-top: 8px;" />
+
+      <div id="ng-remind-wrap" style="display: none;">
+        <div class="ng-label">Påminnelse</div>
+        <div class="ng-chips" id="ng-reminders">
+          ${REMINDERS.map(r => `<button type="button" class="ng-chip${r.min === state.remind ? ' gold' : ''}" data-remind="${r.min}">${r.label}</button>`).join('')}
+        </div>
+        <p class="ng-hint">⏰ En pushnotis går automatiskt till dem som inte har tippat än.</p>
+      </div>
 
       <label class="ng-image-row" for="ng-image-input">
         <span id="ng-image-text">📷 Lägg till bild (valfritt)</span>
@@ -1525,6 +1563,22 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     else if (isPeopleGame() && g.players.length) parts.push(`${g.players.length} med`);
     parts.push(escapeHtml(g.stake.text));
     if (g.closesAt) parts.push(`stänger ${new Date(g.closesAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
+    // A reminder only makes sense before the closing time
+    document.getElementById('ng-remind-wrap').style.display = g.closesAt ? 'block' : 'none';
+    if (g.closesAt) {
+      const minsLeft = (new Date(g.closesAt).getTime() - Date.now()) / 60000;
+      const fits = (m) => m === 0 || m < minsLeft;
+      // Default 15 min (or the longest that still fits) until someone picks something
+      if (!state.remindPicked || !fits(state.remind)) {
+        state.remind = [15, 5, 0].find(fits);
+      }
+      form.querySelectorAll('[data-remind]').forEach(b => {
+        const m = Number(b.dataset.remind);
+        b.disabled = !fits(m);
+        b.classList.toggle('gold', m === state.remind);
+      });
+      if (state.remind > 0) parts.push(`påminner ${state.remind} min före`);
+    }
     document.getElementById('ng-summary').innerHTML = g.problem
       ? `<span class="ng-summary-todo">${escapeHtml(g.problem)}</span>`
       : parts.join(' · ');
@@ -1540,6 +1594,12 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     if (state.type === 'picks') { state.fixedStake = 50; people.forEach(p => { p.selected = false; }); }
     renderFields();
     renderStake();
+    updateSummary();
+  }));
+
+  form.querySelectorAll('[data-remind]').forEach(btn => btn.addEventListener('click', () => {
+    state.remind = Number(btn.dataset.remind);
+    state.remindPicked = true;
     updateSummary();
   }));
 
@@ -1623,6 +1683,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         betAmount: g.stake.betAmount,
         ...(g.stake.minBet !== undefined ? { minBet: g.stake.minBet, maxBet: g.stake.maxBet } : {}),
         closesAt: g.closesAt,
+        ...(g.closesAt && state.remind > 0 ? { remindBeforeMin: state.remind } : {}),
         imageUrl: state.imageData || undefined,
         pin
       });

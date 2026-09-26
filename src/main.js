@@ -206,8 +206,8 @@ function initPwa() {
   if (shouldShowAutoPrompt()) {
     const offerInstall = () => {
       if (isAppStandalone() || !shouldShowAutoPrompt()) return;
-      // Never interrupt a game in progress (it would replace the game dialog)
-      if (isGameInProgress()) {
+      // Never replace a dialog that is open (a game, its result, a form...)
+      if (isGameInProgress() || document.getElementById('modal-root')?.childElementCount) {
         setTimeout(offerInstall, 30000);
         return;
       }

@@ -3565,21 +3565,6 @@ select.form-input option {
   line-height: 1.45;
 }
 
-.event-danger-zone {
-  margin-top: var(--space-xl);
-  padding-top: var(--space-md);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  text-align: center;
-}
-
-.event-danger-zone .btn {
-  background: transparent;
-  border: 1px dashed rgba(255, 107, 107, 0.4);
-  color: #ff6b6b;
-  font-size: 0.8rem;
-  box-shadow: none;
-}
-
 /* ── Game cards on the event page ─────────────────── */
 .game-done {
   margin: 4px 0 16px;
@@ -5005,3 +4990,11 @@ button.notif-item {
 .event-people-name small { margin-left: 6px; font-weight: 500; font-size: 0.72rem; color: var(--text-muted); }
 .event-people-remove { flex-shrink: 0; padding: 5px 12px; border-radius: 99px; border: 1px solid rgba(248, 113, 113, 0.5); background: none; color: #f87171; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
 .event-people-remove:disabled { opacity: 0.5; }
+.ng-chip:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.event-host-menu {
+  min-width: 40px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1;
+}

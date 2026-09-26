@@ -252,6 +252,27 @@ function remindHostsToSettle() {
 }
 setInterval(remindHostsToSettle, 60 * 60 * 1000).unref();
 
+// Reminders before betting closes: "15 min left – place your tip"
+function sendDeadlineReminders(now = Date.now()) {
+  try {
+    for (const e of db.getEventsDueForReminder(now)) {
+      db.markEventReminded(e.id);
+      const targets = db.getReminderTargets(e);
+      if (targets.length === 0) continue;
+      const mins = Math.max(1, Math.round((new Date(e.closes_at).getTime() - now) / 60000));
+      const tour = e.tournament_id ? db.getTournamentById(e.tournament_id) : null;
+      sendPushToUsers(targets, {
+        title: `⏰ ${mins} min kvar: ${e.name}`,
+        body: 'Bettningen stänger snart – du har inte lagt ditt tips än!',
+        url: tour ? `/#tournament/${tour.share_code}` : `/#event/${e.share_code}`
+      }, 'tournaments', { bellType: 'deadline_reminder' }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('Error sending deadline reminders:', err);
+  }
+}
+setInterval(sendDeadlineReminders, 60 * 1000).unref();
+
 // Run daily automated database backup (every 24 hours)
 setInterval(async () => {
   try {
@@ -2799,6 +2820,14 @@ app.post('/api/events/:id/boost', async (req, res) => {
   res.json({ ok: true, lastBoostedAt: new Date().toISOString() });
 });
 
+// A reminder has to fall before the deadline, or the scheduler would send it at once
+const REMINDER_TOO_LATE = 'Påminnelsen måste ligga före spelstoppet. Välj en kortare påminnelse.';
+function reminderFits(minutesBefore, closesAt) {
+  const m = Math.round(Number(minutesBefore) || 0);
+  if (m <= 0) return true;
+  return new Date(closesAt).getTime() - m * 60000 > Date.now();
+}
+
 app.put('/api/events/:id/deadline', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
@@ -2810,7 +2839,12 @@ app.put('/api/events/:id/deadline', (req, res) => {
     if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
   }
 
+  if (validClosesAt && !reminderFits(req.body.remindBeforeMin, validClosesAt)) {
+    return res.status(400).json({ error: REMINDER_TOO_LATE });
+  }
+
   db.updateEventClosesAt(event.id, validClosesAt);
+  if ('remindBeforeMin' in (req.body || {})) db.setEventReminder(event.id, validClosesAt ? req.body.remindBeforeMin : null);
 
   broadcastToEvent(event.share_code, {
     type: 'event_deadline_updated',
@@ -3453,6 +3487,10 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
   }
 
+  if (validClosesAt && !reminderFits(req.body.remindBeforeMin, validClosesAt)) {
+    return res.status(400).json({ error: REMINDER_TOO_LATE });
+  }
+
   const eventId = generateId();
   const eventData = {
     id: eventId,
@@ -3476,6 +3514,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
   if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
+  if (validClosesAt && req.body.remindBeforeMin) db.setEventReminder(eventId, req.body.remindBeforeMin);
 
   // For 'self' mode: auto-create bets — each player bets on themselves
   if (betMode === 'self') {
@@ -6819,5 +6858,6 @@ export {
   finalizePartyRound,
   recordUserRtt,
   getLatencyCompensationMs,
-  remindHostsToSettle
+  remindHostsToSettle,
+  sendDeadlineReminders
 };

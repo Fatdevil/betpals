@@ -448,7 +448,7 @@ function renderEventContent(event, content, code) {
 
   content.innerHTML = `
     <div class="animate-in game-page">
-      ${event.imageUrl ? `
+      ${event.imageUrl && !event.tournamentId ? `
         <div class="event-hero-banner" id="event-hero-banner">
           <img src="${safeImageSrc(event.imageUrl)}" alt="" class="event-hero-backdrop" aria-hidden="true" />
           <img src="${safeImageSrc(event.imageUrl)}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
@@ -910,12 +910,21 @@ function openCalendarModal(event) {
 }
 
 function openDeadlineModal(event, content, code) {
+  // A deadline still ahead is kept by default, so changing only the reminder never removes it
+  const current = parseDateSafe(event.closesAt);
+  const keepCurrent = Boolean(current && current.getTime() > Date.now());
+  const fmtCurrent = keepCurrent ? current.toLocaleString('sv-SE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const pickedStyle = 'border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);';
   showModal('⏰ Ändra spelstopp / Tidsgräns', `
     <form id="edit-deadline-form">
       <div class="form-group mb-sm">
         <label class="form-label mb-xs">Välj ny tidsgräns för "${escapeHtml(event.name)}"</label>
         <div class="flex gap-xs" style="flex-wrap: wrap; margin-bottom: 8px;" id="modal-deadline-buttons">
-          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn selected" data-min="0" style="font-size: 0.72rem; padding: 4px 8px; border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);">
+          ${keepCurrent ? `
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="keep" style="font-size: 0.72rem; padding: 4px 8px; ${pickedStyle}">
+            📌 Behåll ${escapeHtml(fmtCurrent)}
+          </button>` : ''}
+          <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="0" style="font-size: 0.72rem; padding: 4px 8px; ${keepCurrent ? '' : pickedStyle}">
             ♾️ Ingen tidsgräns
           </button>
           <button type="button" class="btn btn-sm btn-secondary modal-dl-btn" data-min="15" style="font-size: 0.72rem; padding: 4px 8px;">
@@ -938,7 +947,15 @@ function openDeadlineModal(event, content, code) {
           <input type="datetime-local" class="form-input" id="modal-custom-dl-input" style="font-size: 0.85rem;" />
         </div>
         <div id="modal-dl-preview" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">
-          Spelet kommer vara öppet tills det stängs manuellt.
+          ${keepCurrent ? `Spelstoppet ligger kvar: ${escapeHtml(fmtCurrent)} 📌` : 'Spelet kommer vara öppet tills det stängs manuellt.'}
+        </div>
+      </div>
+      <div class="form-group mb-sm" id="modal-remind-wrap"${keepCurrent ? '' : ' style="display: none;"'}>
+        <label class="form-label mb-xs">⏰ Påminnelse till dem som inte har tippat</label>
+        <div class="flex gap-xs" style="flex-wrap: wrap;">
+          ${[[0, 'Ingen'], [5, '5 min före'], [15, '15 min före'], [30, '30 min före'], [60, '1 h före']].map(([m, l]) => `
+            <button type="button" class="btn btn-sm btn-secondary modal-remind-btn" data-remind="${m}" style="font-size: 0.72rem; padding: 4px 8px;">${l}</button>
+          `).join('')}
         </div>
       </div>
       <button type="submit" class="btn btn-primary btn-block" style="padding: 10px; font-weight: 700;">
@@ -947,7 +964,7 @@ function openDeadlineModal(event, content, code) {
     </form>
   `);
 
-  let newClosesAt = null;
+  let newClosesAt = keepCurrent ? current.toISOString() : null;
   const dlBtns = document.querySelectorAll('.modal-dl-btn');
   const customCont = document.getElementById('modal-custom-dl-container');
   const customInp = document.getElementById('modal-custom-dl-input');
@@ -963,7 +980,11 @@ function openDeadlineModal(event, content, code) {
       btn.style.background = 'rgba(245,166,35,0.12)';
 
       const min = btn.dataset.min;
-      if (min === '0') {
+      if (min === 'keep') {
+        newClosesAt = current.toISOString();
+        if (customCont) customCont.style.display = 'none';
+        if (preview) preview.textContent = `Spelstoppet ligger kvar: ${fmtCurrent} 📌`;
+      } else if (min === '0') {
         newClosesAt = null;
         if (customCont) customCont.style.display = 'none';
         if (preview) preview.textContent = 'Spelet kommer vara öppet tills det stängs manuellt.';
@@ -985,20 +1006,42 @@ function openDeadlineModal(event, content, code) {
         if (customCont) customCont.style.display = 'none';
         if (preview) preview.textContent = `Nytt spelstopp: kl ${target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (om ${minNum} min) ⏱️`;
       }
+      paintRemind();
     });
   });
+
+  // Reminders only make sense with a deadline, and only if they fit before it
+  let remindBeforeMin = event.remindBeforeMin || 0;
+  const remindWrap = document.getElementById('modal-remind-wrap');
+  const remindBtns = document.querySelectorAll('.modal-remind-btn');
+  const fits = (m) => !m || (newClosesAt && new Date(newClosesAt).getTime() - m * 60000 > Date.now());
+  function paintRemind() {
+    if (remindWrap) remindWrap.style.display = newClosesAt ? '' : 'none';
+    if (!fits(remindBeforeMin)) remindBeforeMin = [15, 5, 0].find(fits);
+    remindBtns.forEach(b => {
+      const m = Number(b.dataset.remind);
+      const on = m === remindBeforeMin;
+      b.disabled = !fits(m);
+      b.style.opacity = b.disabled ? '0.4' : '';
+      b.style.border = on ? '1.5px solid var(--gold)' : '1px solid var(--border-light)';
+      b.style.background = on ? 'rgba(245,166,35,0.12)' : 'var(--bg-card)';
+    });
+  }
+  remindBtns.forEach(b => b.addEventListener('click', () => { remindBeforeMin = Number(b.dataset.remind); paintRemind(); }));
+  paintRemind();
 
   customInp?.addEventListener('input', () => {
     if (customInp.value) {
       newClosesAt = new Date(customInp.value).toISOString();
       if (preview) preview.textContent = `Nytt spelstopp: ${new Date(customInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+      paintRemind();
     }
   });
 
   document.getElementById('edit-deadline-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-      await updateEventDeadline(event.id, newClosesAt);
+      await updateEventDeadline(event.id, newClosesAt, newClosesAt ? remindBeforeMin : 0);
       closeModal();
       showToast('Spelstopp uppdaterat! ⏰', 'success');
       const updated = await getEvent(code);

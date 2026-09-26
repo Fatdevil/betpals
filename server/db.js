@@ -178,6 +178,9 @@ try { db.exec("ALTER TABLE tournaments ADD COLUMN settle_reminded_at TEXT"); } c
 // "Pick N" games: everyone picks N options, most correct takes the pot
 try { db.exec('ALTER TABLE events ADD COLUMN pick_count INTEGER'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN pick_result TEXT'); } catch {}
+// Automatic reminder push N minutes before a game's betting closes
+try { db.exec('ALTER TABLE events ADD COLUMN remind_before_min INTEGER'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN reminded_at TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE tournament_participants ADD COLUMN account_deleted INTEGER NOT NULL DEFAULT 0'); } catch {}
@@ -1377,6 +1380,7 @@ export function getFullEvent(idOrCode) {
     imageUrl: event.image_url || null,
     winnerImageUrl: event.winner_image_url || null,
     closesAt: event.closes_at || null,
+    remindBeforeMin: event.remind_before_min || null,
     lastBoostedAt: event.last_boosted_at || null,
     players: mappedPlayers,
     ...(event.bet_mode === 'picks' ? pickGameDetails(event) : {}),
@@ -1597,6 +1601,43 @@ export function finishEvent(eventId, winnerId, winnerImageUrl = null) {
 
 export function updateEventClosesAt(eventId, closesAt) {
   stmts.updateEventClosesAt.run(closesAt || null, eventId);
+  // A new closing time gets its own reminder
+  db.prepare('UPDATE events SET reminded_at = NULL WHERE id = ?').run(eventId);
+}
+
+export function setEventReminder(eventId, minutesBefore) {
+  const m = Math.round(Number(minutesBefore) || 0);
+  db.prepare('UPDATE events SET remind_before_min = ?, reminded_at = NULL WHERE id = ?').run(m >= 1 && m <= 1440 ? m : null, eventId);
+}
+
+// Open games whose reminder time has come (and whose betting has not closed yet)
+export function getEventsDueForReminder(now = Date.now()) {
+  return db.prepare(`
+    SELECT e.* FROM events e
+    WHERE e.status = 'open' AND e.closes_at IS NOT NULL AND e.remind_before_min IS NOT NULL
+      AND e.reminded_at IS NULL AND COALESCE(e.bet_mode, 'open') != 'self'
+  `).all().filter(e => {
+    const closes = new Date(e.closes_at).getTime();
+    return closes > now && closes - e.remind_before_min * 60000 <= now;
+  });
+}
+
+export function markEventReminded(eventId) {
+  db.prepare("UPDATE events SET reminded_at = datetime('now') WHERE id = ?").run(eventId);
+}
+
+// Who gets the reminder: people in the event who have not bet on this game yet
+export function getReminderTargets(event) {
+  const betIds = new Set(db.prepare('SELECT DISTINCT user_id FROM bets WHERE event_id = ? AND user_id IS NOT NULL').all(event.id).map(r => r.user_id));
+  // A game outside an event: the organiser and their friends, like a boost
+  if (!event.tournament_id) {
+    if (!event.creator_id) return [];
+    const ids = [event.creator_id, ...db.prepare('SELECT friend_id FROM friends WHERE user_id = ?').all(event.creator_id).map(r => r.friend_id)];
+    return [...new Set(ids)].filter(uid => uid && !betIds.has(uid));
+  }
+  // People who left or were removed keep old (cancelled) bets but should not be nagged
+  const removed = new Set(db.prepare('SELECT user_id FROM tournament_removed WHERE tournament_id = ?').all(event.tournament_id).map(r => r.user_id));
+  return getTournamentMemberIds(event.tournament_id).filter(uid => !betIds.has(uid) && !removed.has(uid));
 }
 
 export function updateEventLastBoosted(eventId) {
