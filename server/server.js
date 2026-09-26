@@ -3618,6 +3618,26 @@ app.delete('/api/tournaments/:id/banners/:bannerId', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Remove someone from an event (host), or leave it yourself ──
+app.delete('/api/tournaments/:id/participants/:participantId', (req, res) => {
+  const tournament = db.getTournamentById(req.params.id) || db.getTournamentByCode(req.params.id);
+  if (!tournament) return res.status(404).json({ error: 'Eventet hittades inte' });
+  const user = getUserFromToken(req);
+  const participant = db.getTournamentParticipants(tournament.id).find(p => p.id === req.params.participantId);
+  if (!participant) return res.status(404).json({ error: 'Deltagaren hittades inte' });
+  const isCreator = user && tournament.creator_id === user.id;
+  const isSelf = user && participant.user_id === user.id;
+  const hasPin = lazyAdminPin(req, req.body?.pin);
+  if (!isCreator && !isSelf && !hasPin()) return res.status(403).json({ error: 'Ingen behörighet' });
+  try {
+    db.removeTournamentParticipant(tournament.id, participant.id);
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({ error: err.message });
+  }
+  broadcastToEvent(tournament.share_code, { type: 'tournament_updated', tournamentCode: tournament.share_code });
+  res.json({ ok: true, left: Boolean(isSelf) });
+});
+
 // ── Delete Tournament ────────────────────────────────
 app.delete('/api/tournaments/:id', (req, res) => {
   const tournament = db.getFullTournament(req.params.id);

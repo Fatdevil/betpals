@@ -1,4 +1,4 @@
-import { getTournament, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, lockEvent, reopenEvent, boostEvent, updateEventDeadline, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
+import { getTournament, removeTournamentParticipant, addTournamentRound, getTournamentQR, markBetPaid, createSideBet, addTournamentBanner, deleteTournamentBanner, getTournamentPhotos, uploadTournamentPhoto, deleteTournamentPhoto, togglePhotoLike, toggleSettlementReceipt, deleteTournament, deleteEvent, settleTournament, reopenTournament, cancelEvent, lockEvent, reopenEvent, boostEvent, updateEventDeadline, getActiveFlashBets, connectWebSocket, disconnectWebSocket, onWebSocketMessage, addFriend, inviteFriendsToTournament, getFriends } from '../api.js';
 import { formatCurrency, formatDeadline, parseDateSafe, showToast, launchConfetti, escapeHtml, sanitizeUrl, safeImageSrc, getAppBaseUrl } from '../utils.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { showModal, closeModal } from '../components/modal.js';
@@ -514,22 +514,59 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     document.getElementById('add-photo-btn')?.click();
   });
 
-  // Who is in the event
+  // Who is in the event: the host can take people out, anyone can leave (not while they
+  // have money in the event – the server checks that)
   document.getElementById('event-people-btn')?.addEventListener('click', () => {
     if (people.length === 0) {
       document.getElementById('share-tournament-btn')?.click();
       return;
     }
-    showModal(`👥 Med i eventet (${people.length})`, `
-      <div style="display: flex; flex-direction: column; gap: 6px;">
-        ${people.map(n => `
-          <div class="flex" style="align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <span class="event-people-av">${escapeHtml(initials(n))}</span>
-            <span style="font-weight: 600;">${escapeHtml(n)}</span>
-          </div>
-        `).join('')}
+    const list = (t.participants || []).filter(p => String(p.name || '').trim());
+    const me = user ? list.find(p => p.userId === user.id) : null;
+    showModal(`👥 Med i eventet (${list.length})`, `
+      <div class="event-people-list">
+        ${list.map(p => {
+          const isHost = p.userId && p.userId === t.creatorId;
+          const canRemove = isCreator && !isHost && !(me && p.id === me.id);
+          return `
+          <div class="event-people-row">
+            <span class="event-people-av">${escapeHtml(initials(p.name))}</span>
+            <span class="event-people-name">${escapeHtml(p.name)}
+              ${isHost ? '<small>👑 värd</small>' : ''}
+              ${me && p.id === me.id ? '<small>(du)</small>' : ''}
+              ${p.accountDeleted ? '<small>(konto borttaget)</small>' : ''}
+            </span>
+            ${canRemove ? `<button type="button" class="event-people-remove" data-remove="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}">Ta bort</button>` : ''}
+          </div>`;
+        }).join('')}
       </div>
+      ${me && !isCreator ? '<button type="button" class="btn btn-secondary btn-block mt-md" id="event-leave-btn">🚪 Lämna eventet</button>' : ''}
+      ${isCreator ? '<p class="text-muted" style="font-size: 0.75rem; margin-top: 10px;">Den som har spel i eventet kan inte tas bort – då skulle vinster och skulder försvinna. Avbryt spelen först om personen inte ska vara med.</p>' : ''}
     `);
+    document.querySelectorAll('.event-people-remove').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm(`Ta bort ${btn.dataset.name} från ${t.name}?`)) return;
+      btn.disabled = true;
+      try {
+        await removeTournamentParticipant(t.id, btn.dataset.remove, sessionStorage.getItem('betpals_pin') || '');
+        closeModal();
+        showToast(`${btn.dataset.name} är borttagen från eventet`, 'success');
+        await refreshAfterGameAction();
+      } catch (err) {
+        btn.disabled = false;
+        showToast(err.message, 'error');
+      }
+    }));
+    document.getElementById('event-leave-btn')?.addEventListener('click', async () => {
+      if (!confirm(`Lämna ${t.name}? Du är då inte längre med bland deltagarna.`)) return;
+      try {
+        await removeTournamentParticipant(t.id, me.id);
+        closeModal();
+        showToast('Du har lämnat eventet', 'info');
+        navigate('home');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
   });
 
   // Click round to view

@@ -84,11 +84,10 @@ test('Superadmin deleteUser: removes user and cascades relationships safely', ()
   assert.equal(userABet.userId, null, 'Bet userId should be set to NULL');
   assert.equal(userABet.bettorName, 'User A Bettor', 'Bettor name must be preserved');
 
-  // 12. Verify tournament participant row is kept with user_id NULL
+  // 12. User A had no money in this event, so they leave it with their account
+  // (where they have played they stay, marked as deleted: see event-participants.test.js)
   const tourneyParts = db.getTournamentParticipants(tourneyId);
-  const partRow = tourneyParts.find(p => p.name === 'Participant A');
-  assert.ok(partRow, 'Participant row should still exist');
-  assert.equal(partRow.user_id, null, 'Participant user_id should be NULL');
+  assert.equal(tourneyParts.some(p => p.name === 'Participant A'), false, 'Participant without money in the event is removed');
 
   // 13. Verify event creator is set to NULL
   const ev = db.getEventById(eventId);
