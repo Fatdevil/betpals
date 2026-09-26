@@ -1953,10 +1953,20 @@ export function getAllTournaments(userId = null) {
     ORDER BY t.created_at DESC
   `).all(userId, userId, userId, userId, userId, userId);
 
+  const myBetEventIds = new Set(
+    db.prepare('SELECT DISTINCT event_id FROM bets WHERE user_id = ?').all(userId).map(r => r.event_id)
+  );
+  const now = Date.now();
+
   return tournaments.map(t => {
     const rounds = stmts.getEventsByTournament.all(t.id);
     const finishedRounds = rounds.filter(r => r.status === 'finished');
     const banners = stmts.getBannersByTournament.all(t.id);
+    // For the home card: games you can still bet on, and which of those you have not bet on
+    const openGames = rounds.filter(r => r.status === 'open'
+      && (r.bet_mode || 'open') !== 'self'
+      && (!r.closes_at || new Date(r.closes_at).getTime() > now));
+    const totalPool = rounds.reduce((sum, r) => sum + (stmts.getTotalPool.get(r.id).total || 0), 0);
     return {
       id: t.id,
       name: t.name,
@@ -1967,6 +1977,14 @@ export function getAllTournaments(userId = null) {
       createdAt: t.created_at,
       roundCount: rounds.length,
       finishedCount: finishedRounds.length,
+      openGameCount: openGames.length,
+      openUnbetCount: openGames.filter(r => !myBetEventIds.has(r.id)).length,
+      participantCount: (() => {
+        // The creator counts even before opening the event (which registers them)
+        const parts = stmts.getTournamentParticipants.all(t.id);
+        return parts.length + (t.creator_id && !parts.some(pt => pt.user_id === t.creator_id) ? 1 : 0);
+      })(),
+      totalPool,
       bannerCount: banners.length,
       banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label }))
     };

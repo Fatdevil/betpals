@@ -69,42 +69,76 @@ export async function renderHome() {
         : 'Logga in för att se dina event och betta med kompisarna.');
       attachLoginPrompt(tList);
     } else if (tournaments.length > 0) {
-      const hasActive = tournaments.some(t => t.status === 'active');
-      const badgeText = hasActive ? 'LIVE' : 'SEASON 2026';
+      const activeCount = tournaments.filter(t => t.status === 'active').length;
+      const headerBadge = activeCount > 0
+        ? `${activeCount} ${isEn ? 'LIVE' : 'PÅGÅR'}`
+        : (isEn ? 'SEASON 2026' : 'SÄSONG 2026');
+      // One clearly tappable card per event: chevron, status, one info line and an action
+      // row that says what to do next. Sponsors sit below the action, never in the way.
+      const renderEventCard = (tr, i) => {
+        const isActive = tr.status === 'active';
+        const games = tr.roundCount || 0;
+        const info = [
+          games === 0 ? (isEn ? 'No games yet' : 'Inga spel än') : `<b>${games} ${isEn ? (games === 1 ? 'game' : 'games') : 'spel'}</b>`,
+          tr.participantCount ? `👥 ${tr.participantCount} ${isEn ? 'in' : 'med'}` : '',
+          tr.totalPool > 0 ? `${isEn ? 'pot' : 'pott'} ${formatCurrency(tr.totalPool)}` : ''
+        ].filter(Boolean).join(' · ');
+        let action;
+        if (!isActive) {
+          action = `<span class="home-event-note">🏁 ${isEn ? 'Settled – see the results' : 'Avgjort – se resultatet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+        } else if (tr.openUnbetCount > 0) {
+          action = `<span class="home-event-note home-event-note-go">${tr.openUnbetCount} ${isEn ? (tr.openUnbetCount === 1 ? 'game open for bets' : 'games open for bets') : (tr.openUnbetCount === 1 ? 'spel öppet för bets' : 'spel öppna för bets')}</span><span class="home-event-cta">${isEn ? 'Bet now' : 'Betta nu'} →</span>`;
+        } else if (tr.openGameCount > 0) {
+          action = `<span class="home-event-note">✓ ${isEn ? 'You have bet on everything' : 'Du har bettat på allt'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+        } else if (games === 0) {
+          action = `<span class="home-event-note">${isEn ? 'Waiting for the first game' : 'Väntar på första spelet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+        } else {
+          action = `<span class="home-event-note">${isEn ? 'No open bets right now' : 'Inga öppna bets just nu'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+        }
+        return `
+          <div class="home-event-card card-clickable animate-in" data-tournament-code="${escapeHtml(tr.shareCode)}"
+               role="link" tabindex="0" style="animation-delay: ${i * 0.08}s">
+            <div class="home-event-top">
+              <h3 class="home-event-title">${escapeHtml(tr.name)}</h3>
+              <span class="home-event-chevron" aria-hidden="true">›</span>
+            </div>
+            <span class="game-pill ${isActive ? 'game-pill-open' : 'game-pill-done'}">${isActive ? `<i></i>${isEn ? 'Live' : 'Pågår'}` : `🏁 ${isEn ? 'Settled' : 'Avgjort'}`}</span>
+            <div class="home-event-info">${info}</div>
+            <div class="home-event-action">${action}</div>
+            ${tr.banners && tr.banners.length > 0 ? `
+              <div class="home-event-sponsors">
+                <div class="home-event-sponsors-label">${isEn ? 'Sponsored by' : 'Sponsrat av'}</div>
+                ${renderSponsorCarousel(tr.banners, { carouselId: `home-sponsor-carousel-${i}`, showSectionHeader: false })}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      };
       tList.innerHTML = `
         <div class="section-header-bar">
           <div class="section-header-title">
             <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b; margin-right: 2px;"></span>
-            <img src="/chip-malta-transparent.png" alt="Events" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
-            <span>EVENTS</span>
+            <img src="/chip-malta-transparent.png" alt="" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+            <span>${isEn ? 'YOUR EVENTS' : 'DINA EVENT'}</span>
           </div>
           <div class="flex gap-xs" style="align-items: center;">
             <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
-              ${badgeText}
+              ${headerBadge}
             </span>
           </div>
         </div>
-        ${tournaments.map((tr, i) => `
-          <div class="card card-clickable animate-in mb-sm" data-tournament-code="${escapeHtml(tr.shareCode)}"
-               style="animation-delay: ${i * 0.08}s">
-            <div class="flex-between">
-              <div>
-                <h3 style="font-family: var(--font-heading); font-weight: 700; font-size: 1.1rem;">${escapeHtml(tr.name)}</h3>
-                <p class="text-secondary" style="font-size: 0.8rem; margin-top: 2px;">
-                  ${tr.finishedCount}/${tr.roundCount} ${t('home.rounds')} · ${t('home.code')}: <span class="text-gold">${escapeHtml(tr.shareCode)}</span>
-                </p>
-              </div>
-              <span class="badge ${tr.status === 'active' ? 'badge-accent' : 'badge-success'}">
-                ${tr.status === 'active' ? t('common.active') : '✅ ' + t('common.finished')}
-              </span>
-            </div>
-            ${tr.banners && tr.banners.length > 0 ? renderSponsorCarousel(tr.banners, {
-              carouselId: `home-sponsor-carousel-${i}`,
-              showSectionHeader: false
-            }) : ''}
-          </div>
-        `).join('')}
+        ${tournaments.map(renderEventCard).join('')}
       `;
+
+      // Tapping an ad opens the sponsor, not the event
+      tList.querySelectorAll('.home-event-sponsors').forEach(el => {
+        el.addEventListener('click', e => e.stopPropagation());
+      });
+      tList.querySelectorAll('.home-event-card').forEach(card => {
+        card.addEventListener('keydown', e => {
+          if (e.key === 'Enter') navigate('tournament', { code: card.dataset.tournamentCode });
+        });
+      });
 
       tList.querySelectorAll('[data-tournament-code]').forEach(card => {
         card.addEventListener('click', () => {
@@ -177,19 +211,11 @@ export async function renderHome() {
             </div>
             <span class="badge ${statusBadgeClass(ev.status)}">${statusLabel(ev.status)}</span>
           </div>
-          <div class="stats-row mt-md" style="margin-bottom: 0;">
-            <div class="stat-card">
-              <div class="stat-value">${formatCurrency(ev.totalPool)}</div>
-              <div class="stat-label">${t('home.totalPool')}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value">${ev.payoutPercent}%</div>
-              <div class="stat-label">${t('home.payout')}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value">${escapeHtml(ev.shareCode)}</div>
-              <div class="stat-label">${t('home.code')}</div>
-            </div>
+          <div class="home-event-action">
+            <span class="home-event-note">${isEn ? 'Pot' : 'Pott'} ${formatCurrency(ev.totalPool)}</span>
+            ${ev.status === 'open'
+              ? `<span class="home-event-cta">${isEn ? 'Bet' : 'Betta'} →</span>`
+              : `<span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`}
           </div>
         </div>
       `).join('');
