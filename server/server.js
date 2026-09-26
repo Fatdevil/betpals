@@ -2200,7 +2200,7 @@ function notifyFriendAccepted(requesterId, accepter) {
 
 // ── Inbox (the bell) ─────────────────────────────────
 app.get('/api/inbox', requireAuth, (req, res) => {
-  res.json(db.getInbox(req.user.id));
+  res.json(db.getInbox(req.user.id, req.query.lang === 'en' ? 'en' : 'sv'));
 });
 
 app.post('/api/inbox/read', requireAuth, (req, res) => {
@@ -2673,6 +2673,8 @@ app.post('/api/events/:id/reopen', (req, res) => {
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
 
   const newStatus = db.reopenEvent(req.params.id);
+  // The result was taken back: its result notifications no longer hold
+  db.deleteNotificationsByRef(`game:${req.params.id}`);
   broadcastToEvent(event.share_code, { type: 'event_reopened', eventCode: event.share_code, status: newStatus });
 
   if (event.tournament_id) {
@@ -2902,6 +2904,9 @@ app.post('/api/events/:id/finish', (req, res) => {
     const tour = db.getTournamentById(event.tournament_id);
     if (tour) resultUrl = `/#tournament/${tour.share_code}`;
   }
+  // One result per game: a corrected result replaces the earlier one
+  const resultRef = `game:${event.id}`;
+  db.deleteNotificationsByRef(resultRef);
   for (const [uid, net] of netByUser) {
     const kr = Math.round(net);
     db.addUserNotification(uid, {
@@ -2909,7 +2914,8 @@ app.post('/api/events/:id/finish', (req, res) => {
       icon: kr > 0 ? '🏆' : kr < 0 ? '💸' : '🤝',
       text: `${full.name}: ${winnerNames} vann`,
       detail: kr > 0 ? `Du vann ${kr} kr` : kr < 0 ? `Du förlorade ${Math.abs(kr)} kr` : 'Du gick jämnt ut',
-      url: resultUrl
+      url: resultUrl,
+      ref: resultRef
     });
   }
 

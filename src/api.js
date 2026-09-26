@@ -380,7 +380,7 @@ export const getMyStats = () => request('/users/me/stats');
 // ── Minigame Duels & Swish settlements ────────────────
 export const createDuel = (data) => request('/duels', { method: 'POST', body: data });
 export const getPendingDuels = () => request('/duels/pending');
-export const getInbox = () => request('/inbox');
+export const getInbox = (lang = 'sv') => request(`/inbox${lang === 'en' ? '?lang=en' : ''}`);
 export const markInboxRead = () => request('/inbox/read', { method: 'POST', body: {} });
 export const clearInbox = () => request('/inbox/clear', { method: 'POST', body: {} });
 export const getDuelSettlements = () => request('/duels/settlements');

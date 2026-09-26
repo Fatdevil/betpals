@@ -406,7 +406,7 @@ async function initHomeActionFeed(isEn, events = []) {
   try {
     // Same list as the bell's "Väntar på dig", so the two always agree
     const [inbox, settlements] = await Promise.all([
-      getInbox().catch(() => null),
+      getInbox(isEn ? 'en' : 'sv').catch(() => null),
       getSettlementsOverview().catch(() => null)
     ]);
 

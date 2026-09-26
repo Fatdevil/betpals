@@ -76,7 +76,7 @@ test('a quiet event with results reminds its host once', () => {
 test('home asks only for money that is ready; the event card shows where you stand', () => {
   const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
   // Home shows the shared inbox list, whose swish item only counts ready money
-  assert.match(home, /getInbox\(\)/);
+  assert.match(home, /getInbox\(/);
   const dbSrc = readFileSync(new URL('../server/db.js', import.meta.url), 'utf8');
   assert.match(dbSrc, /if \(o\.readyOwed > 0\) \{/);
   assert.match(home, /showLiveStandings\(settlements, isEn\);/);

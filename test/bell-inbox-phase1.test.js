@@ -122,3 +122,32 @@ test('the bell and home share one list; game-page chatter is gone from the bell'
   const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
   assert.match(home, /for \(const t of inbox\?\.todos \|\| \[\]\)/);
 });
+
+test('a corrected result replaces the earlier one in the bell', async () => {
+  const { host, guest, ev, p1, p2 } = await eventWithGame();
+  db.addBet(uid(), ev, host.nickname, p1, 50, host.id);
+  db.addBet(uid(), ev, guest.nickname, p2, 50, guest.id);
+  await call('POST', `/api/events/${ev}/finish`, { winnerId: p1 }, host.token);
+  assert.equal((await call('POST', `/api/events/${ev}/reopen`, {}, host.token)).status, 200);
+  assert.equal(db.getInbox(guest.id).items.filter(n => n.type === 'game_result').length, 0);
+  await call('POST', `/api/events/${ev}/finish`, { winnerId: p2 }, host.token);
+  const results = db.getInbox(guest.id).items.filter(n => n.type === 'game_result');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].detail, 'Du vann 50 kr');
+});
+
+test('a date-only AnyBet deadline lasts the whole day before the judge is asked', async () => {
+  const judge = await registerUser('ju'), a = await registerUser('aa'), b = await registerUser('bb');
+  const today = new Date().toISOString().slice(0, 10);
+  const bet = db.createAnyBet({ title: 'Idag?', creatorId: judge.id, judgeId: judge.id, stakeAmount: 20, betType: 'winner_takes_all', deadline: today, participantIds: [a.id, b.id], creatorPlays: false });
+  for (const u of [a, b]) db.acceptAnyBet(bet.id, u.id);
+  assert.equal(todoKeys(judge.id).includes('anybet-judge'), db.isDeadlinePassed(today));
+});
+
+test('to-dos follow the chosen language', async () => {
+  const a = await registerUser('fa'), b = await registerUser('fb');
+  db.createFlashBet(uid(), a.id, null, 'Rain?', 300, new Date(Date.now() + 300000).toISOString(), 20, [b.id]);
+  const en = (await call('GET', '/api/inbox?lang=en', null, b.token)).body.todos.find(t => t.key.startsWith('flashbet'));
+  assert.match(en.subtitle, /min left/);
+  assert.equal(en.action, 'Answer');
+});

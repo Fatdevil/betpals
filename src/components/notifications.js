@@ -5,6 +5,7 @@
 import { getInbox, markInboxRead, clearInbox, acceptFriendRequest, declineFriendRequest } from '../api.js';
 import { isLoggedIn, getToken } from '../auth.js';
 import { escapeHtml, showToast } from '../utils.js';
+import { getLang } from '../i18n.js';
 
 const MAX_NOTIFICATIONS = 20;
 let notifications = [];
@@ -83,7 +84,7 @@ export async function refreshInbox() {
   const token = getToken();
   let fresh;
   try {
-    fresh = await getInbox();
+    fresh = await getInbox(getLang());
   } catch (e) {
     return;
   }

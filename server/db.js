@@ -563,6 +563,7 @@ try {
   `);
 } catch {}
 try { db.exec('ALTER TABLE user_notifications ADD COLUMN detail TEXT'); } catch {}
+try { db.exec('ALTER TABLE user_notifications ADD COLUMN ref TEXT'); } catch {}
 
 // Friendships require consent: requests live here until accepted
 try {
@@ -2876,10 +2877,10 @@ export function declineFriendRequest(fromUserId, toUserId) {
   return stmts.deleteFriendRequest.run(fromUserId, toUserId).changes > 0;
 }
 
-export function addUserNotification(userId, { type, icon = '🔔', text, detail = null, url = null }) {
+export function addUserNotification(userId, { type, icon = '🔔', text, detail = null, url = null, ref = null }) {
   if (!userId || !text) return;
-  db.prepare('INSERT INTO user_notifications (id, user_id, type, icon, text, detail, url) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(crypto.randomUUID(), userId, type, icon, text, detail, url);
+  db.prepare('INSERT INTO user_notifications (id, user_id, type, icon, text, detail, url, ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(crypto.randomUUID(), userId, type, icon, text, detail, url, ref);
   // Keep the latest 50 per person
   db.prepare(`DELETE FROM user_notifications WHERE user_id = ? AND id NOT IN (
     SELECT id FROM user_notifications WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 50)`).run(userId, userId);
@@ -2888,7 +2889,9 @@ export function addUserNotification(userId, { type, icon = '🔔', text, detail 
 // What the bell shows: things waiting for you, then what happened to you
 // Things waiting for you, worked out from how things stand right now, so each one
 // disappears by itself once it is done. Shared by the bell and the home page.
-export function getInboxTodos(userId) {
+export function getInboxTodos(userId, lang = 'sv') {
+  const en = lang === 'en';
+  const L = (sv, eng) => (en ? eng : sv);
   const todos = [];
   const now = Date.now();
   const ts = (v) => new Date(String(v).includes('T') ? v : String(v).replace(' ', 'T') + 'Z').getTime();
@@ -2898,8 +2901,8 @@ export function getInboxTodos(userId) {
     const o = getUnifiedSettlementOverview(userId);
     if (o.readyOwed > 0) {
       const people = o.friends.filter(f => !f.isLive && f.totalNet < 0);
-      const who = people.length === 1 ? (people[0].friendNickname || people[0].friendName) : `${people.length} personer`;
-      todos.push({ key: 'swish', icon: '💸', title: `Du ska swisha ${Math.round(o.readyOwed)} kr`, subtitle: `Till ${who} – ihopräknat på THE TAB`, action: 'Swisha', url: '/#swishlist' });
+      const who = people.length === 1 ? (people[0].friendNickname || people[0].friendName) : L(`${people.length} personer`, `${people.length} people`);
+      todos.push({ key: 'swish', icon: '💸', title: L(`Du ska swisha ${Math.round(o.readyOwed)} kr`, `You owe ${Math.round(o.readyOwed)} kr`), subtitle: L(`Till ${who} – ihopräknat på THE TAB`, `To ${who} – added up on The Tab`), action: L('Swisha', 'Swish'), url: '/#swishlist' });
     }
   } catch { /* the rest still works */ }
 
@@ -2915,7 +2918,7 @@ export function getInboxTodos(userId) {
     const left = ts(fb.expires_at) - now;
     if (!targets.includes(userId) || !(left > 0)) continue;
     const mins = Math.max(1, Math.ceil(left / 60000));
-    todos.push({ key: `flashbet:${fb.id}`, icon: '⚡', title: `BlixtBet: ${fb.question}`, subtitle: `Från ${fb.creator_nickname} · ${mins} min kvar`, action: 'Svara', url: `/#flashbet/${fb.id}` });
+    todos.push({ key: `flashbet:${fb.id}`, icon: '⚡', title: `BlixtBet: ${fb.question}`, subtitle: L(`Från ${fb.creator_nickname} · ${mins} min kvar`, `From ${fb.creator_nickname} · ${mins} min left`), action: L('Svara', 'Answer'), url: `/#flashbet/${fb.id}` });
   }
 
   // AnyBets you are invited to
@@ -2924,7 +2927,7 @@ export function getInboxTodos(userId) {
     FROM anybet_participants p JOIN anybets b ON b.id = p.bet_id JOIN users u ON u.id = b.creator_id
     WHERE p.user_id = ? AND p.status = 'invited' AND b.status = 'open'
   `).all(userId)) {
-    todos.push({ key: `anybet-invite:${b.id}`, icon: '🤝', title: `AnyBet: ${b.title}`, subtitle: `${b.creator_nickname} utmanar dig${b.stake_amount > 0 ? ` · ${Math.round(b.stake_amount)} kr` : ''}`, action: 'Svara', url: `/#anybet/${b.id}` });
+    todos.push({ key: `anybet-invite:${b.id}`, icon: '🤝', title: `AnyBet: ${b.title}`, subtitle: `${b.creator_nickname} ${L('utmanar dig', 'challenges you')}${b.stake_amount > 0 ? ` · ${Math.round(b.stake_amount)} kr` : ''}`, action: L('Svara', 'Answer'), url: `/#anybet/${b.id}` });
   }
 
   // AnyBets you judge that are ready to be decided
@@ -2933,9 +2936,10 @@ export function getInboxTodos(userId) {
       (SELECT COUNT(*) FROM anybet_participants p WHERE p.bet_id = b.id AND p.status = 'accepted') AS accepted
     FROM anybets b WHERE b.judge_id = ? AND b.status = 'open'
   `).all(userId)) {
-    const due = b.deadline ? ts(b.deadline) <= now : b.accepted >= 2;
+    // Same deadline rule as AnyBet itself: a date-only deadline lasts the whole day
+    const due = b.deadline ? isDeadlinePassed(b.deadline) : b.accepted >= 2;
     if (!due || b.accepted < 2) continue;
-    todos.push({ key: `anybet-judge:${b.id}`, icon: '⚖️', title: `Du är domare: ${b.title}`, subtitle: 'Avgör vem som vann', action: 'Avgör', url: `/#anybet/${b.id}` });
+    todos.push({ key: `anybet-judge:${b.id}`, icon: '⚖️', title: L(`Du är domare: ${b.title}`, `You judge: ${b.title}`), subtitle: L('Avgör vem som vann', 'Decide who won'), action: L('Avgör', 'Decide'), url: `/#anybet/${b.id}` });
   }
 
   // Games you run that are closed for bets but still have no result
@@ -2948,7 +2952,7 @@ export function getInboxTodos(userId) {
   `).all(userId, userId)) {
     const closed = e.status === 'locked' || (e.closes_at && ts(e.closes_at) <= now);
     if (!closed) continue;
-    todos.push({ key: `decide:${e.id}`, icon: '👑', title: `Avgör: ${e.name}`, subtitle: 'Bettningen är stängd – välj vinnare', action: 'Avgör', url: `/#event/${e.share_code}` });
+    todos.push({ key: `decide:${e.id}`, icon: '👑', title: L(`Avgör: ${e.name}`, `Decide: ${e.name}`), subtitle: L('Bettningen är stängd – välj vinnare', 'Betting is closed – pick the winner'), action: L('Avgör', 'Decide'), url: `/#event/${e.share_code}` });
   }
 
   // Your events where every game is decided: end it so everyone can settle up
@@ -2958,7 +2962,7 @@ export function getInboxTodos(userId) {
       AND EXISTS (SELECT 1 FROM events e WHERE e.tournament_id = t.id AND e.status = 'finished')
       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.tournament_id = t.id AND e.status NOT IN ('finished', 'cancelled'))
   `).all(userId)) {
-    todos.push({ key: `end-event:${t.id}`, icon: '🏁', title: `Avsluta ${t.name}?`, subtitle: 'Alla spel är avgjorda – då räknas allt ihop', action: 'Avsluta', url: `/#tournament/${t.share_code}` });
+    todos.push({ key: `end-event:${t.id}`, icon: '🏁', title: L(`Avsluta ${t.name}?`, `End ${t.name}?`), subtitle: L('Alla spel är avgjorda – då räknas allt ihop', 'Every game is decided – then it all adds up'), action: L('Avsluta', 'End'), url: `/#tournament/${t.share_code}` });
   }
 
   // Games in your running events that close within 30 minutes and you have not bet on
@@ -2972,16 +2976,16 @@ export function getInboxTodos(userId) {
     `).all(...myEvents, userId)) {
       const left = ts(e.closes_at) - now;
       if (!(left > 0 && left < 30 * 60 * 1000)) continue;
-      todos.push({ key: `closing:${e.id}`, icon: '⏱️', title: `Stänger om ${Math.max(1, Math.round(left / 60000))} min: ${e.name}`, subtitle: 'Du har inte bettat än', action: 'Betta', url: `/#event/${e.share_code}` });
+      todos.push({ key: `closing:${e.id}`, icon: '⏱️', title: L(`Stänger om ${Math.max(1, Math.round(left / 60000))} min: ${e.name}`, `Closes in ${Math.max(1, Math.round(left / 60000))} min: ${e.name}`), subtitle: L('Du har inte bettat än', 'You have not bet yet'), action: L('Betta', 'Bet'), url: `/#event/${e.share_code}` });
     }
   }
 
   return todos;
 }
 
-export function getInbox(userId) {
+export function getInbox(userId, lang = 'sv') {
   const requests = getFriendRequests(userId).incoming;
-  const todos = getInboxTodos(userId);
+  const todos = getInboxTodos(userId, lang);
   const items = db.prepare('SELECT id, type, icon, text, detail, url, created_at, read_at FROM user_notifications WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30')
     .all(userId)
     .map(n => ({ id: n.id, type: n.type, icon: n.icon, text: n.text, detail: n.detail, url: n.url, createdAt: n.created_at, read: Boolean(n.read_at) }));
@@ -2992,6 +2996,11 @@ export function getInbox(userId) {
     items,
     count: requests.length + todos.length + unreadItems
   };
+}
+
+// Removes notifications about something that has changed, e.g. a corrected game result
+export function deleteNotificationsByRef(ref) {
+  if (ref) db.prepare('DELETE FROM user_notifications WHERE ref = ?').run(ref);
 }
 
 export function markInboxRead(userId) {
