@@ -4,12 +4,15 @@ import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
 import { t } from '../i18n.js';
+import { openFinishEventModal } from '../components/finish-event-modal.js';
 
 let wsUnsubscribe = null;
 let countdownInterval = null;
 let resumeCleanup = null;
 // Set while a game page with bettable options is shown; redraws them on live odds
 let refreshGameOptions = null;
+// The event's organiser may also settle its games
+let tournamentCreatorById = {};
 
 // iOS closes the WebSocket silently when the app goes to the background (e.g. to pay in
 // Swish) and may restore the page from its back/forward cache with stale odds. Refresh the
@@ -181,6 +184,7 @@ export async function renderEvent(params = {}) {
         const tour = await getTournament(event.tournamentId);
         event.tournamentName = tour?.name || null;
         event.tournamentCode = tour?.shareCode || null;
+        if (tour?.creatorId) tournamentCreatorById[event.tournamentId] = tour.creatorId;
       } catch (_) {}
     }
 
@@ -326,7 +330,8 @@ function renderEventContent(event, content, code) {
   const loggedIn = isLoggedIn();
   const currentUser = getStoredUser();
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
-  const isCreatorOrAdmin = (currentUser && event.creatorId === currentUser.id) || hasPinSession;
+  const isCreatorOrAdmin = (currentUser && (event.creatorId === currentUser.id
+    || (event.tournamentId && tournamentCreatorById[event.tournamentId] === currentUser.id))) || hasPinSession;
 
   const isSelf = event.betMode === 'self';
   const canBet = isOpen && !isSelf && loggedIn && Boolean(currentUser?.swishNumber);
@@ -449,9 +454,10 @@ function renderEventContent(event, content, code) {
         <details class="game-host">
           <summary>
             <span>👑 Spelledare</span>
-            <span class="game-host-hint">${isOpen ? 'Boosta · Stäng · Spelstopp' : 'Öppna · Spelstopp'} ›</span>
+            <span class="game-host-hint">${isLockedOrExpired ? 'Avgör matchen' : 'Avgör · Boosta · Stäng'} ›</span>
           </summary>
           <div class="game-host-actions">
+            <button type="button" class="btn btn-success btn-sm" id="creator-finish-btn">🏆 Avgör matchen</button>
             ${isOpen ? `
               <button type="button" class="btn btn-primary btn-sm" id="creator-boost-btn">🚀 Boosta spelet</button>
               <button type="button" class="btn btn-secondary btn-sm" id="creator-lock-btn">🔒 Stäng bettning nu</button>
@@ -721,6 +727,16 @@ function renderEventContent(event, content, code) {
     } catch (err) {
       showToast(err.message, 'error');
     }
+  });
+
+  document.getElementById('creator-finish-btn')?.addEventListener('click', () => {
+    openFinishEventModal(event, {
+      pin: sessionStorage.getItem('betpals_pin') || '',
+      onDone: async () => {
+        const updated = await getEvent(code);
+        renderEventContent(updated, content, code);
+      }
+    });
   });
 
   document.getElementById('creator-deadline-btn')?.addEventListener('click', () => {
