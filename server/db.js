@@ -1937,6 +1937,10 @@ export function getTournamentById(id) {
   return stmts.getTournamentById.get(id);
 }
 
+// Event-linked rows that are real money in the event settlement (declined, unfinished, tied
+// and free games are not)
+const SETTLED_EVENT_DEBT_SQL = "d.status = 'completed' AND d.stake_amount > 0 AND d.winner_id IS NOT NULL AND d.winner_id != 'tie'";
+
 export function getAllTournaments(userId = null) {
   if (!userId) {
     return [];
@@ -1958,6 +1962,12 @@ export function getAllTournaments(userId = null) {
          JOIN bets b ON b.event_id = e.id
          WHERE b.user_id = ?
        )
+       OR t.id IN (
+         -- A debt linked to the event (bill, BlixtBet, AnyBet, minigame) makes you part of it
+         SELECT d.tournament_id FROM minigame_duels d
+         WHERE (d.creator_id = ? OR d.opponent_id = ?) AND d.tournament_id IS NOT NULL
+           AND ${SETTLED_EVENT_DEBT_SQL}
+       )
        OR (
          COALESCE(t.visibility, 'friends') IN ('friends', 'friends_of_friends') AND (
            t.creator_id IN (SELECT friend_id FROM friends WHERE user_id = ?)
@@ -1973,7 +1983,7 @@ export function getAllTournaments(userId = null) {
          )
        )
     ORDER BY t.created_at DESC
-  `).all(userId, userId, userId, userId, userId);
+  `).all(userId, userId, userId, userId, userId, userId, userId);
 
   return summarizeTournaments(tournaments, userId);
 }
@@ -3848,7 +3858,7 @@ export function getTournamentMemberIds(tournamentId) {
   for (const r of db.prepare('SELECT DISTINCT user_id FROM tournament_participants WHERE tournament_id = ? AND user_id IS NOT NULL').all(tournamentId)) ids.add(r.user_id);
   for (const r of db.prepare('SELECT DISTINCT b.user_id FROM bets b JOIN events e ON b.event_id = e.id WHERE e.tournament_id = ? AND b.user_id IS NOT NULL').all(tournamentId)) ids.add(r.user_id);
   // Both sides of debts linked to the event (bills, BlixtBets, AnyBets, minigames)
-  for (const r of db.prepare('SELECT creator_id, opponent_id FROM minigame_duels WHERE tournament_id = ?').all(tournamentId)) {
+  for (const r of db.prepare(`SELECT creator_id, opponent_id FROM minigame_duels d WHERE d.tournament_id = ? AND ${SETTLED_EVENT_DEBT_SQL}`).all(tournamentId)) {
     if (r.creator_id) ids.add(r.creator_id);
     if (r.opponent_id) ids.add(r.opponent_id);
   }
