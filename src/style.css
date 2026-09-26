@@ -4452,3 +4452,126 @@ body.betslip-open #malta-support-fab {
 .ng-submit:disabled {
   opacity: 0.4;
 }
+
+/* ── Home: event cards ────────────────────────────── */
+.home-event-card {
+  position: relative;
+  margin-bottom: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(245, 196, 35, 0.32);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(245, 196, 35, 0.09), rgba(245, 196, 35, 0) 60%),
+    var(--bg-card);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+}
+
+.home-event-card:active {
+  transform: scale(0.985);
+  border-color: rgba(245, 196, 35, 0.6);
+}
+
+.home-event-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-event-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.home-event-chevron {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(245, 196, 35, 0.14);
+  color: var(--gold);
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.home-event-card .game-pill {
+  margin-top: 8px;
+}
+
+.home-event-info {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #b4b4c4;
+}
+
+.home-event-info b {
+  color: #fff;
+}
+
+.home-event-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.home-event-note {
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #b4b4c4;
+}
+
+.home-event-note-go {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.home-event-cta {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #000;
+  font-weight: 800;
+  font-size: 0.88rem;
+  box-shadow: 0 4px 14px rgba(245, 196, 35, 0.25);
+}
+
+.home-event-link {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+
+.home-event-sponsors {
+  margin-top: 14px;
+  cursor: default;
+}
+
+.home-event-sponsors-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8b8b9a;
+}
+
+.home-event-sponsors .sponsor-carousel-container {
+  margin: 4px 0 0;
+}
