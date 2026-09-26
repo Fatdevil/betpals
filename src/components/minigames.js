@@ -275,52 +275,39 @@ export function renderMinigamesRoller() {
     }
   ];
 
-  const renderCard = (g) => `
-    <div class="minigame-card" data-game="${g.id}" title="${g.title}">
-      <div class="minigame-card-icon" style="display: flex; align-items: center; justify-content: center;">
-        ${g.iconHtml}
-      </div>
-      <div class="minigame-card-name">${g.name}</div>
-      <div class="minigame-card-tag">${g.tag}</div>
-    </div>
-  `;
+  const byId = Object.fromEntries([...row1Games, ...row2Games].map(g => [g.id, g]));
+  // Swipe-yourself rows (no auto-scroll): quick bets first, party games second
+  const quickRow = ['flashbet', 'flashlive', 'anybet', 'coin-flip', 'gimme'].map(id => byId[id]).filter(Boolean);
+  const partyRow = ['mafia', 'blind10', 'wheel', 'space-invaders', 'slots', 'loven-game'].map(id => byId[id]).filter(Boolean);
 
-  // Duplicate cards for seamless infinite horizontal scroll loop on both rows
-  const groupCardsRow1 = [...row1Games, ...row1Games, ...row1Games].map(renderCard).join('');
-  const groupCardsRow2 = [...row2Games, ...row2Games, ...row2Games].map(renderCard).join('');
+  const renderCard = (g) => `
+    <button type="button" class="minigame-card arcade-card" data-game="${g.id}" title="${g.title}">
+      <span class="minigame-card-icon">${g.iconHtml}</span>
+      <span class="minigame-card-name">${g.name}</span>
+      <span class="minigame-card-tag">${g.tag}</span>
+    </button>
+  `;
 
   return `
     <div class="minigames-section animate-in">
       <div class="minigames-header">
         <div class="minigames-title">
-          <span class="live-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; margin-right: 2px;"></span>
-          <img src="/chip-malta-transparent.png" alt="Arcade" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
+          <img src="/chip-malta-transparent.png" alt="" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));" />
           <span>${t('arcade.title')}</span>
         </div>
-        <div class="flex gap-xs" style="align-items: center;">
-          <button id="btn-arcade-view-all" class="arcade-view-all-btn" title="${t('arcade.allTitle')}">
-            ${t('arcade.viewAll')}
-          </button>
-          <span class="badge badge-accent" style="font-size: 0.65rem; padding: 2px 8px; letter-spacing: 0.05em;">
-            ${t('arcade.tagline')}
-          </span>
-        </div>
+        <button type="button" id="btn-arcade-view-all" class="arcade-view-all-btn" title="${t('arcade.allTitle')}">
+          ${t('arcade.viewAll')}
+        </button>
       </div>
-      
-      <div class="minigames-rows-container">
-        <!-- Row 1: Snabba Avgöranden & Vardagsbet -->
-        <div class="minigames-scroll-wrapper" id="minigames-ticker-row1">
-          <div class="minigames-scroll-track row-1" id="minigames-ticker-track1">
-            ${groupCardsRow1}
-          </div>
-        </div>
 
-        <!-- Row 2: Party, Häng & Större Tävlingar (With half-card offset) -->
-        <div class="minigames-scroll-wrapper" id="minigames-ticker-row2">
-          <div class="minigames-scroll-track row-2" id="minigames-ticker-track2">
-            ${groupCardsRow2}
-          </div>
-        </div>
+      <div class="arcade-row-label">⚡ ${t('arcade.rowQuick')}</div>
+      <div class="arcade-row" id="minigames-row-quick">
+        ${quickRow.map(renderCard).join('')}
+      </div>
+
+      <div class="arcade-row-label">🎉 ${t('arcade.rowParty')}</div>
+      <div class="arcade-row" id="minigames-row-party">
+        ${partyRow.map(renderCard).join('')}
       </div>
     </div>
   `;
@@ -470,151 +457,15 @@ export function attachMinigamesListeners() {
     openAllArcadeGamesModal();
   });
 
-  const row1 = document.getElementById('minigames-ticker-row1');
-  const row2 = document.getElementById('minigames-ticker-row2');
-
-  function setupRowScroller(container, baseSpeed = 0.5) {
-    if (!container) return;
-
-    let isDown = false;
-    let startX = 0;
-    let scrollLeft = 0;
-    let hasDragged = false;
-
-    // ── Smooth Infinite Autoscroll Loop ──
-    let isUserInteracting = false;
-    let autoScrollRaf = null;
-    let resumeTimer = null;
-
-    const step = () => {
-      if (!isUserInteracting && container) {
-        const halfWidth = container.scrollWidth / 3;
-        if (halfWidth > 0) {
-          if (container.scrollLeft >= halfWidth * 2) {
-            container.scrollLeft -= halfWidth;
-          } else if (container.scrollLeft <= 0) {
-            container.scrollLeft += halfWidth;
-          }
-        }
-        container.scrollLeft += baseSpeed;
-      }
-      autoScrollRaf = requestAnimationFrame(step);
-    };
-
-    const startAutoScroll = () => {
-      if (!autoScrollRaf) {
-        autoScrollRaf = requestAnimationFrame(step);
-      }
-    };
-
-    const pauseAutoScroll = () => {
-      isUserInteracting = true;
-      if (resumeTimer) {
-        clearTimeout(resumeTimer);
-        resumeTimer = null;
-      }
-    };
-
-    const resumeAutoScroll = (delay = 2000) => {
-      if (resumeTimer) clearTimeout(resumeTimer);
-      resumeTimer = setTimeout(() => {
-        if (!isDown) {
-          isUserInteracting = false;
-        }
-      }, delay);
-    };
-
-    // User manual scroll / swipe event
-    container.addEventListener('scroll', () => {
-      if (isUserInteracting) {
-        resumeAutoScroll(2000);
-      }
-    }, { passive: true });
-
-    // Pause on hover
-    container.addEventListener('mouseenter', pauseAutoScroll);
-    container.addEventListener('mouseleave', () => resumeAutoScroll(1000));
-
-    // Mouse drag support for desktop
-    container.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      isDown = true;
-      hasDragged = false;
-      pauseAutoScroll();
-      container.classList.add('is-dragging');
-      startX = e.pageX - container.offsetLeft;
-      scrollLeft = container.scrollLeft;
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (!isDown) return;
-      const x = e.pageX - container.offsetLeft;
-      const walk = (x - startX);
-      if (Math.abs(walk) > 5) {
-        hasDragged = true;
-      }
-      container.scrollLeft = scrollLeft - walk;
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (isDown) {
-        isDown = false;
-        container.classList.remove('is-dragging');
-        resumeAutoScroll(2000);
-        setTimeout(() => {
-          hasDragged = false;
-        }, 60);
-      }
-    });
-
-    // Touch support for mobile (native momentum touch-scroll)
-    let touchStartX = 0;
-    container.addEventListener('touchstart', (e) => {
-      hasDragged = false;
-      pauseAutoScroll();
-      if (e.touches && e.touches.length > 0) {
-        touchStartX = e.touches[0].clientX;
-      }
-    }, { passive: true });
-
-    container.addEventListener('touchmove', (e) => {
-      if (e.touches && e.touches.length > 0) {
-        const diff = Math.abs(e.touches[0].clientX - touchStartX);
-        if (diff > 8) {
-          hasDragged = true;
-        }
-      }
-    }, { passive: true });
-
-    container.addEventListener('touchend', () => {
-      resumeAutoScroll(2000);
-    }, { passive: true });
-
-    container.addEventListener('touchcancel', () => {
-      resumeAutoScroll(1500);
-    }, { passive: true });
-
-    // Click handler for cards in this row
-    container.addEventListener('click', (e) => {
-      if (hasDragged) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
+  // The rows scroll natively (swipe); a tap on a card starts the game. No auto-scroll
+  // loop any more: it kept running forever after leaving the page and drained battery.
+  document.querySelectorAll('.arcade-row').forEach(row => {
+    row.addEventListener('click', (e) => {
       const card = e.target.closest('.minigame-card');
-      if (!card) return;
-      const game = card.getAttribute('data-game');
-      if (game) {
-        launchGameById(game);
-      }
+      const game = card?.getAttribute('data-game');
+      if (game) launchGameById(game);
     });
-
-    startAutoScroll();
-  }
-
-  // Row 1 rolls slightly faster than Row 2 for a dynamic subtle parallax effect
-  setupRowScroller(row1, 0.55);
-  setupRowScroller(row2, 0.45);
+  });
 
   // Open Swishlistan modal
   document.getElementById('btn-open-swishlist')?.addEventListener('click', openSwishlistModal);

@@ -3052,23 +3052,31 @@ select.form-input option {
   z-index: 990;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
   background: rgba(18, 18, 28, 0.94);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1.5px solid rgba(255, 215, 0, 0.55);
   border-radius: 999px;
-  padding: 6px 10px 6px 8px;
   color: #fff;
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 700;
   cursor: grab;
   touch-action: none;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.65), 0 0 12px rgba(255, 215, 0, 0.25);
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 10px rgba(255, 215, 0, 0.2);
+  transition: width 0.35s ease, padding 0.35s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* First visit only: the name is shown for a few seconds, then it folds into the round button */
+.malta-fab-btn.intro {
+  width: auto;
+  padding: 0 14px 0 9px;
 }
 
 .malta-fab-btn.is-dragging {
@@ -3092,75 +3100,48 @@ select.form-input option {
 .malta-fab-content {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.malta-fab-btn.minimized {
-  padding: 6px 6px;
-  border-radius: 50%;
-}
-
-.malta-fab-btn.minimized .malta-fab-label,
-.malta-fab-btn.minimized .malta-fab-toggle-btn {
-  display: none;
-}
-
-.malta-fab-toggle-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 50%;
-  color: #fff;
-  width: 20px;
-  height: 20px;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  margin-left: 2px;
-  transition: background 0.15s, transform 0.15s;
-}
-
-.malta-fab-toggle-btn:hover {
-  background: rgba(255, 215, 0, 0.2);
-  border-color: var(--gold);
-}
-
-.malta-min-arrow {
-  line-height: 1;
+  gap: 7px;
 }
 
 .malta-fab-btn:hover {
-  transform: translateY(-2px) scale(1.03);
   border-color: var(--gold);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7), 0 0 18px rgba(255, 215, 0, 0.45);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.7), 0 0 16px rgba(255, 215, 0, 0.4);
 }
 
 .malta-fab-btn:active {
-  transform: scale(0.96);
+  transform: scale(0.94);
 }
 
 .malta-fab-icon {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
-  filter: drop-shadow(0 2px 6px rgba(255, 215, 0, 0.6));
+  filter: drop-shadow(0 2px 6px rgba(255, 215, 0, 0.5));
   pointer-events: none;
 }
 
 .malta-fab-label {
+  display: none;
   color: #fff;
   letter-spacing: 0.02em;
-  padding-right: 2px;
+  white-space: nowrap;
 }
 
+.malta-fab-btn.intro .malta-fab-label {
+  display: inline;
+}
+
+/* "Online" dot sits on the edge of the round button */
 .malta-fab-dot {
-  width: 8px;
-  height: 8px;
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 11px;
+  height: 11px;
   background: #10b981;
+  border: 2px solid #12121c;
   border-radius: 50%;
-  display: inline-block;
-  box-shadow: 0 0 8px #10b981;
+  box-shadow: 0 0 6px #10b981;
   animation: pulse-green 2s infinite;
 }
 

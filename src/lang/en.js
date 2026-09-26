@@ -369,6 +369,8 @@ export const en = {
     title: 'Arcade',
     tagline: 'PLAY NOW',
     viewAll: 'All Games ⊞',
+    rowQuick: 'Quick bets',
+    rowParty: 'Party games',
     allTitle: 'All Arcade Games',
     allDesc: 'Pick any game to launch immediately:',
     coinFlip: 'Coin Flip',
