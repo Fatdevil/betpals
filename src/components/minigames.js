@@ -857,10 +857,15 @@ function openWheelModal() {
   const isEn = getLang() === 'en';
   const currentUser = getStoredUser();
   const PALETTE = [
-    '#e63946', '#f59e0b', '#10b981', '#3b82f6', 
-    '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', 
+    '#e63946', '#f59e0b', '#10b981', '#3b82f6',
+    '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
     '#f97316', '#6366f1', '#14b8a6', '#d946ef'
   ];
+  const SIZE = 280;
+  const R = SIZE / 2;
+  const TAU = Math.PI * 2;
+  const POINTER = -Math.PI / 2; // the needle sits at the top
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
   function getSavedParticipants() {
     try {
@@ -879,31 +884,25 @@ function openWheelModal() {
     } catch {}
   }
 
-  const savedMode = localStorage.getItem('betpals_wheel_mode');
+  let savedMode = null;
+  try { savedMode = localStorage.getItem('betpals_wheel_mode'); } catch {}
   let activePresetKey = (savedMode === 'beer' || savedMode === 'choice') ? savedMode : 'tab';
   let participants = getSavedParticipants() || [];
-  let currentRotation = 0;
+  let rotation = 0;         // radians, drawn straight onto the canvas
   let isSpinning = false;
+  let winnerIndex = null;   // lit up after a spin until the wheel changes
   let userFriends = null;
 
+  // Plain names on the wheel; the mode shows in the hub and the result
   function getActiveItems() {
-    if (activePresetKey === 'choice') {
-      return isEn ? ['YES! 🟢', 'NO! 🔴'] : ['JA! 🟢', 'NEJ! 🔴'];
-    }
-    const emoji = activePresetKey === 'beer' ? '🍻' : '💳';
-    return participants.map(p => `${p} ${emoji}`);
+    if (activePresetKey === 'choice') return isEn ? ['YES', 'NO'] : ['JA', 'NEJ'];
+    return participants;
   }
 
   function getPromptText() {
-    if (activePresetKey === 'choice') {
-      return t('arcade.wheelPromptChoice');
-    }
-    if (participants.length < 2) {
-      return t('arcade.wheelEmpty');
-    }
-    return activePresetKey === 'beer' 
-      ? t('arcade.wheelPromptBeer') 
-      : t('arcade.wheelPromptTab');
+    if (activePresetKey === 'choice') return t('arcade.wheelPromptChoice');
+    if (participants.length < 2) return t('arcade.wheelEmpty');
+    return activePresetKey === 'beer' ? t('arcade.wheelPromptBeer') : t('arcade.wheelPromptTab');
   }
 
   const wheelTitleHtml = `<img src="/tab-roulette-card.png" alt="Not-Roulette" style="width: 32px; height: 22px; object-fit: contain; vertical-align: -3px; margin-right: 8px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />${t('arcade.wheelTitle')}`;
@@ -911,10 +910,9 @@ function openWheelModal() {
     <div class="text-center" style="padding: var(--space-xs) 0;">
       <p class="game-modal-subheading">${t('arcade.wheelDesc')}</p>
 
-      <!-- Preset pills: 💳 Krognotan | 🍻 Ölrunda | 🪙 Ja / Nej -->
       <div class="wheel-preset-pills" id="wheel-presets-container">
         <button type="button" class="wheel-preset-pill ${activePresetKey === 'tab' ? 'active' : ''}" data-preset="tab">
-          💳 ${isEn ? 'The Tab' : 'Krognotan'}
+          💳 ${isEn ? 'The Bill' : 'Krognotan'}
         </button>
         <button type="button" class="wheel-preset-pill ${activePresetKey === 'beer' ? 'active' : ''}" data-preset="beer">
           🍻 ${isEn ? 'Beer Round' : 'Ölrunda'}
@@ -924,56 +922,46 @@ function openWheelModal() {
         </button>
       </div>
 
-      <!-- Wheel Canvas & Pointer -->
       <div class="wheel-container">
-        <div class="wheel-pointer"></div>
-        <canvas id="wheel-canvas" width="280" height="280" class="wheel-canvas"></canvas>
-        <div class="wheel-center-hub" id="wheel-center-hub">💳</div>
+        <div class="wheel-pointer" id="wheel-pointer"></div>
+        <canvas id="wheel-canvas" class="wheel-canvas" role="img" aria-label="${isEn ? 'Spinning wheel' : 'Lyckohjul'}"></canvas>
+        <button type="button" class="wheel-center-hub" id="wheel-center-hub" aria-label="${isEn ? 'Spin' : 'Snurra'}">💳</button>
       </div>
 
-      <!-- Result Banner -->
-      <div id="wheel-result-banner" class="mb-sm mt-xs" style="font-family: var(--font-heading); font-size: 1.05rem; font-weight: 800; min-height: 28px; color: var(--gold); padding: 0 8px;">
-        ${escapeHtml(getPromptText())}
+      <div id="wheel-result" aria-live="polite">
+        <div id="wheel-result-banner" class="wheel-prompt">${escapeHtml(getPromptText())}</div>
       </div>
 
-      <!-- Spin button -->
       <button type="button" class="btn btn-primary btn-block mb-md" id="btn-spin-wheel" style="font-size: 1.1rem; padding: 12px; font-weight: 800; letter-spacing: 0.05em;">
         ${t('arcade.wheelBtn')}
       </button>
 
-      <!-- Participants Box (Hidden in Ja / Nej mode) -->
-      <div id="wheel-participants-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; text-align: left; display: ${activePresetKey === 'choice' ? 'none' : 'block'};">
+      <div id="wheel-participants-box" class="wheel-people" style="display: ${activePresetKey === 'choice' ? 'none' : 'block'};">
         <div class="flex-between mb-xs" style="align-items: center;">
-          <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">
+          <span class="wheel-people-title">
             ${t('arcade.wheelItemsCount')} (<span id="wheel-items-count">${participants.length}</span>)
           </span>
           <button type="button" class="btn btn-ghost btn-xs" id="wheel-clear-btn" style="color: var(--text-muted); font-size: 0.72rem; padding: 2px 6px;">
             ${t('arcade.wheelClearAll')}
           </button>
         </div>
+        <div id="wheel-tags-wrap" class="wheel-tags-wrap"></div>
 
-        <!-- Tags wrap (Selected participants) -->
-        <div id="wheel-tags-wrap" class="wheel-tags-wrap" style="justify-content: flex-start; margin-bottom: 8px;"></div>
-
-        <!-- Manual Name Input & Add Button -->
-        <div class="flex gap-xs" style="margin-bottom: 10px;">
+        <div class="flex gap-xs" style="margin: 4px 0 10px;">
           <input type="text" id="wheel-new-item-input" class="form-input" placeholder="${t('arcade.wheelInputPlaceholder')}" maxlength="20" style="padding: 6px 10px; font-size: 0.85rem; flex: 1;" />
           <button type="button" class="btn btn-secondary btn-sm" id="wheel-add-item-btn" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap; font-weight: 700;">
             ${t('arcade.wheelAddBtn')}
           </button>
         </div>
 
-        <!-- Friends Quick-Picker -->
-        <div id="wheel-friends-drawer" style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,215,0,0.2); border-radius: var(--radius-sm); padding: 8px 10px;">
+        <div id="wheel-friends-drawer" style="display: none;">
           <div class="flex-between mb-xs" style="align-items: center;">
-            <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold);">${t('arcade.wheelFriendsDrawerTitle')}</span>
+            <span class="wheel-people-title">${isEn ? 'Add friends' : 'Lägg till vänner'}</span>
             <button type="button" class="btn btn-ghost btn-xs" id="wheel-add-all-friends-btn" style="font-size: 0.7rem; padding: 2px 6px; color: var(--gold);">
               ${t('arcade.wheelAddAllFriendsBtn')}
             </button>
           </div>
-          <div id="wheel-friends-list" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 110px; overflow-y: auto;">
-            <span class="text-muted" style="font-size: 0.75rem;">${isEn ? 'Loading your friends... 👥' : 'Laddar dina vänner... 👥'}</span>
-          </div>
+          <div id="wheel-friends-list" class="wheel-tags-wrap"></div>
         </div>
       </div>
     </div>
@@ -983,8 +971,8 @@ function openWheelModal() {
     confirmClose: true,
     confirmTexts: {
       title: isEn ? 'Leave Tab-Roulette?' : 'Lämna Not-Roulette?',
-      message: isEn 
-        ? 'Are you sure you want to leave Tab-Roulette?' 
+      message: isEn
+        ? 'Are you sure you want to leave Tab-Roulette?'
         : 'Vill du avsluta och lämna Not-Roulette?'
     }
   });
@@ -992,125 +980,179 @@ function openWheelModal() {
 
   const canvas = document.getElementById('wheel-canvas');
   const ctx = canvas.getContext('2d');
-  const banner = document.getElementById('wheel-result-banner');
+  const resultEl = document.getElementById('wheel-result');
   const spinBtn = document.getElementById('btn-spin-wheel');
+  const pointerEl = document.getElementById('wheel-pointer');
   const tagsWrap = document.getElementById('wheel-tags-wrap');
   const countSpan = document.getElementById('wheel-items-count');
   const itemInput = document.getElementById('wheel-new-item-input');
   const addBtn = document.getElementById('wheel-add-item-btn');
   const clearBtn = document.getElementById('wheel-clear-btn');
+  const friendsDrawer = document.getElementById('wheel-friends-drawer');
   const friendsList = document.getElementById('wheel-friends-list');
   const addAllFriendsBtn = document.getElementById('wheel-add-all-friends-btn');
   const presetsContainer = document.getElementById('wheel-presets-container');
   const participantsBox = document.getElementById('wheel-participants-box');
   const hubEl = document.getElementById('wheel-center-hub');
 
+  // Sharp on retina: draw at device resolution, show at 280 css px
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
   function updateHub() {
-    if (!hubEl) return;
-    if (activePresetKey === 'choice') {
-      hubEl.textContent = '🪙';
-    } else if (activePresetKey === 'beer') {
-      hubEl.textContent = '🍻';
-    } else {
-      hubEl.textContent = '💳';
-    }
+    hubEl.textContent = activePresetKey === 'choice' ? '🪙' : activePresetKey === 'beer' ? '🍻' : '💳';
   }
 
-  // Draw wheel on canvas
+  function sectorColor(i) {
+    if (activePresetKey === 'choice') return i === 0 ? '#10b981' : '#ef4444';
+    return PALETTE[i % PALETTE.length];
+  }
+
+  // Which sector is under the needle for a given rotation
+  function sectorAt(rot, n) {
+    const a = (((POINTER - rot) % TAU) + TAU) % TAU;
+    return Math.floor(a / (TAU / n)) % n;
+  }
+
+  function fitLabel(text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let s = text;
+    while (s.length > 1 && ctx.measureText(s + '…').width > maxWidth) s = s.slice(0, -1);
+    return s + '…';
+  }
+
   function drawWheel() {
     const items = getActiveItems();
-    const numSectors = items.length;
-    ctx.clearRect(0, 0, 280, 280);
+    const n = items.length;
+    ctx.clearRect(0, 0, SIZE, SIZE);
 
-    if (numSectors === 0) {
+    if (n === 0) {
       ctx.beginPath();
       ctx.fillStyle = '#161622';
-      ctx.arc(140, 140, 140, 0, 2 * Math.PI);
+      ctx.arc(R, R, R - 1, 0, TAU);
       ctx.fill();
       ctx.strokeStyle = 'rgba(255,215,0,0.3)';
       ctx.lineWidth = 2;
       ctx.stroke();
-
       ctx.fillStyle = '#9ca3af';
-      ctx.font = 'bold 12px sans-serif';
+      ctx.font = '600 12px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(isEn ? 'Add participants below! 👇' : 'Lägg till deltagare nedan! 👇', 140, 140);
+      ctx.fillText(isEn ? 'Add participants below 👇' : 'Lägg till deltagare nedan 👇', R, R + 40);
       return;
     }
 
-    const arc = (2 * Math.PI) / numSectors;
-    const radius = 140;
-
+    const arc = TAU / n;
+    const fontSize = n > 14 ? 11 : n > 8 ? 12 : n > 4 ? 14 : 16;
     items.forEach((label, i) => {
-      const angle = i * arc;
-      const color = activePresetKey === 'choice' 
-        ? (i === 0 ? '#10b981' : '#ef4444')
-        : PALETTE[i % PALETTE.length];
+      const start = rotation + i * arc;
+      const lit = winnerIndex === i;
+      const dimmed = winnerIndex !== null && !lit;
 
-      // Wedge slice
       ctx.beginPath();
-      ctx.fillStyle = color;
-      ctx.moveTo(radius, radius);
-      ctx.arc(radius, radius, radius, angle, angle + arc);
-      ctx.lineTo(radius, radius);
+      ctx.moveTo(R, R);
+      ctx.arc(R, R, R - 2, start, start + arc);
+      ctx.closePath();
+      ctx.fillStyle = sectorColor(i);
       ctx.fill();
-
-      // Divider line
+      // Soft depth: lighter towards the rim
+      const g = ctx.createRadialGradient(R, R, 20, R, R, R);
+      g.addColorStop(0, 'rgba(0,0,0,0.25)');
+      g.addColorStop(1, 'rgba(255,255,255,0.08)');
+      ctx.fillStyle = g;
+      ctx.fill();
+      if (dimmed) {
+        ctx.fillStyle = 'rgba(8,8,14,0.62)';
+        ctx.fill();
+      }
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Text label
+      // Label along the radius, flipped on the left half so it never reads upside down
+      const mid = start + arc / 2;
+      const flip = Math.cos(mid) < 0;
       ctx.save();
-      ctx.translate(radius, radius);
-      ctx.rotate(angle + arc / 2);
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(0,0,0,0.85)';
-      ctx.shadowBlur = 4;
-      const fontSize = numSectors > 14 ? 10 : (numSectors > 8 ? 11 : 12);
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      const textToDraw = label.length > 13 ? label.slice(0, 12) + '…' : label;
-      ctx.fillText(textToDraw, radius - 16, 4);
+      ctx.translate(R, R);
+      ctx.rotate(flip ? mid + Math.PI : mid);
+      ctx.font = `${lit ? 800 : 700} ${fontSize}px system-ui, -apple-system, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = flip ? 'left' : 'right';
+      ctx.fillStyle = dimmed ? 'rgba(255,255,255,0.45)' : '#fff';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur = 3;
+      const text = fitLabel(String(label), R - 44);
+      ctx.fillText(text, flip ? -(R - 16) : R - 16, 0);
       ctx.restore();
     });
 
-    // Outer gold trim
+    // Winner sector outline
+    if (winnerIndex !== null && winnerIndex < n) {
+      const start = rotation + winnerIndex * arc;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(R, R);
+      ctx.arc(R, R, R - 4, start, start + arc);
+      ctx.closePath();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = 'rgba(255,215,0,0.95)';
+      ctx.shadowBlur = 14;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Gold rim with pegs at every sector border
     ctx.beginPath();
-    ctx.arc(radius, radius, radius - 2, 0, 2 * Math.PI);
-    ctx.strokeStyle = 'rgba(255,215,0,0.85)';
-    ctx.lineWidth = 4;
+    ctx.arc(R, R, R - 3, 0, TAU);
+    ctx.strokeStyle = 'rgba(255,215,0,0.9)';
+    ctx.lineWidth = 5;
     ctx.stroke();
+    for (let i = 0; i < n; i++) {
+      const a = rotation + i * arc;
+      ctx.beginPath();
+      ctx.arc(R + Math.cos(a) * (R - 3), R + Math.sin(a) * (R - 3), 2.6, 0, TAU);
+      ctx.fillStyle = '#fff8dc';
+      ctx.fill();
+    }
   }
 
-  // Render tag badges
+  function showPrompt() {
+    resultEl.innerHTML = `<div class="wheel-prompt${activePresetKey !== 'choice' && participants.length < 2 ? ' muted' : ''}">${escapeHtml(getPromptText())}</div>`;
+  }
+
+  // Anything that changes the wheel clears the last result
+  function wheelChanged() {
+    winnerIndex = null;
+    saveParticipants(participants);
+    renderTags();
+    if (userFriends) renderFriendsList();
+    drawWheel();
+    showPrompt();
+  }
+
   function renderTags() {
-    if (!tagsWrap || !countSpan) return;
     countSpan.textContent = participants.length;
-    tagsWrap.innerHTML = participants.map((name, idx) => `
-      <span class="wheel-tag">
-        ${escapeHtml(name)}
-        <button type="button" class="wheel-tag-remove" data-index="${idx}" title="${isEn ? 'Remove' : 'Ta bort'}">✕</button>
-      </span>
-    `).join('');
+    tagsWrap.innerHTML = participants.length
+      ? participants.map((name, idx) => `
+        <span class="wheel-tag" style="--dot: ${PALETTE[idx % PALETTE.length]};">
+          <span class="wheel-tag-dot"></span>${escapeHtml(name)}
+          <button type="button" class="wheel-tag-remove" data-index="${idx}" aria-label="${isEn ? 'Remove' : 'Ta bort'} ${escapeHtml(name)}">✕</button>
+        </span>
+      `).join('')
+      : `<span class="text-muted" style="font-size: 0.75rem;">${escapeHtml(t('arcade.wheelEmpty'))}</span>`;
 
     tagsWrap.querySelectorAll('.wheel-tag-remove').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', () => {
         if (isSpinning) return;
-        const idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
-        participants.splice(idx, 1);
-        saveParticipants(participants);
-        renderTags();
-        drawWheel();
-        if (userFriends) renderFriendsList();
-        banner.textContent = getPromptText();
-        banner.style.color = participants.length >= 2 ? 'var(--gold)' : 'var(--text-muted)';
+        participants.splice(Number(btn.dataset.index), 1);
+        wheelChanged();
       });
     });
   }
 
-  // Add a manual participant
   function addItem(rawName) {
     const name = (rawName || '').trim();
     if (!name) return;
@@ -1123,244 +1165,222 @@ function openWheelModal() {
       return;
     }
     participants.push(name);
-    saveParticipants(participants);
-    renderTags();
-    drawWheel();
-    if (userFriends) renderFriendsList();
-    banner.textContent = getPromptText();
-    banner.style.color = 'var(--gold)';
+    wheelChanged();
     itemInput.value = '';
     itemInput.focus();
   }
 
-  // Render friends list directly inside drawer
+  const friendName = (f) => f.nickname || f.realName || '';
+
+  // Only friends who are not on the wheel yet, so nobody shows up twice
   function renderFriendsList() {
-    if (!friendsList) return;
-    if (!userFriends || userFriends.length === 0) {
-      friendsList.innerHTML = `
-        <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px 0; width: 100%;">
-          ${isEn 
-            ? '👥 No friends added yet. Add friends on your Profile page to pick them with 1 click!' 
-            : '👥 Inga vänner tillagda än. Lägg till vänner på din Profilsida för att välja dem med 1 klick!'}
-        </div>
-      `;
-      return;
-    }
-
-    friendsList.innerHTML = userFriends.map(f => {
-      const name = f.nickname || f.realName || (isEn ? 'Friend' : 'Vän');
-      const isAlreadyIn = participants.some(it => it.toLowerCase() === name.toLowerCase());
-      return `
-        <button type="button" class="wheel-friend-pick-btn" data-friend="${escapeHtml(name)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; border: 1px solid ${isAlreadyIn ? 'var(--gold)' : 'var(--border-glass)'}; background: ${isAlreadyIn ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.06)'}; color: ${isAlreadyIn ? 'var(--gold)' : 'var(--text-primary)'}; cursor: pointer; transition: all 0.2s;">
-          ${f.avatarUrl ? `<img src="${sanitizeUrl(f.avatarUrl)}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />` : (escapeHtml(f.avatarEmoji) || '👤')}
-          <span>${escapeHtml(name)}</span>
-          <span style="font-weight: 700; margin-left: 2px;">${isAlreadyIn ? '✓' : '+'}</span>
-        </button>
-      `;
-    }).join('');
-
+    const rest = (userFriends || []).filter(f => {
+      const name = friendName(f);
+      return name && !participants.some(p => p.toLowerCase() === name.toLowerCase());
+    });
+    friendsDrawer.style.display = rest.length ? 'block' : 'none';
+    friendsList.innerHTML = rest.map(f => `
+      <button type="button" class="wheel-friend-pick-btn" data-friend="${escapeHtml(friendName(f))}">
+        ${f.avatarUrl ? `<img src="${sanitizeUrl(f.avatarUrl)}" alt="" />` : `<span>${escapeHtml(f.avatarEmoji) || '👤'}</span>`}
+        <span>${escapeHtml(friendName(f))}</span><strong>+</strong>
+      </button>
+    `).join('');
     friendsList.querySelectorAll('.wheel-friend-pick-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         if (isSpinning) return;
-        const friendName = btn.getAttribute('data-friend');
-        const existingIdx = participants.findIndex(it => it.toLowerCase() === friendName.toLowerCase());
-        if (existingIdx >= 0) {
-          participants.splice(existingIdx, 1);
-        } else {
-          if (participants.length >= 20) {
-            showToast(isEn ? 'Max 20 participants!' : 'Max 20 deltagare!', 'warning');
-            return;
-          }
-          participants.push(friendName);
-        }
-        saveParticipants(participants);
-        renderTags();
-        drawWheel();
-        renderFriendsList();
-        banner.textContent = getPromptText();
-        banner.style.color = participants.length >= 2 ? 'var(--gold)' : 'var(--text-muted)';
+        addItem(btn.dataset.friend);
       });
     });
   }
 
-  // Switch preset pill
-  presetsContainer?.querySelectorAll('.wheel-preset-pill').forEach(pill => {
+  presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(pill => {
     pill.addEventListener('click', () => {
       if (isSpinning) return;
-      const key = pill.getAttribute('data-preset');
+      const key = pill.dataset.preset;
       if (key === activePresetKey) return;
       activePresetKey = key;
-      try {
-        localStorage.setItem('betpals_wheel_mode', key);
-      } catch {}
-
-      presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(p => {
-        p.classList.toggle('active', p.getAttribute('data-preset') === key);
-      });
-
+      try { localStorage.setItem('betpals_wheel_mode', key); } catch {}
+      presetsContainer.querySelectorAll('.wheel-preset-pill').forEach(p => p.classList.toggle('active', p.dataset.preset === key));
+      participantsBox.style.display = key === 'choice' ? 'none' : 'block';
       updateHub();
-      if (participantsBox) {
-        participantsBox.style.display = key === 'choice' ? 'none' : 'block';
-      }
-
-      drawWheel();
-      banner.textContent = getPromptText();
-      banner.style.color = (key === 'choice' || participants.length >= 2) ? 'var(--gold)' : 'var(--text-muted)';
+      wheelChanged();
     });
   });
 
-  // Load friends and auto-populate if no participants saved yet
   getFriends().then(friends => {
     userFriends = friends || [];
-    // If user has no participants saved yet, populate with currentUser + friends
+    // First time: start with me and a few friends
     if (participants.length === 0) {
       const initial = [];
       const myName = currentUser?.nickname || currentUser?.realName;
       if (myName) initial.push(myName);
-      if (userFriends.length > 0) {
-        userFriends.slice(0, 6).forEach(f => {
-          const fn = f.nickname || f.realName;
-          if (fn && !initial.some(n => n.toLowerCase() === fn.toLowerCase())) {
-            initial.push(fn);
-          }
-        });
-      }
-      if (initial.length > 0) {
-        participants = initial;
-        saveParticipants(participants);
-      }
+      userFriends.slice(0, 6).forEach(f => {
+        const fn = friendName(f);
+        if (fn && !initial.some(n => n.toLowerCase() === fn.toLowerCase())) initial.push(fn);
+      });
+      if (initial.length > 0) participants = initial;
     }
-    renderTags();
-    drawWheel();
-    renderFriendsList();
-    banner.textContent = getPromptText();
-    banner.style.color = (activePresetKey === 'choice' || participants.length >= 2) ? 'var(--gold)' : 'var(--text-muted)';
+    if (!isSpinning) wheelChanged();
   }).catch(() => {
     userFriends = [];
     renderFriendsList();
   });
 
-  // Add all friends button
-  addAllFriendsBtn?.addEventListener('click', () => {
-    if (!userFriends || userFriends.length === 0) return;
-    let addedCount = 0;
+  addAllFriendsBtn.addEventListener('click', () => {
+    if (isSpinning || !userFriends?.length) return;
+    let added = 0;
     userFriends.forEach(f => {
-      const name = f.nickname || f.realName;
-      if (!name) return;
-      if (!participants.some(it => it.toLowerCase() === name.toLowerCase())) {
-        if (participants.length < 20) {
-          participants.push(name);
-          addedCount++;
-        }
+      const name = friendName(f);
+      if (name && participants.length < 20 && !participants.some(p => p.toLowerCase() === name.toLowerCase())) {
+        participants.push(name);
+        added++;
       }
     });
-    if (addedCount > 0) {
-      saveParticipants(participants);
-      renderTags();
-      drawWheel();
-      renderFriendsList();
-      banner.textContent = getPromptText();
-      banner.style.color = 'var(--gold)';
-    }
+    if (added) wheelChanged();
   });
 
-  // Clear all button
-  clearBtn?.addEventListener('click', () => {
+  clearBtn.addEventListener('click', () => {
     if (isSpinning) return;
     participants = [];
-    saveParticipants(participants);
-    renderTags();
-    drawWheel();
-    if (userFriends) renderFriendsList();
-    banner.textContent = t('arcade.wheelEmpty');
-    banner.style.color = 'var(--text-muted)';
+    wheelChanged();
   });
 
-  // Add button & Enter key
-  addBtn?.addEventListener('click', () => addItem(itemInput?.value));
-  itemInput?.addEventListener('keydown', (e) => {
+  addBtn.addEventListener('click', () => addItem(itemInput.value));
+  itemInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      addItem(itemInput?.value);
+      addItem(itemInput.value);
     }
   });
 
-  // Initial renders
   updateHub();
   renderTags();
   drawWheel();
 
-  // Spin wheel handler
-  spinBtn?.addEventListener('click', () => {
+  function bouncePointer() {
+    pointerEl.classList.remove('tick');
+    void pointerEl.offsetWidth; // restart the animation
+    pointerEl.classList.add('tick');
+  }
+
+  function fairRandom(n) {
+    try {
+      const buf = new Uint32Array(1);
+      const limit = Math.floor(0x100000000 / n) * n;
+      do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+      return buf[0] % n;
+    } catch {
+      return Math.floor(Math.random() * n);
+    }
+  }
+
+  function showResult(items, idx) {
+    const name = items[idx];
+    const color = sectorColor(idx);
+    let title, sub;
+    if (activePresetKey === 'choice') {
+      const yes = idx === 0;
+      title = `${yes ? '🟢' : '🔴'} ${escapeHtml(name)}!`;
+      sub = isEn ? 'The wheel has spoken.' : 'Hjulet har talat.';
+    } else if (activePresetKey === 'beer') {
+      title = escapeHtml(name);
+      sub = escapeHtml(t('arcade.wheelWinnerBeer'));
+    } else {
+      title = escapeHtml(name);
+      sub = isEn ? 'takes the whole bill – card out! 💳' : 'tar hela notan – fram med kortet! 💳';
+    }
+    resultEl.innerHTML = `
+      <div class="wheel-winner-card" style="--win: ${color};">
+        <div class="wheel-winner-kicker">${activePresetKey === 'choice' ? (isEn ? 'Result' : 'Resultat') : (isEn ? 'The wheel picked' : 'Hjulet valde')}</div>
+        <div class="wheel-winner-name">${title}</div>
+        <div class="wheel-winner-sub">${sub}</div>
+        <div class="wheel-winner-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="wheel-again-btn">🔄 ${isEn ? 'Spin again' : 'Snurra igen'}</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="wheel-share-btn">📤 ${isEn ? 'Share' : 'Dela'}</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('wheel-again-btn').addEventListener('click', spin);
+    document.getElementById('wheel-share-btn').addEventListener('click', async () => {
+      const text = activePresetKey === 'choice'
+        ? `🪙 Not-Roulette: ${name}!`
+        : activePresetKey === 'beer'
+          ? `🍻 Not-Roulette: ${name} ${t('arcade.wheelWinnerBeer')}`
+          : (isEn ? `💳 Tab-Roulette: ${name} takes the whole bill!` : `💳 Not-Roulette: ${name} tar hela notan!`);
+      try {
+        if (navigator.share) await navigator.share({ text });
+        else {
+          await navigator.clipboard.writeText(text);
+          showToast(isEn ? 'Copied! 📋' : 'Kopierat! 📋', 'success');
+        }
+      } catch {}
+    });
+  }
+
+  function spin() {
     if (isSpinning) return;
-    const currentItems = getActiveItems();
-    if (currentItems.length < 2) {
+    const items = getActiveItems();
+    const n = items.length;
+    if (n < 2) {
       showToast(t('arcade.wheelMinWarning'), 'warning');
       return;
     }
 
     isSpinning = true;
     spinBtn.disabled = true;
-    banner.textContent = t('arcade.wheelSpinning');
-    banner.style.color = 'var(--text-secondary)';
+    hubEl.disabled = true;
+    winnerIndex = null;
+    resultEl.innerHTML = `<div class="wheel-prompt spinning">${escapeHtml(t('arcade.wheelSpinning'))}</div>`;
 
-    const numSectors = currentItems.length;
-    const extraRotations = 5 + Math.floor(Math.random() * 3); // 5-7 full turns
-    const winningIndex = Math.floor(Math.random() * numSectors);
+    const arc = TAU / n;
+    const idx = fairRandom(n);
+    // Land somewhere inside the sector, not always dead centre
+    const inside = 0.15 + Math.random() * 0.7;
+    const turns = reducedMotion ? 1 : 5 + Math.floor(Math.random() * 3);
+    const base = POINTER - (idx + inside) * arc;
+    let end = base;
+    while (end < rotation + turns * TAU) end += TAU;
+    const from = rotation;
+    const duration = reducedMotion ? 900 : 4800 + Math.random() * 900;
+    const t0 = performance.now();
+    let lastSector = sectorAt(rotation, n);
+    const ease = (x) => 1 - Math.pow(1 - x, 4); // quick start, long nervous finish
 
-    // Needle is at TOP (270 degrees)
-    const arcDeg = 360 / numSectors;
-    const targetSectorCenter = (winningIndex + 0.5) * arcDeg;
-    const targetOffset = ((270 - targetSectorCenter) % 360 + 360) % 360;
-    const nextRotation = (Math.ceil(currentRotation / 360) + extraRotations) * 360 + targetOffset;
-    currentRotation = nextRotation;
-
-    canvas.style.transform = `rotate(${nextRotation}deg)`;
-
-    // Audio ticks during spin
-    let tickCount = 0;
-    const tickInterval = setInterval(() => {
-      tickCount++;
-      if (tickCount < 28) playTickSound();
-    }, 140);
-
-    setTimeout(() => {
-      clearInterval(tickInterval);
+    function frame(now) {
+      const p = Math.min(1, (now - t0) / duration);
+      rotation = from + (end - from) * ease(p);
+      drawWheel();
+      const s = sectorAt(rotation, n);
+      if (s !== lastSector) {
+        lastSector = s;
+        playTickSound();
+        bouncePointer();
+        if (p > 0.55) navigator.vibrate?.(6);
+      }
+      if (p < 1) {
+        requestAnimationFrame(frame);
+        return;
+      }
+      rotation = ((end % TAU) + TAU) % TAU;
+      winnerIndex = sectorAt(rotation, n);
       isSpinning = false;
       spinBtn.disabled = false;
-
-      const winner = currentItems[winningIndex];
-
-      if (activePresetKey === 'choice') {
-        const isYes = winner.includes('JA') || winner.includes('YES');
-        if (isYes) {
-          banner.innerHTML = isEn
-            ? `🎉 Result: <span style="color: #4ade80; font-size: 1.25rem; font-weight: 800;">YES! 🟢</span>`
-            : `🎉 Resultat: <span style="color: #4ade80; font-size: 1.25rem; font-weight: 800;">JA! 🟢</span>`;
-          playWinSound();
-          launchConfetti();
-        } else {
-          banner.innerHTML = isEn
-            ? `💀 Result: <span style="color: #ef4444; font-size: 1.25rem; font-weight: 800;">NO! 🔴</span>`
-            : `💀 Resultat: <span style="color: #ef4444; font-size: 1.25rem; font-weight: 800;">NEJ! 🔴</span>`;
-          playTone(300, 'sawtooth', 0.25, 0.1);
-        }
+      hubEl.disabled = false;
+      drawWheel();
+      showResult(items, winnerIndex);
+      if (activePresetKey === 'choice' && winnerIndex === 1) {
+        playTone(300, 'sawtooth', 0.25, 0.1);
       } else {
-        const cleanName = winner.replace(/[💳🍻🍺🪙🟢🔴!]/g, '').trim();
-        if (activePresetKey === 'beer') {
-          banner.innerHTML = isEn
-            ? `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerBeer')}! 🍻`
-            : `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerBeer')}! 🍻`;
-        } else {
-          banner.innerHTML = isEn
-            ? `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerTab')}! 💳`
-            : `🎉 <span style="color: #4ade80; font-size: 1.2rem; font-weight: 800;">${escapeHtml(cleanName)}</span> ${t('arcade.wheelWinnerTab')}! 💳`;
-        }
         playWinSound();
         launchConfetti();
       }
-    }, 4500);
-  });
+      navigator.vibrate?.([30, 40, 60]);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  spinBtn.addEventListener('click', spin);
+  hubEl.addEventListener('click', spin);
 }
 
 // ────────────────────────────────────────────────────────

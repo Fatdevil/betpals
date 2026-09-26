@@ -60,7 +60,7 @@ test('Automatic pop-ups never replace a game in progress', () => {
   const modal = read('src/components/modal.js');
   assert.match(modal, /export function isGameInProgress\(\)/);
   const main = read('src/main.js');
-  assert.match(main, /if \(isGameInProgress\(\)\) \{\s*setTimeout\(offerInstall, 30000\)/);
+  assert.match(main, /if \(isGameInProgress\(\) \|\| document\.getElementById\('modal-root'\)\?\.childElementCount\) \{\s*setTimeout\(offerInstall, 30000\)/);
   assert.match(main, /Ask later instead of interrupting a game in progress\s*\n\s*if \(isGameInProgress\(\)\) return;/);
   const games = read('src/components/minigames.js');
   assert.match(games, /export function showIncomingPartyModal\(room\) \{[\s\S]{0,120}if \(isGameInProgress\(\)\)/);
