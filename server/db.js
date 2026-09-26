@@ -1904,6 +1904,14 @@ export function canUserAccessTournament(tournament, userId = null) {
   `).get(tournament.id, userId);
   if (hasBet) return true;
 
+  // Has a real debt linked to the event (same rule as the event list and The Tab)
+  const hasEventDebt = db.prepare(`
+    SELECT 1 FROM minigame_duels d
+    WHERE d.tournament_id = ? AND (d.creator_id = ? OR d.opponent_id = ?) AND ${SETTLED_EVENT_DEBT_SQL}
+    LIMIT 1
+  `).get(tournament.id, userId, userId);
+  if (hasEventDebt) return true;
+
   if (!creatorId) return true;
 
   if (vis === 'friends') {

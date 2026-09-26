@@ -118,6 +118,9 @@ test('someone with an event-linked debt counts as in the event (both sides see i
   assert.equal(withAnna.isLive, true);
   assert.equal(o.readyOwed, 0);
   assert.equal(db.getUnifiedSettlementOverview(a.id).friends.find(f => f.friendId === outsider.id)?.isLive, true);
+  // The event shows up in their list, so they must be able to open it
+  assert.ok(db.getAllTournaments(outsider.id).some(t => t.id === tId));
+  assert.equal(db.canUserAccessTournament(db.getTournamentById(tId), outsider.id), true);
   db.settleTournament(tId);
   assert.equal(db.getUnifiedSettlementOverview(outsider.id).readyOwed, 40);
 });
@@ -138,4 +141,5 @@ test('a declined or unfinished event challenge does not make you part of the eve
   db.respondDuel(duel.id, invited.id, false);
   assert.equal(db.getTournamentMemberIds(tId).includes(invited.id), false);
   assert.equal(db.getAllTournaments(invited.id).some(t => t.id === tId), false);
+  assert.equal(db.canUserAccessTournament(db.getTournamentById(tId), invited.id), false);
 });
