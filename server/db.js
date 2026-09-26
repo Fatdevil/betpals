@@ -180,6 +180,17 @@ try { db.exec('ALTER TABLE events ADD COLUMN pick_count INTEGER'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN pick_result TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE tournament_participants ADD COLUMN account_deleted INTEGER NOT NULL DEFAULT 0'); } catch {}
+// People taken out of (or who left) an event are not added back just by opening it again;
+// the host inviting them again lifts this
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS tournament_removed (
+    tournament_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    removed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (tournament_id, user_id)
+  )`);
+} catch {}
 // The tip lives on the entry itself, so it survives the person deleting their account
 // (their stake stays in the pot and must still be scored)
 try { db.exec('ALTER TABLE players ADD COLUMN entry_picks TEXT'); } catch {}
@@ -1603,6 +1614,40 @@ export function tournamentHasMoney(tournamentId) {
   return Boolean(db.prepare(`SELECT 1 FROM minigame_duels d WHERE d.tournament_id = ? AND ${SETTLED_EVENT_DEBT_SQL} LIMIT 1`).get(tournamentId));
 }
 
+// Does this participant have money in the event? Bets on games that were not cancelled
+// (by account, or by name for a guest) or real event-linked debts.
+export function participantHasMoney(tournamentId, participant) {
+  const userId = participant.user_id || null;
+  const bet = userId
+    ? db.prepare(`SELECT 1 FROM bets b JOIN events e ON e.id = b.event_id
+        WHERE e.tournament_id = ? AND e.status != 'cancelled' AND b.user_id = ? LIMIT 1`).get(tournamentId, userId)
+    : db.prepare(`SELECT 1 FROM bets b JOIN events e ON e.id = b.event_id
+        WHERE e.tournament_id = ? AND e.status != 'cancelled' AND b.user_id IS NULL AND LOWER(b.bettor_name) = LOWER(?) LIMIT 1`).get(tournamentId, participant.name);
+  if (bet) return true;
+  if (!userId) return false;
+  return Boolean(db.prepare(`SELECT 1 FROM minigame_duels d WHERE d.tournament_id = ? AND (d.creator_id = ? OR d.opponent_id = ?) AND ${SETTLED_EVENT_DEBT_SQL} LIMIT 1`)
+    .get(tournamentId, userId, userId));
+}
+
+// Take someone out of an event. Refused while they have money in it, so no win or debt
+// disappears from The Tab; the creator always stays.
+export function removeTournamentParticipant(tournamentId, participantId) {
+  const t = stmts.getTournamentById.get(tournamentId);
+  const p = db.prepare('SELECT * FROM tournament_participants WHERE id = ? AND tournament_id = ?').get(participantId, tournamentId);
+  if (!t || !p) throw Object.assign(new Error('Deltagaren hittades inte'), { statusCode: 404 });
+  if (p.user_id && p.user_id === t.creator_id) {
+    throw Object.assign(new Error('Den som skapat eventet kan inte tas bort'), { statusCode: 400 });
+  }
+  if (participantHasMoney(tournamentId, p)) {
+    throw Object.assign(new Error(`${p.name} har spel i eventet och kan inte tas bort – då skulle vinster och skulder försvinna. Avbryt de spelen först om ${p.name} inte ska vara med.`), { statusCode: 400 });
+  }
+  db.prepare('DELETE FROM tournament_participants WHERE id = ?').run(participantId);
+  if (p.user_id) {
+    db.prepare('INSERT OR REPLACE INTO tournament_removed (tournament_id, user_id) VALUES (?, ?)').run(tournamentId, p.user_id);
+  }
+  return p;
+}
+
 export function getBetCountForEvent(eventId) {
   return db.prepare('SELECT COUNT(*) AS n FROM bets WHERE event_id = ?').get(eventId).n;
 }
@@ -1671,8 +1716,15 @@ export function getAllUsers() {
 
 export const deleteUser = db.transaction((userId) => {
   if (!userId) return false;
-  // Clean up tables without CASCADE / SET NULL constraints
-  db.prepare('UPDATE tournament_participants SET user_id = NULL WHERE user_id = ?').run(userId);
+  // Events: gone where they had no money; kept (marked) where their results are part of
+  // the settlement. Checked before the account's bets lose their link to it.
+  for (const p of db.prepare('SELECT * FROM tournament_participants WHERE user_id = ?').all(userId)) {
+    if (participantHasMoney(p.tournament_id, p)) {
+      db.prepare('UPDATE tournament_participants SET user_id = NULL, account_deleted = 1 WHERE id = ?').run(p.id);
+    } else {
+      db.prepare('DELETE FROM tournament_participants WHERE id = ?').run(p.id);
+    }
+  }
   db.prepare('UPDATE tournament_settlement_receipts SET from_user_id = NULL WHERE from_user_id = ?').run(userId);
   db.prepare('UPDATE tournament_settlement_receipts SET to_user_id = NULL WHERE to_user_id = ?').run(userId);
   db.prepare('DELETE FROM atomic_clearings WHERE user_id = ? OR friend_id = ?').run(userId, userId);
@@ -1977,14 +2029,20 @@ export function createTournament(id, name, shareCode, creatorId, visibility = 'f
   }
 }
 
-export function addTournamentParticipant(tournamentId, name, userId = null) {
+// { auto: true } is joining by opening the event: skipped for someone who was removed or
+// left. Any other add (the host inviting) welcomes them back.
+export function addTournamentParticipant(tournamentId, name, userId = null, { auto = false } = {}) {
   const pName = (name || '').trim();
   if (!pName) return false;
   if (userId) {
+    const removed = db.prepare('SELECT 1 FROM tournament_removed WHERE tournament_id = ? AND user_id = ?').get(tournamentId, userId);
+    if (removed && auto) return false;
+    if (removed) db.prepare('DELETE FROM tournament_removed WHERE tournament_id = ? AND user_id = ?').run(tournamentId, userId);
     const existing = db.prepare('SELECT id, user_id FROM tournament_participants WHERE tournament_id = ? AND (user_id = ? OR LOWER(name) = LOWER(?))').get(tournamentId, userId, pName);
     if (existing) {
       if (!existing.user_id) {
-        db.prepare('UPDATE tournament_participants SET user_id = ? WHERE id = ?').run(userId, existing.id);
+        // A kept row gets an account again: it is no longer a deleted account
+        db.prepare('UPDATE tournament_participants SET user_id = ?, account_deleted = 0 WHERE id = ?').run(userId, existing.id);
       }
       return true;
     }
@@ -2299,7 +2357,8 @@ export function getFullTournament(idOrCode) {
     participants: rawParticipants.map(p => ({
       id: p.id,
       name: p.name,
-      userId: p.user_id
+      userId: p.user_id,
+      accountDeleted: Boolean(p.account_deleted)
     })),
     banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label })),
     settlement: getTournamentNetSettlement(tournament.id)
