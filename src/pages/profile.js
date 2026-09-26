@@ -1,16 +1,18 @@
 // ── Page: Profile ─────────────────────────────────────
 import { registerUser, loginUser, completePinReset, changePin, getMe, getMyBets, getMyStats, getMyPhotos, updateAvatar, updateProfile, getMyCredentials, getFriends, addFriend, removeFriend, searchUsers, getFriendRequests, acceptFriendRequest, declineFriendRequest, buildFriendInviteUrl, getNotificationPrefs, updateNotificationPrefs, joinPartyRoom } from '../api.js';
 import { getStoredUser, storeUser, clearUser, isLoggedIn } from '../auth.js';
-import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, sanitizeUrl, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay, consumeReturnTo, createSwishUrl } from '../utils.js';
+import { formatCurrency, formatDate, showToast, statusLabel, statusBadgeClass, escapeHtml, safeImageSrc, getAppBaseUrl, normalizePhone, formatSwedishPhoneDisplay, consumeReturnTo, createSwishUrl } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { t, getLang, setLang, getAvailableLanguages } from '../i18n.js';
 import { isWebAuthnSupported, enableBiometricAuth, loginWithBiometrics } from '../webauthn.js';
-import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush, isPushActive as isPushActiveOnDevice, syncPushSubscription } from '../push.js';
+import { isPushSupported, getPushPermissionState, subscribeToPush, unsubscribeFromPush, isPushActive as isPushActiveOnDevice, syncPushSubscription, detachPushFromAccount } from '../push.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
 import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal } from '../components/minigames.js';
 import { openMaltaSupportModal, isMaltaFabDisabled, setMaltaFabDisabled } from '../components/maltaSupport.js';
 import { isAppStandalone, isIosDevice, showPwaInstallModal } from '../components/pwaInstallModal.js';
+
+const EMPTY_STATS = { totalBets: 0, finishedBets: 0, wins: 0, losses: 0, pending: 0, winRate: 0, totalBet: 0, totalWon: 0, totalLost: 0, netProfit: 0, streak: 0, streakType: 'none' };
 
 export async function renderProfile() {
   const content = document.getElementById('page-content');
@@ -20,10 +22,19 @@ export async function renderProfile() {
     return;
   }
 
-  const user = getStoredUser();
+  let user = getStoredUser();
   content.innerHTML = `<div class="text-center text-muted mt-lg">${t('common.loading')}</div>`;
 
   try {
+    // The stored copy can be stale (changed on another phone), so show the server's version
+    const me = await getMe().catch(err => {
+      if (/token|inloggad/i.test(err?.message || '')) throw err;
+      return null;
+    });
+    if (me) {
+      user = { ...user, ...me };
+      storeUser(user);
+    }
     const [bets, stats, creds, friends, notifPrefs, photos] = await Promise.all([
       getMyBets(),
       getMyStats(),
@@ -44,7 +55,7 @@ export async function renderProfile() {
       renderAuthScreen(content);
     } else {
       showToast('Kunde inte nå servern just nu. Visar sparad profil.', 'info');
-      renderProfileContent(content, user, [], null, { hasBiometric: false }, [], { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true }, []);
+      renderProfileContent(content, user, [], EMPTY_STATS, { hasBiometric: false }, [], { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true }, []);
     }
   }
 }
@@ -476,7 +487,7 @@ function showPinResetUI(identifier, nickname) {
   });
 }
 
-function renderProfileContent(content, user, bets, stats, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true }, photos = []) {
+function renderProfileContent(content, user, bets, stats = EMPTY_STATS, creds, friends = [], notifPrefs = { notifyFlashbets: true, notifyDuels: true, notifyTournaments: true, notifySupport: true }, photos = []) {
   // Group photos by tournament
   const albumsMap = new Map();
   photos.forEach(p => {
@@ -493,10 +504,12 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   });
   const albums = Array.from(albumsMap.values());
 
-  const totalBet = bets.reduce((s, b) => s + b.amount, 0);
-  const wonBets = bets.filter(b => b.won);
-  const lostBets = bets.filter(b => b.eventStatus === 'finished' && !b.won);
-  const pendingBets = bets.filter(b => b.eventStatus !== 'finished');
+  // Counts come from the server so they follow the same rules as The Tab
+  // (shared wins, refunded games, BlixtBets and duels)
+  const totalBet = stats.totalBet ?? bets.reduce((s, b) => s + b.amount, 0);
+  const wonBets = { length: stats.wins ?? 0 };
+  const lostBets = { length: stats.losses ?? 0 };
+  const pendingBets = { length: stats.pending ?? 0 };
 
   const streakText = stats.streak > 0
     ? stats.streakType === 'win'
@@ -537,8 +550,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       <!-- User Card -->
       <div class="card text-center" style="padding: var(--space-xl); position: relative;">
         <div class="avatar-upload-wrapper" id="profile-picture-btn" style="cursor: pointer; display: inline-block; position: relative;">
-          ${user.avatarUrl 
-            ? `<img src="${sanitizeUrl(user.avatarUrl)}" alt="${user.nickname}" class="profile-avatar-img" />`
+          ${safeImageSrc(user.avatarUrl)
+            ? `<img src="${escapeHtml(safeImageSrc(user.avatarUrl))}" alt="${escapeHtml(user.nickname)}" class="profile-avatar-img" />`
             : `<div class="profile-avatar" id="profile-avatar" style="width: 80px; height: 80px; font-size: 2.5rem; margin: 0 auto;">${user.avatar || '👤'}</div>`}
           <div class="avatar-edit-badge" style="position: absolute; bottom: 0; right: 0; background: var(--accent); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">📷</div>
         </div>
@@ -583,8 +596,8 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
             ${friends.map(f => `
               <div class="friend-item flex-between" data-id="${f.id}" role="button" tabindex="0" style="padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md); align-items: center; cursor: pointer; transition: all 0.15s ease;" title="Klicka för att hantera @${escapeHtml(f.nickname)}">
                 <div class="flex gap-sm" style="align-items: center; min-width: 0;">
-                  ${f.avatarUrl ? `
-                    <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-glass); flex-shrink: 0;" />
+                  ${safeImageSrc(f.avatarUrl) ? `
+                    <img src="${escapeHtml(safeImageSrc(f.avatarUrl))}" alt="${escapeHtml(f.nickname)}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-glass); flex-shrink: 0;" />
                   ` : `
                     <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; border: 1px solid var(--border-glass); flex-shrink: 0;">
                       ${escapeHtml(f.avatar || f.avatarEmoji || '👤')}
@@ -824,12 +837,12 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
         
         <div class="form-group mb-sm">
           <label class="form-label" style="font-size: 0.75rem;">${t('profile.realName')}</label>
-          <input type="text" id="edit-real-name" class="form-input" value="${user.realName || ''}" placeholder="${t('profile.realNamePlaceholder')}" />
+          <input type="text" id="edit-real-name" class="form-input" value="${escapeHtml(user.realName || '')}" placeholder="${t('profile.realNamePlaceholder')}" />
         </div>
 
         <div class="form-group mb-sm">
           <label class="form-label" style="font-size: 0.75rem;">${t('profile.nickname')}</label>
-          <input type="text" id="edit-nickname" class="form-input" value="${user.nickname || ''}" placeholder="${t('profile.nicknamePlaceholder')}" />
+          <input type="text" id="edit-nickname" class="form-input" value="${escapeHtml(user.nickname || '')}" placeholder="${t('profile.nicknamePlaceholder')}" />
         </div>
 
         <div class="form-group mb-md">
@@ -947,7 +960,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px;">
                   ${alb.photos.map(photo => `
                     <div class="profile-photo-thumb" data-photo-id="${photo.id}" style="aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; position: relative; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); background: #111;">
-                      <img src="${photo.thumbnailUrl || photo.url}" alt="${escapeHtml(photo.caption || 'Eventminne')}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;" loading="lazy" />
+                      <img src="${escapeHtml(safeImageSrc(photo.thumbnailUrl || photo.url))}" alt="${escapeHtml(photo.caption || 'Eventminne')}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;" loading="lazy" />
                       ${photo.likeCount > 0 ? `
                         <div style="position: absolute; bottom: 3px; right: 3px; background: rgba(0,0,0,0.7); backdrop-filter: blur(2px); border-radius: 8px; padding: 1px 4px; font-size: 0.65rem; color: #fff; display: flex; align-items: center; gap: 2px;">
                           ❤️ ${photo.likeCount}
@@ -976,9 +989,11 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
               </div>
               <div style="text-align: right;">
                 <div class="bet-item-amount">${formatCurrency(b.amount)}</div>
-                ${b.eventStatus === 'finished' ? 
-                  `<span class="${b.won ? 'text-green' : 'text-red'}" style="font-size: 0.75rem;">${b.won ? '✅ ' + t('profile.wins') : '❌ ' + t('profile.losses')}</span>` :
-                  `<span class="badge ${statusBadgeClass(b.eventStatus)}" style="font-size: 0.6rem;">${statusLabel(b.eventStatus)}</span>`
+                ${b.outcome === 'won' || b.outcome === 'lost'
+                  ? `<span class="${b.won ? 'text-green' : 'text-red'}" style="font-size: 0.75rem;">${b.won ? '✅ ' + t('profile.wins') : '❌ ' + t('profile.losses')}</span>`
+                  : b.outcome === 'refunded'
+                    ? `<span class="text-muted" style="font-size: 0.75rem;">↩️ ${getLang() === 'en' ? 'Refunded' : 'Återbetald'}</span>`
+                    : `<span class="badge ${statusBadgeClass(b.eventStatus)}" style="font-size: 0.6rem;">${statusLabel(b.eventStatus)}</span>`
                 }
               </div>
             </div>
@@ -994,7 +1009,9 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
   `;
 
   // Logout
-  document.getElementById('logout-btn').addEventListener('click', () => {
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    // Otherwise the phone keeps getting this account's notifications after logging out
+    await detachPushFromAccount().catch(() => {});
     clearUser();
     renderProfile();
   });
@@ -1049,6 +1066,9 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
     updateProfileFabState();
   });
 
+  // One listener for the page's lifetime, not one more per render
+  window.removeEventListener('malta-fab-visibility-changed', window.__profileFabListener || (() => {}));
+  window.__profileFabListener = updateProfileFabState;
   window.addEventListener('malta-fab-visibility-changed', updateProfileFabState);
 
   // Enable/Toggle Biometric
@@ -1321,7 +1341,7 @@ function renderProfileContent(content, user, bets, stats, creds, friends = [], n
       showModal('📸 ' + escapeHtml(photo.tournamentName || 'Fotomagasin'), `
         <div class="photo-lightbox-modal text-center">
           <div style="max-height: 65vh; display: flex; align-items: center; justify-content: center; background: #000; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm);">
-            <img src="${photo.url}" alt="${escapeHtml(photo.caption || 'Eventminne')}" style="max-width: 100%; max-height: 65vh; object-fit: contain;" />
+            <img src="${escapeHtml(safeImageSrc(photo.url))}" alt="${escapeHtml(photo.caption || 'Eventminne')}" style="max-width: 100%; max-height: 65vh; object-fit: contain;" />
           </div>
           ${photo.caption ? `
             <p style="font-size: 0.95rem; font-weight: 500; margin-bottom: var(--space-xs); text-align: left;">

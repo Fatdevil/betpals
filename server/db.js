@@ -683,7 +683,7 @@ const stmts = {
   insertBet: db.prepare('INSERT INTO bets (id, event_id, bettor_name, player_id, user_id, amount) VALUES (?, ?, ?, ?, ?, ?)'),
   getBetsByEvent: db.prepare('SELECT * FROM bets WHERE event_id = ? ORDER BY timestamp ASC'),
   getBetsByUser: db.prepare(`
-    SELECT b.*, e.name as event_name, e.share_code, e.status as event_status, e.winner_id, p.name as player_name
+    SELECT b.*, e.name as event_name, e.share_code, e.status as event_status, e.winner_id, e.payout_percent, p.name as player_name
     FROM bets b
     JOIN events e ON b.event_id = e.id
     JOIN players p ON b.player_id = p.id
@@ -2642,69 +2642,103 @@ export function getLeaderboard() {
 }
 
 // ── User Stats ────────────────────────────────────────
-export function getUserStats(userId) {
-  const bets = db.prepare(`
-    SELECT b.*, e.status AS event_status, e.winner_id, e.payout_percent,
-           p.name AS player_name
-    FROM bets b
-    JOIN events e ON b.event_id = e.id
-    JOIN players p ON b.player_id = p.id
-    WHERE b.user_id = ?
-    ORDER BY b.timestamp DESC
-  `).all(userId);
+// Result of one event bet, using exactly the payout rules of The Tab (getTournamentNetSettlement):
+// several winners split the pool per backed winner, and a game nobody backed the winner of is
+// refunded. Returns { outcome: 'won' | 'lost' | 'refunded' | 'open', net, payout }.
+export function getEventBetOutcome(bet, cache = new Map()) {
+  if (bet.event_status === 'cancelled') return { outcome: 'refunded', net: 0, payout: bet.amount };
+  if (bet.event_status !== 'finished' || !bet.winner_id) return { outcome: 'open', net: 0, payout: 0 };
 
-  const finishedBets = bets.filter(b => b.event_status === 'finished');
-  const wins = finishedBets.filter(b => b.player_id === b.winner_id);
-  const losses = finishedBets.filter(b => b.player_id !== b.winner_id);
-
-  const totalBet = bets.reduce((s, b) => s + b.amount, 0);
-  const totalFinishedBetStake = finishedBets.reduce((s, b) => s + b.amount, 0);
-  const totalLost = losses.reduce((s, b) => s + b.amount, 0);
-
-  // Calculate winnings (same logic as finish endpoint)
-  let totalWon = 0;
-  const eventWinnings = {};
-  for (const bet of wins) {
-    if (!eventWinnings[bet.event_id]) {
-      const full = getFullEvent(bet.event_id);
-      if (full) {
-        const effectivePool = full.totalPool * (full.payoutPercent / 100);
-        const winnerBets = full.bets.filter(b => b.playerId === full.winnerId);
-        const winnerPool = winnerBets.reduce((s, b) => s + b.amount, 0);
-        eventWinnings[bet.event_id] = winnerPool > 0 ? effectivePool / winnerPool : 0;
-      }
+  let ev = cache.get(bet.event_id);
+  if (!ev) {
+    const winnerIds = String(bet.winner_id).split(',').map(x => x.trim()).filter(Boolean);
+    const totalPool = stmts.getTotalPool.get(bet.event_id).total;
+    const payoutPercent = bet.payout_percent ?? stmts.getEventById.get(bet.event_id)?.payout_percent ?? 100;
+    const pools = {};
+    let backed = 0;
+    for (const w of winnerIds) {
+      pools[w] = stmts.getPlayerPool.get(bet.event_id, w).total;
+      if (pools[w] > 0) backed++;
     }
-    const odds = eventWinnings[bet.event_id] || 0;
-    totalWon += bet.amount * odds;
+    ev = { winnerIds, pools, backed, effectivePool: totalPool * (payoutPercent / 100) };
+    cache.set(bet.event_id, ev);
   }
 
-  // Streak
+  if (ev.backed === 0) return { outcome: 'refunded', net: 0, payout: bet.amount };
+  if (!ev.winnerIds.includes(bet.player_id)) return { outcome: 'lost', net: -bet.amount, payout: 0 };
+  const payout = bet.amount * ((ev.effectivePool / ev.backed) / ev.pools[bet.player_id]);
+  return { outcome: 'won', net: payout - bet.amount, payout };
+}
+
+export function getUserStats(userId) {
+  const bets = db.prepare(`
+    SELECT b.*, e.status AS event_status, e.winner_id, e.payout_percent
+    FROM bets b
+    JOIN events e ON b.event_id = e.id
+    WHERE b.user_id = ?
+  `).all(userId);
+
+  const cache = new Map();
+  const results = []; // { won, net, time }
+  let pending = 0;
+  let totalBet = 0;
+  for (const b of bets) {
+    totalBet += b.amount;
+    const r = getEventBetOutcome(b, cache);
+    if (r.outcome === 'open') pending++;
+    if (r.outcome === 'won' || r.outcome === 'lost') {
+      results.push({ won: r.outcome === 'won', net: r.net, time: b.timestamp });
+    }
+  }
+
+  // BlixtBets, AnyBets, duels and party games (split bills are not bets). A game you
+  // won against several people is stored as one row per person, so rows from the same
+  // settlement are counted as one result.
+  const duelRows = db.prepare(`
+    SELECT game_type, custom_title, created_at, winner_id, stake_amount
+    FROM minigame_duels
+    WHERE (creator_id = ? OR opponent_id = ?)
+      AND status = 'completed' AND stake_amount > 0
+      AND winner_id IS NOT NULL AND winner_id != 'tie'
+      AND expense_id IS NULL AND game_type != 'even_steven'
+  `).all(userId, userId);
+  const games = new Map();
+  for (const d of duelRows) {
+    const key = `${d.game_type}|${d.custom_title || ''}|${d.created_at}|${d.winner_id === userId}`;
+    const g = games.get(key) || { won: d.winner_id === userId, net: 0, time: d.created_at };
+    g.net += d.winner_id === userId ? Number(d.stake_amount) : -Number(d.stake_amount);
+    games.set(key, g);
+  }
+  results.push(...games.values());
+
+  results.sort((a, b) => String(b.time).localeCompare(String(a.time)));
+  const wins = results.filter(r => r.won);
+  const losses = results.filter(r => !r.won);
+  const totalWon = wins.reduce((s, r) => s + r.net, 0);
+  const totalLost = losses.reduce((s, r) => s - r.net, 0);
+
   let streak = 0;
   let streakType = null;
-  for (const b of finishedBets) {
-    const won = b.player_id === b.winner_id;
-    if (streakType === null) {
-      streakType = won ? 'win' : 'loss';
-      streak = 1;
-    } else if ((won && streakType === 'win') || (!won && streakType === 'loss')) {
-      streak++;
-    } else {
-      break;
-    }
+  for (const r of results) {
+    const type = r.won ? 'win' : 'loss';
+    if (streakType === null) { streakType = type; streak = 1; }
+    else if (type === streakType) streak++;
+    else break;
   }
 
   return {
     totalBets: bets.length,
-    finishedBets: finishedBets.length,
+    finishedBets: results.length,
     wins: wins.length,
     losses: losses.length,
-    pending: bets.length - finishedBets.length,
-    winRate: finishedBets.length > 0 ? Math.round((wins.length / finishedBets.length) * 100) : 0,
+    pending,
+    winRate: results.length > 0 ? Math.round((wins.length / results.length) * 100) : 0,
     totalBet: Math.round(totalBet),
+    // Profit on won games and stakes lost, so totalWon - totalLost === netProfit
     totalWon: Math.round(totalWon),
     totalLost: Math.round(totalLost),
-    netProfit: Math.round(totalWon - totalFinishedBetStake),
-    streak: streak,
+    netProfit: Math.round(totalWon) - Math.round(totalLost),
+    streak,
     streakType: streakType || 'none'
   };
 }

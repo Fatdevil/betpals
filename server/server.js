@@ -1778,16 +1778,22 @@ app.get('/api/users/me/bets', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Ogiltig token' });
 
   const bets = db.getUserBets(user.id);
-  res.json(bets.map(b => ({
-    id: b.id,
-    eventName: b.event_name,
-    eventCode: b.share_code,
-    eventStatus: b.event_status,
-    playerName: b.player_name,
-    amount: b.amount,
-    timestamp: b.timestamp,
-    won: b.event_status === 'finished' && b.player_id === b.winner_id
-  })));
+  const cache = new Map();
+  res.json(bets.map(b => {
+    const r = db.getEventBetOutcome(b, cache);
+    return {
+      id: b.id,
+      eventName: b.event_name,
+      eventCode: b.share_code,
+      eventStatus: b.event_status,
+      playerName: b.player_name,
+      amount: b.amount,
+      timestamp: b.timestamp,
+      outcome: r.outcome,
+      net: Math.round(r.net),
+      won: r.outcome === 'won'
+    };
+  }));
 });
 
 app.get('/api/users/me/photos', (req, res) => {

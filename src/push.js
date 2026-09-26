@@ -145,3 +145,12 @@ export async function unsubscribeFromPush() {
   }
   try { localStorage.setItem(PUSH_DISABLED_KEY, '1'); } catch {}
 }
+
+// On logout: the server forgets this phone for the account, but the browser keeps its
+// subscription so the next login on this phone re-links it without asking again
+export async function detachPushFromAccount() {
+  if (!isPushSupported()) return;
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg ? await reg.pushManager.getSubscription() : null;
+  if (sub) await unsubscribePush({ endpoint: sub.endpoint });
+}
