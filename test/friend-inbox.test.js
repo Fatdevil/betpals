@@ -52,7 +52,7 @@ test('when the request is accepted, the sender is told in their bell', async () 
   const annaInbox = (await call('GET', '/api/inbox', null, anna.token)).body;
   assert.equal(annaInbox.items.length, 1);
   assert.equal(annaInbox.items[0].type, 'friend_accepted');
-  assert.match(annaInbox.items[0].text, new RegExp(bosse.nickname));
+  assert.match(annaInbox.items[0].detail, new RegExp(bosse.nickname));
   assert.equal(annaInbox.count, 1);
   assert.equal((await call('GET', '/api/inbox', null, bosse.token)).body.friendRequests.length, 0);
 

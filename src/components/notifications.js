@@ -9,7 +9,7 @@ import { escapeHtml, showToast } from '../utils.js';
 const MAX_NOTIFICATIONS = 20;
 let notifications = [];
 let unreadCount = 0;
-let inbox = { friendRequests: [], items: [], count: 0 };
+let inbox = { friendRequests: [], todos: [], items: [], count: 0 };
 let inboxTimer = null;
 let outsideClickBound = false;
 
@@ -57,7 +57,7 @@ export function clearUnread() {
 }
 
 export function getUnreadCount() {
-  return unreadCount + (inbox.count || 0);
+  return inbox.count || 0;
 }
 
 function updateBellBadge() {
@@ -72,7 +72,7 @@ function updateBellBadge() {
   }
 }
 
-const EMPTY_INBOX = { friendRequests: [], items: [], count: 0 };
+const EMPTY_INBOX = { friendRequests: [], todos: [], items: [], count: 0 };
 
 export async function refreshInbox() {
   if (!isLoggedIn()) {
@@ -98,11 +98,15 @@ export async function refreshInbox() {
   updateBellBadge();
 }
 
+function waitingCount() {
+  return (inbox.friendRequests || []).length + (inbox.todos || []).length;
+}
+
 // Whatever the open bell shows has been seen
 function markShownAsRead() {
   if (isLoggedIn() && (inbox.items || []).some(n => !n.read)) {
     markInboxRead().catch(() => {});
-    inbox = { ...inbox, items: inbox.items.map(n => ({ ...n, read: true })), count: (inbox.friendRequests || []).length };
+    inbox = { ...inbox, items: inbox.items.map(n => ({ ...n, read: true })), count: waitingCount() };
   }
 }
 
@@ -174,9 +178,9 @@ function goTo(url) {
 }
 
 function renderDropdown(dropdown) {
-  const { friendRequests = [], items = [] } = inbox;
-  const hasTodo = friendRequests.length > 0;
-  const empty = !hasTodo && items.length === 0 && notifications.length === 0;
+  const { friendRequests = [], todos = [], items = [] } = inbox;
+  const hasTodo = friendRequests.length > 0 || todos.length > 0;
+  const empty = !hasTodo && items.length === 0;
 
   dropdown.innerHTML = empty ? `
     <div class="notif-empty">
@@ -186,7 +190,7 @@ function renderDropdown(dropdown) {
   ` : `
     <div class="notif-header">
       <span style="font-weight: 600; font-size: 0.85rem;">Notiser</span>
-      ${items.length > 0 || notifications.length > 0 ? '<button class="notif-clear" id="notif-clear-btn">Rensa</button>' : ''}
+      ${items.length > 0 ? '<button class="notif-clear" id="notif-clear-btn">Rensa</button>' : ''}
     </div>
     <div class="notif-list">
       ${hasTodo ? '<div class="notif-group">Väntar på dig</div>' : ''}
@@ -202,25 +206,26 @@ function renderDropdown(dropdown) {
           </div>
         </div>
       `).join('')}
+      ${todos.map(t => `
+        <button type="button" class="notif-item notif-todo notif-link" data-url="${escapeHtml(t.url || '')}">
+          <span class="notif-icon">${escapeHtml(t.icon || '🔔')}</span>
+          <div class="notif-content">
+            <div class="notif-text"><b>${escapeHtml(t.title)}</b></div>
+            ${t.subtitle ? `<div class="notif-detail">${escapeHtml(t.subtitle)}</div>` : ''}
+          </div>
+          ${t.action ? `<span class="notif-cta">${escapeHtml(t.action)} →</span>` : ''}
+        </button>
+      `).join('')}
       ${items.length > 0 ? '<div class="notif-group">Senaste</div>' : ''}
       ${items.map(n => `
         <button type="button" class="notif-item notif-link${n.read ? '' : ' is-unread'}" data-url="${escapeHtml(n.url || '')}">
           <span class="notif-icon">${escapeHtml(n.icon || '🔔')}</span>
           <div class="notif-content">
             <div class="notif-text">${escapeHtml(n.text)}</div>
+            ${n.detail ? `<div class="notif-detail">${escapeHtml(n.detail)}</div>` : ''}
             <div class="notif-time">${escapeHtml(timeLabel(n.createdAt))}</div>
           </div>
         </button>
-      `).join('')}
-      ${notifications.length > 0 ? '<div class="notif-group">På spelsidan</div>' : ''}
-      ${notifications.map(n => `
-        <div class="notif-item">
-          <span class="notif-icon">${escapeHtml(n.icon || '🔔')}</span>
-          <div class="notif-content">
-            <div class="notif-text">${escapeHtml(n.text)}</div>
-            <div class="notif-time">${escapeHtml(n.time || '')}</div>
-          </div>
-        </div>
       `).join('')}
     </div>
   `;
@@ -252,7 +257,7 @@ function renderDropdown(dropdown) {
     notifications = [];
     unreadCount = 0;
     save();
-    inbox = { ...inbox, items: [], count: (inbox.friendRequests || []).length };
+    inbox = { ...inbox, items: [], count: waitingCount() };
     renderDropdown(dropdown);
     updateBellBadge();
     if (isLoggedIn()) clearInbox().catch(() => {});
@@ -290,34 +295,6 @@ function toggleDropdown() {
   updateBellBadge();
 }
 
-// ── Format notifications from WebSocket ─────────────
-export function handleWebSocketNotification(data) {
-  if (data.notification?.type === 'bet_placed') {
-    const n = data.notification;
-    addNotification({
-      icon: '🎯',
-      text: `${n.bettor} bettade ${n.amount} kr på ${n.player}`
-    });
-  }
-
-  if (data.type === 'event_locked') {
-    addNotification({
-      icon: '🔒',
-      text: 'Eventet är nu låst — inga fler bets!'
-    });
-  }
-
-  if (data.type === 'event_finished') {
-    addNotification({
-      icon: '🏆',
-      text: `${data.winner || 'Vinnaren'} tog hem det!`
-    });
-  }
-
-  if (data.type === 'event_reopened') {
-    addNotification({
-      icon: '🔓',
-      text: 'Eventet har öppnats igen!'
-    });
-  }
-}
+// ── Game-page activity ─────────────────────────────
+// Other people's bets and game updates live in the game's own feed, not in your bell
+export function handleWebSocketNotification() {}
