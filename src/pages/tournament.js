@@ -1318,6 +1318,11 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
           <input type="text" class="form-input" id="game-player-input" placeholder="Lägg till alternativ eller namn" style="flex: 1;" />
           <button type="button" class="btn btn-sm btn-secondary" id="game-add-player">+</button>
         </div>
+        <button type="button" class="btn btn-sm btn-secondary btn-block mt-xs" id="game-pick-friends-btn" style="font-size: 0.78rem;">👥 Lägg till vän</button>
+        <div id="game-friends-drawer" style="display: none; padding: var(--space-xs); background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); margin-top: 4px;">
+          <div id="game-friends-list" style="max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;"></div>
+          <p class="text-muted" style="font-size: 0.68rem; margin: 6px 0 0 0; line-height: 1.3;">Vänner du väljer bjuds in till eventet och får en notis. Deras insatser och vinster hamnar i Swishlistan.</p>
+        </div>
         <div id="game-player-list" class="mt-sm"></div>
       </div>
 
@@ -1354,6 +1359,61 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   }
 
   renderPlayers();
+
+  // Friends picked for this game who are not yet in the event: name in the game -> user id.
+  // The friend list is fetched every time the drawer opens, so friends added during the
+  // event show up without reloading.
+  const pickedFriends = new Map();
+  const friendsDrawer = document.getElementById('game-friends-drawer');
+  const friendsListEl = document.getElementById('game-friends-list');
+  const participantNameFor = (userId) => (t.participants || []).find(p => p.userId === userId)?.name || null;
+
+  document.getElementById('game-pick-friends-btn')?.addEventListener('click', async () => {
+    if (friendsDrawer.style.display === 'block') {
+      friendsDrawer.style.display = 'none';
+      return;
+    }
+    friendsDrawer.style.display = 'block';
+    friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>';
+    let friends = [];
+    try {
+      friends = await getFriends();
+    } catch (err) {
+      friendsListEl.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem; padding: 8px;">${escapeHtml(err.message)}</div>`;
+      return;
+    }
+    if (!friends || friends.length === 0) {
+      friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Du har inga vänner tillagda än. Lägg till vänner under Profil! 👥</div>';
+      return;
+    }
+    friendsListEl.innerHTML = friends.map(f => {
+      const name = participantNameFor(f.id) || f.nickname;
+      const added = players.includes(name);
+      return `
+        <button type="button" class="flex-between game-friend-pick" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(name)}" ${added ? 'disabled' : ''}
+                style="width: 100%; padding: 6px 8px; background: rgba(0,0,0,0.25); border: none; border-radius: var(--radius-sm); align-items: center; color: inherit; opacity: ${added ? 0.5 : 1}; cursor: ${added ? 'default' : 'pointer'};">
+          <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;">
+            ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
+          </span>
+          <span style="font-size: 0.75rem;">${added ? '✓ Med' : '+ Lägg till'}</span>
+        </button>
+      `;
+    }).join('');
+    friendsListEl.querySelectorAll('.game-friend-pick').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.name;
+        if (!name || players.includes(name)) return;
+        // Replace the "Spelare 1/2" placeholders instead of keeping them next to real people
+        players = players.filter(p => !/^Spelare \d+$/.test(p));
+        players.push(name);
+        if (!participantNameFor(btn.dataset.id)) pickedFriends.set(name, btn.dataset.id);
+        btn.disabled = true;
+        btn.style.opacity = 0.5;
+        btn.lastElementChild.textContent = '✓ Med';
+        renderPlayers();
+      });
+    });
+  });
 
   function applyGameType(gtId) {
     currentGt = gtId;
@@ -1517,6 +1577,17 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
 
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
+      // Friends picked in this form join the event first, so the game links their bets to
+      // their accounts (Swishlistan) and they get an invite notification
+      const inviteIds = [...pickedFriends].filter(([pName]) => players.includes(pName)).map(([, id]) => id);
+      if (inviteIds.length > 0) {
+        const inviteRes = await inviteFriendsToTournament(t.id, inviteIds, pin);
+        const participants = inviteRes?.tournament?.participants || [];
+        players = players.map(pName => {
+          const userId = pickedFriends.get(pName);
+          return (userId && participants.find(p => p.userId === userId)?.name) || pName;
+        });
+      }
       const updated = await createSideBet(t.id, {
         name,
         players,
