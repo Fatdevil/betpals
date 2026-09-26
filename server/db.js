@@ -175,6 +175,7 @@ db.exec(`
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'friends'"); } catch {}
 try { db.exec("ALTER TABLE tournaments ADD COLUMN settle_reminded_at TEXT"); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN finished_at TEXT'); } catch {}
 try { db.exec("UPDATE tournaments SET visibility = 'friends' WHERE visibility = 'public'"); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
@@ -1448,6 +1449,8 @@ export function cancelEvent(eventId) {
 
 export function finishEvent(eventId, winnerId, winnerImageUrl = null) {
   stmts.updateEventWinner.run(winnerId, winnerImageUrl, eventId);
+  // A result is activity: the "end your event" reminder waits after the latest one
+  db.prepare("UPDATE events SET finished_at = datetime('now') WHERE id = ?").run(eventId);
 }
 
 export function updateEventClosesAt(eventId, closesAt) {
@@ -3819,7 +3822,7 @@ export function getTournamentsNeedingSettleReminder(quietHours = 48) {
     FROM tournaments t
     JOIN (
       SELECT e.tournament_id AS tid,
-             MAX(MAX(datetime(e.created_at)), COALESCE(MAX(datetime(b.timestamp)), '')) AS last_activity,
+             MAX(MAX(datetime(e.created_at)), COALESCE(MAX(datetime(e.finished_at)), ''), COALESCE(MAX(datetime(b.timestamp)), '')) AS last_activity,
              SUM(CASE WHEN e.status = 'finished' THEN 1 ELSE 0 END) AS finished_count
       FROM events e LEFT JOIN bets b ON b.event_id = e.id
       WHERE e.tournament_id IS NOT NULL
@@ -3836,14 +3839,19 @@ export function markTournamentSettleReminded(id) {
   db.prepare("UPDATE tournaments SET settle_reminded_at = datetime('now') WHERE id = ?").run(id);
 }
 
-// The people actually in an event: its creator, participants with an account and everyone
-// who bet in it (not every friend who could see it)
+// The people actually in an event: its creator, participants with an account, everyone
+// who bet in it and everyone with a debt linked to it (not every friend who could see it)
 export function getTournamentMemberIds(tournamentId) {
   const t = stmts.getTournamentById.get(tournamentId);
   const ids = new Set();
   if (t?.creator_id) ids.add(t.creator_id);
   for (const r of db.prepare('SELECT DISTINCT user_id FROM tournament_participants WHERE tournament_id = ? AND user_id IS NOT NULL').all(tournamentId)) ids.add(r.user_id);
   for (const r of db.prepare('SELECT DISTINCT b.user_id FROM bets b JOIN events e ON b.event_id = e.id WHERE e.tournament_id = ? AND b.user_id IS NOT NULL').all(tournamentId)) ids.add(r.user_id);
+  // Both sides of debts linked to the event (bills, BlixtBets, AnyBets, minigames)
+  for (const r of db.prepare('SELECT creator_id, opponent_id FROM minigame_duels WHERE tournament_id = ?').all(tournamentId)) {
+    if (r.creator_id) ids.add(r.creator_id);
+    if (r.opponent_id) ids.add(r.opponent_id);
+  }
   return Array.from(ids);
 }
 

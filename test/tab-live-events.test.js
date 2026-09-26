@@ -103,3 +103,23 @@ test('someone who wants to can still pay mid-event: the receiver can mark it pai
   db.finishEvent(ev, p1);
   assert.equal(db.getUnifiedSettlementOverview(b.id).friends.find(f => f.friendId === a.id).totalNet, -30);
 });
+
+test('someone with an event-linked debt counts as in the event (both sides see it as running)', () => {
+  const { a, tId } = eventWithResult();
+  const outsider = makeUser('Utanför');
+  const duel = db.createDuel({ gameType: 'gimme', creatorId: outsider.id, opponentId: a.id, stakeAmount: 40, mode: 'online', tournamentId: tId });
+  db.respondDuel(duel.id, a.id, true);
+  db.submitDuelResult({ duelId: duel.id, creatorScore: 0, opponentScore: 1, winnerId: a.id });
+  assert.ok(db.getTournamentMemberIds(tId).includes(outsider.id));
+  const o = db.getUnifiedSettlementOverview(outsider.id);
+  assert.equal(o.readyOwed, 0);
+  assert.equal(db.getUnifiedSettlementOverview(a.id).friends.find(f => f.friendId === outsider.id)?.isLive, true);
+});
+
+test('the settle push is personal only for people in the event; a new result restarts the quiet time', () => {
+  const server = readFileSync(new URL('../server/server.js', import.meta.url), 'utf8');
+  assert.match(server, /if \(memberIds\.has\(pid\)\) try/);
+  const dbSrc = readFileSync(new URL('../server/db.js', import.meta.url), 'utf8');
+  assert.match(dbSrc, /UPDATE events SET finished_at = datetime\('now'\) WHERE id = \?/);
+  assert.match(dbSrc, /MAX\(datetime\(e\.finished_at\)\)/);
+});
