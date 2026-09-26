@@ -48,8 +48,17 @@ test('solo leaderboard: keeps your best and shows only you and your friends', ()
   assert.deepEqual(lb.players.map(p => p.userId), [friend.id, me.id]);
 });
 
-test('solo scores are checked against the game rules', () => {
-  assert.match(server, /app\.post\('\/api\/space\/solo-score'[\s\S]{0,400}spaceBlitzImplausibilityReason/);
+test('solo scores need a server-timed round, used once, checked against the real time', () => {
+  const route = server.slice(server.indexOf("app.post('/api/space/solo-score'"), server.indexOf("app.get('/api/space/leaderboard'"));
+  assert.match(route, /spaceSoloRounds\.delete\(roundId\);/);
+  assert.match(route, /const elapsedMs = Date\.now\(\) - round\.startedAt;/);
+  assert.match(route, /spaceBlitzImplausibilityReason\(\{ score, aliensKilled, wave: waveReached, elapsedMs \}\)/);
+});
+
+test('a new player in a finished room reopens the lobby; spectators poll; clock offset is measured', () => {
+  assert.match(server, /if \(!player && room\.status === 'completed'\) \{\s+\/\/[^\n]*\n\s+room\.status = 'lobby';/);
+  assert.match(modal, /pollForPartyResult\(\);\n\s+return;/);
+  assert.match(modal, /offset: r\.now \+ rtt \/ 2 - receivedAt/);
 });
 
 test('rounds count down to the server start time; ties are decided by the host', () => {
