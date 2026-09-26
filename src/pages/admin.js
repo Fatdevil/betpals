@@ -6,6 +6,7 @@ import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
 import { t, getLang } from '../i18n.js';
 import { compressImage } from '../imageUtils.js';
+import { openFinishEventModal } from '../components/finish-event-modal.js';
 
 let adminPin = null;
 
@@ -254,6 +255,8 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           ` : ''}
           ${ev.status === 'locked' ? `
             <button class="btn btn-sm btn-secondary admin-reopen-btn" data-id="${ev.id}">${t('admin.btnUnlock')}</button>
+          ` : ''}
+          ${ev.status === 'open' || ev.status === 'locked' ? `
             <button class="btn btn-sm btn-success admin-finish-btn" data-id="${ev.id}" data-code="${ev.shareCode}">${t('admin.btnFinish')}</button>
           ` : ''}
           ${ev.status === 'open' ? `
@@ -578,125 +581,10 @@ async function showBetsModal(eventId, shareCode, loggedIn, hasPinSession, user) 
 async function showFinishModal(eventId, shareCode, loggedIn, hasPinSession, user) {
   try {
     const event = await api.getEvent(shareCode);
-
-    showModal(t('admin.finishTitle'), `
-      <p class="text-secondary mb-md">${t('admin.whoWonPrompt')} <strong>${event.name}</strong>?</p>
-
-      <div class="form-group mb-md">
-        <label class="form-label">📸 Vinnarbevis / resultatbild (valfritt)</label>
-        <div class="image-picker-box" id="finish-proof-drop">
-          <div id="finish-proof-preview-wrapper" class="image-preview-wrapper" style="display:none;">
-            <img id="finish-proof-preview" alt="Vinnarbevis" />
-            <button type="button" class="image-preview-remove" id="finish-proof-remove">✕</button>
-          </div>
-          <div id="finish-proof-placeholder">
-            <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
-            <div style="font-size: 0.8rem; color: var(--text-secondary);">Fota scorekort / målgång / resultat</div>
-          </div>
-          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="finish-proof-input" style="display:none;" />
-        </div>
-      </div>
-
-      <div class="mb-sm flex-between" style="align-items: center; padding: 0 4px;">
-        <span class="text-secondary" style="font-size: 0.78rem;">Klicka på en vinnare, eller kryssa i flera vid delad seger:</span>
-        <button type="button" class="btn btn-sm btn-accent" id="confirm-tied-winners-btn" style="display: none; font-size: 0.75rem; padding: 4px 10px; font-weight: 700;">
-          🤝 Dela pott (<span id="tied-count">0</span> vinnare)
-        </button>
-      </div>
-
-      <div class="bet-list" id="winner-list">
-        ${event.players.map(p => `
-          <div class="bet-item winner-row" data-id="${p.id}" style="width:100%; display: flex; align-items: center; justify-content: space-between; padding: 10px;">
-            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 0; flex: 1;">
-              <input type="checkbox" class="winner-checkbox" data-id="${p.id}" data-name="${escapeHtml(p.name)}" style="cursor: pointer; width: 18px; height: 18px;" />
-              ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}" class="player-avatar-mini" />` : ''}
-              <span class="bet-item-name" style="font-weight: 600;">${escapeHtml(p.name)}</span>
-            </label>
-            <button type="button" class="btn btn-sm winner-select-btn" data-id="${p.id}" style="font-size: 0.75rem; padding: 4px 10px; white-space: nowrap;">
-              ${t('admin.selectWinnerBtn')} 🏆
-            </button>
-          </div>
-        `).join('')}
-      </div>
-    `);
-
-    let selectedWinnerProof = null;
-    const proofInput = document.getElementById('finish-proof-input');
-    const proofDrop = document.getElementById('finish-proof-drop');
-    const proofPreview = document.getElementById('finish-proof-preview');
-    const proofPreviewWrapper = document.getElementById('finish-proof-preview-wrapper');
-    const proofPlaceholder = document.getElementById('finish-proof-placeholder');
-    const proofRemove = document.getElementById('finish-proof-remove');
-
-    proofDrop?.addEventListener('click', (e) => {
-      if (e.target === proofRemove) return;
-      proofInput.click();
+    openFinishEventModal(event, {
+      pin: getPin(),
+      onDone: () => loadAdminEvents(loggedIn, hasPinSession, user)
     });
-
-    proofInput?.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        selectedWinnerProof = await compressImage(file, 1000, 0.8);
-        proofPreview.src = selectedWinnerProof;
-        proofPreviewWrapper.style.display = 'inline-block';
-        proofPlaceholder.style.display = 'none';
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    proofRemove?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectedWinnerProof = null;
-      proofInput.value = '';
-      proofPreview.src = '';
-      proofPreviewWrapper.style.display = 'none';
-      proofPlaceholder.style.display = 'block';
-    });
-
-    const tiedBtn = document.getElementById('confirm-tied-winners-btn');
-    const tiedCountSpan = document.getElementById('tied-count');
-    const checkboxes = document.querySelectorAll('.winner-checkbox');
-
-    const updateTiedState = () => {
-      const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.id);
-      if (selected.length >= 2) {
-        tiedBtn.style.display = 'inline-block';
-        tiedCountSpan.textContent = selected.length;
-      } else {
-        tiedBtn.style.display = 'none';
-      }
-    };
-
-    checkboxes.forEach(cb => {
-      cb.addEventListener('change', updateTiedState);
-    });
-
-    tiedBtn?.addEventListener('click', async () => {
-      const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.id);
-      if (selected.length < 2) return;
-      try {
-        const result = await api.finishEvent(eventId, selected, getPin(), selectedWinnerProof);
-        closeModal();
-        launchConfetti();
-        showToast(`🤝 Delad seger fastställd mellan ${result.winner}! Potten delas lika.`, 'success');
-        loadAdminEvents(loggedIn, hasPinSession, user);
-      } catch (err) { showToast(err.message, 'error'); }
-    });
-
-    document.querySelectorAll('.winner-select-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        try {
-          const result = await api.finishEvent(eventId, btn.dataset.id, getPin(), selectedWinnerProof);
-          closeModal();
-          launchConfetti();
-          showToast(`🏆 ${result.winner} ${t('admin.toastWinnerDeclared')}`, 'success');
-          loadAdminEvents(loggedIn, hasPinSession, user);
-        } catch (err) { showToast(err.message, 'error'); }
-      });
-    });
-
   } catch (err) { showToast(err.message, 'error'); }
 }
 
