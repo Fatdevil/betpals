@@ -3970,7 +3970,6 @@ app.post('/api/minigames/party/create', (req, res) => {
         nickname: user.nickname,
         avatarUrl: user.avatar_url || null,
         avatarEmoji: user.avatar_emoji || '👑',
-        swishNumber: user.swish_number || null,
         isHost: true,
         stoppedTime: null,
         diff: null,
@@ -4055,7 +4054,7 @@ app.post('/api/minigames/party/join', (req, res) => {
   let player = room.players.find(p => p.id === user.id);
   // New players may only join in the lobby: joining mid-round (or during a tie-break)
   // would make them a loser of a round they never played.
-  if (!player && room.status !== 'lobby') {
+  if (!player && room.status !== 'lobby' && room.status !== 'completed') {
     return res.status(400).json({ error: 'Spelet har redan startat' });
   }
 
@@ -4068,7 +4067,6 @@ app.post('/api/minigames/party/join', (req, res) => {
       nickname: user.nickname,
       avatarUrl: user.avatar_url || null,
       avatarEmoji: user.avatar_emoji || '👤',
-      swishNumber: user.swish_number || null,
       isHost: false,
       stoppedTime: null,
       diff: null,
@@ -4140,6 +4138,7 @@ const SPACE_BLITZ_GRACE_MS = 10000;
 const SPACE_FIRE_INTERVAL_MS = 220;
 const SPACE_ALIENS_PER_WAVE = 28;
 const SPACE_WAVE_POINTS = 560; // 7×30 + 14×20 + 7×10
+const SPACE_WAVE_CLEAR_BONUS = 300; // the game awards this for every cleared wave
 const SPACE_ALIEN_POINTS_DESC = [...Array(7).fill(30), ...Array(14).fill(20), ...Array(7).fill(10)];
 const SPACE_UFO_POINTS = 200;
 const SPACE_FIRST_UFO_MS = 12000;
@@ -4199,7 +4198,9 @@ export function spaceBlitzImplausibilityReason({ score, aliensKilled, wave, elap
   const maxUfos = elapsedMs < SPACE_FIRST_UFO_MS ? 0 : 1 + Math.floor((elapsedMs - SPACE_FIRST_UFO_MS) / SPACE_UFO_MIN_GAP_MS);
 
   for (let ufos = 0; ufos <= maxUfos; ufos++) {
-    const partialScore = score - clearedWaves * SPACE_WAVE_POINTS - ufos * SPACE_UFO_POINTS;
+    // A cleared wave is worth its aliens plus the clear bonus; without the bonus every honest
+    // player who cleared a wave was invalidated to 0 points
+    const partialScore = score - clearedWaves * (SPACE_WAVE_POINTS + SPACE_WAVE_CLEAR_BONUS) - ufos * SPACE_UFO_POINTS;
     if (partialScore >= minPartial && partialScore <= maxPartial) return null;
   }
   return 'Poängen går inte ihop med antal träffar';

@@ -74,6 +74,15 @@ import { getStoredUser, getToken } from '../auth.js';
 import { t, getLang } from '../i18n.js';
 import { openInstantLiveModal, openLiveStreamModal } from './livestream.js';
 
+// Party results point to The Tab for paying (one place, netted with everything else)
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest?.('.btn-space-goto-tab')) return;
+    closeModal();
+    window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'leaderboard', tab: 'overview' } }));
+  });
+}
+
 // ── Web Audio Synth SFX (Zero-dependency & instant) ───────
 let audioCtx = null;
 function getAudioContext() {
@@ -2257,10 +2266,6 @@ export async function openBlind10Modal(initialRoom = null) {
     const isWinner = user && winner && user.id === winner.id;
     const losers = room.players.filter(p => p.id !== winner.id);
 
-    // Swish payment link if current user is loser and stake > 0
-    const swishUrl = (!isWinner && room.stakeAmount > 0 && winner.swishNumber)
-      ? createSwishUrl({ phone: winner.swishNumber, amount: room.stakeAmount, message: 'Blind 10 duell' })
-      : null;
 
     container.innerHTML = `
       <div class="text-center" style="padding: 10px 0;">
@@ -2317,18 +2322,7 @@ export async function openBlind10Modal(initialRoom = null) {
               <div style="font-size: 0.88rem; margin-bottom: 10px; color: var(--text-secondary);">
                 Du förlorade mot <strong>${escapeHtml(winner.nickname)}</strong> och är skyldig <strong>${room.stakeAmount} kr</strong>.
               </div>
-              ${swishUrl ? `
-                <a href="${swishUrl}" class="swish-pay-btn" target="_blank" rel="noopener noreferrer" style="display: block; text-align: center; margin-bottom: 8px;">
-                  💸 ${isEn ? 'Swish now' : 'Swisha nu'} (${room.stakeAmount} kr)
-                </a>
-              ` : `
-                <div class="text-muted" style="font-size: 0.8rem;">
-                  📱 Vinnarens Swish: ${winner.swishNumber ? escapeHtml(winner.swishNumber) : 'Ej angivet'}
-                </div>
-              `}
-              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">
-                ✅ Skulden har automatiskt lagts till i din <strong>Notan & Swishlista</strong>.
-              </div>
+              <button type="button" class="btn btn-secondary btn-block btn-space-goto-tab">${isEn ? 'Pay under The Tab →' : 'Betala under THE TAB →'}</button>
             </div>
           `
         ) : ''}
@@ -5771,7 +5765,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
   const currentUser = getStoredUser();
 
   // Mode: 'solo' | 'duel' | 'party' | 'pass'
-  let activeMode = initialOptions.mode || 'solo';
+  let activeMode = initialOptions.mode === 'duel' ? 'party' : (initialOptions.mode || 'solo');
   let selectedStake = initialOptions.stake || 0;
   let partyRoom = initialOptions.room || null;
 
@@ -5794,9 +5788,6 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         <div class="flex gap-xs mb-md" style="justify-content: center; flex-wrap: wrap;">
           <button type="button" class="btn ${activeMode === 'solo' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="solo">
             ${t('arcade.spaceModeSolo')}
-          </button>
-          <button type="button" class="btn ${activeMode === 'duel' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="duel">
-            ${t('arcade.spaceModeDuel')}
           </button>
           <button type="button" class="btn ${activeMode === 'party' ? 'btn-primary' : 'btn-secondary'} btn-sm space-tab-btn" data-tab="party">
             ${t('arcade.spaceModeParty')}
@@ -5829,7 +5820,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         <div class="flex gap-xs justify-center mb-md" style="flex-wrap: wrap;">
           <span class="badge badge-accent">⏱️ 60s Blitz</span>
           <span class="badge badge-success">❤️❤️❤️ ${isEn ? '3 Lives' : '3 Liv'}</span>
-          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🪙 ${isEn ? 'Earn Chips' : 'Tjäna Chips'}</span>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">🌊 ${isEn ? '+300 per cleared wave' : '+300 per rensad våg'}</span>
         </div>
 
         <div class="card p-sm mb-md text-left" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); font-size: 0.78rem;">
@@ -6499,11 +6490,10 @@ export function openSpaceInvadersModal(initialOptions = {}) {
           }).join('')}
         </div>
 
-        ${!isRoomTie && room.stakeAmount > 0 && !isUserWinner && winner.swishNumber ? `
+        ${!isRoomTie && room.stakeAmount > 0 && !isUserWinner ? `
           <div class="my-md">
-            <a href="${createSwishUrl({ phone: winner.swishNumber, amount: room.stakeAmount, message: `Space Blitz - ${winner.nickname}` })}" class="btn btn-primary btn-block" style="background: #10b981; font-weight: 800;">
-              📱 Swisha ${escapeHtml(winner.nickname)} (${room.stakeAmount} kr)
-            </a>
+            <div class="text-muted" style="font-size: 0.82rem; margin-bottom: 6px;">${isEn ? `You owe ${escapeHtml(winner.nickname)} ${room.stakeAmount} kr – it is on The Tab.` : `Du är skyldig ${escapeHtml(winner.nickname)} ${room.stakeAmount} kr – det ligger på THE TAB.`}</div>
+            <button type="button" class="btn btn-secondary btn-block btn-space-goto-tab">${isEn ? 'Pay under The Tab →' : 'Betala under THE TAB →'}</button>
           </div>
         ` : ''}
 
@@ -6713,8 +6703,12 @@ export function openSpaceInvadersModal(initialOptions = {}) {
 
     const width = 320;
     const height = 300;
-    canvas.width = width;
-    canvas.height = height;
+    // Draw at the screen's real pixel density so the game is sharp on iPhone
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
 
     let score = 0;
     let wave = 1;
@@ -7011,19 +7005,24 @@ export function openSpaceInvadersModal(initialOptions = {}) {
     spawnAliens();
     spawnShields();
 
-    // Game loop (60 FPS)
-    function loop() {
+    // Game loop. Movement is scaled by the real frame time, so a 120 Hz iPhone, a slow
+    // phone and a laptop all play at the same speed (it matters when money is at stake)
+    let lastFrameAt = null;
+    function loop(ts) {
       if (!isRunning) return;
+      const now = typeof ts === 'number' ? ts : performance.now();
+      const dt = lastFrameAt === null ? 1 : Math.min(3, (now - lastFrameAt) / (1000 / 60));
+      lastFrameAt = now;
 
       // 1. UPDATE PLAYER
-      if (player.isMovingLeft) player.x -= player.speed;
-      if (player.isMovingRight) player.x += player.speed;
+      if (player.isMovingLeft) player.x -= player.speed * dt;
+      if (player.isMovingRight) player.x += player.speed * dt;
       player.x = Math.max(6, Math.min(width - player.w - 6, player.x));
 
       // 2. UPDATE BULLETS
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
-        b.y -= b.speed;
+        b.y -= b.speed * dt;
         if (b.y < -10) {
           bullets.splice(i, 1);
           continue;
@@ -7074,7 +7073,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       // 3. UPDATE ALIEN BULLETS
       for (let i = alienBullets.length - 1; i >= 0; i--) {
         const ab = alienBullets[i];
-        ab.y += ab.speed;
+        ab.y += ab.speed * dt;
         if (ab.y > height + 10) {
           alienBullets.splice(i, 1);
           continue;
@@ -7105,7 +7104,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       }
 
       // 4. UPDATE ALIENS GRID
-      alienMoveTimer++;
+      alienMoveTimer += dt;
       if (alienMoveTimer >= alienMoveInterval) {
         alienMoveTimer = 0;
         let edgeHit = false;
@@ -7164,6 +7163,8 @@ export function openSpaceInvadersModal(initialOptions = {}) {
         score += 300;
         spawnAliens();
         playWinSound();
+        showToast(isEn ? `🌊 Wave ${wave}! +300 bonus` : `🌊 Våg ${wave}! +300 i bonus`, 'success');
+        updateHud();
       }
 
       // 5. MYSTERY UFO
@@ -7180,7 +7181,7 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       }
 
       if (ufo) {
-        ufo.x += ufo.speed;
+        ufo.x += ufo.speed * dt;
         if (ufo.x > width + 40) {
           ufo = null;
         }
@@ -7189,9 +7190,9 @@ export function openSpaceInvadersModal(initialOptions = {}) {
       // 6. UPDATE PARTICLES
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life--;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
         if (p.life <= 0) particles.splice(i, 1);
       }
 

@@ -57,8 +57,10 @@ async function createStartedRoom(gameType, stakeAmount = 50, playerCount = 2) {
 test('Space Blitz plausibility: accepts results that follow the game rules', () => {
   // Wave 1, 5 top-row kills
   assert.equal(spaceBlitzImplausibilityReason({ score: 150, aliensKilled: 5, wave: 1, elapsedMs: 20000 }), null);
-  // 2 cleared waves (1120) + 4 kills (80) + 1 UFO (200)
-  assert.equal(spaceBlitzImplausibilityReason({ score: 1400, aliensKilled: 60, wave: 3, elapsedMs: 60000 }), null);
+  // 2 cleared waves (2 × (560 + 300 bonus)) + 4 kills (80) + 1 UFO (200)
+  assert.equal(spaceBlitzImplausibilityReason({ score: 2000, aliensKilled: 60, wave: 3, elapsedMs: 60000 }), null);
+  // An honest player who clears a wave gets the +300 bonus the game awards
+  assert.equal(spaceBlitzImplausibilityReason({ score: 560 + 300 + 30, aliensKilled: 31, wave: 2, elapsedMs: 45000 }), null);
   // Zero score is always fine
   assert.equal(spaceBlitzImplausibilityReason({ score: 0, aliensKilled: 0, wave: 1, elapsedMs: 3000 }), null);
 });
@@ -115,10 +117,10 @@ test('Party: nobody can join mid-round, but existing players can rejoin', async 
   assert.equal(rejoin.status, 200);
 });
 
-test('Party: players carry their real Swish number and avatar', async () => {
+test('Party: rooms carry no Swish numbers (anyone with the room code can read a room)', async () => {
   const { host, room } = await createStartedRoom('blind10');
   const hostPlayer = room.players.find(p => p.id === host.id);
-  assert.equal(hostPlayer.swishNumber, host.swishNumber);
+  assert.equal(hostPlayer.swishNumber, undefined);
 });
 
 test('Party: a player who never finishes loses on timeout (DNF)', async () => {
