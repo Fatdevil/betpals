@@ -68,3 +68,15 @@ test('profile escapes editable fields and loads images through safeImageSrc', ()
   assert.doesNotMatch(js, /<img src="\$\{f\.avatarUrl\}"/);
   assert.match(js, /detachPushFromAccount/);
 });
+
+test('profile fits on a short page: settings live in sheets, logout asks first', () => {
+  const js = readFileSync(new URL('../src/pages/profile.js', import.meta.url), 'utf8');
+  for (const id of ['row-notifications', 'row-install', 'row-pin', 'row-support', 'row-language']) {
+    assert.match(js, new RegExp(`id="${id}"`));
+  }
+  assert.match(js, /bets\.slice\(0, 3\)\.map\(betRow\)/);
+  assert.match(js, /if \(!confirm\(isEn \? 'Log out/);
+  const page = js.slice(js.indexOf('function renderProfileContent'), js.indexOf('function groupPhotoAlbums'));
+  assert.doesNotMatch(page, /profile-chip\.png/);
+  assert.doesNotMatch(page, /FaceID \/ TouchID/);
+});

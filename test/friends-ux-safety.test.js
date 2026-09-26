@@ -12,17 +12,13 @@ test('Friends list UX: No dangerous naked unfriend cross in the list row', () =>
     'The dangerous naked ✕ button should not exist on the friend list item'
   );
 
-  // Ensure the friendly "Mer ▾" options button and clickable row exist
+  // Each friend is a button that opens the options sheet (unfriend is two steps in there)
   assert.match(
     profileSource,
-    /class="friend-item[^"]*"[^>]*data-id="\$\{f\.id\}"[^>]*role="button"/,
-    'Friend item row must be an interactive button element'
+    /<button type="button" class="prof-friend friend-item" data-id="\$\{escapeHtml\(f\.id\)\}"/,
+    'Friend must be an interactive button element'
   );
-  assert.match(
-    profileSource,
-    /class="btn btn-sm btn-secondary friend-manage-btn"/,
-    'Friend row must have a friend-manage-btn with options indicator'
-  );
+  assert.match(profileSource, /if \(f\) showFriendOptionsModal\(f\);/);
 });
 
 test('Friends UX: Dedicated friend options modal with 2-step unfriend safety', () => {
