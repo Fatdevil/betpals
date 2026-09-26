@@ -88,3 +88,37 @@ test('the new-game form and the deadline dialog offer the reminder', () => {
   const e = readFileSync(new URL('../src/pages/event.js', import.meta.url), 'utf8');
   assert.match(e, /modal-remind-btn/);
 });
+
+test('changing only the reminder keeps the deadline, and a reminder must fit before it', async () => {
+  const { host, ev } = await gameClosingIn(20, 15);
+  const tooLong = await call('PUT', `/api/events/${ev.id}/deadline`, { closesAt: ev.closesAt, remindBeforeMin: 60 }, host.token);
+  assert.equal(tooLong.status, 400);
+  assert.match(tooLong.body.error, /före spelstoppet/);
+  assert.equal(db.getFullEvent(ev.id).remindBeforeMin, 15, 'unchanged');
+
+  const tId = ev.tournamentId;
+  const bad = await call('POST', `/api/tournaments/${tId}/sidebets`, {
+    name: 'För sent', players: ['1', '2'], betAmount: 50,
+    closesAt: new Date(Date.now() + 10 * 60000).toISOString(), remindBeforeMin: 30
+  }, host.token);
+  assert.equal(bad.status, 400);
+
+  const e = readFileSync(new URL('../src/pages/event.js', import.meta.url), 'utf8');
+  assert.match(e, /let newClosesAt = keepCurrent \? current\.toISOString\(\) : null;/);
+  assert.match(e, /data-min="keep"/);
+});
+
+test('someone who left the event gets no reminder, even with an old cancelled bet', async () => {
+  const { host, b, ev } = await gameClosingIn(20, 15);
+  db.addBet(crypto.randomUUID(), ev.id, b.nickname, ev.players[0].id, 50, b.id);
+  db.cancelEvent(ev.id);
+  const part = db.getTournamentParticipants(ev.tournamentId).find(p => p.user_id === b.id);
+  db.removeTournamentParticipant(ev.tournamentId, part.id);
+
+  const closesAt = new Date(Date.now() + 20 * 60000).toISOString();
+  const res = await call('POST', `/api/tournaments/${ev.tournamentId}/sidebets`, { name: 'Nästa match', players: ['1', '2'], betAmount: 50, closesAt, remindBeforeMin: 15 }, host.token);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  sendDeadlineReminders(Date.now() + 6 * 60000);
+  assert.equal(reminded(b).length, 0);
+  assert.equal(reminded(host).length, 1, 'the host still gets it');
+});

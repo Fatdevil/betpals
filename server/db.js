@@ -1630,7 +1630,9 @@ export function markEventReminded(eventId) {
 export function getReminderTargets(event) {
   if (!event.tournament_id) return [];
   const betIds = new Set(db.prepare('SELECT DISTINCT user_id FROM bets WHERE event_id = ? AND user_id IS NOT NULL').all(event.id).map(r => r.user_id));
-  return getTournamentMemberIds(event.tournament_id).filter(uid => !betIds.has(uid));
+  // People who left or were removed keep old (cancelled) bets but should not be nagged
+  const removed = new Set(db.prepare('SELECT user_id FROM tournament_removed WHERE tournament_id = ?').all(event.tournament_id).map(r => r.user_id));
+  return getTournamentMemberIds(event.tournament_id).filter(uid => !betIds.has(uid) && !removed.has(uid));
 }
 
 export function updateEventLastBoosted(eventId) {

@@ -2820,6 +2820,14 @@ app.post('/api/events/:id/boost', async (req, res) => {
   res.json({ ok: true, lastBoostedAt: new Date().toISOString() });
 });
 
+// A reminder has to fall before the deadline, or the scheduler would send it at once
+const REMINDER_TOO_LATE = 'Påminnelsen måste ligga före spelstoppet. Välj en kortare påminnelse.';
+function reminderFits(minutesBefore, closesAt) {
+  const m = Math.round(Number(minutesBefore) || 0);
+  if (m <= 0) return true;
+  return new Date(closesAt).getTime() - m * 60000 > Date.now();
+}
+
 app.put('/api/events/:id/deadline', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
@@ -2829,6 +2837,10 @@ app.put('/api/events/:id/deadline', (req, res) => {
   if (req.body.closesAt) {
     const d = new Date(req.body.closesAt);
     if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
+  }
+
+  if (validClosesAt && !reminderFits(req.body.remindBeforeMin, validClosesAt)) {
+    return res.status(400).json({ error: REMINDER_TOO_LATE });
   }
 
   db.updateEventClosesAt(event.id, validClosesAt);
@@ -3473,6 +3485,10 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   if (closesAt) {
     const d = new Date(closesAt);
     if (!isNaN(d.getTime())) validClosesAt = d.toISOString();
+  }
+
+  if (validClosesAt && !reminderFits(req.body.remindBeforeMin, validClosesAt)) {
+    return res.status(400).json({ error: REMINDER_TOO_LATE });
   }
 
   const eventId = generateId();
