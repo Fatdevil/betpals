@@ -181,6 +181,16 @@ try { db.exec('ALTER TABLE events ADD COLUMN pick_result TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE tournament_participants ADD COLUMN account_deleted INTEGER NOT NULL DEFAULT 0'); } catch {}
+// People taken out of (or who left) an event are not added back just by opening it again;
+// the host inviting them again lifts this
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS tournament_removed (
+    tournament_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    removed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (tournament_id, user_id)
+  )`);
+} catch {}
 // The tip lives on the entry itself, so it survives the person deleting their account
 // (their stake stays in the pot and must still be scored)
 try { db.exec('ALTER TABLE players ADD COLUMN entry_picks TEXT'); } catch {}
@@ -1632,6 +1642,9 @@ export function removeTournamentParticipant(tournamentId, participantId) {
     throw Object.assign(new Error(`${p.name} har spel i eventet och kan inte tas bort – då skulle vinster och skulder försvinna. Avbryt de spelen först om ${p.name} inte ska vara med.`), { statusCode: 400 });
   }
   db.prepare('DELETE FROM tournament_participants WHERE id = ?').run(participantId);
+  if (p.user_id) {
+    db.prepare('INSERT OR REPLACE INTO tournament_removed (tournament_id, user_id) VALUES (?, ?)').run(tournamentId, p.user_id);
+  }
   return p;
 }
 
@@ -2016,14 +2029,20 @@ export function createTournament(id, name, shareCode, creatorId, visibility = 'f
   }
 }
 
-export function addTournamentParticipant(tournamentId, name, userId = null) {
+// { auto: true } is joining by opening the event: skipped for someone who was removed or
+// left. Any other add (the host inviting) welcomes them back.
+export function addTournamentParticipant(tournamentId, name, userId = null, { auto = false } = {}) {
   const pName = (name || '').trim();
   if (!pName) return false;
   if (userId) {
+    const removed = db.prepare('SELECT 1 FROM tournament_removed WHERE tournament_id = ? AND user_id = ?').get(tournamentId, userId);
+    if (removed && auto) return false;
+    if (removed) db.prepare('DELETE FROM tournament_removed WHERE tournament_id = ? AND user_id = ?').run(tournamentId, userId);
     const existing = db.prepare('SELECT id, user_id FROM tournament_participants WHERE tournament_id = ? AND (user_id = ? OR LOWER(name) = LOWER(?))').get(tournamentId, userId, pName);
     if (existing) {
       if (!existing.user_id) {
-        db.prepare('UPDATE tournament_participants SET user_id = ? WHERE id = ?').run(userId, existing.id);
+        // A kept row gets an account again: it is no longer a deleted account
+        db.prepare('UPDATE tournament_participants SET user_id = ?, account_deleted = 0 WHERE id = ?').run(userId, existing.id);
       }
       return true;
     }

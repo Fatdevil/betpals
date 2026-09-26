@@ -3303,7 +3303,7 @@ app.get('/api/tournaments/:code', (req, res) => {
   if (user) {
     const userName = (user.real_name || user.nickname || '').trim();
     if (userName) {
-      db.addTournamentParticipant(tournament.id, userName, user.id);
+      db.addTournamentParticipant(tournament.id, userName, user.id, { auto: true });
     }
   }
 

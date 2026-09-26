@@ -99,3 +99,29 @@ test('the people list shows remove / leave buttons and the deleted-account label
   assert.match(page, /id="event-leave-btn">🚪 Lämna eventet/);
   assert.match(page, /\(konto borttaget\)/);
 });
+
+test('a removed (or leaving) person is not added back by opening the event; the host inviting them is', async () => {
+  const { host, a, tId, part } = await eventWith();
+  db.addFriend(host.id, a.id);
+  const t = db.getTournamentById(tId);
+  await call('DELETE', `/api/tournaments/${tId}/participants/${part(a.id).id}`, {}, host.token);
+  assert.equal((await call('GET', `/api/tournaments/${t.share_code}`, null, a.token)).status, 200);
+  assert.equal(part(a.id), undefined, 'opening the event does not re-add');
+  assert.equal((await call('POST', `/api/tournaments/${tId}/invite`, { friendIds: [a.id] }, host.token)).status, 200);
+  assert.ok(part(a.id), 'invited again by the host');
+});
+
+test('a kept deleted-account row that gets an account again loses the deleted label', async () => {
+  const { a, tId } = await eventWith();
+  betIn(tId, a);
+  db.deleteUser(a.id);
+  const kept = db.getFullTournament(tId).participants.find(p => p.name === a.nickname);
+  assert.equal(kept.accountDeleted, true);
+  // Someone registers again with the now free nickname and joins the event
+  const again = crypto.randomUUID();
+  db.createUser(again, a.nickname, crypto.randomUUID(), '🙂', a.nickname, '0700000001', '1111');
+  db.addTournamentParticipant(tId, a.nickname, again);
+  const after = db.getFullTournament(tId).participants.find(p => p.id === kept.id);
+  assert.equal(after.userId, again);
+  assert.equal(after.accountDeleted, false);
+});
