@@ -174,6 +174,7 @@ db.exec(`
 
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'friends'"); } catch {}
+try { db.exec("ALTER TABLE tournaments ADD COLUMN settle_reminded_at TEXT"); } catch {}
 try { db.exec("UPDATE tournaments SET visibility = 'friends' WHERE visibility = 'public'"); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN bet_mode TEXT NOT NULL DEFAULT \'open\''); } catch {}
@@ -3124,6 +3125,14 @@ export function getUnifiedSettlementOverview(userId) {
     }
   }
 
+  // Swish as few times as possible: with someone you share a running event with,
+  // everything is added up when the event ends, so that balance is "live", not due yet.
+  const liveEvents = userTournaments
+    .filter(t => t.status === 'active')
+    .map(t => ({ id: t.id, name: t.name, shareCode: t.shareCode, memberIds: new Set(getTournamentMemberIds(t.id)) }))
+    .filter(t => t.memberIds.has(userId));
+  const liveEventById = new Map(liveEvents.map(t => [t.id, t]));
+
   const friends = Array.from(friendsMap.values())
     .filter(f => f.totalNet !== 0 || f.details.length > 0)
     .sort((a, b) => a.totalNet - b.totalNet);
@@ -3131,14 +3140,38 @@ export function getUnifiedSettlementOverview(userId) {
   let totalNet = 0;
   let totalOwed = 0;
   let totalDue = 0;
+  let readyOwed = 0;
+  let readyDue = 0;
+  let liveNet = 0;
 
   for (const f of friends) {
+    const shared = liveEvents.filter(t => t.memberIds.has(f.friendId)
+      || f.details.some(d => d.type === 'tournament' && d.tournamentId === t.id));
+    f.liveEvents = shared.map(t => ({ id: t.id, name: t.name, shareCode: t.shareCode }));
+    f.isLive = shared.length > 0;
+    for (const d of f.details) {
+      if (d.type === 'tournament' && liveEventById.has(d.tournamentId)) d.live = true;
+    }
+
     totalNet += f.totalNet;
     if (f.totalNet < 0) totalOwed += Math.abs(f.totalNet);
     if (f.totalNet > 0) totalDue += f.totalNet;
+    if (f.isLive) liveNet += f.totalNet;
+    else if (f.totalNet < 0) readyOwed += Math.abs(f.totalNet);
+    else if (f.totalNet > 0) readyDue += f.totalNet;
   }
 
-  return { friends, totalNet, totalOwed, totalDue };
+  // My running result per live event (from that event's own transfers)
+  const liveByEvent = liveEvents.map(t => ({
+    id: t.id,
+    name: t.name,
+    shareCode: t.shareCode,
+    myNet: friends.reduce((sum, f) => sum + f.details
+      .filter(d => d.type === 'tournament' && d.tournamentId === t.id)
+      .reduce((s, d) => s + d.amount, 0), 0)
+  }));
+
+  return { friends, totalNet, totalOwed, totalDue, readyOwed, readyDue, liveNet, liveEvents: liveByEvent };
 }
 
 /**
@@ -3776,6 +3809,42 @@ export function getPushSubscriptionsForUsers(userIds = [], category = null) {
     subs.push(...userSubs);
   }
   return subs;
+}
+
+// Running events that have been quiet for a while but have results: the host is reminded
+// to end them, so everyone can settle up (once per quiet spell)
+export function getTournamentsNeedingSettleReminder(quietHours = 48) {
+  return db.prepare(`
+    SELECT t.id, t.name, t.share_code, t.creator_id, t.settle_reminded_at, act.last_activity
+    FROM tournaments t
+    JOIN (
+      SELECT e.tournament_id AS tid,
+             MAX(MAX(datetime(e.created_at)), COALESCE(MAX(datetime(b.timestamp)), '')) AS last_activity,
+             SUM(CASE WHEN e.status = 'finished' THEN 1 ELSE 0 END) AS finished_count
+      FROM events e LEFT JOIN bets b ON b.event_id = e.id
+      WHERE e.tournament_id IS NOT NULL
+      GROUP BY e.tournament_id
+    ) act ON act.tid = t.id
+    WHERE t.status = 'active'
+      AND act.finished_count > 0
+      AND act.last_activity <= datetime('now', ?)
+      AND (t.settle_reminded_at IS NULL OR t.settle_reminded_at < act.last_activity)
+  `).all(`-${Math.max(0, Number(quietHours) || 0)} hours`);
+}
+
+export function markTournamentSettleReminded(id) {
+  db.prepare("UPDATE tournaments SET settle_reminded_at = datetime('now') WHERE id = ?").run(id);
+}
+
+// The people actually in an event: its creator, participants with an account and everyone
+// who bet in it (not every friend who could see it)
+export function getTournamentMemberIds(tournamentId) {
+  const t = stmts.getTournamentById.get(tournamentId);
+  const ids = new Set();
+  if (t?.creator_id) ids.add(t.creator_id);
+  for (const r of db.prepare('SELECT DISTINCT user_id FROM tournament_participants WHERE tournament_id = ? AND user_id IS NOT NULL').all(tournamentId)) ids.add(r.user_id);
+  for (const r of db.prepare('SELECT DISTINCT b.user_id FROM bets b JOIN events e ON b.event_id = e.id WHERE e.tournament_id = ? AND b.user_id IS NOT NULL').all(tournamentId)) ids.add(r.user_id);
+  return Array.from(ids);
 }
 
 export function getTournamentParticipantUserIds(tournamentId) {

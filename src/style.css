@@ -4504,6 +4504,25 @@ body.betslip-open #malta-support-fab {
   color: #b4b4c4;
 }
 
+.home-event-standing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 10px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+.home-event-standing b { font-size: 0.9rem; }
+.home-event-standing.is-neg b { color: #f87171; }
+.home-event-standing.is-pos b { color: #34d399; }
+.home-event-standing small { font-size: 0.72rem; color: var(--text-muted); }
+
 .home-event-info b {
   color: #fff;
 }

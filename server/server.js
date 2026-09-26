@@ -234,6 +234,24 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000).unref();
 
+// Remind hosts to end quiet events, so nobody's money is left waiting forever
+function remindHostsToSettle() {
+  try {
+    for (const t of db.getTournamentsNeedingSettleReminder(48)) {
+      db.markTournamentSettleReminded(t.id);
+      if (!t.creator_id) continue;
+      sendPushToUsers([t.creator_id], {
+        title: `🏁 Dags att avsluta ${t.name}?`,
+        body: 'Det har varit tyst ett tag. Avsluta eventet så räknas allt ihop och alla kan göra upp på THE TAB.',
+        url: `/#tournament/${t.share_code}`
+      }, 'tournaments').catch(() => {});
+    }
+  } catch (err) {
+    console.error('Error sending settle reminders:', err);
+  }
+}
+setInterval(remindHostsToSettle, 60 * 60 * 1000).unref();
+
 // Run daily automated database backup (every 24 hours)
 setInterval(async () => {
   try {
@@ -3361,11 +3379,24 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
   // Push notification for settled tournament
   const participantIds = db.getTournamentParticipantUserIds(tournament.id)
     .filter(uid => !user || uid !== user.id);
-  sendPushToUsers(participantIds, {
-    title: `🏆 ${tournament.name} är avgjord!`,
-    body: `Slutresultatet är fastställt! Se prispallen och nettavräkningen i Malta Betting.`,
-    url: `/#tournament/${tournament.shareCode}`
-  }, 'tournaments').catch(() => {});
+  // Now is the time to settle up: tell each person exactly what they swish or get
+  for (const pid of participantIds) {
+    let body = 'Slutresultatet är fastställt! Se prispallen och nettavräkningen i Malta Betting.';
+    let url = `/#tournament/${tournament.shareCode}`;
+    try {
+      const o = db.getUnifiedSettlementOverview(pid);
+      const payTo = (o.friends || []).filter(f => !f.isLive && f.totalNet < 0);
+      if (o.readyOwed > 0) {
+        const who = payTo.length === 1 ? (payTo[0].friendNickname || payTo[0].friendName) : `${payTo.length} personer`;
+        body = `Dags att göra upp: du ska swisha ${Math.round(o.readyOwed)} kr till ${who}. Allt är ihopräknat på THE TAB.`;
+        url = '/#swishlist';
+      } else if (o.readyDue > 0) {
+        body = `Dags att göra upp: du får ${Math.round(o.readyDue)} kr. Se vem som swishar på THE TAB.`;
+        url = '/#swishlist';
+      }
+    } catch {}
+    sendPushToUsers([pid], { title: `🏆 ${tournament.name} är klart!`, body, url }, 'tournaments').catch(() => {});
+  }
 
   for (const pid of participantIds) {
     sendMaltaSupportNotification(pid, {
@@ -6618,5 +6649,6 @@ export {
   activeFlashLiveStreams,
   finalizePartyRound,
   recordUserRtt,
-  getLatencyCompensationMs
+  getLatencyCompensationMs,
+  remindHostsToSettle
 };
