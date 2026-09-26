@@ -25,7 +25,7 @@ test('sub pages show "‹" where the QR button sits; the logo still opens the QR
   const nav = read('src/components/navbar.js');
   assert.match(nav, /const SUB_PAGES = new Set\(\['event', 'tournament'\]\);/);
   assert.match(nav, /SUB_PAGES\.has\(activePage\) \? `[\s\S]*?id="top-header-back-btn"/);
-  assert.match(nav, /top-header-logo-btn'\)\?\.addEventListener\('click', \(\) => \{\s*openAppQrModal\(\);/);
+  assert.match(nav, /bindOnce\('top-header-logo-btn', \(\) => openAppQrModal\(\)\);/);
 });
 
 test('back steps through in-app history, else goes to the parent, and never leaves the app', () => {
@@ -44,4 +44,13 @@ test('a game goes back to its event and closes the bet slip first', () => {
   assert.match(ev, /if \(event\.tournamentId\) setBackParent\('tournament', \{ code: event\.tournamentCode \|\| event\.tournamentId \}\);/);
   assert.match(ev, /setBackInterceptor\(\(\) => \{\s*if \(slip\.hidden\) return false;\s*closeSlip\(\);\s*return true;/);
   assert.doesNotMatch(ev, /game-crumb|game-back-btn/);
+});
+
+test('header buttons are bound once even when the header is drawn twice in a row', () => {
+  const nav = read('src/components/navbar.js');
+  assert.match(nav, /function bindOnce\(id, handler\) \{\s*const el = document\.getElementById\(id\);\s*if \(!el \|\| el\.dataset\.bound\) return;/);
+  assert.match(nav, /bindOnce\('top-header-back-btn', requestBack\);/);
+  assert.doesNotMatch(nav, /getElementById\('top-header-back-btn'\)\?\.addEventListener/);
+  const bell = read('src/components/notifications.js');
+  assert.match(bell, /if \(bell\.dataset\.bound\) return;\s*bell\.dataset\.bound = '1';\s*bell\.addEventListener\('click'/);
 });

@@ -19,6 +19,13 @@ import { requestBack } from '../backNav.js';
 // (the logo still opens the QR code)
 const SUB_PAGES = new Set(['event', 'tournament']);
 
+function bindOnce(id, handler) {
+  const el = document.getElementById(id);
+  if (!el || el.dataset.bound) return;
+  el.dataset.bound = '1';
+  el.addEventListener('click', handler);
+}
+
 export function renderNavbar(activePage) {
   const user = getStoredUser();
   const loggedIn = isLoggedIn();
@@ -32,15 +39,13 @@ export function renderNavbar(activePage) {
     { id: 'admin', icon: icons.admin, label: t('nav.admin') }
   ];
 
+  // The header can be drawn twice before this runs (e.g. opening a notification link),
+  // so both callbacks would find the same buttons: bind each one only once
   setTimeout(() => {
     initBellListeners();
-    document.getElementById('top-header-back-btn')?.addEventListener('click', requestBack);
-    document.getElementById('top-header-qr-btn')?.addEventListener('click', () => {
-      openAppQrModal();
-    });
-    document.getElementById('top-header-logo-btn')?.addEventListener('click', () => {
-      openAppQrModal();
-    });
+    bindOnce('top-header-back-btn', requestBack);
+    bindOnce('top-header-qr-btn', () => openAppQrModal());
+    bindOnce('top-header-logo-btn', () => openAppQrModal());
   }, 0);
 
   return `
