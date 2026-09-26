@@ -5051,7 +5051,7 @@ app.post('/api/anybets/create', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
 
-  const { title, description, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId } = req.body;
+  const { title, description, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId, creatorPlays } = req.body;
 
   if (!title || typeof title !== 'string' || !title.trim()) {
     return res.status(400).json({ error: 'Ange vad bettet handlar om' });
@@ -5127,6 +5127,12 @@ app.post('/api/anybets/create', (req, res) => {
     }
   }
 
+  // A bet needs at least two players; the creator may also just organise (or judge)
+  const playsSelf = creatorPlays !== false;
+  if (validParticipantIds.length + (playsSelf ? 1 : 0) < 2) {
+    return res.status(400).json({ error: playsSelf ? 'Bjud in minst en person' : 'Bjud in minst två personer när du inte spelar själv' });
+  }
+
   if (tournamentId) {
     const t = db.getTournamentById ? db.getTournamentById(tournamentId) : null;
     if (!t) {
@@ -5149,7 +5155,8 @@ app.post('/api/anybets/create', (req, res) => {
       betType: normalizedType,
       deadline: deadline || null,
       participantIds: validParticipantIds,
-      tournamentId: tournamentId || null
+      tournamentId: tournamentId || null,
+      creatorPlays: creatorPlays !== false
     });
 
     for (const pId of validParticipantIds) {

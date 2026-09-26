@@ -231,7 +231,7 @@ test('AnyBet 7 — Ja/Nej Multi-Winner: splits debt evenly across winners and ge
   const bet = db.createAnyBet({
     title: 'Regnar det innan hål 9?',
     creatorId: creator.id,
-    judgeId: creator.id,
+    judgeId: friend3.id, // the judge decides the answer and takes no side
     stakeAmount: 60,
     betType: 'yes_no',
     participantIds: [friend1.id, friend2.id, friend3.id]
@@ -249,7 +249,7 @@ test('AnyBet 7 — Ja/Nej Multi-Winner: splits debt evenly across winners and ge
   // Settle with 'yes' winning
   const settled = db.settleAnyBet({
     betId: bet.id,
-    judgeId: creator.id,
+    judgeId: friend3.id,
     winningSide: 'yes'
   });
 

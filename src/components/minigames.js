@@ -3964,6 +3964,12 @@ export async function openAnyBetModal(initialBetId = null) {
         `}
       </div>
 
+      <label class="anybet-event-link" style="margin-bottom: 14px;">
+        <input type="checkbox" id="anybet-creator-plays" checked />
+        <span>🙋 ${isEn ? 'I play myself' : 'Jag spelar själv'}
+          <small>${isEn ? 'Untick to only organise or judge.' : 'Bocka ur om du bara ordnar bettet eller är domare.'}</small></span>
+      </label>
+
       <!-- 6. Vem är domare? -->
       <div style="margin-bottom: 18px;">
         <label class="form-label" style="font-size: 0.85rem; margin-bottom: 6px; display: block;">
@@ -3975,6 +3981,7 @@ export async function openAnyBetModal(initialBetId = null) {
             <option value="${f.id}">⚖️ ${escapeHtml(f.nickname)}</option>
           `).join('')}
         </select>
+        <div id="anybet-judge-note" class="anybet-judge-note" style="display: none;"></div>
       </div>
 
       <div id="anybet-event-link-slot"></div>
@@ -3998,6 +4005,26 @@ export async function openAnyBetModal(initialBetId = null) {
         </label>`;
     }).catch(() => {});
 
+    // Tell the creator up front how the judge rule plays out for their choices
+    const updateJudgeNote = () => {
+      const note = document.getElementById('anybet-judge-note');
+      if (!note) return;
+      const judgeId = document.getElementById('anybet-judge-select')?.value || user.id;
+      const creatorPlays = document.getElementById('anybet-creator-plays')?.checked !== false;
+      const judgePlays = judgeId === user.id ? creatorPlays : invitedFriendIds.has(judgeId);
+      let text = '';
+      if (selectedModel === 'yes_no' && judgePlays) {
+        text = isEn ? 'ℹ️ The judge decides the answer and does not pick a side.' : 'ℹ️ Domaren avgör svaret och väljer ingen sida.';
+      } else if (selectedModel === 'winner_takes_all' && judgePlays) {
+        text = isEn ? '⚠️ The judge also plays – everyone will see that on the bet.' : '⚠️ Domaren spelar själv – det syns för alla på bettet.';
+      }
+      note.textContent = text;
+      note.style.display = text ? 'block' : 'none';
+    };
+    document.getElementById('anybet-judge-select')?.addEventListener('change', updateJudgeNote);
+    document.getElementById('anybet-creator-plays')?.addEventListener('change', updateJudgeNote);
+    updateJudgeNote();
+
     // Listeners for Model buttons
     tabContent.querySelectorAll('.anybet-model-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -4008,6 +4035,7 @@ export async function openAnyBetModal(initialBetId = null) {
         });
         btn.classList.add('btn-primary');
         btn.classList.remove('btn-secondary');
+        updateJudgeNote();
       });
     });
 
@@ -4043,6 +4071,7 @@ export async function openAnyBetModal(initialBetId = null) {
         } else {
           invitedFriendIds.delete(cb.value);
         }
+        updateJudgeNote();
       });
     });
 
@@ -4055,6 +4084,13 @@ export async function openAnyBetModal(initialBetId = null) {
 
       if (!title) {
         showToast(isEn ? 'Please describe what the bet is about' : 'Ange vad bettet handlar om', 'warning');
+        return;
+      }
+      const creatorPlays = document.getElementById('anybet-creator-plays')?.checked !== false;
+      if (invitedFriendIds.size + (creatorPlays ? 1 : 0) < 2) {
+        showToast(creatorPlays
+          ? (isEn ? 'Invite at least one friend' : 'Bjud in minst en kompis')
+          : (isEn ? 'Invite at least two friends when you do not play' : 'Bjud in minst två kompisar när du inte spelar själv'), 'warning');
         return;
       }
 
@@ -4072,6 +4108,7 @@ export async function openAnyBetModal(initialBetId = null) {
           betType: selectedModel,
           deadline,
           participantIds: Array.from(invitedFriendIds),
+          creatorPlays,
           tournamentId: activeEvt?.id || null
         });
 
@@ -4137,6 +4174,7 @@ export async function openAnyBetModal(initialBetId = null) {
             const inPot = isYesNo ? acceptedParticipants.filter(p => p.choice === 'yes' || p.choice === 'no') : acceptedParticipants;
             const totalPot = bet.stake_amount * inPot.length;
             const mySide = myPart && (myPart.choice === 'yes' || myPart.choice === 'no') ? myPart.choice : null;
+            const judgePlays = acceptedParticipants.some(p => String(p.user_id) === String(bet.judge_id));
             const deadlineText = bet.deadline ? formatAnyBetDate(bet.deadline) : '';
 
             return `
@@ -4169,6 +4207,8 @@ export async function openAnyBetModal(initialBetId = null) {
                     : (isEn ? '✨ For glory' : '✨ För äran')}</span>
                 </div>
 
+                ${!isYesNo && judgePlays ? `<div class="anybet-judge-note">⚠️ ${isEn ? 'The judge also plays' : 'Domaren spelar själv'}</div>` : ''}
+
                 <!-- Participants list -->
                 <div style="margin-bottom: 10px;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">
@@ -4194,7 +4234,9 @@ export async function openAnyBetModal(initialBetId = null) {
                 </div>
 
                 <!-- Yes / No: pick a side once; it cannot be changed afterwards -->
-                ${isYesNo && myPart ? (mySide ? `
+                ${isYesNo && isJudge && !mySide ? `
+                  <div class="anybet-judge-note">⚖️ ${isEn ? 'You are the judge – you decide the answer and pick no side.' : 'Du är domare – du avgör svaret och väljer ingen sida.'}</div>
+                ` : isYesNo && myPart ? (mySide ? `
                   <div class="anybet-my-side ${mySide}">
                     🔒 ${isEn ? 'You picked' : 'Du har valt'} <strong>${mySide === 'yes' ? (isEn ? 'YES' : 'JA') : (isEn ? 'NO' : 'NEJ')}</strong>${bet.stake_amount > 0 ? ` · ${bet.stake_amount} kr` : ''}
                   </div>
@@ -4428,6 +4470,12 @@ export async function openAnyBetModal(initialBetId = null) {
                 ${outcome === 'neutral' ? `
                   <div style="background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); text-align: center;">
                     ${isYesNo ? 'Du valde ingen sida och påverkades inte ekonomiskt.' : 'Du påverkades inte ekonomiskt av detta vad.'}
+                  </div>
+                ` : ''}
+
+                ${outcome === 'observer' ? `
+                  <div style="background: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); text-align: center;">
+                    ${isEn ? 'You organised or judged this bet and did not play.' : 'Du ordnade eller dömde bettet och spelade inte själv.'}
                   </div>
                 ` : ''}
 

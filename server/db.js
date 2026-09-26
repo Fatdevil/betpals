@@ -3281,7 +3281,7 @@ export function isDeadlinePassed(deadline) {
   return Date.now() > deadlineTime;
 }
 
-export function createAnyBet({ title, description, creatorId, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId = null }) {
+export function createAnyBet({ title, description, creatorId, judgeId, stakeAmount, betType, deadline, participantIds, tournamentId = null, creatorPlays = true }) {
   if (!title || typeof title !== 'string' || !title.trim()) {
     throw new Error('Ange vad bettet handlar om');
   }
@@ -3336,6 +3336,8 @@ export function createAnyBet({ title, description, creatorId, judgeId, stakeAmou
     }
   }
 
+  const invited = Array.from(new Set((participantIds || []).map(String))).filter(id => id !== String(creatorId));
+
   const betId = crypto.randomUUID();
 
   stmts.insertAnyBet.run({
@@ -3351,11 +3353,8 @@ export function createAnyBet({ title, description, creatorId, judgeId, stakeAmou
     tournament_id: tournamentId || null
   });
 
-  // Ensure creator is included in participants
-  const allParticipantIds = Array.from(new Set([
-    String(creatorId),
-    ...(participantIds || []).map(String)
-  ]));
+  // The creator plays unless they chose to only organise
+  const allParticipantIds = creatorPlays ? [String(creatorId), ...invited] : invited;
 
   for (const uid of allParticipantIds) {
     stmts.insertAnyBetParticipant.run({
@@ -3377,7 +3376,11 @@ export function getAnyBetSettlement(bet, userId) {
   const isAccepted = currentPart?.status === 'accepted';
   const isDeclined = currentPart?.status === 'declined';
 
-  if (!currentPart || isDeclined) {
+  if (!currentPart) {
+    // Judge or organiser who did not play
+    return { outcome: 'observer', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
+  }
+  if (isDeclined) {
     return { outcome: 'declined', amountOwed: 0, amountWon: 0, creditors: [], debtors: [] };
   }
   if (!isAccepted) {
@@ -3513,6 +3516,9 @@ export function updateAnyBetChoice(betId, userId, choice) {
   }
 
   let normalizedChoice;
+  if (bet.bet_type === 'yes_no' && (choice === 'yes' || choice === 'no') && String(bet.judge_id) === String(userId)) {
+    throw new Error('Domaren avgör svaret och kan inte välja sida');
+  }
   if (bet.bet_type === 'yes_no') {
     if (choice !== 'yes' && choice !== 'no') {
       if (existingPart.choice === 'yes' || existingPart.choice === 'no') {
