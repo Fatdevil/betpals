@@ -1300,8 +1300,8 @@ function openWheelModal() {
         </div>
       </div>
     `;
-    document.getElementById('wheel-again-btn').addEventListener('click', spin);
-    document.getElementById('wheel-share-btn').addEventListener('click', async () => {
+    resultEl.querySelector('#wheel-again-btn').addEventListener('click', spin);
+    resultEl.querySelector('#wheel-share-btn').addEventListener('click', async () => {
       const text = activePresetKey === 'choice'
         ? `🪙 Not-Roulette: ${name}!`
         : activePresetKey === 'beer'
@@ -1347,6 +1347,11 @@ function openWheelModal() {
     const ease = (x) => 1 - Math.pow(1 - x, 4); // quick start, long nervous finish
 
     function frame(now) {
+      // The dialog was closed (or replaced by a new wheel): stop quietly
+      if (!canvas.isConnected) {
+        isSpinning = false;
+        return;
+      }
       const p = Math.min(1, (now - t0) / duration);
       rotation = from + (end - from) * ease(p);
       drawWheel();

@@ -1628,8 +1628,13 @@ export function markEventReminded(eventId) {
 
 // Who gets the reminder: people in the event who have not bet on this game yet
 export function getReminderTargets(event) {
-  if (!event.tournament_id) return [];
   const betIds = new Set(db.prepare('SELECT DISTINCT user_id FROM bets WHERE event_id = ? AND user_id IS NOT NULL').all(event.id).map(r => r.user_id));
+  // A game outside an event: the organiser and their friends, like a boost
+  if (!event.tournament_id) {
+    if (!event.creator_id) return [];
+    const ids = [event.creator_id, ...db.prepare('SELECT friend_id FROM friends WHERE user_id = ?').all(event.creator_id).map(r => r.friend_id)];
+    return [...new Set(ids)].filter(uid => uid && !betIds.has(uid));
+  }
   // People who left or were removed keep old (cancelled) bets but should not be nagged
   const removed = new Set(db.prepare('SELECT user_id FROM tournament_removed WHERE tournament_id = ?').all(event.tournament_id).map(r => r.user_id));
   return getTournamentMemberIds(event.tournament_id).filter(uid => !betIds.has(uid) && !removed.has(uid));

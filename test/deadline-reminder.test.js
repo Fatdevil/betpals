@@ -122,3 +122,27 @@ test('someone who left the event gets no reminder, even with an old cancelled be
   assert.equal(reminded(b).length, 0);
   assert.equal(reminded(host).length, 1, 'the host still gets it');
 });
+
+test('a game outside an event reminds the organiser and their friends who have not bet', async () => {
+  const host = await registerUser('sh'), f1 = await registerUser('sf'), f2 = await registerUser('sg'), stranger = await registerUser('ss');
+  db.addFriend(host.id, f1.id);
+  db.addFriend(host.id, f2.id);
+  const id = crypto.randomUUID();
+  db.createEvent({ id, name: 'Fristående', isSideBet: false, creatorId: host.id, shareCode: crypto.randomBytes(3).toString('hex').toUpperCase(), closesAt: new Date(Date.now() + 20 * 60000).toISOString() },
+    [{ id: crypto.randomUUID(), name: 'A' }, { id: crypto.randomUUID(), name: 'B' }]);
+  db.setEventReminder(id, 15);
+  const ev = db.getFullEvent(id);
+  db.addBet(crypto.randomUUID(), id, f1.nickname, ev.players[0].id, 50, f1.id);
+
+  sendDeadlineReminders(Date.now() + 6 * 60000);
+  assert.equal(reminded(host).length, 1);
+  assert.equal(reminded(f2).length, 1);
+  assert.equal(reminded(f1).length, 0, 'already bet');
+  assert.equal(reminded(stranger).length, 0, 'not a friend');
+});
+
+test('closing Not-Roulette mid-spin stops the animation', () => {
+  const g = readFileSync(new URL('../src/components/minigames.js', import.meta.url), 'utf8');
+  assert.match(g, /if \(!canvas\.isConnected\) \{\s*isSpinning = false;\s*return;/);
+  assert.match(g, /resultEl\.querySelector\('#wheel-again-btn'\)/);
+});
