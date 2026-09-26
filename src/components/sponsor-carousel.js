@@ -35,7 +35,11 @@ export function renderSponsorCarousel(banners = [], options = {}) {
             return `
               <div class="sponsor-slide" data-index="${index}">
                 ${safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener" class="sponsor-link" title="${escapeHtml(b.label || 'Besök sponsor')}">` : ''}
-                  <img src="${b.imageData}" alt="${escapeHtml(b.label || 'Sponsor')}" class="sponsor-img" loading="lazy" />
+                  <!-- The whole ad is always visible; a blurred copy fills the rest of the frame -->
+                  <div class="sponsor-frame">
+                    <img src="${b.imageData}" alt="" class="sponsor-backdrop" aria-hidden="true" loading="lazy" />
+                    <img src="${b.imageData}" alt="${escapeHtml(b.label || 'Sponsor')}" class="sponsor-img" loading="lazy" />
+                  </div>
                 ${safeUrl ? '</a>' : ''}
                 ${b.label ? `<div class="sponsor-label">${escapeHtml(b.label)}</div>` : ''}
                 ${isCreator ? `<button type="button" class="sponsor-delete-btn" data-banner-id="${b.id}" title="Ta bort sponsor">✕</button>` : ''}

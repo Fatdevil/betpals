@@ -1,5 +1,5 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
-import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, safeImageSrc, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
@@ -250,7 +250,7 @@ function renderGameOptions(event, { interactive = false, selectedId = null, winn
     return `
       <button type="button" class="game-opt${selectedId === p.id ? ' selected' : ''}${isWinner ? ' winner' : ''}" data-player-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" ${interactive ? '' : 'disabled'}>
         <span class="game-opt-check">✓</span>
-        ${p.imageUrl ? `<img src="${sanitizeUrl(p.imageUrl)}" alt="" class="game-opt-img" />` : ''}
+        ${p.imageUrl ? `<img src="${safeImageSrc(p.imageUrl)}" alt="" class="game-opt-img" />` : ''}
         <span class="game-opt-main">
           <span class="game-opt-name">${icon}${escapeHtml(p.name)}${isWinner ? ' 🏆' : ''}</span>
           <span class="game-opt-sub">${isSelf ? `Med · ${formatCurrency(data.totalBet)}` : count > 0 ? `${formatCurrency(data.totalBet)} · ${count} ${count === 1 ? 'bet' : 'bets'}` : (interactive ? 'Inga bets än' : 'Inga bets')}</span>
@@ -352,10 +352,8 @@ function renderEventContent(event, content, code) {
     <div class="animate-in game-page">
       ${event.imageUrl ? `
         <div class="event-hero-banner" id="event-hero-banner">
-          <img src="${sanitizeUrl(event.imageUrl)}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
-          <div class="event-hero-overlay">
-            <span class="badge ${statusBadgeClass(event.status)}" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);">${statusLabel(event.status)}</span>
-          </div>
+          <img src="${safeImageSrc(event.imageUrl)}" alt="" class="event-hero-backdrop" aria-hidden="true" />
+          <img src="${safeImageSrc(event.imageUrl)}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
         </div>
       ` : ''}
 
@@ -384,7 +382,7 @@ function renderEventContent(event, content, code) {
         <div class="winner-banner">
           ${winner.imageUrl ? `
             <div style="display: flex; justify-content: center; margin-bottom: var(--space-xs);">
-              <img src="${sanitizeUrl(winner.imageUrl)}" alt="${escapeHtml(winner.name)}" class="player-avatar-large" />
+              <img src="${safeImageSrc(winner.imageUrl)}" alt="${escapeHtml(winner.name)}" class="player-avatar-large" />
             </div>
           ` : ''}
           <div class="winner-label">🏆 ${t('event.winner')}</div>

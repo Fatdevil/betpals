@@ -132,6 +132,18 @@ export function sanitizeUrl(url) {
   return '';
 }
 
+// For <img src>: web and app-relative links plus uploaded images stored as data URLs
+// (sanitizeUrl is for links and rejects data URLs, which left uploaded images blank)
+export function safeImageSrc(url) {
+  if (!url) return '';
+  const trimmed = String(url).trim();
+  if (/^data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=\s]+$/i.test(trimmed)) {
+    return trimmed.replace(/\s+/g, '');
+  }
+  if (/^(https?:\/\/|\/)/i.test(trimmed) && !/["'<>]/.test(trimmed)) return trimmed;
+  return '';
+}
+
 export function normalizePhone(phone) {
   if (!phone) return '';
   let digits = String(phone).replace(/[^0-9]/g, '');
