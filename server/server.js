@@ -2377,7 +2377,32 @@ app.get('/api/events/:idOrCode', (req, res) => {
       ? res.status(403).json({ error: 'Du har inte tillgång till detta event' })
       : res.status(401).json({ error: 'Logga in för att se detta event' });
   }
+  hidePicksWhileOpen(event, user);
   res.json(user ? event : publicEventView(event));
+});
+
+// In a pick game nobody can copy anyone: others' tips show once betting has closed
+function hidePicksWhileOpen(event, user) {
+  if (event.betMode !== 'picks' || !Array.isArray(event.entries)) return;
+  const open = event.status === 'open' && !(event.closesAt && new Date(event.closesAt).getTime() <= Date.now());
+  if (!open) return;
+  event.entries = event.entries.map(e => (user && e.userId === user.id ? e : { ...e, picks: null }));
+}
+
+app.post('/api/events/:id/picks', requireAuth, (req, res) => {
+  const event = db.getFullEvent(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
+  if (!canViewEvent(event, req.user)) return res.status(403).json({ error: 'Du har inte tillgång till detta spel' });
+  if (!req.user.swish_number) return res.status(400).json({ error: 'Lägg till ditt Swish-nummer i profilen först' });
+  try {
+    const entry = db.setEventPicks(event.id, req.user, req.body?.picks);
+    const t = event.tournamentId ? db.getTournamentById(event.tournamentId) : null;
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+    broadcastToEvent(event.shareCode, { type: 'event_updated', eventCode: event.shareCode });
+    res.json({ ok: true, entry });
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
 });
 
 // ── Helper for public HTTPS base URL ────────────────
@@ -2511,6 +2536,9 @@ app.delete('/api/events/:id/players/:playerId', (req, res) => {
 app.post('/api/events/:idOrCode/bets', (req, res) => {
   const event = db.getFullEvent(req.params.idOrCode);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
+  if ((event.betMode || event.bet_mode) === 'picks') {
+    return res.status(400).json({ error: 'I det här spelet väljer du dina tips i listan' });
+  }
   if (event.status !== 'open') {
     return res.status(400).json({ error: 'Bettning är stängd för detta event' });
   }
@@ -2840,7 +2868,15 @@ app.post('/api/events/:id/finish', (req, res) => {
   }
 
   let winnerIds = [];
-  if (Array.isArray(reqWinnerIds) && reqWinnerIds.length > 0) {
+  let pickScores = null;
+  if (event.bet_mode === 'picks') {
+    try {
+      pickScores = db.scorePickGame(event.id, req.body.resultIds);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
+    winnerIds = pickScores.winnerIds;
+  } else if (Array.isArray(reqWinnerIds) && reqWinnerIds.length > 0) {
     winnerIds = reqWinnerIds;
   } else if (typeof winnerId === 'string' && winnerId.includes(',')) {
     winnerIds = winnerId.split(',').map(s => s.trim()).filter(Boolean);
@@ -2912,8 +2948,11 @@ app.post('/api/events/:id/finish', (req, res) => {
     db.addUserNotification(uid, {
       type: 'game_result',
       icon: kr > 0 ? '🏆' : kr < 0 ? '💸' : '🤝',
-      text: `${full.name}: ${winnerNames} vann`,
-      detail: kr > 0 ? `Du vann ${kr} kr` : kr < 0 ? `Du förlorade ${Math.abs(kr)} kr` : 'Du gick jämnt ut',
+      text: pickScores
+        ? (pickScores.refund ? `${full.name}: ingen hade rätt – insatserna tillbaka` : `${full.name}: ${winnerNames} vann med ${pickScores.best} rätt`)
+        : `${full.name}: ${winnerNames} vann`,
+      detail: (pickScores ? `Du hade ${pickScores.entries.find(e => e.userId === uid)?.correct ?? 0} rätt – ` : '')
+        + (kr > 0 ? `${pickScores ? 'du' : 'Du'} vann ${kr} kr` : kr < 0 ? `${pickScores ? 'du' : 'Du'} förlorade ${Math.abs(kr)} kr` : `${pickScores ? 'du' : 'Du'} gick jämnt ut`),
       url: resultUrl,
       ref: resultRef
     });
@@ -3372,7 +3411,8 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     return res.status(400).json({ error: 'Turneringen är avslutad. Återöppna turneringen för att lägga till nya sido-spel.' });
   }
 
-  const { name, players, linkedRoundId, betMode, betAmount, imageUrl, closesAt } = req.body;
+  const { name, players, linkedRoundId, betAmount, imageUrl, closesAt } = req.body;
+  const betMode = ['open', 'self', 'picks'].includes(req.body.betMode) ? req.body.betMode : 'open';
   const finalName = (name || '').trim().slice(0, 120);
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
@@ -3389,13 +3429,18 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   if (cleanPlayers.length < 2) {
     return res.status(400).json({ error: 'Minst 2 deltagare krävs för ett sido-spel' });
   }
+  // Pick N: choose fewer than there are options, or everyone would be right
+  const pickCount = Math.round(Number(req.body.pickCount) || 0);
+  if (betMode === 'picks' && !(pickCount >= 1 && pickCount < cleanPlayers.length)) {
+    return res.status(400).json({ error: `Antal att välja måste vara 1–${cleanPlayers.length - 1}` });
+  }
 
   const amount = Math.max(1, Math.min(10000, Math.round(Number(betAmount) || 100)));
   // Pool games may have a free stake between min and max; winner-takes-all is always the
   // same amount for everyone (each participant is entered with exactly that amount)
   let minBetAmount = amount;
   let maxBetAmount = amount;
-  if (betMode !== 'self' && req.body.minBet !== undefined && req.body.maxBet !== undefined) {
+  if (betMode === 'open' && req.body.minBet !== undefined && req.body.maxBet !== undefined) {
     minBetAmount = Math.max(1, Math.min(10000, Math.round(Number(req.body.minBet) || 1)));
     maxBetAmount = Math.max(minBetAmount, Math.min(10000, Math.round(Number(req.body.maxBet) || minBetAmount)));
   }
@@ -3429,6 +3474,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
 
   const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
+  if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
 
   // For 'self' mode: auto-create bets — each player bets on themselves
   if (betMode === 'self') {

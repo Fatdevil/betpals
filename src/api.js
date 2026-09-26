@@ -262,6 +262,10 @@ export const finishEvent = (id, winnerId, pin, winnerImageUrl = null) => {
 };
 export const getActiveEvent = () =>
   request('/events/active');
+export const setEventPicks = (id, picks) =>
+  request(`/events/${id}/picks`, { method: 'POST', body: { picks } });
+export const finishPickGame = (id, resultIds, pin, winnerImageUrl = null) =>
+  request(`/events/${id}/finish`, { method: 'POST', body: { resultIds, pin, winnerImageUrl } });
 export const cancelEvent = (id, pin) =>
   request(`/events/${id}/cancel`, { method: 'POST', body: { pin } });
 export const boostEvent = (id) =>

@@ -1,12 +1,13 @@
 // ── Settle a game: pick the winner (or several for a shared win) ─
 // Used from the game page's organiser panel and from the admin list.
-import { finishEvent } from '../api.js';
+import { finishEvent, finishPickGame } from '../api.js';
 import { showToast, launchConfetti, escapeHtml, safeImageSrc } from '../utils.js';
 import { showModal, closeModal } from './modal.js';
 import { t } from '../i18n.js';
 import { compressImage } from '../imageUtils.js';
 
 export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
+  if (event.betMode === 'picks') return openPickResultModal(event, { pin, onDone });
   const stillOpen = event.status === 'open';
 
   showModal(t('admin.finishTitle'), `
@@ -126,5 +127,54 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
 
   document.querySelectorAll('.winner-select-btn').forEach(btn => {
     btn.addEventListener('click', () => settle(btn.dataset.id, btn.dataset.name));
+  });
+}
+
+// Pick N: the host ticks what actually happened; most correct tips take the pot
+function openPickResultModal(event, { pin = '', onDone = null } = {}) {
+  const n = event.pickCount || 0;
+  const entries = event.entries || [];
+  showModal('🎯 Rätt svar', `
+    <p class="text-secondary mb-sm">Vilka ${n} blev det i <strong>${escapeHtml(event.name)}</strong>?</p>
+    ${event.status === 'open' ? '<p class="text-muted mb-sm" style="font-size: 0.8rem;">🔒 Tipsen stängs när du sparar resultatet.</p>' : ''}
+    <div class="bet-list mb-md" id="pick-result-list">
+      ${event.players.map(p => `
+        <label class="bet-item" style="display: flex; align-items: center; gap: 10px; padding: 10px; cursor: pointer;">
+          <input type="checkbox" class="pick-result-cb" value="${escapeHtml(p.id)}" style="width: 18px; height: 18px;" />
+          <span class="bet-item-name" style="font-weight: 600;">${escapeHtml(p.name)}</span>
+        </label>
+      `).join('')}
+    </div>
+    <button type="button" class="btn btn-primary btn-block" id="pick-result-save" disabled>Välj ${n} (0/${n})</button>
+    <p class="text-muted" style="font-size: 0.75rem; margin-top: 8px;">${entries.length} har tippat. Flest rätt tar potten, och den delas vid lika. Har ingen rätt går insatserna tillbaka.</p>
+  `);
+
+  const boxes = [...document.querySelectorAll('.pick-result-cb')];
+  const save = document.getElementById('pick-result-save');
+  const selected = () => boxes.filter(b => b.checked).map(b => b.value);
+  boxes.forEach(b => b.addEventListener('change', () => {
+    if (selected().length > n) { b.checked = false; showToast(`Välj exakt ${n}`, 'info'); }
+    const count = selected().length;
+    save.disabled = count !== n;
+    save.textContent = count === n ? '🏆 Spara resultatet' : `Välj ${n} (${count}/${n})`;
+  }));
+
+  let busy = false;
+  save.addEventListener('click', async () => {
+    if (busy || selected().length !== n) return;
+    if (!confirm(`Spara resultatet för "${event.name}"?\n\nPotten delas ut direkt och skulderna hamnar på THE TAB.`)) return;
+    busy = true;
+    save.disabled = true;
+    try {
+      const result = await finishPickGame(event.id, selected(), pin);
+      closeModal();
+      launchConfetti();
+      showToast(`🏆 ${result.winner} vann!`, 'success');
+      onDone?.(result);
+    } catch (err) {
+      busy = false;
+      save.disabled = false;
+      showToast(err.message, 'error');
+    }
   });
 }

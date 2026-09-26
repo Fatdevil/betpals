@@ -175,6 +175,25 @@ db.exec(`
 try { db.exec('ALTER TABLE events ADD COLUMN is_side_bet INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec("ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'friends'"); } catch {}
 try { db.exec("ALTER TABLE tournaments ADD COLUMN settle_reminded_at TEXT"); } catch {}
+// "Pick N" games: everyone picks N options, most correct takes the pot
+try { db.exec('ALTER TABLE events ADD COLUMN pick_count INTEGER'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN pick_result TEXT'); } catch {}
+try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_picks (
+      event_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      picks TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (event_id, user_id),
+      FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+} catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN finished_at TEXT'); } catch {}
 try { db.exec("UPDATE tournaments SET visibility = 'friends' WHERE visibility = 'public'"); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN linked_round_id TEXT'); } catch {}
@@ -1294,7 +1313,8 @@ export function getFullEvent(idOrCode) {
     };
   }
 
-  const mappedPlayers = players.map(p => ({
+  // In a pick game each tip is entered as its own hidden "player"; only the options show
+  const mappedPlayers = players.filter(p => !p.is_entry).map(p => ({
     id: p.id,
     eventId: p.event_id,
     name: p.name,
@@ -1342,6 +1362,7 @@ export function getFullEvent(idOrCode) {
     closesAt: event.closes_at || null,
     lastBoostedAt: event.last_boosted_at || null,
     players: mappedPlayers,
+    ...(event.bet_mode === 'picks' ? pickGameDetails(event) : {}),
     bets: bets.map(b => ({
       id: b.id,
       bettorName: b.bettor_name,
@@ -1455,11 +1476,98 @@ export function lockEvent(eventId) {
 
 // Reopening an event whose result has been revealed only unlocks the result for
 // correction; betting stays closed so nobody can bet on a known outcome.
+// ── Pick N games ─────────────────────────────────────
+function parseIds(json) {
+  try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+export function setEventPickCount(eventId, pickCount) {
+  db.prepare('UPDATE events SET pick_count = ? WHERE id = ?').run(pickCount, eventId);
+}
+
+// Everyone's tips, with how many are right once there is a result
+export function getEventPicks(eventId) {
+  const event = stmts.getEventById.get(eventId);
+  const result = new Set(parseIds(event?.pick_result));
+  return db.prepare(`
+    SELECT p.user_id, p.player_id, p.picks, p.updated_at, u.nickname
+    FROM event_picks p JOIN users u ON u.id = p.user_id WHERE p.event_id = ?
+  `).all(eventId).map(r => {
+    const picks = parseIds(r.picks);
+    return {
+      userId: r.user_id,
+      playerId: r.player_id,
+      nickname: r.nickname,
+      picks,
+      correct: result.size > 0 ? picks.filter(id => result.has(id)).length : null,
+      updatedAt: r.updated_at
+    };
+  });
+}
+
+function pickGameDetails(event) {
+  return {
+    pickCount: event.pick_count || 0,
+    pickResult: parseIds(event.pick_result),
+    entries: getEventPicks(event.id)
+  };
+}
+
+// Place or change a tip: the first tip enters the person with the fixed stake
+export function setEventPicks(eventId, user, picks) {
+  const event = stmts.getEventById.get(eventId);
+  if (!event || event.bet_mode !== 'picks') throw Object.assign(new Error('Spelet finns inte'), { statusCode: 404 });
+  if (event.status !== 'open' || (event.closes_at && new Date(event.closes_at).getTime() <= Date.now())) {
+    throw Object.assign(new Error('Spelet är stängt för tips'), { statusCode: 400 });
+  }
+  const options = new Set(stmts.getPlayersByEvent.all(eventId).filter(p => !p.is_entry).map(p => p.id));
+  const chosen = [...new Set((Array.isArray(picks) ? picks : []).map(String))];
+  if (chosen.length !== event.pick_count || chosen.some(id => !options.has(id))) {
+    throw Object.assign(new Error(`Välj exakt ${event.pick_count}`), { statusCode: 400 });
+  }
+  const existing = db.prepare('SELECT player_id FROM event_picks WHERE event_id = ? AND user_id = ?').get(eventId, user.id);
+  const tx = db.transaction(() => {
+    if (existing) {
+      db.prepare("UPDATE event_picks SET picks = ?, updated_at = datetime('now') WHERE event_id = ? AND user_id = ?")
+        .run(JSON.stringify(chosen), eventId, user.id);
+      return;
+    }
+    const playerId = crypto.randomUUID();
+    db.prepare('INSERT INTO players (id, event_id, name, image_url, is_entry, entry_user_id) VALUES (?, ?, ?, NULL, 1, ?)')
+      .run(playerId, eventId, user.nickname, user.id);
+    addBet(crypto.randomUUID(), eventId, user.nickname, playerId, event.min_bet, user.id);
+    db.prepare('INSERT INTO event_picks (event_id, user_id, player_id, picks) VALUES (?, ?, ?, ?)')
+      .run(eventId, user.id, playerId, JSON.stringify(chosen));
+  });
+  tx();
+  return getEventPicks(eventId).find(e => e.userId === user.id);
+}
+
+// The real result decides the winners: most correct takes the pot (shared on a tie);
+// if nobody got any right, every entry "wins" and gets its own stake back
+export function scorePickGame(eventId, resultIds) {
+  const event = stmts.getEventById.get(eventId);
+  const options = new Set(stmts.getPlayersByEvent.all(eventId).filter(p => !p.is_entry).map(p => p.id));
+  const result = [...new Set((Array.isArray(resultIds) ? resultIds : []).map(String))];
+  if (!event || result.length !== event.pick_count || result.some(id => !options.has(id))) {
+    throw Object.assign(new Error(`Välj exakt ${event?.pick_count || ''} som blev rätt`.trim()), { statusCode: 400 });
+  }
+  const entries = getEventPicks(eventId).map(e => ({ ...e, correct: e.picks.filter(id => result.includes(id)).length }));
+  if (entries.length === 0) {
+    throw Object.assign(new Error('Ingen har tippat – avbryt spelet i stället'), { statusCode: 400 });
+  }
+  const best = Math.max(...entries.map(e => e.correct));
+  const winners = best === 0 ? entries : entries.filter(e => e.correct === best);
+  db.prepare('UPDATE events SET pick_result = ? WHERE id = ?').run(JSON.stringify(result), eventId);
+  return { winnerIds: winners.map(e => e.playerId), entries, best, refund: best === 0 };
+}
+
 export function reopenEvent(eventId) {
   const event = stmts.getEventById.get(eventId);
   const newStatus = event && (event.was_finished || event.status === 'finished') ? 'locked' : 'open';
   stmts.resetEvent.run(newStatus, eventId);
   if (newStatus === 'open') stmts.updateEventClosesAt.run(null, eventId);
+  db.prepare('UPDATE events SET pick_result = NULL WHERE id = ?').run(eventId);
   return newStatus;
 }
 
@@ -2146,7 +2254,8 @@ export function getFullTournament(idOrCode) {
       winnerIds,
       isTie: winnerIds.length > 1,
       winnerName,
-      players: players.map(p => ({ id: p.id, name: p.name })),
+      players: players.filter(p => !p.is_entry).map(p => ({ id: p.id, name: p.name })),
+      pickCount: e.bet_mode === 'picks' ? e.pick_count : undefined,
       totalPool,
       betCount,
       isSideBet: !!e.is_side_bet,
