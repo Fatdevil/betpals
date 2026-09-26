@@ -39,6 +39,7 @@ test('live streams stop after 15 minutes and new bets cannot extend them', async
     // 13.5 minutes in: a 60 s bet plus settle time no longer fits
     const session = activeFlashLiveStreams.get(live.id);
     session.createdAt = new Date(Date.now() - 13.5 * 60 * 1000).toISOString();
+    session.lastViewerAt = Date.now(); // keep the no-viewers stop out of this test
     const bet = await call(base, 'POST', `/flashlive/${live.id}/bet`, host.token, { question: 'Putt?', durationSeconds: 60 });
     assert.equal(bet.status, 400);
     assert.match(bet.body.error, /stoppas automatiskt/);
@@ -51,6 +52,48 @@ test('live streams stop after 15 minutes and new bets cannot extend them', async
     assert.equal(activeFlashLiveStreams.has(live.id), false);
     const hb = await call(base, 'POST', `/flashlive/${live.id}/heartbeat`, host.token);
     assert.equal(hb.status, 404);
+  } catch (err) {
+    server.close();
+    throw err;
+  }
+});
+
+test('a stream nobody watches stops after 3 minutes', { timeout: 20000 }, async () => {
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  try {
+    const start = await call(base, 'POST', '/flashlive/start', host.token, { streamWithoutBet: true, notifyAllFriends: true, streamTitle: 'Tomt' });
+    assert.equal(start.status, 200, JSON.stringify(start.body));
+    const session = activeFlashLiveStreams.get(start.body.live.id);
+    session.createdAt = new Date(Date.now() - 3.2 * 60 * 1000).toISOString();
+    // The cleanup loop runs every 5 s
+    const deadline = Date.now() + 12000;
+    while (activeFlashLiveStreams.has(session.id) && Date.now() < deadline) {
+      session.lastHeartbeat = Date.now();
+      await new Promise(r => setTimeout(r, 500));
+    }
+    assert.equal(activeFlashLiveStreams.has(session.id), false, 'idle stream was stopped');
+  } catch (err) {
+    server.close();
+    throw err;
+  }
+});
+
+test('the bet survives the end of the stream and can be settled afterwards', async () => {
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  try {
+    const start = await call(base, 'POST', '/flashlive/start', host.token, { question: 'Sätter han putten?', stakeAmount: 50, durationSeconds: 30, notifyAllFriends: true });
+    assert.equal(start.status, 200, JSON.stringify(start.body));
+    const betId = start.body.flashBet.id;
+    const vote = await call(base, 'POST', `/flashbets/${betId}/bet`, friend.token, { choice: 'no' });
+    assert.equal(vote.status, 200, JSON.stringify(vote.body));
+
+    const stop = await call(base, 'POST', `/flashlive/${start.body.live.id}/stop`, host.token, {});
+    assert.equal(stop.body.pendingBetId, betId);
+    assert.equal(stop.body.cancelledBet, false);
+
+    const settle = await call(base, 'POST', `/flashbets/${betId}/settle`, host.token, { winningChoice: 'yes' });
+    assert.equal(settle.status, 200, JSON.stringify(settle.body));
+    assert.equal(settle.body.status, 'settled');
   } finally {
     server.close();
   }

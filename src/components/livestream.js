@@ -18,6 +18,8 @@ import {
 import {
   getFlashBet,
   placeFlashBet,
+  settleFlashBet,
+  deleteFlashBet,
   getActiveFlashBets,
   sendWebSocketMessage,
   onWebSocketMessage,
@@ -40,6 +42,9 @@ let wsUnsub = null;
 let activeLiveId = null;
 let heartbeatInterval = null;
 let countdownInterval = null;
+// The BlixtBet currently shown in the live view (so it can be settled after the stream ends)
+let currentLiveBetId = null;
+let currentLiveBetSettled = false;
 let isClosingLiveStream = false;
 let currentIsBroadcaster = false;
 
@@ -763,12 +768,18 @@ export async function openLiveStreamModal({
     } else if (msg.type === 'flashlive_stopped' && msg.liveId === liveId) {
       const reasonNotice = msg.reason === 'max_duration'
         ? 'Sändningen stoppades automatiskt efter 15 minuter.'
-        : msg.reason === 'heartbeat_timeout'
-          ? 'Sändningen bröts – sändaren tappade anslutningen.'
-          : 'Sändningen avslutades av sändaren.';
-      const stopNotice = msg.cancelledBet ? `${reasonNotice} Pågående BlixtBet annullerades.` : reasonNotice;
+        : msg.reason === 'no_viewers'
+          ? 'Sändningen stoppades – ingen tittade på 3 minuter.'
+          : msg.reason === 'heartbeat_timeout'
+            ? 'Sändningen bröts – sändaren tappade anslutningen.'
+            : 'Sändningen avslutades av sändaren.';
+      const stopNotice = msg.pendingBetId && !isBroadcaster
+        ? `${reasonNotice} Vadet rättas efteråt – du får en notis.`
+        : reasonNotice;
       showToast(stopNotice, 'info');
       closeLiveStream();
+    } else if (msg.type === 'flashlive_idle_warning' && msg.liveId === liveId && isBroadcaster) {
+      showToast(`👀 Ingen tittar just nu – sändningen stoppas om ${Math.max(1, Math.round((msg.secondsLeft || 60) / 60))} min om ingen ansluter.`, 'warning');
     } else if (msg.type === 'flashlive_bet_started' && msg.liveId === liveId) {
       showToast(`⚡ Nytt BlixtBet startat: "${msg.flashBet?.question || ''}"!`, 'success');
       renderLiveBlixtBetWidget(tournamentId, msg.flashBet?.id, tournamentCode, liveId, isBroadcaster, msg.flashBet);
@@ -788,9 +799,9 @@ export async function openLiveStreamModal({
         }
       }
       renderLiveBlixtBetWidget(tournamentId, targetBetId, tournamentCode, liveId, isBroadcaster, personalizedBet);
-    } else if (msg.type === 'flash_bet_deleted' && (msg.flashBetId === flashBetId || (tournamentId && msg.tournamentId === tournamentId))) {
-      showToast('BlixtBet togs bort.', 'info');
-      renderLiveBlixtBetWidget(tournamentId, null, tournamentCode, liveId, isBroadcaster, null);
+    } else if (msg.type === 'flash_bet_deleted' && (msg.flashBetId === (currentLiveBetId || flashBetId) || (tournamentId && msg.tournamentId === tournamentId))) {
+      if (!isBroadcaster) showToast('BlixtBet togs bort – ditt bet räknas inte.', 'info');
+      renderLiveBlixtBetWidget(null, null, tournamentCode, liveId, isBroadcaster, null);
     }
   });
 
@@ -897,6 +908,7 @@ export function showStopBroadcastConfirmation() {
       </div>
       <div style="font-size: 0.82rem; color: rgba(255, 255, 255, 0.75); line-height: 1.4; margin-bottom: 20px;">
         Sändningen stoppas för alla tittare och kameran stängs av omedelbart.
+        Ett vad som inte är rättat ligger kvar under ⚡ BlixtBet – där kan du rätta eller ta bort det efteråt.
       </div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <button type="button" id="btn-confirm-stop-live" style="
@@ -953,7 +965,10 @@ export function closeLiveStream() {
     streamActive = false;
     const liveIdToStop = activeLiveId;
     const wasHost = currentIsBroadcaster;
+    const pendingBetId = wasHost && currentLiveBetId && !currentLiveBetSettled ? currentLiveBetId : null;
     currentIsBroadcaster = false;
+    currentLiveBetId = null;
+    currentLiveBetSettled = false;
 
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
@@ -984,6 +999,16 @@ export function closeLiveStream() {
     const fs = document.getElementById('livestream-fullscreen');
     if (fs) fs.remove();
     closeModal();
+
+    // The bet outlives the stream: take the host straight to it so it can be settled or removed
+    if (pendingBetId) {
+      setTimeout(() => {
+        import('./minigames.js').then(({ openFlashBetModal }) => {
+          showToast('Vadet ligger kvar – rätta det eller ta bort det här.', 'info');
+          openFlashBetModal(pendingBetId);
+        }).catch(() => {});
+      }, 300);
+    }
   } finally {
     isClosingLiveStream = false;
   }
@@ -1005,6 +1030,9 @@ async function renderLiveBlixtBetWidget(tournamentId, specificFlashBetId = null,
     }
 
     if (!currentBet) {
+      currentLiveBetId = null;
+      currentLiveBetSettled = false;
+      container.style.display = '';
       container.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between;">
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -1093,6 +1121,8 @@ function renderMockActiveBlixtBet({
   if (!container) return;
 
   const user = getStoredUser();
+  currentLiveBetId = betId && betId !== 'demo' ? betId : null;
+  currentLiveBetSettled = status === 'settled' || Boolean(winnerChoice) || status === 'cancelled';
 
   // If already settled, show results & Swish settlements
   if (status === 'settled' || winnerChoice) {
@@ -1147,8 +1177,16 @@ function renderMockActiveBlixtBet({
               : (isWinner ? '🎉 Du vann! Snyggt gissat!' : (myChoice ? 'Tack för rösten!' : 'Vadet är avgjort!'))}
           </div>
         `}
+        ${isBroadcaster && liveId ? `
+          <button type="button" id="btn-live-next-bet" class="btn btn-sm btn-accent" style="margin-top: 8px; font-size: 0.75rem; padding: 4px 10px; font-weight: 800;">
+            ⚡ Nytt BlixtBet
+          </button>
+        ` : ''}
       </div>
     `;
+    document.getElementById('btn-live-next-bet')?.addEventListener('click', () => {
+      renderLiveBlixtBetWidget(null, null, tournamentCode, liveId, true, null);
+    });
     return;
   }
 
@@ -1208,6 +1246,11 @@ function renderMockActiveBlixtBet({
             </button>
           </div>
         </div>
+        ${betId && betId !== 'demo' ? `
+          <button type="button" id="btn-live-delete-bet" style="margin-top: 6px; width: 100%; background: transparent; border: 1px dashed rgba(231,76,60,0.5); color: #ff8a80; font-size: 0.72rem; font-weight: 700; padding: 4px; border-radius: 6px; cursor: pointer;">
+            🗑️ Ta bort vadet (går om högst 1 har lagt bet)
+          </button>
+        ` : ''}
       ` : ''}
     </div>
   `;
@@ -1278,6 +1321,18 @@ function renderMockActiveBlixtBet({
 
     document.getElementById('btn-settle-yes')?.addEventListener('click', () => handleSettle('yes'));
     document.getElementById('btn-settle-no')?.addEventListener('click', () => handleSettle('no'));
+
+    // Too few bets: remove it and start a new one more friends can join
+    document.getElementById('btn-live-delete-bet')?.addEventListener('click', async () => {
+      if (!confirm('Ta bort vadet? Det går bara om högst en vän har lagt bet. Den som har lagt bet får en notis om att det inte räknas.')) return;
+      try {
+        await deleteFlashBet(betId);
+        showToast('🗑️ Vadet är borttaget. Starta ett nytt när du vill!', 'info');
+        renderLiveBlixtBetWidget(null, null, tournamentCode, liveId, true, null);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
   }
 
   // Voting option buttons

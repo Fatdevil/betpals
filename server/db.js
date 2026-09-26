@@ -3892,11 +3892,14 @@ export function deleteFlashBet(flashBetId, userId) {
   if (fb.creator_id !== userId) throw new Error('Endast skaparen kan ta bort vadet');
   if (fb.status === 'settled') throw new Error('Vadet är redan avgjort och kan inte tas bort');
 
+  // Removing is allowed while at most one friend has bet: nobody can have lost anything yet,
+  // so the creator can drop it and start a new one that more friends join
   const entries = stmts.getFlashBetEntries.all(flashBetId);
-  if (entries.length > 0) {
-    throw new Error('Det går inte att ta bort vadet eftersom någon redan har lagt ett bet');
+  if (entries.length > 1) {
+    throw new Error('Det går inte att ta bort vadet eftersom flera redan har lagt bet – avgör det istället');
   }
 
+  // Entries are removed with the bet (ON DELETE CASCADE)
   stmts.deleteFlashBet.run(flashBetId);
 
   let targetUserIds = null;
@@ -3910,7 +3913,9 @@ export function deleteFlashBet(flashBetId, userId) {
     success: true,
     id: flashBetId,
     tournamentId: fb.tournament_id,
-    targetUserIds
+    question: fb.question,
+    targetUserIds,
+    removedEntryUserIds: entries.map(e => e.user_id)
   };
 }
 

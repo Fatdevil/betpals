@@ -191,6 +191,9 @@ const activeFlashLiveStreams = new Map();
 // Every live stream stops automatically after this long, so a forgotten stream cannot use up
 // the LiveKit minutes. Starting a new BlixtBet does not extend it.
 const LIVE_MAX_DURATION_MS = 15 * 60 * 1000;
+// A stream nobody watches stops after this long (counted from the start or the last viewer leaving)
+const LIVE_IDLE_STOP_MS = 3 * 60 * 1000;
+const LIVE_IDLE_WARN_MS = 2 * 60 * 1000;
 function liveEndsAtMs(session) {
   const created = new Date(session.createdAt).getTime();
   return (Number.isFinite(created) ? created : Date.now()) + LIVE_MAX_DURATION_MS;
@@ -263,14 +266,8 @@ try {
   for (const s of dbActiveStreams) {
     try {
       db.updateFlashLiveStreamStatus(s.id, 'ended');
+      // The stream's bet (if any) stays so the host can still settle or remove it in BlixtBet
       deleteLiveKitRoom(s.id).catch(() => {});
-      const betId = s.flash_bet_id || s.flashBetId;
-      if (betId) {
-        const fb = db.getFlashBet(betId);
-        if (fb && (fb.status === 'open' || fb.status === 'locked')) {
-          db.cancelFlashBet(betId, s.host_id || s.hostId, true);
-        }
-      }
     } catch (e) {}
   }
   if (dbActiveStreams.length > 0) {
@@ -299,24 +296,21 @@ function endFlashLiveStream(id, session = null, reason = 'ended') {
     db.updateFlashLiveStreamStatus(id, 'ended');
   } catch (e) {}
 
-  let cancelledBet = false;
+  // An unsettled bet outlives the stream: the host settles (or removes) it afterwards in BlixtBet
+  let pendingBetId = null;
   if (session.flashBetId) {
     try {
       const fb = db.getFlashBet(session.flashBetId);
-      if (fb && (fb.status === 'open' || fb.status === 'locked')) {
-        db.cancelFlashBet(session.flashBetId, session.hostId, true);
-        cancelledBet = true;
-      }
-    } catch (e) {
-      console.warn('Could not cancel flash bet on live end:', e);
-    }
+      if (fb && (fb.status === 'open' || fb.status === 'locked')) pendingBetId = fb.id;
+    } catch (e) {}
   }
 
   const stopPayload = {
     type: 'flashlive_stopped',
     liveId: id,
     reason,
-    cancelledBet
+    cancelledBet: false,
+    pendingBetId
   };
 
   broadcastToLive(id, stopPayload);
@@ -335,7 +329,7 @@ function endFlashLiveStream(id, session = null, reason = 'ended') {
     liveClients.delete(id);
   }
 
-  return { ok: true, cancelledBet };
+  return { ok: true, cancelledBet: false, pendingBetId };
 }
 
 // Background cleanup for stale FlashLive streams (heartbeat timeout > 35s or past the max duration)
@@ -345,9 +339,40 @@ setInterval(() => {
     const isHeartbeatDead = session.lastHeartbeat && (now - session.lastHeartbeat > 35000);
     if (isHeartbeatDead || now >= liveEndsAtMs(session)) {
       endFlashLiveStream(id, session, isHeartbeatDead ? 'heartbeat_timeout' : 'max_duration');
+      continue;
+    }
+
+    // Nobody watching: warn the host, then stop so the stream does not use minutes for nothing
+    if (liveViewerCount(id, session) > 0) {
+      session.lastViewerAt = now;
+      session.idleWarned = false;
+      continue;
+    }
+    const idleSince = session.lastViewerAt || new Date(session.createdAt).getTime() || now;
+    const idleMs = now - idleSince;
+    if (idleMs >= LIVE_IDLE_STOP_MS) {
+      endFlashLiveStream(id, session, 'no_viewers');
+    } else if (idleMs >= LIVE_IDLE_WARN_MS && !session.idleWarned) {
+      session.idleWarned = true;
+      broadcastToUser(session.hostId, {
+        type: 'flashlive_idle_warning',
+        liveId: id,
+        secondsLeft: Math.round((LIVE_IDLE_STOP_MS - idleMs) / 1000)
+      });
     }
   }
 }, 5000).unref();
+
+// Viewers = people other than the host with the live view open
+function liveViewerCount(liveId, session) {
+  const clients = liveClients.get(liveId);
+  if (!clients) return 0;
+  const viewers = new Set();
+  for (const client of clients) {
+    if (client.liveUserId && client.liveUserId !== session.hostId) viewers.add(client.liveUserId);
+  }
+  return viewers.size;
+}
 
 function updateLiveViewerCount(liveId) {
   if (!liveId) return;
@@ -381,6 +406,7 @@ wss.on('connection', (ws, req) => {
     if (!session) return false;
     if (boundUserId && (session.hostId === boundUserId || (session.targetUserIds && session.targetUserIds.includes(boundUserId)))) {
       subscribedLives.add(lId);
+      ws.liveUserId = boundUserId;
       if (!liveClients.has(lId)) liveClients.set(lId, new Set());
       liveClients.get(lId).add(ws);
       updateLiveViewerCount(lId);
@@ -463,6 +489,7 @@ wss.on('connection', (ws, req) => {
         boundLiveId = msg.liveId;
         tryJoinLive(msg.liveId);
       } else if (msg.type === 'leave_live' && msg.liveId) {
+        if (boundLiveId === msg.liveId) boundLiveId = null;
         subscribedLives.delete(msg.liveId);
         liveClients.get(msg.liveId)?.delete(ws);
         if (liveClients.get(msg.liveId)?.size === 0) liveClients.delete(msg.liveId);
@@ -5499,6 +5526,16 @@ app.delete('/api/flashbets/:id', (req, res) => {
   try {
     const result = db.deleteFlashBet(req.params.id, user.id);
 
+    // The one friend who had already bet gets to know the vote no longer counts
+    const removedBettors = (result.removedEntryUserIds || []).filter(uid => uid !== user.id);
+    if (removedBettors.length > 0) {
+      sendPushToUsers(removedBettors, {
+        title: '🗑️ BlixtBet borttaget',
+        body: `${user.nickname || user.real_name || 'Skaparen'} tog bort "${result.question}". Ditt bet räknas inte – inga pengar ska swishas.`,
+        url: '/#arcade'
+      }, 'flashbets').catch(() => {});
+    }
+
     const wsPayload = {
       type: 'flash_bet_deleted',
       flashBetId: req.params.id,
@@ -5866,7 +5903,7 @@ app.post('/api/flashlive/:id/stop', (req, res) => {
   }
 
   const result = endFlashLiveStream(req.params.id, session, isAdmin && !isHost ? 'admin_stopped' : 'host_stopped');
-  res.json({ ok: true, cancelledBet: result.cancelledBet });
+  res.json({ ok: true, cancelledBet: false, pendingBetId: result.pendingBetId || null });
 });
 
 // ── Tab Expenses (Dela utlägg / The Tab) Routes ──────
