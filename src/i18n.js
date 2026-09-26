@@ -5,9 +5,10 @@ import { en } from './lang/en.js';
 const languages = { sv, en };
 let currentLang = (typeof localStorage !== 'undefined' ? localStorage.getItem('betpals_lang') : null) || detectLanguage();
 
+// The app is made for a Swedish group of friends: Swedish unless someone picks English
+// in the language menu (an English phone setting alone should not mix the languages)
 function detectLanguage() {
-  const browserLang = (typeof navigator !== 'undefined' && navigator.language?.slice(0, 2)) || 'sv';
-  return languages[browserLang] ? browserLang : 'sv';
+  return 'sv';
 }
 
 export function t(key) {

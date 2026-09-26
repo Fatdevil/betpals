@@ -1,16 +1,15 @@
 import { getEvent, getEventQR, placeBet, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
-import { renderOddsBoard } from '../components/odds-board.js';
-import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
 import { t } from '../i18n.js';
 
 let wsUnsubscribe = null;
-let eventSponsorCarouselCleanup = null;
 let countdownInterval = null;
 let resumeCleanup = null;
+// Set while a game page with bettable options is shown; redraws them on live odds
+let refreshGameOptions = null;
 
 // iOS closes the WebSocket silently when the app goes to the background (e.g. to pay in
 // Swish) and may restore the page from its back/forward cache with stale odds. Refresh the
@@ -176,13 +175,12 @@ export async function renderEvent(params = {}) {
   try {
     const event = await getEvent(code);
 
-    // Fallback: If event is in a tournament but banners array is empty, fetch tournament banners
-    if ((!event.banners || event.banners.length === 0) && event.tournamentId) {
+    // The back link shows the event's name
+    if (event.tournamentId) {
       try {
         const tour = await getTournament(event.tournamentId);
-        if (tour?.banners && tour.banners.length > 0) {
-          event.banners = tour.banners;
-        }
+        event.tournamentName = tour?.name || null;
+        event.tournamentCode = tour?.shareCode || null;
       } catch (_) {}
     }
 
@@ -194,11 +192,15 @@ export async function renderEvent(params = {}) {
     wsUnsubscribe = onWebSocketMessage((msg) => {
       handleWebSocketNotification(msg);
       if (msg.type === 'odds_update') {
-        const oddsEl = document.getElementById('odds-board-container');
-        if (oddsEl) {
-          const updatedEvent = { ...event, odds: msg.odds, totalPool: msg.totalPool };
-          oddsEl.innerHTML = renderOddsBoard(updatedEvent);
-        }
+        // Fetch the fresh event so bet counts per option are right too
+        getEvent(code).then(fresh => {
+          if (refreshGameOptions) {
+            refreshGameOptions(fresh);
+          } else {
+            const oddsEl = document.getElementById('odds-board-container');
+            if (oddsEl) oddsEl.innerHTML = renderGameOptions(fresh, { winnerIds: fresh.winnerIds || [], isSelf: fresh.betMode === 'self' });
+          }
+        }).catch(() => {});
         const poolEl = document.getElementById('total-pool-display');
         if (poolEl) poolEl.textContent = formatCurrency(msg.totalPool);
         const countEl = document.getElementById('bet-count-display');
@@ -235,7 +237,37 @@ export async function renderEvent(params = {}) {
   }
 }
 
+// Every option as a big tappable card: name, money and bets on it, and the live odds
+function renderGameOptions(event, { interactive = false, selectedId = null, winnerIds = [], isYesNo = false, isSelf = false } = {}) {
+  if (!event.players || event.players.length === 0) {
+    return '<div class="game-closed-note">Inga alternativ ännu</div>';
+  }
+  return event.players.map(p => {
+    const data = event.odds?.[p.id] || { totalBet: 0, odds: null };
+    const count = event.bets.filter(b => b.playerId === p.id).length;
+    const isWinner = winnerIds.includes(p.id);
+    const icon = isYesNo ? (p.name.toLowerCase() === 'ja' ? '👍 ' : '👎 ') : '';
+    return `
+      <button type="button" class="game-opt${selectedId === p.id ? ' selected' : ''}${isWinner ? ' winner' : ''}" data-player-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" ${interactive ? '' : 'disabled'}>
+        <span class="game-opt-check">✓</span>
+        ${p.imageUrl ? `<img src="${sanitizeUrl(p.imageUrl)}" alt="" class="game-opt-img" />` : ''}
+        <span class="game-opt-main">
+          <span class="game-opt-name">${icon}${escapeHtml(p.name)}${isWinner ? ' 🏆' : ''}</span>
+          <span class="game-opt-sub">${isSelf ? `Med · ${formatCurrency(data.totalBet)}` : count > 0 ? `${formatCurrency(data.totalBet)} · ${count} ${count === 1 ? 'bet' : 'bets'}` : (interactive ? 'Inga bets än' : 'Inga bets')}</span>
+        </span>
+        ${isSelf ? '' : `<span class="game-opt-odds">${data.odds ? formatOdds(data.odds) : '–'}<small>${data.odds ? 'odds' : (interactive ? 'först ut!' : '')}</small></span>`}
+      </button>
+    `;
+  }).join('');
+}
+
+function removeBetslip() {
+  document.querySelectorAll('body > .betslip').forEach(el => el.remove());
+  document.body.classList.remove('betslip-open');
+}
+
 function renderEventContent(event, content, code) {
+  removeBetslip();
   const dl = event.closesAt ? formatDeadline(event.closesAt) : null;
   const isLockedOrExpired = event.status === 'locked' || (dl && dl.isExpired);
   const isOpen = event.status === 'open' && (!dl || !dl.isExpired);
@@ -296,8 +328,28 @@ function renderEventContent(event, content, code) {
   const hasPinSession = !!sessionStorage.getItem('betpals_pin');
   const isCreatorOrAdmin = (currentUser && event.creatorId === currentUser.id) || hasPinSession;
 
+  const isSelf = event.betMode === 'self';
+  const canBet = isOpen && !isSelf && loggedIn && Boolean(currentUser?.swishNumber);
+  const myBets = currentUser ? event.bets.filter(b => b.userId === currentUser.id) : [];
+  const stakeText = event.minBet === event.maxBet
+    ? formatCurrency(event.minBet)
+    : `${event.minBet}–${event.maxBet} kr`;
+  const stakeOptions = [...new Set([event.minBet, 20, 50, 100, 200, 500])]
+    .filter(amt => amt >= event.minBet && amt <= event.maxBet)
+    .sort((a, b) => a - b)
+    .slice(0, 5);
+  const statusPill = isFinished
+    ? '<span class="game-pill game-pill-done">🏁 Avgjort</span>'
+    : event.status === 'cancelled'
+      ? '<span class="game-pill game-pill-closed">🛑 Avbrutet</span>'
+      : isSelf
+        ? '<span class="game-pill game-pill-done">👥 Alla med</span>'
+        : isOpen
+          ? '<span class="game-pill game-pill-open"><i></i>Öppen</span>'
+          : `<span class="game-pill game-pill-closed">${dl && dl.isExpired ? '⌛ Spelstopp' : '🔒 Stängt'}</span>`;
+
   content.innerHTML = `
-    <div class="animate-in">
+    <div class="animate-in game-page">
       ${event.imageUrl ? `
         <div class="event-hero-banner" id="event-hero-banner">
           <img src="${sanitizeUrl(event.imageUrl)}" alt="${escapeHtml(event.name)}" class="event-hero-img" />
@@ -307,130 +359,25 @@ function renderEventContent(event, content, code) {
         </div>
       ` : ''}
 
-      <div class="page-header">
-        <!-- Title gets the full width; actions wrap onto their own row on narrow phones -->
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <div style="min-width: 0;">
-            <h1 class="page-title" style="margin-bottom: 2px; overflow-wrap: anywhere;">${escapeHtml(event.name)}</h1>
-            <div class="flex gap-xs" style="align-items: center; font-size: 0.8rem; flex-wrap: wrap; white-space: nowrap;">
-              <span class="page-subtitle" style="margin: 0;">${formatDate(event.date)}</span>
-              <span class="text-muted">·</span>
-              <span class="text-gold" style="font-weight: 700;">${escapeHtml(event.shareCode)}</span>
-            </div>
-          </div>
-          <div class="flex gap-xs" style="align-items: center; flex-wrap: wrap;">
-            <button type="button" class="btn btn-secondary btn-sm" id="event-share-modal-btn" style="font-size: 0.72rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
-              📱 Dela
-            </button>
-            ${!event.closesAt ? `
-              <button type="button" class="btn btn-secondary btn-sm" id="calendar-export-btn" style="font-size: 0.72rem; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
-                📅 Kalender
-              </button>
-            ` : ''}
-            ${isOpen ? '<span class="live-indicator"><span class="live-dot"></span>LIVE</span>' : ''}
-            <span class="badge ${statusBadgeClass(event.status)}">${statusLabel(event.status)}</span>
-          </div>
+      <!-- Header: back to the event, title, status and small links -->
+      <div class="game-head">
+        ${event.tournamentId ? `
+          <button type="button" class="game-crumb" id="game-back-btn">← ${escapeHtml(event.tournamentName || 'Tillbaka till eventet')}</button>
+        ` : ''}
+        <h1 class="game-title">${escapeHtml(event.name)}</h1>
+        <div class="game-meta">
+          ${statusPill}
+          ${event.closesAt && dl && !dl.isExpired ? `
+            <span>Stänger ${(parseDateSafe(event.closesAt) || new Date()).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })} · <span id="countdown-text-el">${dl.shortText}</span></span>
+          ` : ''}
         </div>
-      </div>
-
-      ${event.closesAt && dl && !dl.isExpired ? `
-        <!-- Active Deadline Banner -->
-        <div class="card mb-md" id="deadline-banner" style="border: 1.5px solid var(--gold); background: linear-gradient(135deg, rgba(245,166,35,0.12) 0%, rgba(20,24,39,0.8) 100%); padding: 12px 16px;">
-          <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 1.6rem;">⏱️</span>
-              <div>
-                <div style="font-size: 0.72rem; color: var(--gold); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
-                  Spelstopp / Tidsgräns
-                </div>
-                <div id="countdown-text-el" style="font-size: 0.95rem; font-weight: 800; color: #fff;">
-                  ${dl.text}
-                </div>
-                <div style="font-size: 0.72rem; color: var(--text-muted);">
-                  Stänger: ${(parseDateSafe(event.closesAt) || new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${(parseDateSafe(event.closesAt) || new Date()).toLocaleDateString([], { month: 'short', day: 'numeric' })})
-                </div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-secondary btn-sm" id="calendar-export-btn" style="font-size: 0.75rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
-              📅 Lägg till i kalender
-            </button>
-          </div>
+        <div class="game-links">
+          <button type="button" class="game-link" id="event-share-modal-btn">📤 Dela</button>
+          ${!isFinished && event.status !== 'cancelled' ? '<button type="button" class="game-link" id="calendar-export-btn">📅 Kalender</button>' : ''}
         </div>
-      ` : event.closesAt && dl && dl.isExpired && !isFinished && event.status !== 'cancelled' ? `
-        <!-- Expired Deadline Banner -->
-        <div class="card mb-md" style="border: 1.5px solid #e74c3c; background: rgba(231,76,60,0.1); padding: 12px 16px;">
-          <div class="flex-between" style="align-items: center; gap: 8px; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 1.6rem;">⌛</span>
-              <div>
-                <div style="font-size: 0.72rem; color: #e74c3c; font-weight: 700; text-transform: uppercase;">
-                  Spelstopp passerat
-                </div>
-                <div style="font-size: 0.92rem; font-weight: 800; color: #fff;">
-                  Bettningen är stängd för detta spel
-                </div>
-              </div>
-            </div>
-            <div class="flex gap-xs" style="align-items: center;">
-              <button type="button" class="btn btn-secondary btn-sm" id="calendar-export-btn" style="font-size: 0.75rem; padding: 6px 12px;">
-                📅 Kalender
-              </button>
-              ${isCreatorOrAdmin ? `
-                <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn" style="font-size: 0.75rem; padding: 6px 12px;">
-                  🔓 Öppna igen
-                </button>
-              ` : ''}
-            </div>
-          </div>
-        </div>
-      ` : ''}
-
-      ${isCreatorOrAdmin && !isFinished && event.status !== 'cancelled' ? `
-        <!-- Spelledarkontroll -->
-        <div class="card mb-md" style="border: 1.5px solid rgba(245,166,35,0.3); background: rgba(255,255,255,0.03); padding: 10px 14px;">
-          <div class="flex-between mb-xs" style="align-items: center;">
-            <span style="font-size: 0.75rem; font-weight: 700; color: var(--gold); display: flex; align-items: center; gap: 4px;">
-              👑 Spelledarkontroll
-            </span>
-            <span style="font-size: 0.7rem; color: var(--text-muted);">
-              ${isOpen ? '🟢 Öppet för bets' : '🔒 Stängt för bets'}
-            </span>
-          </div>
-          <div class="flex gap-xs" style="flex-wrap: wrap;">
-            ${isOpen ? `
-              <button type="button" class="btn btn-primary btn-sm" id="creator-boost-btn" style="flex: 1; min-width: 120px; font-size: 0.75rem; font-weight: 700; padding: 6px 10px;">
-                🚀 Boosta spelet
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" id="creator-lock-btn" style="flex: 1; min-width: 120px; font-size: 0.75rem; padding: 6px 10px;">
-                🔒 Stäng bettning nu
-              </button>
-            ` : ''}
-            ${isLockedOrExpired ? `
-              <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn" style="flex: 1; min-width: 120px; font-size: 0.75rem; padding: 6px 10px;">
-                🔓 Öppna bettning
-              </button>
-            ` : ''}
-            <button type="button" class="btn btn-secondary btn-sm" id="creator-deadline-btn" style="font-size: 0.75rem; padding: 6px 10px;">
-              ⏰ Ändra spelstopp
-            </button>
-          </div>
-        </div>
-      ` : ''}
-
-      <!-- Stats -->
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-value" id="total-pool-display">${formatCurrency(event.totalPool || 0)}</div>
-          <div class="stat-label">${t('event.totalPool')}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="bet-count-display">${event.bets.length}</div>
-          <div class="stat-label">${t('event.numPredictions')}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${event.payoutPercent}%</div>
-          <div class="stat-label">${t('event.payout')}</div>
-        </div>
+        ${myBets.length > 0 && !isSelf ? `
+          <div class="game-mine">✓ Du bettade: ${myBets.map(b => `${escapeHtml((event.players.find(p => p.id === b.playerId) || {}).name || '?')} · ${formatCurrency(b.amount)}`).join(', ')}</div>
+        ` : ''}
       </div>
 
       ${isFinished && winner ? `
@@ -453,130 +400,88 @@ function renderEventContent(event, content, code) {
         </div>
       ` : ''}
 
-      <!-- Sponsor Banners -->
-      ${event.banners && event.banners.length > 0 ? renderSponsorCarousel(event.banners, {
-        isCreator: false,
-        carouselId: 'event-sponsor-carousel',
-        title: '⭐ Sponsorer',
-        showSectionHeader: true
-      }) : ''}
+      ${isSelf && !isFinished && event.status !== 'cancelled' ? `
+        <div class="game-info-card">
+          👥 Alla deltagare är med med <strong>${formatCurrency(event.minBet)}</strong> var. Vinnaren tar hela potten – spelledaren korar vinnaren när det är klart.
+        </div>
+      ` : ''}
 
-      <!-- Odds Board -->
-      <div class="section-header">
-        <h2 class="section-title">📊 ${t('event.odds')}</h2>
-        ${isOpen ? `<span class="live-indicator"><span class="live-dot"></span>${t('event.realtime')}</span>` : ''}
-      </div>
-      <div id="odds-board-container">
-        ${renderOddsBoard(event)}
+      <!-- Options: tap one to open the bet slip -->
+      <div class="game-section-label">${canBet ? (myBets.length > 0 ? 'Lägg ett bet till' : 'Välj ditt tips') : isSelf ? 'Deltagare' : 'Tips & odds'}</div>
+      <div id="odds-board-container" class="game-options">
+        ${renderGameOptions(event, { interactive: canBet, winnerIds, isYesNo, isSelf })}
       </div>
 
-      ${isOpen ? `
-        <!-- Prediction Section -->
-        <div class="section-header">
-          <h2 class="section-title">🎯 ${t('event.placePrediction')}</h2>
+      ${isOpen && !isSelf && !loggedIn ? `
+        <div class="card text-center" style="padding: var(--space-lg) var(--space-md);">
+          <div style="font-size: 2.4rem; margin-bottom: var(--space-xs);">🔐</div>
+          <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: var(--space-xs);">${t('event.loginRequiredTitle')}</h3>
+          <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-md); max-width: 320px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+            ${t('event.loginRequiredDesc')}
+          </p>
+          <a href="#profile" class="btn btn-primary" style="display: inline-block; padding: 10px 24px; text-decoration: none;">
+            🔑 ${t('event.loginOrRegister')}
+          </a>
         </div>
+      ` : isOpen && !isSelf && !currentUser?.swishNumber ? `
+        <div class="card" style="padding: var(--space-md); border: 1.5px solid #e67e22; background: rgba(230, 126, 34, 0.08); text-align: center;">
+          <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📱</div>
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #e67e22; margin-bottom: var(--space-xs);">${t('event.swishMissingTitle')}</h3>
+          <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-md); max-width: 340px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+            ${t('event.swishMissingDesc')}
+          </p>
+          <a href="#profile" class="btn btn-secondary" style="display: inline-block; text-decoration: none;">
+            ${t('event.goToProfileSwish')}
+          </a>
+        </div>
+      ` : !isOpen && !isSelf && !isFinished && event.status !== 'cancelled' ? `
+        <div class="game-closed-note">${dl && dl.isExpired ? '⌛ Spelstopp har passerat' : '🔒 Bettningen är stängd'} – det går inte längre att lägga bets.</div>
+      ` : ''}
 
-        ${!loggedIn ? `
-          <div class="card text-center" style="padding: var(--space-lg) var(--space-md);">
-            <div style="font-size: 2.4rem; margin-bottom: var(--space-xs);">🔐</div>
-            <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: var(--space-xs);">${t('event.loginRequiredTitle')}</h3>
-            <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-md); max-width: 320px; margin-left: auto; margin-right: auto; line-height: 1.4;">
-              ${t('event.loginRequiredDesc')}
-            </p>
-            <a href="#profile" class="btn btn-primary" style="display: inline-block; padding: 10px 24px; text-decoration: none;">
-              🔑 ${t('event.loginOrRegister')}
-            </a>
+      <!-- Key numbers -->
+      <div class="game-stats">
+        <div><b id="total-pool-display">${formatCurrency(event.totalPool || 0)}</b>Pott</div>
+        <div><b id="bet-count-display">${event.bets.length}</b>Bets</div>
+        <div><b>${stakeText}</b>Insats</div>
+        ${event.payoutPercent !== 100 ? `<div><b>${event.payoutPercent}%</b>Utbetalning</div>` : ''}
+      </div>
+
+      ${isCreatorOrAdmin && !isFinished && event.status !== 'cancelled' ? `
+        <!-- Organiser controls, folded away -->
+        <details class="game-host">
+          <summary>
+            <span>👑 Spelledare</span>
+            <span class="game-host-hint">${isOpen ? 'Boosta · Stäng · Spelstopp' : 'Öppna · Spelstopp'} ›</span>
+          </summary>
+          <div class="game-host-actions">
+            ${isOpen ? `
+              <button type="button" class="btn btn-primary btn-sm" id="creator-boost-btn">🚀 Boosta spelet</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="creator-lock-btn">🔒 Stäng bettning nu</button>
+            ` : ''}
+            ${isLockedOrExpired ? `
+              <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn">🔓 Öppna bettning</button>
+            ` : ''}
+            <button type="button" class="btn btn-secondary btn-sm" id="creator-deadline-btn">⏰ Ändra spelstopp</button>
           </div>
-        ` : !currentUser?.swishNumber ? `
-          <div class="card" style="padding: var(--space-md); border: 1.5px solid #e67e22; background: rgba(230, 126, 34, 0.08); text-align: center;">
-            <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📱</div>
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #e67e22; margin-bottom: var(--space-xs);">${t('event.swishMissingTitle')}</h3>
-            <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: var(--space-md); max-width: 340px; margin-left: auto; margin-right: auto; line-height: 1.4;">
-              ${t('event.swishMissingDesc')}
-            </p>
-            <a href="#profile" class="btn btn-secondary" style="display: inline-block; text-decoration: none;">
-              ${t('event.goToProfileSwish')}
-            </a>
-          </div>
-        ` : `
-          <div class="card">
-            <form id="bet-form">
-              <div class="form-group">
-                <label class="form-label">${t('event.yourName')}</label>
-                <div class="bettor-profile-badge" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-light); border-radius: var(--radius-md);">
-                  <span style="font-size: 1.4rem;">${currentUser.avatar || '👤'}</span>
-                  <div style="flex: 1; min-width: 0;">
-                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                      ${escapeHtml(currentUser.realName || currentUser.nickname)}
-                    </div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted);">
-                      📱 Swish: ${escapeHtml(currentUser.swishNumber)}
-                    </div>
-                  </div>
-                  <span class="badge" style="font-size: 0.7rem; background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3);">Verifierad</span>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">${t('event.choosePlayer')}</label>
-                ${isYesNo ? `
-                  <div class="flex gap-sm mb-xs">
-                    <button type="button" class="btn yesno-choice-btn" data-player-id="${jaPlayer.id}" style="flex: 1; padding: 12px; background: rgba(46,204,113,0.15); border: 2px solid #2ecc71; color: #2ecc71; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-                      👍 JA
-                    </button>
-                    <button type="button" class="btn yesno-choice-btn" data-player-id="${nejPlayer.id}" style="flex: 1; padding: 12px; background: rgba(231,76,60,0.15); border: 2px solid #e74c3c; color: #e74c3c; font-weight: 800; font-size: 1.1rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-                      👎 NEJ
-                    </button>
-                  </div>
-                  <select class="form-input" id="bet-player" required style="display: none;">
-                    <option value="">${t('event.selectPlayer')}</option>
-                    ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-                  </select>
-                ` : `
-                  ${hasPlayerImages ? `
-                    <div class="flex gap-xs mb-sm" style="flex-wrap: wrap;">
-                      ${event.players.map(p => `
-                        <button type="button" class="btn player-quick-btn" data-player-id="${p.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-full); border: 1.5px solid var(--border-light); background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
-                          ${p.imageUrl ? `<img src="${sanitizeUrl(p.imageUrl)}" alt="${escapeHtml(p.name)}" class="player-avatar-mini" />` : ''}
-                          <span>${escapeHtml(p.name)}</span>
-                        </button>
-                      `).join('')}
-                    </div>
-                  ` : ''}
-                  <select class="form-input" id="bet-player" required>
-                    <option value="">${t('event.selectPlayer')}</option>
-                    ${event.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-                  </select>
-                `}
-              </div>
-              <div class="form-group">
-                <label class="form-label">${t('event.stake')} (${formatCurrency(event.minBet)} – ${formatCurrency(event.maxBet)})</label>
-                <div class="quick-stake-pills flex gap-xs mb-xs" style="flex-wrap: wrap; margin-bottom: 8px;">
-                  ${[20, 50, 100, 200, 500].filter(amt => amt >= (event.minBet || 1) && amt <= (event.maxBet || 10000)).map(amt => `
-                    <button type="button" class="btn btn-xs btn-secondary quick-stake-btn" data-amount="${amt}" style="padding: 5px 12px; font-weight: 700; border-radius: 20px;">
-                      ${amt} kr
-                    </button>
-                  `).join('')}
-                </div>
-                <input type="number" class="form-input" id="bet-amount"
-                       min="${event.minBet}" max="${event.maxBet}" step="1"
-                       placeholder="${event.minBet}" required />
-              </div>
-              <button type="submit" class="btn btn-primary btn-block" id="bet-submit-btn">
-                ${t('event.submit')}
-              </button>
-            </form>
-          </div>
-        `}
-      ` : (!isFinished && event.status !== 'cancelled' && (event.status === 'locked' || (dl && dl.isExpired))) ? `
-        <div class="section-header">
-          <h2 class="section-title">🎯 ${t('event.placePrediction')}</h2>
-        </div>
-        <div class="card text-center" style="padding: 24px 16px; border: 1.5px solid rgba(231,76,60,0.3); background: rgba(231,76,60,0.05);">
-          <div style="font-size: 2.2rem; margin-bottom: 6px;">${dl && dl.isExpired ? '⌛' : '🔒'}</div>
-          <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 4px; color: ${dl && dl.isExpired ? '#e74c3c' : 'var(--gold)'};">
-            ${dl && dl.isExpired ? 'Spelstopp har passerat' : 'Bettning är stängd'}
-          </h3>
-          <p class="text-muted" style="font-size: 0.82rem; margin-bottom: 0;">Det går inte längre att lägga nya bets på detta spel.</p>
+        </details>
+      ` : ''}
+
+      ${canBet ? `
+        <!-- Bet slip: slides up when an option is picked -->
+        <div class="betslip" id="betslip" hidden>
+          <button type="button" class="betslip-close" id="betslip-close" aria-label="Stäng">✕</button>
+          <div class="betslip-row"><span>Ditt tips</span><b id="betslip-pick">–</b></div>
+          ${event.minBet === event.maxBet ? `
+            <div class="betslip-row"><span>Insats</span><b>${formatCurrency(event.minBet)}</b></div>
+            <input type="hidden" id="bet-amount" value="${event.minBet}" />
+          ` : `
+            <div class="betslip-stakes">
+              ${stakeOptions.map(amt => `<button type="button" class="betslip-stake${amt === event.minBet ? ' active' : ''}" data-amount="${amt}">${amt} kr</button>`).join('')}
+            </div>
+            <input type="number" class="form-input betslip-amount" id="bet-amount" inputmode="numeric" min="${event.minBet}" max="${event.maxBet}" step="1" value="${event.minBet}" aria-label="Insats i kr" />
+          `}
+          <div class="betslip-row"><span>Möjlig vinst just nu</span><b id="betslip-win" class="text-gold">–</b></div>
+          <button type="button" class="btn btn-primary btn-block betslip-submit" id="bet-submit-btn">Lägg bet</button>
         </div>
       ` : ''}
 
@@ -645,75 +550,101 @@ function renderEventContent(event, content, code) {
     openEventShareModal(code, event.name);
   });
 
-  if (isOpen) {
-    if (isLoggedIn()) {
-      const user = getStoredUser();
-      const nameInput = document.getElementById('bet-name');
-      if (nameInput && user) nameInput.value = user.nickname;
-    }
+  document.getElementById('game-back-btn')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code: event.tournamentCode || event.tournamentId } }));
+  });
 
-    document.querySelectorAll('.yesno-choice-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.yesno-choice-btn').forEach(b => {
-          b.style.boxShadow = 'none';
-          b.style.transform = 'scale(1)';
+  if (canBet) {
+    const optionsEl = document.getElementById('odds-board-container');
+    const slip = document.getElementById('betslip');
+    // The page content is animated with a transform, which would pin a fixed element to
+    // the page instead of the screen, so the slip lives directly in <body>
+    document.body.appendChild(slip);
+    const amountInput = document.getElementById('bet-amount');
+    const submitBtn = document.getElementById('bet-submit-btn');
+    let selectedId = null;
+    let liveEvent = event;
+
+    const currentAmount = () => Math.round(Number(amountInput?.value) || 0);
+
+    // Estimated payout if the pool stays as it is: my share of the pool after my bet
+    const updateSlip = () => {
+      const option = liveEvent.players.find(p => p.id === selectedId);
+      const amount = currentAmount();
+      document.getElementById('betslip-pick').textContent = option ? option.name : '–';
+      const optionPool = liveEvent.odds?.[selectedId]?.totalBet || 0;
+      const pool = (liveEvent.totalPool || 0) + amount;
+      const win = amount > 0 ? Math.round((amount / (optionPool + amount)) * pool * (liveEvent.payoutPercent / 100)) : 0;
+      document.getElementById('betslip-win').textContent = amount > 0 ? `~${formatCurrency(win)}` : '–';
+      submitBtn.textContent = amount > 0 ? `Lägg bet · ${formatCurrency(amount)}` : 'Lägg bet';
+    };
+
+    const openSlip = () => {
+      slip.hidden = false;
+      document.body.classList.add('betslip-open');
+      updateSlip();
+    };
+    const closeSlip = () => {
+      selectedId = null;
+      slip.hidden = true;
+      document.body.classList.remove('betslip-open');
+      optionsEl.querySelectorAll('.game-opt').forEach(b => b.classList.remove('selected'));
+    };
+
+    const bindOptions = () => {
+      optionsEl.querySelectorAll('.game-opt').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedId = btn.dataset.playerId;
+          optionsEl.querySelectorAll('.game-opt').forEach(b => b.classList.toggle('selected', b === btn));
+          openSlip();
         });
-        btn.style.boxShadow = '0 0 15px currentColor';
-        btn.style.transform = 'scale(1.03)';
-        const select = document.getElementById('bet-player');
-        if (select) select.value = btn.dataset.playerId;
+      });
+    };
+    bindOptions();
+
+    // Live odds: redraw the cards but keep the pick and the open slip
+    refreshGameOptions = (updated) => {
+      liveEvent = { ...liveEvent, ...updated };
+      optionsEl.innerHTML = renderGameOptions(liveEvent, { interactive: true, selectedId, winnerIds, isYesNo });
+      bindOptions();
+      if (selectedId) updateSlip();
+    };
+
+    document.getElementById('betslip-close')?.addEventListener('click', closeSlip);
+
+    slip.querySelectorAll('.betslip-stake').forEach(chip => {
+      chip.addEventListener('click', () => {
+        amountInput.value = chip.dataset.amount;
+        slip.querySelectorAll('.betslip-stake').forEach(c => c.classList.toggle('active', c === chip));
+        updateSlip();
       });
     });
-
-    document.querySelectorAll('.player-quick-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.player-quick-btn').forEach(b => {
-          b.style.borderColor = 'var(--border-light)';
-          b.style.boxShadow = 'none';
-        });
-        btn.style.borderColor = 'var(--gold)';
-        btn.style.boxShadow = '0 0 10px var(--gold-glow)';
-        const select = document.getElementById('bet-player');
-        if (select) select.value = btn.dataset.playerId;
-      });
+    amountInput?.addEventListener('input', () => {
+      slip.querySelectorAll('.betslip-stake').forEach(c => c.classList.toggle('active', Number(c.dataset.amount) === currentAmount()));
+      updateSlip();
     });
 
-    const form = document.getElementById('bet-form');
-    form?.querySelectorAll('.quick-stake-btn').forEach(qBtn => {
-      qBtn.addEventListener('click', () => {
-        const amt = qBtn.getAttribute('data-amount');
-        const input = document.getElementById('bet-amount');
-        if (input) {
-          input.value = amt;
-          input.dispatchEvent(new Event('input'));
-        }
-        form.querySelectorAll('.quick-stake-btn').forEach(b => {
-          b.classList.remove('btn-primary');
-          b.classList.add('btn-secondary');
-        });
-        qBtn.classList.remove('btn-secondary');
-        qBtn.classList.add('btn-primary');
-      });
-    });
-
-    form?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn = document.getElementById('bet-submit-btn');
-      btn.disabled = true;
-      btn.textContent = '...';
-
+    submitBtn.addEventListener('click', async () => {
+      const amount = currentAmount();
+      if (!selectedId) return;
+      if (amount < event.minBet || amount > event.maxBet) {
+        showToast(`Insatsen ska vara ${formatCurrency(event.minBet)}–${formatCurrency(event.maxBet)}`, 'error');
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Lägger bet...';
       try {
-        await placeBet(code, {
-          playerId: document.getElementById('bet-player').value,
-          amount: Number(document.getElementById('bet-amount').value)
-        });
-        showToast('🎯 ' + t('event.submit').replace('🎯', '').trim() + '!', 'success');
+        await placeBet(code, { playerId: selectedId, amount });
+        showToast('🎯 Ditt bet är lagt!', 'success');
+        document.body.classList.remove('betslip-open');
         const updated = await getEvent(code);
+        updated.tournamentName = event.tournamentName;
+        updated.tournamentCode = event.tournamentCode;
         renderEventContent(updated, content, code);
       } catch (err) {
         showToast(err.message, 'error');
-        btn.disabled = false;
-        btn.textContent = t('event.submit');
+        submitBtn.disabled = false;
+        updateSlip();
       }
     });
   }
@@ -817,23 +748,10 @@ function renderEventContent(event, content, code) {
         return;
       }
       const textEl = document.getElementById('countdown-text-el');
-      if (textEl) textEl.textContent = curDl.text;
+      if (textEl) textEl.textContent = curDl.shortText;
     }, 1000);
   }
 
-  // Initialize sponsor carousel auto-roll if banners present
-  if (event.banners && event.banners.length > 0) {
-    if (eventSponsorCarouselCleanup) {
-      eventSponsorCarouselCleanup();
-      eventSponsorCarouselCleanup = null;
-    }
-    requestAnimationFrame(() => {
-      const carouselEl = document.getElementById('event-sponsor-carousel');
-      if (carouselEl) {
-        eventSponsorCarouselCleanup = initSponsorCarousel(carouselEl, event.banners);
-      }
-    });
-  }
 }
 
 function openCalendarModal(event) {
@@ -1032,12 +950,10 @@ export function cleanupEvent() {
     wsUnsubscribe();
     wsUnsubscribe = null;
   }
-  if (eventSponsorCarouselCleanup) {
-    eventSponsorCarouselCleanup();
-    eventSponsorCarouselCleanup = null;
-  }
   if (countdownInterval) {
     clearInterval(countdownInterval);
     countdownInterval = null;
   }
+  refreshGameOptions = null;
+  removeBetslip();
 }
