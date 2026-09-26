@@ -71,10 +71,26 @@ export function navigate(page, params = {}, { replace = false } = {}) {
 
   // Update URL
   const url = pageUrl(page, params);
-  if (replace) window.history.replaceState({ depth: historyDepth() }, '', url);
-  else window.history.pushState({ depth: historyDepth() + 1 }, '', url);
+  if (replace) {
+    window.history.replaceState({ depth: historyDepth() }, '', url);
+    guardSubPage();
+  } else {
+    window.history.pushState({ depth: historyDepth() + 1 }, '', url);
+  }
 
   renderApp();
+}
+
+const SUB_PAGES = new Set(['event', 'tournament']);
+
+// A sub page opened with nothing of the app underneath (a shared link, a notification):
+// the phone's back would leave the app before any code runs. Put a guard entry below it,
+// so back lands here and shows the parent instead (or first closes an open bet slip)
+function guardSubPage() {
+  if (!SUB_PAGES.has(currentPage) || historyDepth() > 0) return;
+  const url = pageUrl(currentPage, currentParams);
+  window.history.replaceState({ depth: 0, guard: true }, '', url);
+  window.history.pushState({ depth: 1 }, '', url);
 }
 
 function pageUrl(page, params = {}) {
@@ -318,6 +334,12 @@ function init() {
       window.history.pushState({ depth: historyDepth() + 1 }, '', pageUrl(currentPage, currentParams));
       return;
     }
+    // Back onto the guard below a directly opened page: go to its parent, stay in the app
+    if (window.history.state?.guard) {
+      const parent = getBackParent() || { page: 'home', params: {} };
+      navigate(parent.page, parent.params, { replace: true });
+      return;
+    }
     cleanupActivePage();
     const url = new URL(window.location);
     currentPage = url.searchParams.get('page') || 'home';
@@ -456,6 +478,7 @@ function init() {
 
   initAds();
   initMaltaSupportWidget();
+  guardSubPage();
   renderApp();
 
   // Handle friend invite link ?addFriend=nickname&ft=token

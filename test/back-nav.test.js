@@ -54,3 +54,10 @@ test('header buttons are bound once even when the header is drawn twice in a row
   const bell = read('src/components/notifications.js');
   assert.match(bell, /if \(bell\.dataset\.bound\) return;\s*bell\.dataset\.bound = '1';\s*bell\.addEventListener\('click'/);
 });
+
+test('a page opened directly gets a guard entry, so the phone\'s back stays in the app', () => {
+  const main = read('src/main.js');
+  assert.match(main, /function guardSubPage\(\) \{\s*if \(!SUB_PAGES\.has\(currentPage\) \|\| historyDepth\(\) > 0\) return;[\s\S]*?replaceState\(\{ depth: 0, guard: true \}, '', url\);\s*window\.history\.pushState\(\{ depth: 1 \}, '', url\);/);
+  assert.match(main, /if \(window\.history\.state\?\.guard\) \{\s*const parent = getBackParent\(\) \|\| \{ page: 'home', params: \{\} \};\s*navigate\(parent\.page, parent\.params, \{ replace: true \}\);/);
+  assert.match(main, /guardSubPage\(\);\s*renderApp\(\);/);
+});
