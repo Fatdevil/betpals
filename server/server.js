@@ -3379,11 +3379,14 @@ app.post('/api/tournaments/:id/settle', (req, res) => {
   // Push notification for settled tournament
   const participantIds = db.getTournamentParticipantUserIds(tournament.id)
     .filter(uid => !user || uid !== user.id);
-  // Now is the time to settle up: tell each person exactly what they swish or get
-  for (const pid of participantIds) {
+  // Now is the time to settle up: tell each person in the event exactly what they swish or
+  // get. Friends who could only see the event get the plain message.
+  const memberIds = new Set(db.getTournamentMemberIds(tournament.id));
+  const pushIds = [...new Set([...participantIds, ...memberIds])].filter(uid => !user || uid !== user.id);
+  for (const pid of pushIds) {
     let body = 'Slutresultatet är fastställt! Se prispallen och nettavräkningen i Malta Betting.';
     let url = `/#tournament/${tournament.shareCode}`;
-    try {
+    if (memberIds.has(pid)) try {
       const o = db.getUnifiedSettlementOverview(pid);
       const payTo = (o.friends || []).filter(f => !f.isLive && f.totalNet < 0);
       if (o.readyOwed > 0) {
