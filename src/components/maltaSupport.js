@@ -271,11 +271,13 @@ export function initMaltaSupportWidget() {
   if (document.getElementById('malta-support-fab')) return;
 
   const isHiddenExplicitly = localStorage.getItem('malta_fab_disabled') === 'true';
-  const isMinimized = localStorage.getItem('malta_fab_minimized') === 'true';
+  // A small round button; the name slides out only the very first time
+  let showIntro = false;
+  try { showIntro = localStorage.getItem('malta_fab_intro_seen') !== 'true'; } catch (e) {}
 
   const fab = document.createElement('div');
   fab.id = 'malta-support-fab';
-  fab.className = `malta-fab-btn ${isMinimized ? 'minimized' : ''} ${isHiddenExplicitly ? 'hidden-manual' : ''}`;
+  fab.className = `malta-fab-btn ${showIntro ? 'intro' : ''} ${isHiddenExplicitly ? 'hidden-manual' : ''}`;
   fab.setAttribute('role', 'button');
   fab.setAttribute('aria-label', 'Malta AI Kundtjänst (Dra för att flytta)');
   fab.title = 'Malta AI Kundtjänst 🇲🇹 (Dra för att flytta runt)';
@@ -284,14 +286,18 @@ export function initMaltaSupportWidget() {
     <div class="malta-fab-content" id="malta-fab-main-content">
       <img src="/chip-malta-transparent.png" class="malta-fab-icon" alt="Malta Support" draggable="false" />
       <span class="malta-fab-label">Malta Support</span>
-      <span class="malta-fab-dot"></span>
     </div>
-    <button type="button" class="malta-fab-toggle-btn" id="malta-fab-toggle-btn" title="Minimera/Expandera" aria-label="Minimera ikon">
-      <span class="malta-min-arrow">‹</span>
-    </button>
+    <span class="malta-fab-dot" aria-hidden="true"></span>
   `;
 
   document.body.appendChild(fab);
+
+  if (showIntro) {
+    setTimeout(() => {
+      fab.classList.remove('intro');
+      try { localStorage.setItem('malta_fab_intro_seen', 'true'); } catch (e) {}
+    }, 4500);
+  }
 
   // Restore saved position
   restoreFabPosition(fab);
@@ -307,8 +313,8 @@ function restoreFabPosition(fab) {
   try {
     const saved = JSON.parse(localStorage.getItem('malta_widget_pos') || 'null');
     if (saved && typeof saved.topRatio === 'number') {
-      const fabWidth = fab.offsetWidth || 135;
-      const fabHeight = fab.offsetHeight || 42;
+      const fabWidth = 46;
+      const fabHeight = 46;
       const targetTop = Math.max(50, Math.min(window.innerHeight * saved.topRatio, window.innerHeight - fabHeight - 65));
       const targetLeft = saved.side === 'left' ? 10 : (window.innerWidth - fabWidth - 10);
       fab.style.top = `${targetTop}px`;
@@ -406,7 +412,6 @@ function setupFabDrag(fab) {
 
   // Touch handlers
   fab.addEventListener('touchstart', (e) => {
-    if (e.target.closest('#malta-fab-toggle-btn')) return;
     const touch = e.touches[0];
     onStart(touch.clientX, touch.clientY);
   }, { passive: true });
@@ -423,7 +428,6 @@ function setupFabDrag(fab) {
 
   // Mouse handlers
   fab.addEventListener('mousedown', (e) => {
-    if (e.target.closest('#malta-fab-toggle-btn')) return;
     onStart(e.clientX, e.clientY);
     e.preventDefault();
   });
@@ -437,21 +441,6 @@ function setupFabDrag(fab) {
     if (isDragging) onEnd();
   });
 
-  // Toggle button (minimize to compact side chip)
-  const toggleBtn = fab.querySelector('#malta-fab-toggle-btn');
-  toggleBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isMin = fab.classList.toggle('minimized');
-    localStorage.setItem('malta_fab_minimized', isMin ? 'true' : 'false');
-
-    // adjust snap after minimizing/expanding
-    setTimeout(() => {
-      const rect = fab.getBoundingClientRect();
-      const fabWidth = fab.offsetWidth;
-      const isLeft = (rect.left + fabWidth / 2) < (window.innerWidth / 2);
-      fab.style.left = isLeft ? '10px' : `${window.innerWidth - fabWidth - 10}px`;
-    }, 50);
-  });
 }
 
 /**
