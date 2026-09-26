@@ -3505,6 +3505,9 @@ app.delete('/api/tournaments/:id', (req, res) => {
   if (!isCreator && !hasPin()) {
     return res.status(403).json({ error: 'Ingen behörighet att radera turneringen' });
   }
+  if (db.tournamentHasMoney(tournament.id)) {
+    return res.status(400).json({ error: 'Eventet har spel med insatser – det kan inte raderas, då försvinner vinster och skulder från THE TAB. Avbryt spelen som inte är avgjorda, eller låt eventet ligga kvar.' });
+  }
 
   db.deleteTournament(tournament.id);
   res.json({ ok: true });

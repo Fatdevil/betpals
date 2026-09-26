@@ -82,3 +82,21 @@ test('the event page folds decided games away and offers the right action per ga
   assert.match(page, /\$\{isCreator && g\.status !== 'finished' \? `<button type="button" class="game-card-menu"/);
   assert.match(page, /btn\.dataset\.hasBets \? \['cancel', '🛑 Avbryt spelet – insatserna går tillbaka'\] : \['remove', '🗑️ Ta bort spelet'\]/);
 });
+
+test('a whole event with money in it cannot be deleted; an empty one can', async () => {
+  const { host, ev, p2 } = await gameInEvent({ withBets: true });
+  db.finishEvent(ev, p2);
+  const tId = db.getEventById(ev).tournament_id;
+  assert.equal((await call('DELETE', `/api/tournaments/${tId}`, {}, host.token)).status, 400);
+  assert.ok(db.getTournamentById(tId));
+
+  const empty = await gameInEvent({ withBets: false });
+  const emptyT = db.getEventById(empty.ev).tournament_id;
+  assert.equal((await call('DELETE', `/api/tournaments/${emptyT}`, {}, empty.host.token)).status, 200);
+});
+
+test('admin offers cancel (not delete) for a match with bets', () => {
+  const admin = readFileSync(new URL('../src/pages/admin.js', import.meta.url), 'utf8');
+  assert.match(admin, /admin-cancel-btn/);
+  assert.match(admin, /await api\.cancelEvent\(btn\.dataset\.id, getPin\(\)\);/);
+});
