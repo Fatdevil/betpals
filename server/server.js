@@ -1207,6 +1207,11 @@ app.post('/api/admin/duels/:id/unsettle', (req, res) => {
   }
 });
 
+app.post('/api/admin/tournaments', (req, res) => {
+  if (!requireAdminPin(req, res)) return;
+  res.json(db.getAllTournamentsForAdmin());
+});
+
 app.get('/api/admin/push-stats', (req, res) => {
   if (!requireAdminPin(req, res)) return;
   const allSubs = db.getAllPushSubscriptions();
@@ -2917,7 +2922,9 @@ app.post('/api/tournaments', (req, res) => {
   db.createTournament(id, finalName, shareCode, user ? user.id : null, visibility, cleanPlayers);
 
   // Invite friends directly (VIP access & push notification)
-  const invitedFriendIds = Array.isArray(body.invitedFriendIds) ? body.invitedFriendIds : [];
+  // Only people who are your friends can be pulled in (and pushed); superadmin is exempt
+  const invitedFriendIds = (Array.isArray(body.invitedFriendIds) ? body.invitedFriendIds : [])
+    .filter(fId => user ? db.isFriend(user.id, fId) : hasPin());
   if (invitedFriendIds.length > 0) {
     const creatorName = user ? (user.nickname || user.real_name || 'En vän') : 'Arrangören';
     for (const fId of invitedFriendIds) {
@@ -2952,9 +2959,16 @@ app.post('/api/tournaments/:id/invite', (req, res) => {
     return res.status(403).json({ error: 'Endast arrangören kan bjuda in vänner' });
   }
 
-  const friendIds = Array.isArray(req.body.friendIds) ? req.body.friendIds : [];
-  if (friendIds.length === 0) {
+  const requestedIds = Array.isArray(req.body.friendIds) ? req.body.friendIds : [];
+  if (requestedIds.length === 0) {
     return res.status(400).json({ error: 'Inga vänner valdes' });
+  }
+  // Only the organiser's friends can be added and notified (superadmin may add anyone)
+  const friendIds = isCreator && user
+    ? requestedIds.filter(fId => db.isFriend(user.id, fId))
+    : requestedIds;
+  if (friendIds.length === 0) {
+    return res.status(403).json({ error: 'Du kan bara bjuda in dina vänner' });
   }
 
   const creatorName = user ? (user.nickname || user.real_name || 'Arrangören') : 'Arrangören';

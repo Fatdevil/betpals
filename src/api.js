@@ -213,6 +213,7 @@ export const adminGetUsers = (pin) => request('/admin/users', { method: 'POST', 
 export const adminResetUserPin = (userId, pin) => request(`/admin/users/${userId}/reset-pin`, { method: 'POST', body: { pin } });
 export const adminDeleteUser = (userId, pin) => request(`/admin/users/${userId}`, { method: 'DELETE', body: { pin } });
 export const adminGetDebts = (pin) => request('/admin/debts', { method: 'POST', body: { pin } });
+export const adminGetAllTournaments = (pin) => request('/admin/tournaments', { method: 'POST', body: { pin } });
 export const adminDeleteDuel = (id, pin) => request(`/admin/duels/${id}`, { method: 'DELETE', body: { pin } });
 export const adminUnsettleDuel = (id, pin) => request(`/admin/duels/${id}/unsettle`, { method: 'POST', body: { pin } });
 export const adminVerifyBackup = (pin) => request('/admin/backup/verify', { method: 'POST', body: { pin } });
@@ -326,7 +327,13 @@ export const getLeaderboard = () => request('/leaderboard');
 
 // ── Tournaments ──────────────────────────────────────
 export const getTournaments = () => request('/tournaments');
-export const getTournament = (code) => request('/tournaments/' + code);
+// Superadmin may open any event (also friends-only ones they are not part of)
+export const getTournament = (code) => {
+  const pin = sessionStorage.getItem('betpals_pin');
+  return request('/tournaments/' + encodeURIComponent(code), pin
+    ? { headers: { 'Content-Type': 'application/json', 'x-user-token': localStorage.getItem('betpals_token') || '', 'x-admin-pin': pin } }
+    : {});
+};
 export const getTournamentTemplates = () => request('/tournament-templates');
 export const createTournament = (data) =>
   request('/tournaments', { method: 'POST', body: data });
@@ -419,7 +426,7 @@ export const settleAnyBet = (id, data) => request('/anybets/' + id + '/settle', 
 export const getVapidPublicKey = () => request('/push/vapid-public-key');
 export const subscribePush = (data) => request('/push/subscribe', { method: 'POST', body: data });
 export const unsubscribePush = (data) => request('/push/unsubscribe', { method: 'POST', body: data });
-export const getAdminPushStats = () => request('/admin/push-stats');
+export const getAdminPushStats = (pin) => request('/admin/push-stats', { headers: { 'x-admin-pin': pin || '' } });
 export const sendAdminBroadcastPush = (data) => request('/admin/broadcast-push', { method: 'POST', body: data });
 
 // ── BlixtBet (FlashBet) ──────────────────────────────

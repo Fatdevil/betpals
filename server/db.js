@@ -1863,12 +1863,13 @@ export function canUserAccessTournament(tournament, userId = null) {
     return true;
   }
   // Already a participant
+  // Identity by userId; an unlinked (guest) row only matches the unique nickname,
+  // never a real name, which strangers can share
   const isPart = db.prepare(`
     SELECT 1 FROM tournament_participants tp
     JOIN users u ON (
-      tp.user_id = u.id 
-      OR LOWER(tp.name) = LOWER(u.real_name)
-      OR LOWER(tp.name) = LOWER(u.nickname)
+      tp.user_id = u.id
+      OR (tp.user_id IS NULL AND LOWER(tp.name) = LOWER(u.nickname))
     )
     WHERE tp.tournament_id = ? AND u.id = ?
     LIMIT 1
@@ -1929,8 +1930,7 @@ export function getAllTournaments(userId = null) {
          SELECT tp.tournament_id FROM tournament_participants tp
          JOIN users u ON (
            tp.user_id = u.id
-           OR LOWER(tp.name) = LOWER(u.real_name)
-           OR LOWER(tp.name) = LOWER(u.nickname)
+           OR (tp.user_id IS NULL AND LOWER(tp.name) = LOWER(u.nickname))
          )
          WHERE u.id = ?
        )
@@ -1938,15 +1938,6 @@ export function getAllTournaments(userId = null) {
          SELECT e.tournament_id FROM events e
          JOIN bets b ON b.event_id = e.id
          WHERE b.user_id = ?
-       )
-       OR t.id IN (
-         SELECT e.tournament_id FROM events e
-         JOIN players p ON p.event_id = e.id
-         JOIN users u ON (
-           LOWER(p.name) = LOWER(u.real_name)
-           OR LOWER(p.name) = LOWER(u.nickname)
-         )
-         WHERE u.id = ?
        )
        OR (
          COALESCE(t.visibility, 'friends') IN ('friends', 'friends_of_friends') AND (
@@ -1963,10 +1954,23 @@ export function getAllTournaments(userId = null) {
          )
        )
     ORDER BY t.created_at DESC
-  `).all(userId, userId, userId, userId, userId, userId);
+  `).all(userId, userId, userId, userId, userId);
 
+  return summarizeTournaments(tournaments, userId);
+}
+
+// Superadmin: every event, whoever created it
+export function getAllTournamentsForAdmin() {
+  const tournaments = db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC').all();
+  return summarizeTournaments(tournaments, null).map(t => {
+    const creator = t.creatorId ? stmts.getUserById.get(t.creatorId) : null;
+    return { ...t, creatorName: creator ? creator.nickname : null };
+  });
+}
+
+function summarizeTournaments(tournaments, userId) {
   const myBetEventIds = new Set(
-    db.prepare('SELECT DISTINCT event_id FROM bets WHERE user_id = ?').all(userId).map(r => r.event_id)
+    userId ? db.prepare('SELECT DISTINCT event_id FROM bets WHERE user_id = ?').all(userId).map(r => r.event_id) : []
   );
   const now = Date.now();
 

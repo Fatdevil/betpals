@@ -147,7 +147,15 @@ test('VIP Friend Invitations: push & feed inclusion without QR code', async () =
   assert.equal(resStrangerBlocked.status, 403, 'Stranger without friend connection is blocked');
   assert.equal(resStrangerBlocked.body.error, 'ACCESS_RESTRICTED');
 
-  // Host VIP-invites stranger specifically via invite endpoint
+  // A stranger cannot be pulled in (or pushed) by id: invites are for friends only
+  const resInviteStrangerDenied = await invoke('POST', `/api/tournaments/${friendsTournament.id}/invite`, {
+    headers: { Authorization: `Bearer ${host.token}` },
+    body: { friendIds: [stranger.id] }
+  });
+  assert.equal(resInviteStrangerDenied.status, 403, 'Only friends can be invited');
+
+  // Once they are friends, the VIP invite works
+  db.addFriend(host.id, stranger.id);
   const resInviteStranger = await invoke('POST', `/api/tournaments/${friendsTournament.id}/invite`, {
     headers: { Authorization: `Bearer ${host.token}` },
     body: {

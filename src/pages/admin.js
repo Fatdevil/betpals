@@ -1,6 +1,6 @@
 // ── Page: Admin Panel ─────────────────────────────────
 import * as api from '../api.js';
-import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, formatDeadline } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, formatDeadline, safeImageSrc } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { navigate } from '../main.js';
 import { isLoggedIn, getStoredUser } from '../auth.js';
@@ -43,10 +43,8 @@ function renderAdminChoice(content) {
   content.innerHTML = `
     <div class="animate-in">
       <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px;">
-        <div class="admin-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
-          <img src="/admin-chip.png" alt="ADMIN" class="admin-logo-img" style="width: 100%; max-width: 150px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
-        </div>
-        <p class="page-subtitle" style="margin-top: 2px;">${t('admin.subtitleUser')}</p>
+        <h1 class="tabx-title" style="text-align: left;">ADMIN</h1>
+        <p class="page-subtitle" style="margin-top: 2px; text-align: left;">${t('admin.subtitleUser')}</p>
       </div>
 
       <div class="card text-center" style="padding: var(--space-xl);">
@@ -104,37 +102,34 @@ function renderAdminChoice(content) {
 
 async function renderAdminDashboard(content, loggedIn, hasPinSession) {
   const user = getStoredUser();
+  const isEn = getLang() === 'en';
 
   content.innerHTML = `
-    <div class="animate-in">
-      <div class="page-header text-center" style="margin-bottom: var(--space-md); padding-top: 4px; position: relative;">
-        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: -18px;">
-          ${loggedIn ? `<span class="badge badge-success" style="font-size: 0.7rem; z-index: 2;">👤 ${escapeHtml(user?.nickname || '')}</span>` : ''}
-          ${hasPinSession ? `<span class="badge badge-info" style="font-size: 0.7rem; z-index: 2;">🔐 Superadmin</span>` : ''}
-          ${hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-logout-btn" style="font-size: 0.75rem; padding: 4px 10px; z-index: 2;">${t('admin.logoutPin')}</button>` : ''}
-          ${!hasPinSession ? `<button class="btn btn-sm btn-secondary" id="admin-unlock-super-btn" style="font-size: 0.75rem; padding: 4px 10px; z-index: 2; border: 1px solid rgba(245,158,11,0.5); color: var(--gold); background: rgba(245,158,11,0.08); font-weight: 600;">🔐 ${t('admin.unlockSuperadmin') || 'Lås upp Superadmin'}</button>` : ''}
-        </div>
-        <div class="admin-logo-wrap" style="max-width: 170px; margin: 0 auto 6px;">
-          <img src="/admin-chip.png" alt="ADMIN" class="admin-logo-img" style="width: 100%; max-width: 140px; height: auto; object-fit: contain; filter: drop-shadow(0 8px 24px rgba(245,158,11,0.28));" />
-        </div>
-        <p class="page-subtitle" style="margin-top: 2px;">${loggedIn && !hasPinSession ? t('admin.subtitleUser') : t('admin.subtitleSuper')}</p>
+    <div class="animate-in adm">
+      <div class="tabx-top">
+        <h1 class="tabx-title">ADMIN</h1>
+        ${hasPinSession
+          ? `<button class="adm-chip is-super" id="admin-logout-btn" title="${t('admin.logoutPin')}">🔐 Superadmin · ${isEn ? 'Lock' : 'Lås'}</button>`
+          : `<button class="adm-chip" id="admin-unlock-super-btn">🔐 Superadmin</button>`}
       </div>
+      <p class="adm-sub">${loggedIn
+        ? (isEn ? 'Create events and manage your games.' : 'Skapa event och hantera dina spel. Spelen sköter du inne i varje event.')
+        : (isEn ? 'Log in to create your own events.' : 'Logga in för att skapa egna event.')}</p>
 
-      <div class="mb-lg">
-        <button class="btn btn-primary btn-block" id="create-tournament-btn" style="padding: 13px; font-size: 1.05rem; font-weight: 700; box-shadow: 0 4px 15px rgba(245, 166, 35, 0.25);">
-          🏆 ${t('admin.createNewEvent') || 'Skapa Nytt Event'}
-        </button>
-      </div>
+      ${loggedIn
+        ? `<button class="btn btn-primary btn-block" id="create-tournament-btn" style="padding: 13px; font-size: 1.05rem; font-weight: 700;">🏆 ${t('admin.createNewEvent') || 'Skapa nytt event'}</button>`
+        : `<button class="btn btn-secondary btn-block" id="go-login-btn">${t('admin.goToAccount')}</button>`}
 
       <div id="admin-tournaments-list"></div>
+      <div id="admin-events-list"></div>
 
-      <div id="admin-events-list">
-        <div class="text-center text-muted">${t('common.loading')}</div>
-      </div>
-
-      ${hasPinSession ? '<div id="admin-users-list"></div>' : ''}
-      ${hasPinSession ? '<div id="admin-debts-list"></div>' : ''}
-      ${hasPinSession ? '<div id="admin-broadcast-push-container" class="mt-lg"></div>' : ''}
+      ${hasPinSession ? `
+        <div class="adm-super-head">🔐 SUPERADMIN</div>
+        <details class="adm-panel" id="adm-all-events"><summary>🏆 ${isEn ? 'All events' : 'Alla event'} <span class="adm-count" id="adm-all-events-count"></span></summary><div id="admin-all-tournaments"></div></details>
+        <details class="adm-panel"><summary>👥 ${isEn ? 'Users' : 'Användare'} <span class="adm-count" id="adm-users-count"></span></summary><div id="admin-users-list"></div></details>
+        <details class="adm-panel"><summary>⚖️ ${isEn ? 'Debts & disputes' : 'Skulder & tvister'} <span class="adm-count" id="adm-debts-count"></span></summary><div id="admin-debts-list"></div></details>
+        <details class="adm-panel"><summary>📢 ${isEn ? 'Push to everyone' : 'Pushnotis till alla'}</summary><div id="admin-broadcast-push-container"></div></details>
+      ` : ''}
     </div>
   `;
 
@@ -151,26 +146,66 @@ async function renderAdminDashboard(content, loggedIn, hasPinSession) {
     });
   }
 
-  document.getElementById('create-tournament-btn')?.addEventListener('click', () => {
-    if (!loggedIn && !hasPinSession) {
-      showToast(t('admin.toastAuthReq'), 'error');
-      return;
-    }
-    showCreateTournamentModal();
-  });
+  document.getElementById('go-login-btn')?.addEventListener('click', () => navigate('profile'));
+  document.getElementById('create-tournament-btn')?.addEventListener('click', () => showCreateTournamentModal());
 
   await loadAdminTournaments(loggedIn, hasPinSession, user);
   await loadAdminEvents(loggedIn, hasPinSession, user);
   if (hasPinSession) {
+    await loadAllTournamentsForSuperadmin(getPin());
     await loadAdminUsers(getPin());
     await loadAdminDebts(getPin());
     await loadAdminBroadcastPushSection();
   }
 }
 
+// One card per event: what it is, how it is going, and a tap into the event where
+// its games are managed
+function renderTournamentCard(tr, { showCreator = false } = {}) {
+  const isEn = getLang() === 'en';
+  const active = tr.status === 'active';
+  const bits = [
+    `${tr.roundCount || 0} ${isEn ? 'games' : 'spel'}`,
+    tr.undecidedCount > 0 ? `${tr.undecidedCount} ${isEn ? 'undecided' : 'ej avgjorda'}` : null,
+    `👥 ${tr.participantCount || 0}`,
+    tr.totalPool > 0 ? formatCurrency(tr.totalPool) : null
+  ].filter(Boolean).join(' · ');
+  return `
+    <button type="button" class="adm-event tournament-link" data-code="${escapeHtml(tr.shareCode)}">
+      <div class="adm-event-main">
+        <b>${escapeHtml(tr.name)}</b>
+        <small>${bits}${showCreator && tr.creatorName ? ` · ${isEn ? 'by' : 'av'} @${escapeHtml(tr.creatorName)}` : ''}</small>
+      </div>
+      <span class="prof-pill ${active ? 'on' : ''}">${active ? (isEn ? 'Live' : 'Pågår') : (isEn ? 'Settled' : 'Avslutat')}</span>
+      <span class="prof-chev">›</span>
+    </button>`;
+}
+
+function bindTournamentLinks(root) {
+  root.querySelectorAll('.tournament-link').forEach(el => {
+    el.addEventListener('click', () => navigate('tournament', { code: el.dataset.code }));
+  });
+}
+
+async function loadAllTournamentsForSuperadmin(pin) {
+  const box = document.getElementById('admin-all-tournaments');
+  if (!box) return;
+  try {
+    const all = await api.adminGetAllTournaments(pin);
+    const count = document.getElementById('adm-all-events-count');
+    if (count) count.textContent = all.length;
+    box.innerHTML = all.length === 0
+      ? `<p class="prof-hint">${t('admin.noEventsSuper')}</p>`
+      : `<div class="adm-list">${all.map(tr => renderTournamentCard(tr, { showCreator: true })).join('')}</div>`;
+    bindTournamentLinks(box);
+  } catch (err) {
+    box.innerHTML = `<p class="text-red">${escapeHtml(err.message)}</p>`;
+  }
+}
+
 async function loadAdminEvents(loggedIn, hasPinSession, user) {
   try {
-    const allEvents = await api.getAllEvents();
+    const allEvents = await api.getEvents();
     const list = document.getElementById('admin-events-list');
 
     // Filter: show own events if logged in, all events if superadmin
@@ -183,27 +218,17 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
       events = [];
     }
 
-    if (events.length === 0 && !hasPinSession) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <p class="empty-state-text">${t('admin.noEvents')}</p>
-        </div>`;
-      return;
-    } else if (events.length === 0) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <p class="empty-state-text">${t('admin.noEventsSuper')}</p>
-        </div>`;
+    // Standalone matches are from before events existed; show them only if there are any
+    if (events.length === 0) {
+      list.innerHTML = '';
       return;
     }
 
-    list.innerHTML = events.map((ev, i) => `
+    list.innerHTML = `<div class="prof-section"><span>${getLang() === 'en' ? 'STANDALONE MATCHES' : 'FRISTÅENDE MATCHER'}</span></div>` + events.map((ev, i) => `
       <div class="card animate-in" style="animation-delay: ${i * 0.05}s">
-        ${ev.imageUrl ? `
+        ${safeImageSrc(ev.imageUrl) ? `
           <div style="width: 100%; height: 90px; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--space-sm); border: 1px solid var(--border-light);">
-            <img src="${ev.imageUrl}" style="width: 100%; height: 100%; object-fit: cover;" />
+            <img src="${escapeHtml(safeImageSrc(ev.imageUrl))}" alt="" style="width: 100%; height: 100%; object-fit: cover;" />
           </div>
         ` : ''}
         <div class="flex-between mb-md">
@@ -220,7 +245,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
           <span>${ev.playerCount} ${t('admin.participants')} · ${ev.betCount} ${t('admin.betsCount')} · ${formatCurrency(ev.totalPool)}</span>
         </div>
         <div class="flex gap-sm mt-md" style="flex-wrap: wrap;">
-          <button class="btn btn-sm btn-secondary admin-view-btn" data-code="${ev.shareCode}">${t('admin.btnView')}</button>
+          <button class="btn btn-sm btn-secondary admin-view-btn" data-code="${escapeHtml(ev.shareCode)}">${t('admin.btnView')}</button>
           <button class="btn btn-sm btn-secondary admin-add-player-btn" data-id="${ev.id}" data-name="${escapeHtml(ev.name)}">${t('admin.btnPlayers')}</button>
           <button class="btn btn-sm btn-secondary admin-cover-btn" data-id="${ev.id}" title="Byt eller lägg till match-omslag">📸 Omslag</button>
           ${ev.status === 'open' ? `
@@ -288,7 +313,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
     list.querySelectorAll('.admin-delete-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         showModal(t('admin.deleteModalTitle'), `
-          <p class="mb-lg">${t('admin.deleteModalConfirm')} <strong>${btn.dataset.name}</strong>? ${t('admin.deleteModalWarning')}</p>
+          <p class="mb-lg">${t('admin.deleteModalConfirm')} <strong>${escapeHtml(btn.dataset.name)}</strong>? ${t('admin.deleteModalWarning')}</p>
           <div class="flex gap-sm">
             <button class="btn btn-danger btn-block" id="confirm-delete-btn">${t('admin.confirmDelete')}</button>
             <button class="btn btn-secondary btn-block" id="cancel-delete-btn">${t('admin.cancel')}</button>
@@ -316,405 +341,7 @@ async function loadAdminEvents(loggedIn, hasPinSession, user) {
 
   } catch (err) {
     document.getElementById('admin-events-list').innerHTML = `
-      <div class="text-red text-center">${err.message}</div>`;
-  }
-}
-
-function showCreateEventModal() {
-  showModal(t('admin.createEventTitle'), `
-    <form id="create-event-form">
-      <div class="form-group">
-        <label class="form-label">📸 Match-omslag (valfritt)</label>
-        <div class="image-picker-box" id="ce-cover-drop">
-          <div id="ce-cover-preview-wrapper" class="image-preview-wrapper" style="display:none;">
-            <img id="ce-cover-preview" alt="Förhandsvisning" />
-            <button type="button" class="image-preview-remove" id="ce-cover-remove">✕</button>
-          </div>
-          <div id="ce-cover-placeholder">
-            <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
-            <div style="font-size: 0.8rem; color: var(--text-secondary);">Klicka för att fota / välja omslagsbild</div>
-          </div>
-          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="ce-cover-input" style="display:none;" />
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">${t('admin.eventName')}</label>
-        <input type="text" class="form-input" id="ce-name" placeholder="${t('admin.eventNamePlaceholder')}" required />
-      </div>
-      <div class="form-group">
-        <label class="form-label">${t('admin.date')}</label>
-        <input type="date" class="form-input" id="ce-date" />
-      </div>
-      <div class="form-group mb-sm">
-        <label class="form-label mb-xs">⏰ Spelstopp / Tidsgräns</label>
-        <div class="flex gap-xs" style="flex-wrap: wrap; margin-bottom: 6px;" id="ce-deadline-buttons">
-          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn selected" data-min="0" style="font-size: 0.7rem; padding: 3px 8px; border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);">
-            ♾️ Ingen
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="15" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 15m
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="30" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 30m
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="60" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 1h
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="120" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 2h
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary ce-dl-btn" data-min="custom" style="font-size: 0.7rem; padding: 3px 8px;">
-            📅 Kalender
-          </button>
-        </div>
-        <div id="ce-custom-dl-container" style="display: none; margin-top: 4px;">
-          <input type="datetime-local" class="form-input" id="ce-custom-dl-input" style="font-size: 0.82rem;" />
-        </div>
-        <div id="ce-dl-preview" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
-          Ingen tidsgräns vald — spelet stängs manuellt.
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">${t('admin.minStake')}</label>
-          <input type="number" class="form-input" id="ce-min" value="10" min="1" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">${t('admin.maxStake')}</label>
-          <input type="number" class="form-input" id="ce-max" value="1000" min="1" />
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">${t('admin.payoutPercent')}</label>
-        <input type="range" id="ce-payout" min="10" max="100" value="100"
-               style="width:100%; accent-color: var(--gold);" />
-        <div class="text-center text-gold font-heading font-bold mt-sm" id="ce-payout-display">100%</div>
-      </div>
-      <div class="form-group">
-        <div class="flex-between mb-xs">
-          <label class="form-label" style="margin: 0;">${t('admin.playersEnterHint')}</label>
-          <div class="flex gap-xs">
-            <button type="button" class="btn btn-sm btn-accent" id="ce-pick-friends" style="font-size: 0.7rem; padding: 2px 8px;">
-              👥 Välj från vänner
-            </button>
-            <button type="button" class="btn btn-sm btn-secondary" id="ce-preset-yesno" style="font-size: 0.7rem; padding: 2px 8px;">
-              👍 Ja / 👎 Nej
-            </button>
-          </div>
-        </div>
-
-        <!-- Inline Friends Picker Drawer -->
-        <div id="ce-friends-drawer" style="display: none; margin-bottom: var(--space-sm); padding: var(--space-sm); background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: var(--radius-md);">
-          <div class="flex-between mb-xs" style="align-items: center;">
-            <span style="font-size: 0.8rem; font-weight: 600;">👥 Välj vänner</span>
-            <button type="button" class="btn btn-sm" id="ce-friends-close" style="padding: 1px 6px; font-size: 0.7rem;">✕</button>
-          </div>
-          <div id="ce-friends-list" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-sm);">
-            <div class="text-muted" style="font-size: 0.75rem;">Laddar vänner...</div>
-          </div>
-          <button type="button" class="btn btn-primary btn-sm btn-block" id="ce-friends-add-btn" style="font-size: 0.75rem;">
-            + Lägg till valda vänner
-          </button>
-        </div>
-
-        <div class="flex gap-xs" style="align-items: center;">
-          <input type="text" class="form-input" id="ce-player-input" placeholder="${t('admin.playerPlaceholder')}" style="flex: 1;" />
-          <button type="button" class="btn btn-secondary" id="ce-player-avatar-btn" style="padding: 0 10px; font-size: 1.1rem;" title="Bifoga bild till deltagare">📷</button>
-          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="ce-player-avatar-input" style="display:none;" />
-        </div>
-        <div id="ce-player-avatar-indicator" style="display:none; font-size: 0.75rem; color: var(--gold); margin-top: 4px;">
-          Bild vald för nästa deltagare ✅
-        </div>
-        <div class="player-tags mt-sm" id="ce-player-tags"></div>
-      </div>
-      <button type="submit" class="btn btn-primary btn-block mt-md">${t('admin.submitCreateEvent')}</button>
-    </form>
-  `);
-
-  let selectedCoverBase64 = null;
-  const coverInput = document.getElementById('ce-cover-input');
-  const coverDrop = document.getElementById('ce-cover-drop');
-  const coverPreview = document.getElementById('ce-cover-preview');
-  const coverPreviewWrapper = document.getElementById('ce-cover-preview-wrapper');
-  const coverPlaceholder = document.getElementById('ce-cover-placeholder');
-  const coverRemove = document.getElementById('ce-cover-remove');
-
-  coverDrop?.addEventListener('click', (e) => {
-    if (e.target === coverRemove) return;
-    coverInput.click();
-  });
-
-  coverInput?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      selectedCoverBase64 = await compressImage(file, 1000, 0.8);
-      coverPreview.src = selectedCoverBase64;
-      coverPreviewWrapper.style.display = 'inline-block';
-      coverPlaceholder.style.display = 'none';
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
-
-  coverRemove?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    selectedCoverBase64 = null;
-    coverInput.value = '';
-    coverPreview.src = '';
-    coverPreviewWrapper.style.display = 'none';
-    coverPlaceholder.style.display = 'block';
-  });
-
-  let pendingPlayerAvatar = null;
-  const playerAvatarBtn = document.getElementById('ce-player-avatar-btn');
-  const playerAvatarInput = document.getElementById('ce-player-avatar-input');
-  const playerAvatarIndicator = document.getElementById('ce-player-avatar-indicator');
-
-  playerAvatarBtn?.addEventListener('click', () => playerAvatarInput.click());
-  playerAvatarInput?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      pendingPlayerAvatar = await compressImage(file, 500, 0.8);
-      playerAvatarIndicator.style.display = 'block';
-      playerAvatarBtn.style.borderColor = 'var(--gold)';
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
-
-  const payoutSlider = document.getElementById('ce-payout');
-  const payoutDisplay = document.getElementById('ce-payout-display');
-  payoutSlider.addEventListener('input', () => {
-    payoutDisplay.textContent = payoutSlider.value + '%';
-  });
-
-  const players = [];
-  const playerInput = document.getElementById('ce-player-input');
-  const playerTags = document.getElementById('ce-player-tags');
-
-  function updateTags() {
-    renderPlayerTags(players, playerTags, (idx) => {
-      players.splice(idx, 1);
-      updateTags();
-    });
-  }
-
-  document.getElementById('ce-preset-yesno')?.addEventListener('click', () => {
-    players.length = 0;
-    players.push({ name: 'Ja', imageUrl: null }, { name: 'Nej', imageUrl: null });
-    updateTags();
-    document.getElementById('ce-name')?.focus();
-  });
-
-  // Friends drawer handlers
-  const friendsDrawer = document.getElementById('ce-friends-drawer');
-  const friendsList = document.getElementById('ce-friends-list');
-
-  document.getElementById('ce-pick-friends')?.addEventListener('click', async () => {
-    if (friendsDrawer.style.display === 'block') {
-      friendsDrawer.style.display = 'none';
-      return;
-    }
-    friendsDrawer.style.display = 'block';
-    friendsList.innerHTML = `<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>`;
-
-    try {
-      const friends = await api.getFriends();
-      if (!friends || friends.length === 0) {
-        friendsList.innerHTML = `
-          <div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">
-            Du har inga vänner tillagda än. Gå till din profilsida för att lägga till vänner! 👥
-          </div>
-        `;
-        return;
-      }
-
-      friendsList.innerHTML = friends.map(f => {
-        const isAlreadyAdded = players.some(p => (typeof p === 'string' ? p : p.name).toLowerCase() === f.nickname.toLowerCase());
-        return `
-          <label class="flex-between" style="padding: 6px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); align-items: center; cursor: ${isAlreadyAdded ? 'default' : 'pointer'}; opacity: ${isAlreadyAdded ? 0.5 : 1}; margin-bottom: 2px;">
-            <div class="flex gap-xs" style="align-items: center; min-width: 0;">
-              ${f.avatarUrl ? `
-                <img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover;" />
-              ` : `
-                <span style="font-size: 0.9rem;">${escapeHtml(f.avatar || '👤')}</span>
-              `}
-              <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
-              </span>
-            </div>
-            <input type="checkbox" class="ce-friend-cb" data-nickname="${escapeHtml(f.nickname)}" data-avatar="${f.avatarUrl || ''}" ${isAlreadyAdded ? 'disabled checked' : ''} />
-          </label>
-        `;
-      }).join('');
-    } catch (err) {
-      friendsList.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem; padding: 8px;">${escapeHtml(err.message)}</div>`;
-    }
-  });
-
-  document.getElementById('ce-friends-close')?.addEventListener('click', () => {
-    friendsDrawer.style.display = 'none';
-  });
-
-  document.getElementById('ce-friends-add-btn')?.addEventListener('click', () => {
-    const checked = friendsDrawer.querySelectorAll('.ce-friend-cb:checked:not([disabled])');
-    let addedCount = 0;
-    checked.forEach(cb => {
-      const nick = cb.dataset.nickname;
-      const avatar = cb.dataset.avatar || null;
-      if (!players.some(p => (typeof p === 'string' ? p : p.name).toLowerCase() === nick.toLowerCase())) {
-        players.push({ name: nick, imageUrl: avatar });
-        addedCount++;
-      }
-    });
-
-    if (addedCount > 0) {
-      updateTags();
-      showToast(`Lade till ${addedCount} vän${addedCount > 1 ? 'ner' : ''}! 👥`, 'success');
-    }
-    friendsDrawer.style.display = 'none';
-  });
-
-  function addCurrentPlayer() {
-    const name = playerInput.value.trim();
-    if (name && !players.some(p => (typeof p === 'string' ? p : p.name).toLowerCase() === name.toLowerCase())) {
-      players.push({ name, imageUrl: pendingPlayerAvatar });
-      pendingPlayerAvatar = null;
-      if (playerAvatarIndicator) playerAvatarIndicator.style.display = 'none';
-      if (playerAvatarBtn) playerAvatarBtn.style.borderColor = '';
-      if (playerAvatarInput) playerAvatarInput.value = '';
-      updateTags();
-    }
-    playerInput.value = '';
-  }
-
-  playerInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addCurrentPlayer();
-    }
-  });
-
-  // Deadline handling
-  let selectedClosesAt = null;
-  const ceDlBtns = document.querySelectorAll('.ce-dl-btn');
-  const ceCustomCont = document.getElementById('ce-custom-dl-container');
-  const ceCustomInp = document.getElementById('ce-custom-dl-input');
-  const cePreview = document.getElementById('ce-dl-preview');
-
-  ceDlBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      ceDlBtns.forEach(b => {
-        b.style.border = '1px solid var(--border-light)';
-        b.style.background = 'var(--bg-card)';
-      });
-      btn.style.border = '1.5px solid var(--gold)';
-      btn.style.background = 'rgba(245,166,35,0.12)';
-
-      const min = btn.dataset.min;
-      if (min === '0') {
-        selectedClosesAt = null;
-        if (ceCustomCont) ceCustomCont.style.display = 'none';
-        if (cePreview) cePreview.textContent = 'Ingen tidsgräns vald — spelet stängs manuellt.';
-      } else if (min === 'custom') {
-        if (ceCustomCont) ceCustomCont.style.display = 'block';
-        if (ceCustomInp) {
-          if (!ceCustomInp.value) {
-            const d = new Date(Date.now() + 60 * 60 * 1000);
-            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-            ceCustomInp.value = d.toISOString().slice(0, 16);
-          }
-          selectedClosesAt = new Date(ceCustomInp.value).toISOString();
-          if (cePreview) cePreview.textContent = `Spelstopp: ${new Date(ceCustomInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
-        }
-      } else {
-        const minNum = Number(min);
-        const target = new Date(Date.now() + minNum * 60 * 1000);
-        selectedClosesAt = target.toISOString();
-        if (ceCustomCont) ceCustomCont.style.display = 'none';
-        if (cePreview) cePreview.textContent = `Spelstopp ställs till kl ${target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (om ${minNum} min) ⏱️`;
-      }
-    });
-  });
-
-  ceCustomInp?.addEventListener('input', () => {
-    if (ceCustomInp.value) {
-      selectedClosesAt = new Date(ceCustomInp.value).toISOString();
-      if (cePreview) cePreview.textContent = `Spelstopp: ${new Date(ceCustomInp.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
-    }
-  });
-
-  document.getElementById('create-event-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    addCurrentPlayer();
-
-    const name = document.getElementById('ce-name').value.trim();
-    if (!name || name.length < 2) {
-      showToast('Ett giltigt matchnamn krävs (minst 2 tecken)', 'error');
-      return;
-    }
-
-    if (players.length < 2) {
-      showToast(t('admin.toastMinTwoPlayers') || 'Minst 2 deltagare krävs', 'error');
-      return;
-    }
-
-    const minBet = Number(document.getElementById('ce-min').value) || 10;
-    const maxBet = Number(document.getElementById('ce-max').value) || 1000;
-    if (minBet > maxBet) {
-      showToast('Lägsta insats kan inte vara högre än högsta insats', 'error');
-      return;
-    }
-
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Skapar...';
-    }
-
-    try {
-      const event = await api.createEvent({
-        pin: getPin(),
-        name,
-        date: document.getElementById('ce-date').value,
-        closesAt: selectedClosesAt,
-        minBet,
-        maxBet,
-        payoutPercent: Number(payoutSlider.value),
-        players,
-        imageUrl: selectedCoverBase64
-      });
-      closeModal();
-      showToast(`${t('admin.toastEventCreated')} ${t('admin.code')}: ${event.shareCode}`, 'success');
-      renderAdmin();
-    } catch (err) {
-      showToast(err.message, 'error');
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = t('admin.submitCreateEvent');
-      }
-    }
-  });
-}
-
-function renderPlayerTags(players, container, onRemove) {
-  container.innerHTML = players.map((p, i) => {
-    const name = typeof p === 'string' ? p : p.name;
-    const img = typeof p === 'object' ? p.imageUrl : null;
-    return `
-      <span class="player-tag" style="display: inline-flex; align-items: center; gap: 4px;">
-        ${img ? `<img src="${img}" alt="${name}" class="player-avatar-mini" style="width: 18px; height: 18px;" />` : ''}
-        <span>${name}</span>
-        <button type="button" class="player-tag-remove" data-idx="${i}">&times;</button>
-      </span>
-    `;
-  }).join('');
-  if (onRemove) {
-    container.querySelectorAll('.player-tag-remove').forEach(btn => {
-      btn.addEventListener('click', () => onRemove(Number(btn.dataset.idx)));
-    });
+      <div class="text-red text-center">${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -1163,49 +790,22 @@ function showUnlockSuperAdminModal() {
 
 // ── Tournament Admin ──────────────────────────────────
 async function loadAdminTournaments(loggedIn, hasPinSession, user) {
+  const list = document.getElementById('admin-tournaments-list');
+  if (!list) return;
+  if (!loggedIn || !user) { list.innerHTML = ''; return; }
+  const isEn = getLang() === 'en';
   try {
-    const tournaments = await api.getTournaments();
-    const list = document.getElementById('admin-tournaments-list');
-    if (!list) return;
-
-    let filtered;
-    if (hasPinSession) {
-      filtered = tournaments;
-    } else if (loggedIn && user) {
-      filtered = tournaments.filter(t => t.creatorId === user.id);
-    } else {
-      filtered = [];
-    }
-
-    if (filtered.length === 0) { list.innerHTML = ''; return; }
-
+    const mine = (await api.getTournaments()).filter(tr => tr.creatorId === user.id);
     list.innerHTML = `
-      <div class="section-header">
-        <h2 class="section-title">${t('admin.tournamentsTitle')}</h2>
-      </div>
-      ${filtered.map(tr => `
-        <div class="card card-clickable tournament-link mb-sm" data-code="${tr.shareCode}">
-          <div class="flex-between">
-            <div>
-              <h3 style="font-family: var(--font-heading); font-weight: 700;">${escapeHtml(tr.name)}</h3>
-              <p class="text-secondary" style="font-size: 0.8rem;">
-                ${tr.finishedCount}/${tr.roundCount} ${t('admin.roundsFinished')} · ${t('admin.code')}: <span class="text-gold">${escapeHtml(tr.shareCode)}</span>
-              </p>
-            </div>
-            <span class="badge ${tr.status === 'active' ? 'badge-accent' : 'badge-success'}" style="font-size: 0.7rem;">
-              ${tr.status === 'active' ? t('common.active') : '✅ ' + t('common.settled')}
-            </span>
-          </div>
-        </div>
-      `).join('')}
+      <div class="prof-section"><span>${isEn ? 'MY EVENTS' : 'MINA EVENT'} (${mine.length})</span></div>
+      ${mine.length === 0
+        ? `<p class="prof-hint">${t('admin.noEvents')}</p>`
+        : `<div class="adm-list">${mine.map(tr => renderTournamentCard(tr)).join('')}</div>`}
     `;
-
-    list.querySelectorAll('.tournament-link').forEach(el => {
-      el.addEventListener('click', () => {
-        navigate('tournament', { code: el.dataset.code });
-      });
-    });
-  } catch (err) { console.error('Failed to load tournaments:', err); }
+    bindTournamentLinks(list);
+  } catch (err) {
+    list.innerHTML = `<p class="text-red">${escapeHtml(err.message)}</p>`;
+  }
 }
 
 function showCreateTournamentModal() {
@@ -1292,12 +892,12 @@ function showCreateTournamentModal() {
       invitesList.innerHTML = friends.map(f => `
         <label class="flex-between" style="padding: 5px 8px; background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); align-items: center; cursor: pointer; margin-bottom: 2px;">
           <div class="flex gap-xs" style="align-items: center; min-width: 0;">
-            ${f.avatarUrl ? `<img src="${f.avatarUrl}" alt="${escapeHtml(f.nickname)}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover;" />` : `<span>${escapeHtml(f.avatar || '👤')}</span>`}
+            ${safeImageSrc(f.avatarUrl) ? `<img src="${escapeHtml(safeImageSrc(f.avatarUrl))}" alt="${escapeHtml(f.nickname)}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover;" />` : `<span>${escapeHtml(f.avatar || '👤')}</span>`}
             <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
               ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
             </span>
           </div>
-          <input type="checkbox" class="t-invite-cb" data-id="${f.id}" />
+          <input type="checkbox" class="t-invite-cb" data-id="${escapeHtml(f.id)}" />
         </label>
       `).join('');
 
@@ -1362,11 +962,9 @@ function showCreateTournamentModal() {
     }
 
     try {
-      const pin = getPin();
       const result = await api.createTournament({
         name,
         players: [],
-        pin,
         visibility,
         invitedFriendIds: selectedFriendIds
       });
@@ -1388,6 +986,8 @@ async function loadAdminUsers(pin) {
   if (!container) return;
   try {
     const users = await api.adminGetUsers(pin);
+    const usersCount = document.getElementById('adm-users-count');
+    if (usersCount) usersCount.textContent = (users || []).length;
     if (!users || users.length === 0) {
       container.innerHTML = `
         <div class="section-header mt-lg">
@@ -1603,6 +1203,8 @@ async function loadAdminDebts(pin) {
     }
 
     const unsettled = duels.filter(d => !d.is_settled);
+    const debtsCount = document.getElementById('adm-debts-count');
+    if (debtsCount) debtsCount.textContent = unsettled.length;
     const settled = duels.filter(d => d.is_settled);
 
     container.innerHTML = `
@@ -1697,7 +1299,7 @@ async function loadAdminBroadcastPushSection() {
 
   let totalSubscribers = 0;
   try {
-    const stats = await api.getAdminPushStats();
+    const stats = await api.getAdminPushStats(getPin());
     totalSubscribers = stats.totalSubscribers || 0;
   } catch (e) {
     // silent
@@ -1721,17 +1323,17 @@ async function loadAdminBroadcastPushSection() {
       <form id="admin-broadcast-push-form">
         <div class="form-group mb-sm">
           <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 4px;">Rubrik:</label>
-          <input type="text" id="broadcast-push-title" class="form-control" placeholder="T.ex. 🏆 Kvällens stormatch börjar om 15 minuter!" required maxlength="60" style="font-size: 0.85rem;" />
+          <input type="text" id="broadcast-push-title" class="form-input" placeholder="T.ex. 🏆 Kvällens stormatch börjar om 15 minuter!" required maxlength="60" style="font-size: 0.85rem;" />
         </div>
 
         <div class="form-group mb-sm">
           <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 4px;">Meddelande:</label>
-          <textarea id="broadcast-push-body" class="form-control" placeholder="T.ex. Lägg ditt tips nu eller utmana polarna på en snabb duell!" required rows="2" maxlength="160" style="font-size: 0.85rem;"></textarea>
+          <textarea id="broadcast-push-body" class="form-input" placeholder="T.ex. Lägg ditt tips nu eller utmana polarna på en snabb duell!" required rows="2" maxlength="160" style="font-size: 0.85rem;"></textarea>
         </div>
 
         <div class="form-group mb-md">
           <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 4px;">Länk (valfritt):</label>
-          <input type="text" id="broadcast-push-url" class="form-control" placeholder="T.ex. /?page=leaderboard eller /" style="font-size: 0.85rem;" />
+          <input type="text" id="broadcast-push-url" class="form-input" placeholder="T.ex. /?page=leaderboard eller /" style="font-size: 0.85rem;" />
         </div>
 
         <!-- Live lock screen preview -->
@@ -1790,7 +1392,7 @@ async function loadAdminBroadcastPushSection() {
     submitBtn.textContent = '⏳ Skickar pushnotis...';
 
     try {
-      const res = await api.sendAdminBroadcastPush({ title, body, url });
+      const res = await api.sendAdminBroadcastPush({ title, body, url, pin: getPin() });
       launchConfetti();
       showToast(res.message || `Pushnotis skickad till ${res.sentCount || 0} enheter!`, 'success');
       document.getElementById('admin-broadcast-push-form')?.reset();
@@ -1798,7 +1400,7 @@ async function loadAdminBroadcastPushSection() {
       previewBody.textContent = 'Skriv en text ovan för att förhandsgranska...';
 
       // Refresh count
-      const updatedStats = await api.getAdminPushStats().catch(() => null);
+      const updatedStats = await api.getAdminPushStats(getPin()).catch(() => null);
       if (updatedStats && document.getElementById('broadcast-subscribers-badge')) {
         totalSubscribers = updatedStats.totalSubscribers || 0;
         document.getElementById('broadcast-subscribers-badge').textContent = `👥 ${totalSubscribers} aktiva enheter`;
