@@ -191,25 +191,34 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
   const top3 = [...t.settlement.balances].sort((a, b) => b.net - a.net).slice(0, 3);
 
+  // Who is in the event: first names and initials for the hero row
+  const people = (t.participants || []).map(p => String(p.name || '').trim()).filter(Boolean);
+  const firstName = (n) => n.split(/\s+/)[0];
+  const initials = (n) => n.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const peopleText = people.length === 0
+    ? 'Bjud in gänget'
+    : people.slice(0, 3).map(firstName).join(', ') + (people.length > 3 ? ` +${people.length - 3}` : '');
+
   content.innerHTML = `
     <div class="animate-in">
-      <div class="page-header">
-        <div class="flex-between">
-          <div>
-            <h1 class="page-title">${escapeHtml(t.name)}</h1>
-            <p class="page-subtitle">${allEvents.length} spel · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
-          </div>
-          <span class="badge ${t.status === 'active' ? 'badge-accent' : 'badge-success'}">${t.status === 'active' ? 'Pågår' : 'Avräknad'}</span>
-        </div>
-        <div class="flex gap-sm mt-sm" style="justify-content: flex-end; align-items: center;">
+      <div class="event-hero">
+        <div class="event-hero-eyebrow">🏆 Event</div>
+        <h1 class="event-hero-title">${escapeHtml(t.name)}</h1>
+        <span class="event-status ${t.status === 'active' ? 'live' : 'done'}">
+          ${t.status === 'active' ? '<span class="dot"></span> Pågår' : '🏁 Avgjort'}
+        </span>
+        <button type="button" class="event-people" id="event-people-btn">
+          ${people.length > 0 ? `
+            <span class="avatars">
+              ${people.slice(0, 4).map(n => `<span class="av">${escapeHtml(initials(n))}</span>`).join('')}
+            </span>
+          ` : '<span>👥</span>'}
+          <span>${escapeHtml(peopleText)}</span>
+        </button>
+        <div class="event-hero-actions">
           <button class="btn btn-secondary btn-sm" id="share-tournament-btn">
             📱 Dela event
           </button>
-          ${isCreator ? `
-            <button class="btn btn-danger btn-sm" id="delete-tournament-btn" title="Radera hela eventet" style="font-size: 0.75rem;">
-              🗑️ Radera
-            </button>
-          ` : ''}
         </div>
       </div>
 
@@ -241,18 +250,21 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         <h2 class="section-title">📋 Spel & Tävlingar</h2>
       </div>
       ${allEvents.length === 0 ? `
-        <div class="card text-center mb-md" style="padding: 24px 16px; border: 1.5px dashed var(--border-light); background: rgba(255,255,255,0.02);">
-          <div style="font-size: 2.2rem; margin-bottom: 6px;">🎯</div>
-          <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">Inga spel skapade än</h3>
-          <p class="text-muted" style="font-size: 0.82rem; max-width: 320px; margin: 0 auto 16px;">
-            Vad ska gänget tävla om först? Skapa matchspel på TV (1-X-2), ölhävning (vinnare tar allt) eller poolodds!
-          </p>
+        <div class="card text-center mb-md event-empty">
+          <img src="/malta-chips-gold-sm.webp" alt="" class="event-empty-img" width="120" height="120" />
           ${isCreator ? `
+            <h3 class="event-empty-title">Inga spel än</h3>
+            <p class="text-muted event-empty-text">
+              Vad ska gänget tävla om först? Matchspel på TV (1-X-2), ölhävning (vinnare tar allt) eller poolodds!
+            </p>
             <button class="btn btn-primary" id="empty-add-game-btn" style="font-weight: 800; padding: 10px 20px; font-size: 0.9rem;">
-              ➕ Lägg till kvällens första spel 🎯
+              ➕ Lägg till kvällens första spel
             </button>
           ` : `
-            <p class="text-muted" style="font-size: 0.78rem;">Väntar på att spelledaren ska lägga till kvällens första spel...</p>
+            <h3 class="event-empty-title">Snart kör vi! 🎲</h3>
+            <p class="text-muted event-empty-text" style="margin-bottom: 0;">
+              Spelledaren lägger snart upp kvällens första spel – håll utkik här. Dela gärna en bild så länge 📸
+            </p>
           `}
         </div>
       ` : `
@@ -465,7 +477,13 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         ${user ? `<button class="btn btn-sm btn-primary" id="add-photo-btn">Dela bild</button>` : ''}
       </div>
       <div class="photo-feed" id="tournament-photo-feed" style="display: flex; flex-direction: column; gap: var(--space-md);">
-        ${photos.length === 0 ? '<p class="text-muted text-center" style="font-size: 0.85rem;">Inga bilder ännu. Bli den första att dela!</p>' : ''}
+        ${photos.length === 0 ? `
+          <div class="card text-center event-empty" style="padding: 20px 16px;">
+            <div style="font-size: 2rem; margin-bottom: 4px;">📸</div>
+            <p class="text-muted" style="font-size: 0.85rem; margin: 0 0 12px;">Inga bilder ännu – fånga kvällens bästa ögonblick!</p>
+            ${user ? '<button type="button" class="btn btn-secondary btn-sm" id="empty-add-photo-btn">📸 Dela första bilden</button>' : ''}
+          </div>
+        ` : ''}
         ${photos.map(p => `
           <div class="photo-card card animate-in">
             <div class="photo-header flex-between mb-sm" style="align-items: center;">
@@ -493,8 +511,39 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         `).join('')}
       </div>
 
+      ${isCreator ? `
+        <div class="event-danger-zone">
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-tournament-btn" title="Radera hela eventet">
+            🗑️ Radera eventet
+          </button>
+        </div>
+      ` : ''}
+
     </div>
   `;
+
+  // Empty photo feed: same as "Dela bild"
+  document.getElementById('empty-add-photo-btn')?.addEventListener('click', () => {
+    document.getElementById('add-photo-btn')?.click();
+  });
+
+  // Who is in the event
+  document.getElementById('event-people-btn')?.addEventListener('click', () => {
+    if (people.length === 0) {
+      document.getElementById('share-tournament-btn')?.click();
+      return;
+    }
+    showModal(`👥 Med i eventet (${people.length})`, `
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        ${people.map(n => `
+          <div class="flex" style="align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span class="event-people-av">${escapeHtml(initials(n))}</span>
+            <span style="font-weight: 600;">${escapeHtml(n)}</span>
+          </div>
+        `).join('')}
+      </div>
+    `);
+  });
 
   // Click round to view
   document.querySelectorAll('.round-link').forEach(el => {
@@ -1037,7 +1086,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       showModal('📱 Dela event', `
         <div class="text-center">
           <img src="${qr}" alt="QR-kod" style="width: 200px; height: 200px; border-radius: var(--radius-md); margin-bottom: var(--space-md);" />
-          <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">Skanna QR-koden eller dela direkt via länkarna nedan</p>
+          <p class="text-muted" style="font-size: 0.8rem; margin-bottom: var(--space-md);">Skanna QR-koden eller dela direkt via länkarna nedan · Kod: <strong>${escapeHtml(t.shareCode)}</strong></p>
           <div class="flex gap-sm mb-md">
             <input type="text" class="form-input" value="${url}" readonly id="share-url" style="flex: 1; font-size: 0.75rem;" />
             <button class="btn btn-sm btn-primary" id="copy-url-btn">📋</button>
