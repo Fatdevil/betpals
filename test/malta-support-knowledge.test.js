@@ -53,3 +53,16 @@ test('the chat shows an honest status, tappable links and our own rate-limit mes
   assert.match(ui, /target="_blank" rel="noopener noreferrer"/);
   assert.doesNotMatch(ui, /AI-Concierge Online • St\. Julian’s • 24\/7/);
 });
+
+test('review fixes: removal intent wins, same-phone games are not on The Tab, Blind 10 ties, honest badge', async () => {
+  assert.equal(topic('Hur tar jag bort ett avgjort spel?'), 'remove');
+  assert.match(reply('Hur funkar Blind 10?', 'A'), /dela potten/);
+  assert.match(reply('Hur funkar minispelen?', 'A'), /samma telefon/);
+  const src = readFileSync(new URL('../server/support.js', import.meta.url), 'utf8');
+  assert.match(src, /spelar ni på samma telefon gör ni upp sinsemellan/);
+  const { getSupportMode } = await import('../server/support.js');
+  const before = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  assert.equal(getSupportMode(), 'offline');
+  if (before !== undefined) process.env.GEMINI_API_KEY = before;
+});

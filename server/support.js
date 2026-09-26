@@ -24,7 +24,7 @@ Så fungerar Malta Betting (använd exakt dessa knappnamn):
    - Dela en nota (lunch, taxi, golfbil): THE TAB → "🧾 Dela på en nota".
 7. BLIXTBET: Snabb ja/nej-fråga med tidsgräns till utvalda vänner. Tips: 2–3 minuter så alla hinner svara.
 8. ANYBET: Ett eget vad med en domare, t.ex. "Vem gör flest birdies under resan?". Inbjudna svarar, domaren avgör.
-9. MINISPEL: The Blind 10.00 (stoppa klockan på exakt 10.00 – närmast vinner), Space Blitz, Maffia, Not-Roulette, Singla slant, Gimme, Hjulet, Enarmad bandit (spelpengar), Livebet och Löven-spelet (för ishockeylaget Björklöven, inte golf). Spel med insats hamnar på THE TAB.
+9. MINISPEL: The Blind 10.00 (stoppa klockan på exakt 10.00 – närmast vinner), Space Blitz, Maffia, Not-Roulette, Singla slant, Gimme, Hjulet, Enarmad bandit (spelpengar), Livebet och Löven-spelet (för ishockeylaget Björklöven, inte golf). Spel med insats på egna mobiler (partyrum) hamnar på THE TAB; spelar ni på samma telefon gör ni upp sinsemellan. The Blind 10.00: vid lika på första plats väljer värden en avgörande omgång eller att dela potten.
 10. NOTISER: Klockan uppe till höger. "Väntar på dig" = saker att göra (vänförfrågningar, swisha, BlixtBets, spel att avgöra). "Senaste" = vad som hänt, t.ex. dina resultat.
 11. VÄNNER: Min profil → VÄNNER → "Lägg till" (skickar förfrågan som mottagaren godkänner) eller "Bjud in" (din personliga länk – den som öppnar blir vän direkt). Förfrågningar kan godkännas direkt i klockan. Skickade förfrågningar kan ångras.
 12. GLÖMT PIN: En admin går till Admin, låser upp med admin-PIN, letar upp personen och trycker "🔑 Nollställ PIN". Personen får en engångskod och väljer "Glömt PIN" vid inloggning.
@@ -50,6 +50,8 @@ Officiella Malta-videon (https://youtu.be/0EoEY4fi3vo): nämn den bara om någon
 // ── Offline answers: a small knowledge base scored on whole words ──
 // A keyword ending in * matches word beginnings (Swedish inflections: "avgör*" → "avgöra",
 // "avgjord"); other keywords must match a whole word, so "tab" never matches "tabellen".
+// A trailing ! counts double: what someone wants to DO ("ta bort") beats what the thing is
+// ("avgjort").
 const KB = [
   {
     id: 'decide', label: '🏆 Avgöra en match',
@@ -62,7 +64,7 @@ Appen frågar innan något händer. Potten delas ut direkt och skulderna hamnar 
   },
   {
     id: 'remove', label: '🗑️ Ta bort eller avbryta spel',
-    keywords: ['bort', 'radera*', 'avbryt*', 'ångra', 'arkiv*', 'fel spel'],
+    keywords: ['bort!', 'radera*!', 'avbryt*!', 'ångra', 'arkiv*', 'fel spel'],
     answer: (n) => `Bra fråga, ${n}! 🧹
 - **Ingen har bettat än:** 👑 Spelledare/⋯ → **🗑️ Ta bort spelet**.
 - **Någon har bettat:** **🛑 Avbryt spelet** – alla insatser går tillbaka och spelet räknas inte.
@@ -157,13 +159,13 @@ Slå gärna på pushnotiser under Min profil så missar du inget. 📲`
     id: 'blind10', label: '⏱️ The Blind 10.00',
     keywords: ['blind*', '10.00', 'stoppur', 'klockan 10'],
     answer: (n) => `⏱️ **The Blind 10.00**, ${n}: stoppa klockan på exakt 10.00 sekunder – blint! Den som kommer närmast vinner potten.
-Kör **Egna mobiler** (partyrum med kod) eller **Samma telefon** (turas om). Servern mäter tiden, så ingen kan fuska. Lika på första plats avgörs med en avgörande omgång. 🎯`
+Kör **Egna mobiler** (partyrum med kod – insatserna hamnar på THE TAB) eller **Samma telefon** (turas om – där gör ni upp sinsemellan). Servern mäter tiden, så ingen kan fuska. Vid lika på första plats väljer värden **avgörande omgång** eller att **dela potten**. 🎯`
   },
   {
     id: 'minigames', label: '🎮 Minispel',
     keywords: ['minispel*', 'partyspel*', 'space', 'maffia', 'mafia', 'roulette', 'slant', 'gimme', 'hjulet', 'bandit', 'livebet'],
     answer: (n) => `Minispelen, ${n}! 🎮 The Blind 10.00, Space Blitz, Maffia, Not-Roulette, Singla slant, Gimme, Hjulet och Livebet – plus Enarmad bandit med spelpengar.
-Spel med insats hamnar automatiskt på THE TAB. Partyspelen funkar bäst över WiFi på hotellet eller i klubbhuset. 🍻`
+Spel med insats på **egna mobiler** hamnar automatiskt på THE TAB – spelar ni på **samma telefon** gör ni upp sinsemellan. Partyspelen funkar bäst över WiFi på hotellet eller i klubbhuset. 🍻`
   },
   {
     id: 'pin', label: '🔑 Glömt PIN',
@@ -214,7 +216,13 @@ function normalize(text) {
   return String(text || '').toLowerCase().replace(/[^\p{L}\p{N}.\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function keywordHits(words, text, keyword) {
+function keywordHits(words, text, rawKeyword) {
+  const weight = rawKeyword.endsWith('!') ? 2 : 1;
+  const keyword = weight === 2 ? rawKeyword.slice(0, -1) : rawKeyword;
+  return weight * keywordMatch(words, keyword);
+}
+
+function keywordMatch(words, keyword) {
   if (keyword.includes(' ')) {
     // Phrase: every word must follow in order ("lägg* till spel")
     const parts = keyword.split(' ');
@@ -232,7 +240,7 @@ export function matchSupportTopics(message) {
   const text = normalize(message);
   const words = text.split(' ').filter(Boolean);
   return KB
-    .map(t => ({ topic: t, score: t.keywords.reduce((s, k) => s + keywordHits(words, text, k), 0) }))
+    .map(t => ({ topic: t, score: t.keywords.reduce((sum, k) => sum + keywordHits(words, text, k), 0) }))
     .filter(x => x.score > 0)
     .sort((a, b) => b.score - a.score);
 }
@@ -275,6 +283,22 @@ export function getSearchQuotaInfo() {
 }
 
 let lastApiDiagnostic = null;
+// How the latest AI attempt went, so the chat badge shows what people will actually get
+let lastReplyMode = null;
+let lastReplyAt = 0;
+
+export function getSupportMode() {
+  if (!isGeminiLive()) return 'offline';
+  // A failure is remembered for 10 minutes; after that the AI is given a new chance
+  if (lastReplyMode && lastReplyMode !== 'live' && Date.now() - lastReplyAt < 10 * 60 * 1000) return lastReplyMode;
+  return 'live';
+}
+
+function rememberMode(mode) {
+  lastReplyMode = mode;
+  lastReplyAt = Date.now();
+  return mode;
+}
 
 export function getLastApiDiagnostic() {
   return lastApiDiagnostic;
@@ -386,7 +410,7 @@ export async function generateMaltaSupportReply(message, history = [], userName 
         if (Array.isArray(queries) && queries.length > 0 && db?.incrementMonthlySearchCount) {
           db.incrementMonthlySearchCount(queries.length);
         }
-        return { text: candidateText, mode: 'live' };
+        return { text: candidateText, mode: rememberMode('live') };
       }
     } catch (fetchErr) {
       const reason = fetchErr.name === 'AbortError' ? 'timeout' : fetchErr.message;
@@ -399,9 +423,9 @@ export async function generateMaltaSupportReply(message, history = [], userName 
 
   // Google's own limit hit: answer from the handbook, and say the AI rests for a while
   if (lastApiDiagnostic.attempts.some(a => a.status === 429)) {
-    return { text: getMaltaFallbackReply(question, userName), mode: 'resting' };
+    return { text: getMaltaFallbackReply(question, userName), mode: rememberMode('resting') };
   }
-  return { text: getMaltaFallbackReply(question, userName), mode: 'offline' };
+  return { text: getMaltaFallbackReply(question, userName), mode: rememberMode('offline') };
 }
 
 /**

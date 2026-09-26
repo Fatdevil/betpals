@@ -246,7 +246,7 @@ async function loadSupportStatus(isEn) {
   try {
     const res = await fetch('/api/support/status');
     const data = await res.json();
-    setSupportStatus(data.live ? 'live' : 'offline', isEn);
+    setSupportStatus(data.mode || (data.live ? 'live' : 'offline'), isEn);
     const chips = document.getElementById('malta-quick-chips');
     if (chips && Array.isArray(data.topics) && data.topics.length) {
       chips.innerHTML = data.topics.map(t => `<button type="button" class="malta-chip-btn" data-topic="${escapeHtml(t.label)}">${escapeHtml(t.label)}</button>`).join('');

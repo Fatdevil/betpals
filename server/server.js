@@ -12,7 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
-import { generateMaltaSupportReply, getMaltaFallbackReply, getSupportSuggestions, SUPPORT_TOPICS, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
+import { generateMaltaSupportReply, getMaltaFallbackReply, getSupportSuggestions, SUPPORT_TOPICS, getSupportMode, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -6623,7 +6623,8 @@ app.post('/api/loven-games/:id/cancel', (req, res) => {
 // ── Malta AI Support Chat & Diagnostics ─────────────
 // What the chat shows before the first question: online or quick answers, and the topics
 app.get('/api/support/status', (req, res) => {
-  res.json({ live: isGeminiLive(), topics: SUPPORT_TOPICS });
+  const mode = getSupportMode();
+  res.json({ live: mode === 'live', mode, topics: SUPPORT_TOPICS });
 });
 
 app.get('/api/support/health', async (req, res) => {
