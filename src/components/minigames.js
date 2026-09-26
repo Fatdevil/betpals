@@ -15,6 +15,7 @@ import {
   joinPartyRoom,
   inviteToParty,
   startPartyGame,
+  leavePartyRoom,
   submitPartyTime,
   submitPartyScore,
   resolvePartyTie,
@@ -1423,6 +1424,7 @@ export async function openBlind10Modal(initialRoom = null) {
   let activeTimeoutId = null;
   let waitingPollId = null;
   let resultsShown = false;
+  let lastResultsRoom = null;
   let currentRoom = initialRoom || null;
   let selectedStake = 20;
   let invitedFriendIds = new Set();
@@ -1458,7 +1460,11 @@ export async function openBlind10Modal(initialRoom = null) {
       </div>
     </div>
   `, () => {
+    // Closing also leaves the room, so a later round can't count you as a no-show.
+    // The server refuses mid-round, so quitting a running round still counts as a DNF.
+    const roomId = currentRoom?.id;
     cleanup();
+    if (roomId) leavePartyRoom(roomId).catch(() => {});
   }, {
     isGame: true,
     preventBackdropClose: true,
@@ -1494,10 +1500,10 @@ export async function openBlind10Modal(initialRoom = null) {
     container.innerHTML = `
       <div class="the-tab-nav" style="margin-bottom: 14px;">
         <button type="button" class="tab-nav-btn ${currentMode === 'party' ? 'active' : ''}" id="btn-mode-party">
-          🌐 ${t('arcade.blind10ModeParty')}
+          ${t('arcade.blind10ModeParty')}
         </button>
         <button type="button" class="tab-nav-btn ${currentMode === 'pass' ? 'active' : ''}" id="btn-mode-pass">
-          🍻 ${t('arcade.blind10ModePass')}
+          ${t('arcade.blind10ModePass')}
         </button>
       </div>
 
@@ -1579,7 +1585,7 @@ export async function openBlind10Modal(initialRoom = null) {
           </button>
         </div>
         <div id="custom-stake-wrap" style="display: ${![0, 10, 20, 50].includes(selectedStake) ? 'block' : 'none'}; margin-top: 8px;">
-          <input type="number" id="custom-stake-input" class="form-input" placeholder="Ange belopp i kr" value="${selectedStake || 30}" min="1" max="1000" style="padding: 8px 12px; font-size: 0.9rem;" />
+          <input type="number" inputmode="numeric" step="1" id="custom-stake-input" class="form-input" placeholder="Ange belopp i kr (max 500)" value="${selectedStake || 30}" min="1" max="500" style="padding: 8px 12px; font-size: 0.9rem;" />
         </div>
       </div>
 
@@ -1598,7 +1604,7 @@ export async function openBlind10Modal(initialRoom = null) {
       </div>
 
       <div class="flex gap-sm">
-        <input type="text" id="party-join-code" class="form-input" placeholder="KOD (T.EX. AB12)" maxlength="6" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
+        <input type="text" id="party-join-code" class="form-input" placeholder="AB12" maxlength="6" autocapitalize="characters" autocomplete="off" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
         <button type="button" class="btn btn-secondary" id="btn-join-party" style="white-space: nowrap; padding: 0 18px; font-weight: 700;">
           ${t('arcade.blind10JoinBtn')}
         </button>
@@ -1633,7 +1639,8 @@ export async function openBlind10Modal(initialRoom = null) {
     });
 
     document.getElementById('custom-stake-input')?.addEventListener('input', (e) => {
-      selectedStake = Math.max(1, parseInt(e.target.value, 10) || 1);
+      // The server allows at most 500 kr per person
+      selectedStake = Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1));
     });
 
     // Friend checkboxes
@@ -1678,7 +1685,7 @@ export async function openBlind10Modal(initialRoom = null) {
       const codeInput = document.getElementById('party-join-code');
       const code = (codeInput?.value || '').trim().toUpperCase();
       if (!code) {
-        showToast(isEn ? 'Please enter a 4-letter room code' : 'Ange en 4-siffrig rumskod', 'warning');
+        showToast(isEn ? 'Please enter the 4-character room code' : 'Ange rummets kod (4 tecken)', 'warning');
         return;
       }
 
@@ -1835,14 +1842,21 @@ export async function openBlind10Modal(initialRoom = null) {
     resultsShown = true;
     stopWaitingPoll();
     currentRoom = room;
+    lastResultsRoom = room;
     renderPartyResultsView(room, isTie, tiedPlayerIds);
   }
 
   function handlePartyWsMessage(data) {
     if (data.type === 'party_updated' && data.room) {
+      const hostChanged = currentRoom && currentRoom.hostId !== data.room.hostId;
       currentRoom = data.room;
-      // Only the lobby re-renders; never throw players out of a round in progress
+      // Only the lobby re-renders; never throw players out of a round in progress.
+      // On the results screen a new host needs the "new round" button.
       if (data.room.status === 'lobby') renderPartyLobbyView();
+      else if (data.room.status === 'completed' && resultsShown && hostChanged && lastResultsRoom) {
+        // Keep the finished round's players and pot; only the host changes
+        renderPartyResultsView({ ...lastResultsRoom, hostId: data.room.hostId }, false, []);
+      }
     } else if (data.type === 'party_started' && data.room) {
       currentRoom = data.room;
       resultsShown = false;
@@ -1862,7 +1876,12 @@ export async function openBlind10Modal(initialRoom = null) {
       currentRoom = data.room;
       resultsShown = false;
       stopWaitingPoll();
-      runPartyStopwatchRound(data.countdownSec || 3);
+      const inRound = user && (data.room.tiedPlayerIds || []).includes(user.id);
+      if (inRound) {
+        runPartyStopwatchRound(data.countdownSec || 3);
+      } else {
+        renderWaitingForOthers(null, null, false, { spectator: true });
+      }
     }
   }
 
@@ -1891,7 +1910,7 @@ export async function openBlind10Modal(initialRoom = null) {
           </div>
         </div>
 
-        <div class="flex justify-between align-center" style="background: rgba(255,255,255,0.04); border-radius: var(--radius-md); padding: 8px 14px; margin-bottom: 14px; border: 1px solid var(--border-glass);">
+        <div class="flex justify-between align-center" style="justify-content: space-between; gap: 10px; flex-wrap: wrap; background: rgba(255,255,255,0.04); border-radius: var(--radius-md); padding: 8px 14px; margin-bottom: 14px; border: 1px solid var(--border-glass);">
           <span style="font-size: 0.85rem; color: var(--text-secondary);">
             ${isEn ? 'Stake per person' : 'Insats/pers'}: <strong>${currentRoom.stakeAmount} kr</strong>
           </span>
@@ -1925,7 +1944,11 @@ export async function openBlind10Modal(initialRoom = null) {
       </div>
 
       <!-- Action Area -->
-      ${isHost ? `
+      ${isHost && currentRoom.stakeAmount > 0 && currentRoom.players.length < 2 ? `
+        <div class="text-center text-muted mb-md" style="padding: 14px; border: 1px dashed var(--border-glass); border-radius: var(--radius-md); font-size: 0.88rem;">
+          ⏳ ${isEn ? 'Waiting for at least one more player – share the code!' : 'Väntar på minst en till spelare – dela koden!'}
+        </div>
+      ` : isHost ? `
         <button type="button" class="btn btn-primary btn-block mb-md" id="btn-start-party-game" style="padding: 16px; font-size: 1.05rem; font-weight: 800; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 16px rgba(16, 185, 129, 0.45);">
           ${t('arcade.blind10StartGameBtn')}
         </button>
@@ -1966,8 +1989,11 @@ export async function openBlind10Modal(initialRoom = null) {
       }
     });
 
-    document.getElementById('btn-leave-party')?.addEventListener('click', () => {
+    document.getElementById('btn-leave-party')?.addEventListener('click', async () => {
+      const roomId = currentRoom?.id;
       cleanup();
+      currentRoom = null;
+      if (roomId) await leavePartyRoom(roomId).catch(() => {});
       renderSetupView();
     });
   }
@@ -2068,7 +2094,9 @@ export async function openBlind10Modal(initialRoom = null) {
 
       activeAnimationId = requestAnimationFrame(updateClock);
 
-      stopBtn?.addEventListener('click', () => {
+      // Stop when the finger lands (pointerdown), not when it lifts: a tap takes ~100 ms
+      const onStop = (ev) => {
+        ev?.preventDefault?.();
         if (isStopped) return;
         isStopped = true;
         cancelAnimationFrame(activeAnimationId);
@@ -2093,7 +2121,9 @@ export async function openBlind10Modal(initialRoom = null) {
         activeTimeoutId = setTimeout(() => {
           onFinished(finalStoppedTime, finalDiff);
         }, 1200);
-      });
+      };
+      stopBtn?.addEventListener('pointerdown', onStop);
+      stopBtn?.addEventListener('click', onStop);
     }
   }
 
@@ -2128,9 +2158,18 @@ export async function openBlind10Modal(initialRoom = null) {
   }
 
   // ── VIEW 4: PARTY WAITING FOR OTHERS ─────────────────
-  function renderWaitingForOthers(myTime, myDiff, isOfficial = false) {
+  function renderWaitingForOthers(myTime, myDiff, isOfficial = false, { spectator = false } = {}) {
     const sign = myTime >= 10.000 ? '+' : '-';
-    container.innerHTML = `
+    container.innerHTML = spectator ? `
+      <div class="text-center" style="padding: 20px 0;">
+        <div style="font-size: 2.6rem; margin-bottom: 6px;">🔥</div>
+        <h3 style="color: var(--gold); margin-bottom: 6px;">${isEn ? 'Sudden death!' : 'Avgörande omgång!'}</h3>
+        <p class="text-muted" id="party-waiting-status" style="font-size: 0.88rem;">
+          ${isEn ? 'The tied players are stopping the clock once more…' : 'De som låg lika stoppar klockan en gång till…'}
+        </p>
+        <div id="party-my-time" hidden></div>
+      </div>
+    ` : `
       <div class="text-center" style="padding: 20px 0;">
         <img src="/stopwatch-gold.png" alt="Stopwatch" style="width: 64px; height: 64px; margin: 0 auto 10px auto; display: block; filter: drop-shadow(0 4px 14px rgba(255,215,0,0.45));" />
         <h3 style="color: var(--gold); margin-bottom: 6px;">
@@ -2331,36 +2370,59 @@ export async function openBlind10Modal(initialRoom = null) {
           `
         ) : ''}
 
+        ${isHost ? `
+          <button type="button" class="btn btn-primary btn-block mb-sm" id="btn-party-play-again" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 800;">
+            🔄 ${isEn ? 'New round – same group' : 'Ny omgång – samma gäng'}
+          </button>
+        ` : `
+          <div class="text-muted mb-sm" style="font-size: 0.82rem;">${isEn ? 'The host can start a new round with the same group.' : 'Värden kan starta en ny omgång med samma gäng.'}</div>
+        `}
         <div class="flex gap-sm">
+          <button type="button" class="btn btn-secondary btn-block" id="btn-party-leave-after">
+            🚪 ${isEn ? 'Leave room' : 'Lämna rummet'}
+          </button>
           <button type="button" class="btn btn-secondary btn-block" id="btn-party-close">
             ❌ ${isEn ? 'Close' : 'Stäng'}
-          </button>
-          <button type="button" class="btn btn-primary btn-block" id="btn-party-play-again" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 800;">
-            ${!isWinner ? (isEn ? '🔥 REVANSCH!' : '🔥 REVANSCH!') : (isEn ? '🔄 Play Again' : '🔄 Spela igen')}
           </button>
         </div>
       </div>
     `;
 
+    // Closing leaves the room too, so you can't be counted as a no-show in the next round
     document.getElementById('btn-party-close')?.addEventListener('click', () => {
       cleanup();
+      currentRoom = null;
+      leavePartyRoom(room.id).catch(() => {});
       closeModal();
     });
 
-    document.getElementById('btn-party-play-again')?.addEventListener('click', () => {
+    // Same room, same people: the start message brings everyone into the new round
+    document.getElementById('btn-party-play-again')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-party-play-again');
+      if (btn) btn.disabled = true;
+      try {
+        await startPartyGame(room.id);
+      } catch (err) {
+        showToast(err.message || (isEn ? 'Could not start' : 'Kunde inte starta'), 'error');
+        if (btn) btn.disabled = false;
+      }
+    });
+    document.getElementById('btn-party-leave-after')?.addEventListener('click', async () => {
       cleanup();
+      currentRoom = null;
+      await leavePartyRoom(room.id).catch(() => {});
       renderSetupView();
     });
   }
 
   // ── PASS & PLAY LOGIC (SEQUENCE OF TURNS ON ONE PHONE) ─
-  function startPassAndPlayRun(players, stake) {
+  function startPassAndPlayRun(players, stake, alreadyPlaced = []) {
     let playerIdx = 0;
     const results = [];
 
     function nextTurn() {
       if (playerIdx >= players.length) {
-        finishPassAndPlayRun(results, stake);
+        finishPassAndPlayRun(results, stake, alreadyPlaced);
         return;
       }
 
@@ -2420,10 +2482,13 @@ export async function openBlind10Modal(initialRoom = null) {
     nextTurn();
   }
 
-  function finishPassAndPlayRun(results, stake) {
-    results.sort((a, b) => a.diff - b.diff);
-    const bestDiff = results[0].diff;
-    const tied = results.filter(r => r.diff === bestDiff);
+  function finishPassAndPlayRun(roundResults, stake, alreadyPlaced = []) {
+    // After a sudden death, the tied players' new times decide first place; the others
+    // keep their places behind them and still count for the pot
+    roundResults.sort((a, b) => a.diff - b.diff);
+    const results = [...roundResults, ...alreadyPlaced.slice().sort((a, b) => a.diff - b.diff)];
+    const bestDiff = roundResults[0].diff;
+    const tied = roundResults.filter(r => r.diff === bestDiff);
 
     if (tied.length > 1) {
       playTone(440, 'triangle', 0.3, 0.2);
@@ -2451,7 +2516,8 @@ export async function openBlind10Modal(initialRoom = null) {
       `;
 
       document.getElementById('btn-pass-sudden-death')?.addEventListener('click', () => {
-        startPassAndPlayRun(tied.map(t => t.name), stake);
+        const others = roundResults.filter(r => !tied.includes(r));
+        startPassAndPlayRun(tied.map(t => t.name), stake, [...alreadyPlaced, ...others.filter(r => !alreadyPlaced.includes(r))]);
       });
 
       document.getElementById('btn-pass-split-pot')?.addEventListener('click', () => {
@@ -2502,6 +2568,17 @@ export async function openBlind10Modal(initialRoom = null) {
             </div>
           `).join('')}
         </div>
+
+        ${stake > 0 ? `
+          <div class="blind10-pay-list">
+            <div class="blind10-pay-title">💸 ${isEn ? 'Who pays whom' : 'Vem betalar vem'}</div>
+            ${(isSplit
+              ? results.filter(r => !tied.includes(r)).map(r => `<div>${escapeHtml(r.name)} → ${tied.map(t => escapeHtml(t.name)).join(' & ')}: ${stake} kr (${isEn ? 'shared' : 'delas'})</div>`)
+              : results.slice(1).map(r => `<div>${escapeHtml(r.name)} → ${escapeHtml(winner.name)}: ${stake} kr</div>`)
+            ).join('')}
+            <small>${isEn ? 'Same phone: settle it among yourselves (not on The Tab).' : 'Samma telefon: gör upp sinsemellan (hamnar inte på THE TAB).'}</small>
+          </div>
+        ` : ''}
 
         <div class="flex gap-sm">
           <button type="button" class="btn btn-secondary btn-block" id="btn-finish-pass-close">
@@ -2756,7 +2833,7 @@ export async function openMafiaModal(initialRoom = null) {
       </div>
 
       <div class="flex gap-sm">
-        <input type="text" id="mafia-join-code" class="form-input" placeholder="KOD (T.EX. AB12)" maxlength="6" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
+        <input type="text" id="mafia-join-code" class="form-input" placeholder="AB12" maxlength="6" autocapitalize="characters" autocomplete="off" style="text-transform: uppercase; font-family: monospace; font-size: 1.1rem; text-align: center; font-weight: 700; letter-spacing: 3px;" />
         <button type="button" class="btn btn-secondary" id="btn-join-mafia" style="white-space: nowrap; padding: 0 18px; font-weight: 700;">
           ${t('arcade.blind10JoinBtn')}
         </button>

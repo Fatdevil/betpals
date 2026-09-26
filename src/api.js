@@ -399,6 +399,7 @@ export const createPartyRoom = (data) => request('/minigames/party/create', { me
 export const getPartyRoom = (query) => request('/minigames/party/' + encodeURIComponent(query));
 export const joinPartyRoom = (data) => request('/minigames/party/join', { method: 'POST', body: data });
 export const inviteToParty = (id, friendIds) => request('/minigames/party/' + id + '/invite', { method: 'POST', body: { friendIds } });
+export const leavePartyRoom = (id) => request('/minigames/party/' + id + '/leave', { method: 'POST', body: {} });
 export const startPartyGame = (id) => request('/minigames/party/' + id + '/start', { method: 'POST', body: {} });
 export const submitPartyTime = (id, stoppedTime) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof stoppedTime === 'object' && stoppedTime !== null ? stoppedTime : { stoppedTime } });
 export const submitPartyScore = (id, data) => request('/minigames/party/' + id + '/submit', { method: 'POST', body: typeof data === 'object' && data !== null ? data : { score: data } });

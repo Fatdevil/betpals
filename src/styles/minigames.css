@@ -2410,3 +2410,18 @@
   60% { transform: translate(-3px, 0); }
   80% { transform: translate(2px, 1px); }
 }
+
+/* ── Blind 10.00 ─────────────────────────────────── */
+.blind10-pay-list {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  background: rgba(255, 215, 0, 0.06);
+  text-align: left;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.blind10-pay-title { font-weight: 700; color: var(--gold); }
+.blind10-pay-list small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 0.72rem; }
+.blind10-stop-btn { touch-action: manipulation; -webkit-user-select: none; user-select: none; }

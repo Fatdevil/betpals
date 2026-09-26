@@ -4091,6 +4091,36 @@ app.post('/api/minigames/party/join', (req, res) => {
   res.json({ room });
 });
 
+// Leaving a room between rounds. Without this a player who walked away stayed in the room
+// and lost their stake (DNF) in the next round.
+app.post('/api/minigames/party/:id/leave', (req, res) => {
+  const user = getUserFromToken(req);
+  if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
+  const room = partyRooms.get(req.params.id);
+  if (!room) return res.json({ ok: true });
+  const idx = room.players.findIndex(p => p.id === user.id);
+  if (idx === -1) return res.json({ ok: true });
+  if (room.status === 'running' || room.status === 'tie') {
+    return res.status(400).json({ error: 'Du kan inte lämna mitt i en omgång' });
+  }
+
+  room.players.splice(idx, 1);
+  if (room.players.length === 0) {
+    partyRooms.delete(room.id);
+    partyCodeToId.delete(room.code);
+    return res.json({ ok: true });
+  }
+  if (room.hostId === user.id) {
+    // The next player takes over as host
+    const next = room.players[0];
+    room.hostId = next.id;
+    room.hostNickname = next.nickname;
+    room.players.forEach(p => { p.isHost = p.id === next.id; });
+  }
+  broadcastToParty(room.id, { type: 'party_updated', room });
+  res.json({ ok: true });
+});
+
 app.post('/api/minigames/party/:id/invite', (req, res) => {
   const user = getUserFromToken(req);
   if (!user) return res.status(401).json({ error: 'Inloggning krävs' });
