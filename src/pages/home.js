@@ -382,6 +382,22 @@ function initHomePushBanner(isEn) {
   });
 }
 
+// A running event shows where you stand right now, without asking you to swish yet
+function showLiveStandings(settlements, isEn) {
+  for (const ev of settlements?.liveEvents || []) {
+    const net = Math.round(ev.myNet || 0);
+    if (!net) continue;
+    const card = [...document.querySelectorAll('.home-event-card')].find(c => c.dataset.tournamentCode === ev.shareCode);
+    const info = card?.querySelector('.home-event-info');
+    if (!info || card.querySelector('.home-event-standing')) continue;
+    info.insertAdjacentHTML('afterend', `
+      <div class="home-event-standing ${net < 0 ? 'is-neg' : 'is-pos'}">
+        <span>${isEn ? 'Right now' : 'Ditt läge just nu'}: <b>${net > 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}</b></span>
+        <small>${isEn ? 'settled when the event ends' : 'görs upp när eventet är slut'}</small>
+      </div>`);
+  }
+}
+
 async function initHomeActionFeed(isEn, events = []) {
   const container = document.getElementById('home-action-feed-container');
   if (!container || !isLoggedIn()) return;
@@ -426,13 +442,15 @@ async function initHomeActionFeed(isEn, events = []) {
       });
     }
 
-    // 3. Unsettled Debts
-    if (settlements && settlements.totalOwed > 0) {
+    // 3. Debts that are ready to pay. Money with people you share a running event with is
+    // added up when the event ends (swish once), so it shows on the event card instead.
+    const readyOwed = settlements ? (settlements.readyOwed ?? settlements.totalOwed) : 0;
+    if (readyOwed > 0) {
       items.push({
         id: 'debts',
         icon: '💸',
-        title: isEn ? `You owe ${settlements.totalOwed} kr` : `Du ska swisha ${settlements.totalOwed} kr`,
-        subtitle: isEn ? 'Net debts across tournaments & tabs' : 'Samlad nettoskuld från turneringar & notor',
+        title: isEn ? `You owe ${readyOwed} kr` : `Du ska swisha ${readyOwed} kr`,
+        subtitle: isEn ? 'Ready to pay – added up per person on The Tab' : 'Klart att swisha – ihopräknat per person på THE TAB',
         badge: isEn ? 'Swish' : 'Swisha nu',
         badgeClass: 'badge-danger',
         link: '#leaderboard?tab=overview'
@@ -461,6 +479,8 @@ async function initHomeActionFeed(isEn, events = []) {
         link: `/?page=event&code=${urgentEvent.shareCode}`
       });
     }
+
+    showLiveStandings(settlements, isEn);
 
     if (items.length === 0) return;
 

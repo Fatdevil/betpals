@@ -232,8 +232,15 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
   }
 
   const friends = (overview.friends || []).filter(f => f.totalNet !== 0);
-  const iOwe = friends.filter(f => f.totalNet < 0);
-  const owesMe = friends.filter(f => f.totalNet > 0).sort((a, b) => b.totalNet - a.totalNet);
+  // With people you share a running event with, everything is added up when it ends:
+  // those balances are "live" and wait, so you swish once instead of several times
+  const live = friends.filter(f => f.isLive);
+  const iOwe = friends.filter(f => !f.isLive && f.totalNet < 0);
+  const owesMe = friends.filter(f => !f.isLive && f.totalNet > 0).sort((a, b) => b.totalNet - a.totalNet);
+  const liveNet = live.reduce((s, f) => s + f.totalNet, 0);
+  const liveEventNames = [...new Set(live.flatMap(f => (f.liveEvents || []).map(e => e.name)))];
+  const liveHtml = live.length > 0 ? `
+    <div class="tabx-live-line">⏳ ${isEn ? 'Running events' : 'Pågående event'}: <b class="${liveNet < 0 ? 'neg' : 'pos'}">${liveNet > 0 ? '+' : liveNet < 0 ? '−' : ''}${formatCurrency(Math.abs(liveNet))}</b> · ${isEn ? 'settled when they end' : 'görs upp när de är slut'}</div>` : '';
   const totalOwed = iOwe.reduce((s, f) => s - f.totalNet, 0);
   const totalDue = owesMe.reduce((s, f) => s + f.totalNet, 0);
   const people = (n) => isEn ? `${n} ${n === 1 ? 'person' : 'people'}` : `${n} ${n === 1 ? 'person' : 'personer'}`;
@@ -254,6 +261,7 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
         <p class="tabx-hero-text">${isEn
           ? 'Everything is added up – events, BlixtBets, duels and bills. You swish <b>once per person</b>, then you are even.'
           : 'Allt är ihopräknat – event, BlixtBets, dueller och notor. Du swishar <b>en gång per person</b>, sen är ni kvitt.'}</p>
+        ${liveHtml}
         ${undecidedHtml}
       </div>`;
   } else if (totalDue > 0) {
@@ -264,6 +272,17 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
         <p class="tabx-hero-text">${isEn
           ? 'Everything is added up per person. When the money arrives, mark it as paid.'
           : 'Allt är ihopräknat per person. När pengarna kommit markerar du det som betalt.'}</p>
+        ${liveHtml}
+        ${undecidedHtml}
+      </div>`;
+  } else if (live.length > 0) {
+    heroHtml = `
+      <div class="tabx-hero is-even">
+        <div class="tabx-hero-label">${isEn ? 'NOTHING TO SWISH YET' : 'INGET ATT SWISHA ÄN'}</div>
+        <div class="tabx-hero-amount ${liveNet < 0 ? 'neg' : 'pos'}">${liveNet > 0 ? '+' : liveNet < 0 ? '−' : ''}${formatCurrency(Math.abs(liveNet))} <small>${isEn ? 'right now' : 'just nu'}</small></div>
+        <p class="tabx-hero-text">${isEn
+          ? `You are in a running event (${escapeHtml(liveEventNames.join(', '))}). Everything is added up when it ends – then you swish <b>once per person</b>.`
+          : `Du är med i ett pågående event (${escapeHtml(liveEventNames.join(', '))}). Allt räknas ihop när det är slut – då swishar du <b>en gång per person</b>.`}</p>
         ${undecidedHtml}
       </div>`;
   } else {
@@ -295,10 +314,13 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
       </div>`;
   };
 
+  // The only place that builds Swish links
+  const swishUrlFor = (f, amount) => f.friendSwish ? createSwishUrl({ phone: f.friendSwish, amount, message: 'Malta Betting' }) : '#';
+
   const oweCard = (f) => {
     const name = f.friendName || f.friendNickname || '';
     const amount = Math.abs(f.totalNet);
-    const swishUrl = f.friendSwish ? createSwishUrl({ phone: f.friendSwish, amount, message: 'Malta Betting' }) : '#';
+    const swishUrl = swishUrlFor(f, amount);
     return `
       <div class="tabx-person">
         <div class="tabx-person-row">
@@ -340,6 +362,36 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
       </div>`;
   };
 
+  const liveCard = (f) => {
+    const name = f.friendName || f.friendNickname || '';
+    const amount = Math.abs(f.totalNet);
+    const events = (f.liveEvents || []).map(e => e.name).join(', ');
+    const swishUrl = f.totalNet < 0 && f.friendSwish ? swishUrlFor(f, amount) : null;
+    return `
+      <div class="tabx-person is-live">
+        <div class="tabx-person-row">
+          ${avatarHtml(f)}
+          <div class="tabx-person-info">
+            <b>${escapeHtml(name)}</b>
+            <span class="${f.totalNet < 0 ? 'neg' : 'pos'}">${f.totalNet === 0
+              ? (isEn ? 'Even right now' : 'Jämnt just nu')
+              : f.totalNet < 0
+                ? (isEn ? `You are down ${formatCurrency(amount)} right now` : `Du ligger back ${formatCurrency(amount)} just nu`)
+                : (isEn ? `You are up ${formatCurrency(amount)} right now` : `Du ligger plus ${formatCurrency(amount)} just nu`)}</span>
+          </div>
+        </div>
+        ${breakdown(f)}
+        <div class="tabx-note">⏳ ${isEn
+          ? `Waiting for ${escapeHtml(events)} to end – then it is added up and you swish once.`
+          : `Väntar på att ${escapeHtml(events)} tar slut – då räknas allt ihop och ni swishar en gång.`}
+          ${swishUrl ? ` <a href="${swishUrl}" class="tabx-swish-anyway" rel="noopener">${isEn ? 'Swish anyway' : 'Swisha ändå'} ${formatCurrency(amount)}</a>` : ''}</div>
+        ${f.totalNet > 0 && f.isRegistered !== false ? `
+          <button type="button" class="tabx-paid btn-clear-all" data-friend-id="${escapeHtml(f.friendId)}" data-friend-name="${escapeHtml(name)}" data-amount="${amount}" data-duels="${f.duelsCount || 0}" data-tournaments="${(f.details || []).filter(d => d.type === 'tournament').length}">
+            ${isEn ? 'Paid you already? <b>Mark as paid ✓</b>' : 'Har hen redan swishat? <b>Markera som betalt ✓</b>'}
+          </button>` : ''}
+      </div>`;
+  };
+
   container.innerHTML = `
     <div class="animate-in">
       ${heroHtml}
@@ -351,6 +403,10 @@ function renderOverviewTab(container, overview, user, overviewError = false, act
       ${owesMe.length > 0 ? `
         <div class="tabx-section">${isEn ? 'SWISHES YOU' : 'SKA SWISHA DIG'}</div>
         ${owesMe.map(dueCard).join('')}` : ''}
+
+      ${live.length > 0 ? `
+        <div class="tabx-section">${isEn ? 'RUNNING – SETTLED WHEN THE EVENT ENDS' : 'LÖPANDE – GÖRS UPP NÄR EVENTET ÄR SLUT'}</div>
+        ${live.map(liveCard).join('')}` : ''}
 
       <div class="tabx-how">
         <b>${isEn ? 'How it adds up:' : 'Så räknas det:'}</b>

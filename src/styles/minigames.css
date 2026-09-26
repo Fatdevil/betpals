@@ -2425,3 +2425,26 @@
 .blind10-pay-title { font-weight: 700; color: var(--gold); }
 .blind10-pay-list small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 0.72rem; }
 .blind10-stop-btn { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+
+/* THE TAB: balances in a running event wait until it ends (swish once) */
+.tabx-live-line {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+}
+.tabx-live-line .neg, .tabx-hero-amount.neg { color: #f87171; }
+.tabx-live-line .pos, .tabx-hero-amount.pos { color: #34d399; }
+.tabx-person.is-live {
+  border-style: dashed;
+  opacity: 0.92;
+}
+.tabx-swish-anyway {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  font-size: 0.75rem;
+}
