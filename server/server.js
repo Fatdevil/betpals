@@ -3245,7 +3245,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   }
 
   const { name, players, linkedRoundId, betMode, betAmount, imageUrl, closesAt } = req.body;
-  const finalName = (name || '').trim();
+  const finalName = (name || '').trim().slice(0, 120);
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
   }
@@ -3262,7 +3262,15 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     return res.status(400).json({ error: 'Minst 2 deltagare krävs för ett sido-spel' });
   }
 
-  const amount = Math.max(1, Number(betAmount) || 100);
+  const amount = Math.max(1, Math.min(10000, Math.round(Number(betAmount) || 100)));
+  // Pool games may have a free stake between min and max; winner-takes-all is always the
+  // same amount for everyone (each participant is entered with exactly that amount)
+  let minBetAmount = amount;
+  let maxBetAmount = amount;
+  if (betMode !== 'self' && req.body.minBet !== undefined && req.body.maxBet !== undefined) {
+    minBetAmount = Math.max(1, Math.min(10000, Math.round(Number(req.body.minBet) || 1)));
+    maxBetAmount = Math.max(minBetAmount, Math.min(10000, Math.round(Number(req.body.maxBet) || minBetAmount)));
+  }
   const swish = req.body.swishNumber ? req.body.swishNumber.replace(/[^0-9]/g, '') : (user?.swish_number || null);
 
   let validClosesAt = null;
@@ -3279,8 +3287,8 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     status: betMode === 'self' ? 'locked' : 'open',
     shareCode: generateShareCode(),
     payoutPercent: 100,
-    minBet: amount,
-    maxBet: amount,
+    minBet: minBetAmount,
+    maxBet: maxBetAmount,
     creatorId: user ? user.id : null,
     swishNumber: swish,
     tournamentId: tournament.id,
