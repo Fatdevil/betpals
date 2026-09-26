@@ -475,6 +475,7 @@ function renderEventContent(event, content, code) {
             <div class="betslip-row"><span>Insats</span><b>${formatCurrency(event.minBet)}</b></div>
             <input type="hidden" id="bet-amount" value="${event.minBet}" />
           ` : `
+            <div class="betslip-row"><span>Insats (${event.minBet}–${event.maxBet} kr)</span></div>
             <div class="betslip-stakes">
               ${stakeOptions.map(amt => `<button type="button" class="betslip-stake${amt === event.minBet ? ' active' : ''}" data-amount="${amt}">${amt} kr</button>`).join('')}
             </div>

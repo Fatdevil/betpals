@@ -6,7 +6,6 @@ import { openFlashBetModal } from '../components/minigames.js';
 import { renderSponsorCarousel, initSponsorCarousel } from '../components/sponsor-carousel.js';
 import { navigate } from '../main.js';
 import { compressImage } from '../imageUtils.js';
-import { TOURNAMENT_TEMPLATES, GAME_TYPES } from '../templates.js';
 
 let wsUnsubscribe = null;
 let sponsorCarouselCleanup = null;
@@ -1166,467 +1165,390 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   document.getElementById('share-tournament-btn')?.addEventListener('click', handleOpenShareModal);
 }
 
+// ── "Nytt spel": one sheet that adapts to the game type ─────────────────────
+const NEW_GAME_TYPES = [
+  { id: 'winner', icon: '🏆', title: 'Vem vinner?', desc: 'Betta på en spelare – odds från potten' },
+  { id: 'winner_takes_all', icon: '👥', title: 'Vinnare tar allt', desc: 'Alla lägger lika – vinnaren tar potten' },
+  { id: '1x2', icon: '⚽', title: 'Match 1 X 2', desc: 'Hemma, oavgjort eller borta' },
+  { id: 'yes_no', icon: '👍', title: 'Ja eller nej', desc: 'En snabb fråga' }
+];
+const NAME_SUGGESTIONS = {
+  winner: ['Vinnare av rundan', 'Längsta drive', 'Närmast hål'],
+  winner_takes_all: ['Flest birdies', 'Bästa score', 'Ölhävning']
+};
+const FIXED_STAKES = [20, 50, 100, 200];
+const DEADLINES = [
+  { key: 'none', label: 'Inget', minutes: 0 },
+  { key: '30', label: '30 min', minutes: 30 },
+  { key: '60', label: '1 h', minutes: 60 },
+  { key: '120', label: '2 h', minutes: 120 },
+  { key: 'custom', label: '📅', minutes: null }
+];
+
 function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
-  // Pre-fill players from tournament participants, rounds, or settlement
-  const existingPlayerNames = [];
-  if (t.players && t.players.length > 0) {
-    t.players.forEach(p => {
-      const name = typeof p === 'string' ? p : p.name;
-      if (name && !existingPlayerNames.includes(name)) existingPlayerNames.push(name);
-    });
-  }
-  if (t.rounds && t.rounds.length > 0) {
-    t.rounds.forEach(r => {
-      if (r.players) r.players.forEach(p => {
-        const name = typeof p === 'string' ? p : p.name;
-        if (name && !existingPlayerNames.includes(name)) existingPlayerNames.push(name);
-      });
-    });
-  }
-  if (t.sideBets && t.sideBets.length > 0) {
-    t.sideBets.forEach(sb => {
-      if (sb.players) sb.players.forEach(p => {
-        const name = typeof p === 'string' ? p : p.name;
-        if (name && !existingPlayerNames.includes(name)) existingPlayerNames.push(name);
-      });
-    });
-  }
-  if (existingPlayerNames.length === 0 && t.settlement && t.settlement.balances) {
-    t.settlement.balances.forEach(b => {
-      if (b.name && !existingPlayerNames.includes(b.name)) existingPlayerNames.push(b.name);
-    });
-  }
+  // People who can be in a game: the event's participants (picked by default), names used
+  // in earlier games, and — loaded below — friends who are not in the event yet
+  const people = [];
+  const addPerson = (person) => {
+    if (!person.name) return;
+    const exists = people.find(p => (person.userId && p.userId === person.userId) || p.name.toLowerCase() === person.name.toLowerCase());
+    if (!exists) people.push(person);
+  };
+  (t.participants || []).forEach(p => addPerson({ name: String(p.name || '').trim(), userId: p.userId || null, inEvent: true, selected: true }));
+  [...(t.rounds || []), ...(t.sideBets || [])].forEach(g => (g.players || []).forEach(pl => {
+    const name = String(typeof pl === 'string' ? pl : pl.name || '').trim();
+    if (name && !/^[1X2] |^👍|^👎/.test(name)) addPerson({ name, userId: null, inEvent: true, selected: false });
+  }));
 
-  let players = existingPlayerNames.length >= 2 ? [...existingPlayerNames] : ['Spelare 1', 'Spelare 2'];
-  let currentGt = 'winner';
-  let betMode = 'open';
+  const state = {
+    type: 'winner',
+    name: '',
+    home: '',
+    away: '',
+    question: '',
+    stakeMode: 'free',
+    fixedStake: 50,
+    customStake: false,
+    minBet: 20,
+    maxBet: 200,
+    deadline: 'none',
+    customDeadline: '',
+    imageData: null
+  };
 
-  showModal('🎯 Lägg till spel i Eventet', `
-    <form id="add-game-form">
-      <!-- 4 Game Types Selector -->
-      <div class="form-group mb-md">
-        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>🎮 Välj typ av spel</span>
-          <span style="font-size: 0.72rem; color: var(--gold); font-weight: 700;" id="selected-gt-badge">1. Vinnare 🏆</span>
-        </label>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-          ${GAME_TYPES.map((gt, idx) => `
-            <div class="gt-card ${idx === 0 ? 'selected' : ''}" data-gt="${gt.id}" style="cursor: pointer; border: 1.5px solid ${idx === 0 ? 'var(--gold)' : 'var(--border-light)'}; border-radius: var(--radius-md); padding: 8px; background: ${idx === 0 ? 'rgba(245,166,35,0.12)' : 'var(--bg-card)'}; transition: all 0.2s;">
-              <div class="flex gap-xs" style="align-items: center; margin-bottom: 2px;">
-                <span style="font-size: 1.15rem;">${gt.icon}</span>
-                <strong style="font-size: 0.82rem;">${gt.title}</strong>
-              </div>
-              <div style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.2;">${gt.subtitle}</div>
-            </div>
-          `).join('')}
-        </div>
-        <div id="gt-desc-box" style="margin-top: 8px; padding: 6px 10px; background: rgba(245, 166, 35, 0.07); border-left: 3px solid var(--gold); font-size: 0.73rem; color: var(--text-secondary); border-radius: 4px;">
-          Alla bettar på vem som vinner. Dynamiska odds baserat på poolen.
-        </div>
+  showModal(`Nytt spel<span class="ng-title-sub">i ${escapeHtml(t.name)}</span>`, `
+    <form id="add-game-form" class="ng-form" novalidate>
+      <div class="ng-label" style="margin-top: 4px;">Vad ska ni betta på?</div>
+      <div class="ng-types">
+        ${NEW_GAME_TYPES.map(gt => `
+          <button type="button" class="ng-type${gt.id === state.type ? ' on' : ''}" data-type="${gt.id}">
+            <span class="ng-type-icon">${gt.icon}</span>
+            <b>${gt.title}</b>
+            <span>${gt.desc}</span>
+          </button>
+        `).join('')}
       </div>
 
-      <div class="form-group mb-xs">
-        <label class="form-label mb-xs">⚡ Snabbval</label>
-        <div class="flex gap-xs" style="flex-wrap: wrap;" id="quick-templates-bar">
-          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="winner" data-name="Vinnare av ronden" data-amount="50" style="font-size: 0.7rem; padding: 2px 8px;">
-            🏆 Vinnare
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="winner_takes_all" data-name="🦅 Flest birdies" data-amount="100" style="font-size: 0.7rem; padding: 2px 8px;">
-            🦅 Flest birdies
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="1x2" data-name="⚽ Match: Lag A vs Lag B" data-amount="50" style="font-size: 0.7rem; padding: 2px 8px;">
-            ⚽ Match 1X2
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary gt-quick-btn" data-gt="yes_no" data-name="Görs det birdie på hål 18?" data-amount="50" style="font-size: 0.7rem; padding: 2px 8px;">
-            👍 Ja/Nej fråga
-          </button>
-        </div>
-      </div>
+      <div id="ng-fields"></div>
 
-      <div class="form-group mb-sm">
-        <label class="form-label">Namn på spelet</label>
-        <input type="text" class="form-input" id="game-name" placeholder="t.ex. Vinnare av måndagsgolfen eller Flest birdies" required />
-      </div>
+      <div class="ng-label" id="ng-stake-label">Insats</div>
+      <div id="ng-stake"></div>
 
-      <div class="form-group mb-sm" id="game-amount-group">
-        <label class="form-label" id="game-amount-label">Minsta insats (kr)</label>
-        <input type="number" class="form-input" id="game-amount" value="50" min="5" step="5" />
-        <p class="text-muted mt-xs" id="game-amount-help" style="font-size: 0.72rem; margin: 2px 0 0 0;">Minsta insats för poolspel.</p>
+      <div class="ng-label">Spelstopp</div>
+      <div class="ng-chips" id="ng-deadlines">
+        ${DEADLINES.map(d => `<button type="button" class="ng-chip${d.key === state.deadline ? ' gold' : ''}" data-deadline="${d.key}">${d.label}</button>`).join('')}
       </div>
+      <input type="datetime-local" class="form-input ng-input" id="ng-custom-deadline" style="display: none; margin-top: 8px;" />
 
-      <!-- Deadline / Closes At -->
-      <div class="form-group mb-sm">
-        <label class="form-label mb-xs">⏰ Spelstopp / Tidsgräns</label>
-        <div class="flex gap-xs" style="flex-wrap: wrap; margin-bottom: 6px;" id="game-deadline-buttons">
-          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn selected" data-minutes="0" style="font-size: 0.7rem; padding: 3px 8px; border: 1.5px solid var(--gold); background: rgba(245,166,35,0.12);">
-            ♾️ Ingen tidsgräns
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="15" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 15 min
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="30" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 30 min
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="60" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 1 timme
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="120" style="font-size: 0.7rem; padding: 3px 8px;">
-            ⏱️ 2 timmar
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary deadline-quick-btn" data-minutes="custom" style="font-size: 0.7rem; padding: 3px 8px;">
-            📅 Välj i kalender
-          </button>
-        </div>
-        <div id="custom-deadline-container" style="display: none; margin-top: 6px;">
-          <input type="datetime-local" class="form-input" id="custom-deadline-input" style="font-size: 0.85rem; padding: 6px 10px;" />
-        </div>
-        <div id="deadline-summary-badge" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
-          Ingen tidsgräns vald — spelet stängs manuellt av arrangören.
-        </div>
+      <label class="ng-image-row" for="ng-image-input">
+        <span id="ng-image-text">📷 Lägg till bild (valfritt)</span>
+        <img id="ng-image-preview" alt="" style="display: none;" />
+        <span class="ng-image-arrow">›</span>
+      </label>
+      <input type="file" id="ng-image-input" accept="image/jpeg,image/png,image/webp,image/gif,image/*" class="file-input-hidden" />
+
+      <div class="ng-footer">
+        <div class="ng-summary" id="ng-summary"></div>
+        <button type="submit" class="btn btn-primary btn-block ng-submit" id="ng-submit" disabled>Skapa spel</button>
       </div>
-
-      <div class="form-group mb-sm">
-        <div class="flex-between mb-xs">
-          <label class="form-label" style="margin: 0;" id="game-player-add-label">Lägg till spelare</label>
-          <span style="font-size: 0.7rem; color: var(--text-muted);" id="alternatives-hint">Minst 2</span>
-        </div>
-        <div class="flex gap-sm">
-          <input type="text" class="form-input" id="game-player-input" placeholder="Skriv ett namn" style="flex: 1;" />
-          <button type="button" class="btn btn-sm btn-secondary" id="game-add-player">+</button>
-        </div>
-        <button type="button" class="btn btn-sm btn-secondary btn-block mt-xs" id="game-pick-friends-btn" style="font-size: 0.78rem;">👥 Lägg till fler från vänlistan</button>
-        <div id="game-friends-drawer" style="display: none; padding: var(--space-xs); background: rgba(0,0,0,0.25); border-radius: var(--radius-sm); margin-top: 4px;">
-          <input type="search" class="form-input" id="game-friends-search" placeholder="🔍 Sök vän" autocomplete="off" style="display: none; font-size: 0.85rem; padding: 6px 10px; margin-bottom: 6px;" />
-          <div id="game-friends-list" style="max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;"></div>
-          <p class="text-muted" style="font-size: 0.68rem; margin: 6px 0 0 0; line-height: 1.3;">Vänner du väljer bjuds in till eventet och får en notis. Deras insatser och vinster hamnar i Swishlistan.</p>
-        </div>
-        <label class="form-label" id="game-player-heading" style="margin: var(--space-md) 0 0 0;">✅ Med i spelet</label>
-        <p class="text-muted" id="game-player-prefill-note" style="font-size: 0.7rem; margin: 2px 0 0 0;">Förifyllt med eventets deltagare. Ta bort med ✕.</p>
-        <div id="game-player-list" class="mt-xs"></div>
-      </div>
-
-      <button type="submit" class="btn btn-primary btn-block" style="padding: 12px; font-weight: 700;">
-        Skapa Spel 🎯
-      </button>
     </form>
   `);
 
-  const gtCards = document.querySelectorAll('.gt-card');
-  const gtBadge = document.getElementById('selected-gt-badge');
-  const gtDescBox = document.getElementById('gt-desc-box');
-  const nameInput = document.getElementById('game-name');
-  const amountLabel = document.getElementById('game-amount-label');
-  const amountHelp = document.getElementById('game-amount-help');
-  const amountInput = document.getElementById('game-amount');
+  const form = document.getElementById('add-game-form');
+  const fieldsEl = document.getElementById('ng-fields');
+  const stakeEl = document.getElementById('ng-stake');
+  const submitBtn = document.getElementById('ng-submit');
+  const isPeopleGame = () => state.type === 'winner' || state.type === 'winner_takes_all';
 
-  // Winner games are about people (friends picker); 1X2 and Ja/Nej are fixed answer options
-  const isPeopleGame = () => currentGt === 'winner' || currentGt === 'winner_takes_all';
-
-  function renderPlayers() {
-    const list = document.getElementById('game-player-list');
-    if (!list) return;
-    const people = isPeopleGame();
-    const heading = document.getElementById('game-player-heading');
-    if (heading) heading.textContent = `${people ? '✅ Med i spelet' : '✅ Svarsalternativ'} (${players.length})`;
-    const addLabel = document.getElementById('game-player-add-label');
-    if (addLabel) addLabel.textContent = people ? 'Lägg till spelare' : 'Lägg till svarsalternativ';
-    const playerInput = document.getElementById('game-player-input');
-    if (playerInput) playerInput.placeholder = people ? 'Skriv ett namn' : 'Skriv ett alternativ';
-    const prefillNote = document.getElementById('game-player-prefill-note');
-    if (prefillNote) prefillNote.style.display = people && players.some(p => existingPlayerNames.includes(p)) ? 'block' : 'none';
-    const pickBtn = document.getElementById('game-pick-friends-btn');
-    if (pickBtn) pickBtn.style.display = people ? '' : 'none';
-    if (!people) {
-      const drawer = document.getElementById('game-friends-drawer');
-      if (drawer) drawer.style.display = 'none';
-    }
-    list.innerHTML = players.map((p, i) => `
-      <div class="flex-between" style="padding: var(--space-xs) 0; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
-        <span>${escapeHtml(p)}</span>
-        <button type="button" class="btn btn-sm" style="padding: 2px 8px; font-size: 0.7rem;" data-remove="${i}">✕</button>
-      </div>
-    `).join('') || '<p class="text-muted" style="font-size: 0.8rem;">Inga alternativ tillagda</p>';
-
-    list.querySelectorAll('[data-remove]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        players.splice(Number(btn.dataset.remove), 1);
-        renderPlayers();
-        if (friendsDrawer.style.display === 'block') renderFriendPicker();
-      });
-    });
-  }
-
-  renderPlayers();
-
-  // Friends picked for this game who are not yet in the event: name in the game -> user id.
-  // The friend list is fetched every time the drawer opens, so friends added during the
-  // event show up without reloading.
-  const pickedFriends = new Map();
-  const friendsDrawer = document.getElementById('game-friends-drawer');
-  const friendsListEl = document.getElementById('game-friends-list');
-  const friendsSearch = document.getElementById('game-friends-search');
-  let drawerFriends = [];
-  const participantNameFor = (userId) => (t.participants || []).find(p => p.userId === userId)?.name || null;
-
-  document.getElementById('game-pick-friends-btn')?.addEventListener('click', async () => {
-    if (friendsDrawer.style.display === 'block') {
-      friendsDrawer.style.display = 'none';
-      return;
-    }
-    friendsDrawer.style.display = 'block';
-    friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Laddar vänner... 👥</div>';
-    friendsSearch.style.display = 'none';
-    friendsSearch.value = '';
-    let friends = [];
-    try {
-      friends = await getFriends();
-    } catch (err) {
-      friendsListEl.innerHTML = `<div class="text-red text-center" style="font-size: 0.75rem; padding: 8px;">${escapeHtml(err.message)}</div>`;
-      return;
-    }
-    if (!friends || friends.length === 0) {
-      friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Du har inga vänner tillagda än. Lägg till vänner under Profil! 👥</div>';
-      return;
-    }
-    drawerFriends = friends;
-    if (friends.length > 10) friendsSearch.style.display = 'block';
-    renderFriendPicker();
-  });
-
-  friendsSearch?.addEventListener('input', () => renderFriendPicker());
-
-  function renderFriendPicker() {
-    const nameOf = (f) => participantNameFor(f.id) || f.nickname;
-    const query = friendsSearch.value.trim().toLowerCase();
-    const shown = drawerFriends
-      .filter(f => !query || `${f.realName || ''} ${f.nickname || ''}`.toLowerCase().includes(query))
-      // Friends not yet in the game first, so new ones are easy to find
-      .map((f, i) => ({ f, i, added: players.includes(nameOf(f)) }))
-      .sort((a, b) => (a.added - b.added) || (a.i - b.i));
-    if (shown.length === 0) {
-      friendsListEl.innerHTML = '<div class="text-muted text-center" style="font-size: 0.75rem; padding: 8px;">Ingen vän matchar sökningen</div>';
-      return;
-    }
-    friendsListEl.innerHTML = shown.map(({ f }) => {
-      const name = participantNameFor(f.id) || f.nickname;
-      const added = players.includes(name);
-      return `
-        <button type="button" class="flex-between game-friend-pick" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(name)}" ${added ? 'disabled' : ''}
-                style="width: 100%; padding: 6px 8px; background: rgba(0,0,0,0.25); border: none; border-radius: var(--radius-sm); align-items: center; color: inherit; opacity: ${added ? 0.5 : 1}; cursor: ${added ? 'default' : 'pointer'};">
-          <span style="font-size: 0.8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;">
-            ${escapeHtml(f.realName || f.nickname)} <span class="text-gold">(@${escapeHtml(f.nickname)})</span>
-          </span>
-          <span style="font-size: 0.75rem;">${added ? '✓ Med' : '+ Lägg till'}</span>
-        </button>
+  // ── Type specific fields ──
+  function renderFields() {
+    if (state.type === '1x2') {
+      fieldsEl.innerHTML = `
+        <div class="ng-label">Matchen</div>
+        <div class="ng-row">
+          <input type="text" class="form-input ng-input" id="ng-home" placeholder="Hemmalag" maxlength="40" value="${escapeHtml(state.home)}" />
+          <span class="ng-vs">vs</span>
+          <input type="text" class="form-input ng-input" id="ng-away" placeholder="Bortalag" maxlength="40" value="${escapeHtml(state.away)}" />
+        </div>
+        <div class="ng-chips ng-preview" id="ng-1x2-preview"></div>
       `;
-    }).join('');
-    friendsListEl.querySelectorAll('.game-friend-pick').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const name = btn.dataset.name;
-        if (!name || players.includes(name)) return;
-        // Replace the "Spelare 1/2" placeholders instead of keeping them next to real people
-        players = players.filter(p => !/^Spelare \d+$/.test(p));
-        players.push(name);
-        if (!participantNameFor(btn.dataset.id)) pickedFriends.set(name, btn.dataset.id);
-        btn.disabled = true;
-        btn.style.opacity = 0.5;
-        btn.lastElementChild.textContent = '✓ Med';
-        renderPlayers();
-      });
-    });
-  }
-
-  function applyGameType(gtId) {
-    currentGt = gtId;
-    gtCards.forEach(c => {
-      const isSel = c.dataset.gt === gtId;
-      c.style.border = isSel ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)';
-      c.style.background = isSel ? 'rgba(245,166,35,0.12)' : 'var(--bg-card)';
-    });
-
-    const gt = GAME_TYPES.find(g => g.id === gtId) || GAME_TYPES[0];
-    if (gtBadge) gtBadge.textContent = `${gt.title} ${gt.icon}`;
-    if (gtDescBox) gtDescBox.textContent = gt.description;
-
-    if (gtId === 'winner') {
-      betMode = 'open';
-      amountLabel.textContent = 'Minsta insats (kr)';
-      amountHelp.textContent = 'Alla bettar på sin favorit med dynamiska pool-odds.';
-      amountInput.value = 50;
-      if (players.length < 2 || players.includes('👍 Ja')) players = [...existingPlayerNames];
-      if (players.length < 2) players = ['Spelare 1', 'Spelare 2'];
-    } else if (gtId === 'winner_takes_all') {
-      betMode = 'self';
-      amountLabel.textContent = 'Fast insats per deltagare (kr)';
-      amountHelp.textContent = 'Alla deltagare lägger denna insats. Vinnaren eller vinnarna delar potten!';
-      amountInput.value = 100;
-      if (players.length < 2 || players.includes('👍 Ja')) players = [...existingPlayerNames];
-      if (players.length < 2) players = ['Spelare 1', 'Spelare 2'];
-    } else if (gtId === '1x2') {
-      betMode = 'open';
-      amountLabel.textContent = 'Insats (kr)';
-      amountHelp.textContent = 'Betta på 1 (Hemmalag), X (Oavgjort) eller 2 (Bortalag).';
-      amountInput.value = 50;
-      players = ['1 (Hemmalag / Lag A)', 'X (Oavgjort)', '2 (Bortalag / Lag B)'];
-    } else if (gtId === 'yes_no') {
-      betMode = 'open';
-      amountLabel.textContent = 'Insats (kr)';
-      amountHelp.textContent = 'Snabbt binärt bet på Ja eller Nej.';
-      amountInput.value = 50;
-      players = ['👍 Ja', '👎 Nej'];
-    }
-    renderPlayers();
-  }
-
-  gtCards.forEach(card => {
-    card.addEventListener('click', () => {
-      applyGameType(card.dataset.gt);
-    });
-  });
-
-  document.querySelectorAll('.gt-quick-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const gt = btn.dataset.gt;
-      applyGameType(gt);
-      if (btn.dataset.name) nameInput.value = btn.dataset.name;
-      if (btn.dataset.amount) amountInput.value = btn.dataset.amount;
-    });
-  });
-
-  // Add player
-  document.getElementById('game-add-player')?.addEventListener('click', () => {
-    const input = document.getElementById('game-player-input');
-    const name = input.value.trim();
-    if (name && !players.includes(name)) {
-      players.push(name);
-      input.value = '';
-      renderPlayers();
-    }
-    input.focus();
-  });
-
-  document.getElementById('game-player-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('game-add-player').click();
-    }
-  });
-
-  // Deadline handling
-  let selectedClosesAt = null;
-  const deadlineButtons = document.querySelectorAll('.deadline-quick-btn');
-  const customDeadlineCont = document.getElementById('custom-deadline-container');
-  const customDeadlineInput = document.getElementById('custom-deadline-input');
-  const deadlineSummary = document.getElementById('deadline-summary-badge');
-
-  function updateDeadlineUI(btn, minutes) {
-    deadlineButtons.forEach(b => {
-      b.style.border = '1px solid var(--border-light)';
-      b.style.background = 'var(--bg-card)';
-    });
-    btn.style.border = '1.5px solid var(--gold)';
-    btn.style.background = 'rgba(245,166,35,0.12)';
-
-    if (minutes === '0') {
-      selectedClosesAt = null;
-      if (customDeadlineCont) customDeadlineCont.style.display = 'none';
-      if (deadlineSummary) deadlineSummary.textContent = 'Ingen tidsgräns vald — spelet stängs manuellt av arrangören.';
-    } else if (minutes === 'custom') {
-      if (customDeadlineCont) customDeadlineCont.style.display = 'block';
-      if (customDeadlineInput) {
-        if (!customDeadlineInput.value) {
-          const d = new Date(Date.now() + 60 * 60 * 1000);
-          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-          customDeadlineInput.value = d.toISOString().slice(0, 16);
-        }
-        selectedClosesAt = new Date(customDeadlineInput.value).toISOString();
-        if (deadlineSummary) {
-          deadlineSummary.textContent = `Spelstopp: ${new Date(customDeadlineInput.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
-        }
-      }
+      const update1x2 = () => {
+        const home = state.home.trim() || 'Hemmalag';
+        const away = state.away.trim() || 'Bortalag';
+        document.getElementById('ng-1x2-preview').innerHTML = [`1 ${home}`, 'X Oavgjort', `2 ${away}`]
+          .map(o => `<span class="ng-chip ng-chip-static">${escapeHtml(o)}</span>`).join('');
+      };
+      document.getElementById('ng-home').addEventListener('input', e => { state.home = e.target.value; update1x2(); updateSummary(); });
+      document.getElementById('ng-away').addEventListener('input', e => { state.away = e.target.value; update1x2(); updateSummary(); });
+      update1x2();
+    } else if (state.type === 'yes_no') {
+      fieldsEl.innerHTML = `
+        <div class="ng-label">Frågan</div>
+        <input type="text" class="form-input ng-input" id="ng-question" placeholder="Sätter Adde putten på 18?" maxlength="120" value="${escapeHtml(state.question)}" />
+        <div class="ng-chips ng-preview"><span class="ng-chip ng-chip-static">👍 Ja</span><span class="ng-chip ng-chip-static">👎 Nej</span></div>
+      `;
+      document.getElementById('ng-question').addEventListener('input', e => { state.question = e.target.value; updateSummary(); });
     } else {
-      const minNum = Number(minutes);
-      const target = new Date(Date.now() + minNum * 60 * 1000);
-      selectedClosesAt = target.toISOString();
-      if (customDeadlineCont) customDeadlineCont.style.display = 'none';
-      if (deadlineSummary) {
-        deadlineSummary.textContent = `Spelstopp ställs till kl ${target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (om ${minNum} min) ⏱️`;
-      }
+      const suggestions = NAME_SUGGESTIONS[state.type] || [];
+      fieldsEl.innerHTML = `
+        <div class="ng-label">Vad gäller det?</div>
+        <input type="text" class="form-input ng-input" id="ng-name" placeholder="${state.type === 'winner' ? 'Vinnare av rundan' : 'Flest birdies'}" maxlength="120" value="${escapeHtml(state.name)}" />
+        <div class="ng-suggest">Förslag: ${suggestions.map(sg => `<button type="button" class="ng-suggest-btn" data-suggest="${escapeHtml(sg)}">${escapeHtml(sg)}</button>`).join(' · ')}</div>
+        <div class="ng-label">Vilka är med? <span class="ng-count" id="ng-people-count"></span></div>
+        <div class="ng-chips" id="ng-people"></div>
+        <div class="ng-row" id="ng-add-person-row" style="display: none; margin-top: 8px;">
+          <input type="text" class="form-input ng-input" id="ng-add-person" placeholder="Namn (t.ex. gäst utan konto)" maxlength="40" />
+          <button type="button" class="btn btn-secondary btn-sm" id="ng-add-person-btn">Lägg till</button>
+        </div>
+        ${state.type === 'winner_takes_all' ? '<p class="ng-hint">Välj vänner med konto – då hamnar insatser och vinst i Swishlistan.</p>' : ''}
+      `;
+      document.getElementById('ng-name').addEventListener('input', e => { state.name = e.target.value; updateSummary(); });
+      fieldsEl.querySelectorAll('.ng-suggest-btn').forEach(btn => btn.addEventListener('click', () => {
+        state.name = btn.dataset.suggest;
+        document.getElementById('ng-name').value = state.name;
+        updateSummary();
+      }));
+      document.getElementById('ng-add-person-btn').addEventListener('click', addCustomPerson);
+      document.getElementById('ng-add-person').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); addCustomPerson(); }
+      });
+      renderPeople();
     }
   }
 
-  deadlineButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      updateDeadlineUI(btn, btn.dataset.minutes);
+  function renderPeople() {
+    const el = document.getElementById('ng-people');
+    if (!el) return;
+    el.innerHTML = people.map((p, i) => `
+      <button type="button" class="ng-chip${p.selected ? ' on' : ''}" data-person="${i}">${p.selected ? '✓ ' : ''}${escapeHtml(p.name)}</button>
+    `).join('') + '<button type="button" class="ng-chip ng-chip-add" id="ng-show-add-person">＋ Namn</button>';
+    el.querySelectorAll('[data-person]').forEach(btn => btn.addEventListener('click', () => {
+      const person = people[Number(btn.dataset.person)];
+      person.selected = !person.selected;
+      renderPeople();
+      updateSummary();
+    }));
+    document.getElementById('ng-show-add-person').addEventListener('click', () => {
+      document.getElementById('ng-add-person-row').style.display = 'flex';
+      document.getElementById('ng-add-person').focus();
     });
-  });
+    const count = people.filter(p => p.selected).length;
+    document.getElementById('ng-people-count').textContent = count > 0 ? `${count} valda` : '';
+  }
 
-  customDeadlineInput?.addEventListener('input', () => {
-    if (customDeadlineInput.value) {
-      selectedClosesAt = new Date(customDeadlineInput.value).toISOString();
-      if (deadlineSummary) {
-        deadlineSummary.textContent = `Spelstopp: ${new Date(customDeadlineInput.value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} 📅`;
+  function addCustomPerson() {
+    const input = document.getElementById('ng-add-person');
+    const name = input.value.trim();
+    if (!name) return;
+    const existing = people.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (existing) existing.selected = true;
+    else people.push({ name, userId: null, inEvent: false, selected: true });
+    input.value = '';
+    renderPeople();
+    updateSummary();
+  }
+
+  // ── Stake: fixed amount, or free between min and max (not for winner-takes-all) ──
+  function renderStake() {
+    const fixedOnly = state.type === 'winner_takes_all';
+    if (fixedOnly) state.stakeMode = 'fixed';
+    document.getElementById('ng-stake-label').textContent = fixedOnly ? 'Insats per person' : 'Insats';
+    stakeEl.innerHTML = `
+      ${fixedOnly ? '' : `
+        <div class="ng-segment">
+          <button type="button" class="${state.stakeMode === 'fixed' ? 'on' : ''}" data-mode="fixed">Fast</button>
+          <button type="button" class="${state.stakeMode === 'free' ? 'on' : ''}" data-mode="free">Fri</button>
+        </div>
+      `}
+      ${state.stakeMode === 'fixed' ? `
+        <div class="ng-chips">
+          ${FIXED_STAKES.map(a => `<button type="button" class="ng-chip${!state.customStake && state.fixedStake === a ? ' gold' : ''}" data-stake="${a}">${a} kr</button>`).join('')}
+          <button type="button" class="ng-chip ng-chip-add${state.customStake ? ' gold' : ''}" data-stake="custom">Annat</button>
+        </div>
+        ${state.customStake ? `<input type="number" inputmode="numeric" class="form-input ng-input" id="ng-fixed-custom" min="1" max="10000" value="${state.fixedStake}" style="margin-top: 8px;" />` : ''}
+        <p class="ng-hint">${fixedOnly ? 'Alla lägger samma summa – vinnaren tar hela potten.' : 'Alla bettar med samma summa.'}</p>
+      ` : `
+        <div class="ng-row">
+          <label class="ng-minmax">Min <input type="number" inputmode="numeric" class="form-input ng-input" id="ng-min" min="1" max="10000" value="${state.minBet}" /> kr</label>
+          <label class="ng-minmax">Max <input type="number" inputmode="numeric" class="form-input ng-input" id="ng-max" min="1" max="10000" value="${state.maxBet}" /> kr</label>
+        </div>
+        <p class="ng-hint">Var och en väljer själv hur mycket – och får lägga flera bets.</p>
+      `}
+    `;
+    stakeEl.querySelectorAll('[data-mode]').forEach(btn => btn.addEventListener('click', () => {
+      state.stakeMode = btn.dataset.mode;
+      renderStake();
+      updateSummary();
+    }));
+    stakeEl.querySelectorAll('[data-stake]').forEach(btn => btn.addEventListener('click', () => {
+      if (btn.dataset.stake === 'custom') {
+        state.customStake = true;
+      } else {
+        state.customStake = false;
+        state.fixedStake = Number(btn.dataset.stake);
       }
+      renderStake();
+      updateSummary();
+      document.getElementById('ng-fixed-custom')?.focus();
+    }));
+    document.getElementById('ng-fixed-custom')?.addEventListener('input', e => { state.fixedStake = Math.round(Number(e.target.value) || 0); updateSummary(); });
+    document.getElementById('ng-min')?.addEventListener('input', e => { state.minBet = Math.round(Number(e.target.value) || 0); updateSummary(); });
+    document.getElementById('ng-max')?.addEventListener('input', e => { state.maxBet = Math.round(Number(e.target.value) || 0); updateSummary(); });
+  }
+
+  // ── What will be created, and whether it is complete ──
+  function buildGame() {
+    const type = NEW_GAME_TYPES.find(g => g.id === state.type);
+    let name = '';
+    let players = [];
+    let problem = null;
+    if (state.type === '1x2') {
+      const home = state.home.trim();
+      const away = state.away.trim();
+      name = home && away ? `⚽ ${home} – ${away}` : '';
+      players = [`1 ${home}`, 'X Oavgjort', `2 ${away}`];
+      if (!home || !away) problem = 'Fyll i båda lagen';
+    } else if (state.type === 'yes_no') {
+      name = state.question.trim();
+      players = ['👍 Ja', '👎 Nej'];
+      if (name.length < 2) problem = 'Skriv frågan';
+    } else {
+      name = state.name.trim();
+      players = people.filter(p => p.selected).map(p => p.name);
+      if (name.length < 2) problem = 'Skriv vad spelet gäller';
+      else if (players.length < 2) problem = 'Välj minst 2 som är med';
+    }
+    const fixed = state.stakeMode === 'fixed';
+    const stake = fixed
+      ? { betAmount: state.fixedStake, text: formatCurrency(state.fixedStake) }
+      : { betAmount: state.minBet, minBet: state.minBet, maxBet: state.maxBet, text: `${state.minBet}–${state.maxBet} kr` };
+    if (!problem) {
+      if (fixed && !(state.fixedStake >= 1 && state.fixedStake <= 10000)) problem = 'Välj en insats';
+      if (!fixed && !(state.minBet >= 1 && state.maxBet >= state.minBet && state.maxBet <= 10000)) problem = 'Max måste vara minst lika mycket som min';
+    }
+    let closesAt = null;
+    const dl = DEADLINES.find(d => d.key === state.deadline);
+    if (dl?.minutes) closesAt = new Date(Date.now() + dl.minutes * 60000).toISOString();
+    if (state.deadline === 'custom') {
+      const d = state.customDeadline ? new Date(state.customDeadline) : null;
+      if (!d || isNaN(d.getTime()) || d.getTime() < Date.now()) { if (!problem) problem = 'Välj ett spelstopp framåt i tiden'; }
+      else closesAt = d.toISOString();
+    }
+    return { type, name, players, stake, closesAt, problem };
+  }
+
+  function updateSummary() {
+    const g = buildGame();
+    const parts = [];
+    if (g.name) parts.push(`<b>${escapeHtml(g.name.startsWith('⚽') ? g.name : `${g.type.icon} ${g.name}`)}</b>`);
+    if (isPeopleGame() && g.players.length) parts.push(`${g.players.length} med`);
+    parts.push(escapeHtml(g.stake.text));
+    if (g.closesAt) parts.push(`stänger ${new Date(g.closesAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
+    document.getElementById('ng-summary').innerHTML = g.problem
+      ? `<span class="ng-summary-todo">${escapeHtml(g.problem)}</span>`
+      : parts.join(' · ');
+    submitBtn.disabled = Boolean(g.problem);
+  }
+
+  // ── Wire up static parts ──
+  form.querySelectorAll('.ng-type').forEach(btn => btn.addEventListener('click', () => {
+    state.type = btn.dataset.type;
+    form.querySelectorAll('.ng-type').forEach(b => b.classList.toggle('on', b === btn));
+    if (state.type === 'winner_takes_all') state.fixedStake = 100;
+    renderFields();
+    renderStake();
+    updateSummary();
+  }));
+
+  const customDeadlineInput = document.getElementById('ng-custom-deadline');
+  form.querySelectorAll('[data-deadline]').forEach(btn => btn.addEventListener('click', () => {
+    state.deadline = btn.dataset.deadline;
+    form.querySelectorAll('[data-deadline]').forEach(b => b.classList.toggle('gold', b === btn));
+    customDeadlineInput.style.display = state.deadline === 'custom' ? 'block' : 'none';
+    if (state.deadline === 'custom' && !customDeadlineInput.value) {
+      const d = new Date(Date.now() + 60 * 60 * 1000);
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      customDeadlineInput.value = d.toISOString().slice(0, 16);
+      state.customDeadline = customDeadlineInput.value;
+    }
+    updateSummary();
+  }));
+  customDeadlineInput.addEventListener('input', () => { state.customDeadline = customDeadlineInput.value; updateSummary(); });
+
+  document.getElementById('ng-image-input').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      state.imageData = await compressImage(file, 600, 0.8);
+      const preview = document.getElementById('ng-image-preview');
+      preview.src = state.imageData;
+      preview.style.display = 'block';
+      document.getElementById('ng-image-text').textContent = '📷 Bild vald – tryck för att byta';
+    } catch (err) {
+      showToast(err.message || 'Kunde inte läsa bilden', 'error');
     }
   });
 
-  // Submit
-  document.getElementById('add-game-form')?.addEventListener('submit', async (e) => {
+  renderFields();
+  renderStake();
+  updateSummary();
+
+  // Friends who are not in the event yet can be picked too (they get invited)
+  getFriends().then(friends => {
+    let added = false;
+    (friends || []).forEach(f => {
+      if (people.some(p => p.userId === f.id)) return;
+      const before = people.length;
+      addPerson({ name: f.nickname, userId: f.id, inEvent: false, selected: false });
+      if (people.length > before) added = true;
+    });
+    if (added) renderPeople();
+  }).catch(() => {});
+
+  // ── Create ──
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const pInput = document.getElementById('game-player-input');
-    if (pInput && pInput.value.trim()) {
-      const pName = pInput.value.trim();
-      if (!players.includes(pName)) {
-        players.push(pName);
-      }
-      pInput.value = '';
-    }
-
-    const name = nameInput.value.trim();
-    const betAmount = Number(amountInput.value) || 50;
-
-    if (players.length < 2) {
-      showToast('Minst 2 spelare eller alternativ krävs', 'error');
+    const g = buildGame();
+    if (g.problem) {
+      showToast(g.problem, 'error');
       return;
     }
-
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Skapar...';
-    }
-
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Skapar...';
     try {
       const pin = sessionStorage.getItem('betpals_pin') || '';
-      // Friends picked in this form join the event first, so the game links their bets to
-      // their accounts (Swishlistan) and they get an invite notification
-      const inviteIds = [...pickedFriends].filter(([pName]) => players.includes(pName)).map(([, id]) => id);
-      if (inviteIds.length > 0) {
-        const inviteRes = await inviteFriendsToTournament(t.id, inviteIds, pin);
-        const participants = inviteRes?.tournament?.participants || [];
-        players = players.map(pName => {
-          const userId = pickedFriends.get(pName);
-          return (userId && participants.find(p => p.userId === userId)?.name) || pName;
-        });
+      let players = g.players;
+      // Friends picked here join the event first, so their bets are linked to their accounts
+      if (isPeopleGame()) {
+        const toInvite = people.filter(p => p.selected && p.userId && !p.inEvent);
+        if (toInvite.length > 0) {
+          const res = await inviteFriendsToTournament(t.id, toInvite.map(p => p.userId), pin);
+          const participants = res?.tournament?.participants || [];
+          players = players.map(name => {
+            const person = toInvite.find(p => p.name === name);
+            return (person && participants.find(pt => pt.userId === person.userId)?.name) || name;
+          });
+        }
       }
       const updated = await createSideBet(t.id, {
-        name,
+        name: g.name,
         players,
-        betMode,
-        betAmount,
-        closesAt: selectedClosesAt,
+        betMode: state.type === 'winner_takes_all' ? 'self' : 'open',
+        betAmount: g.stake.betAmount,
+        ...(g.stake.minBet !== undefined ? { minBet: g.stake.minBet, maxBet: g.stake.maxBet } : {}),
+        closesAt: g.closesAt,
+        imageUrl: state.imageData || undefined,
         pin
       });
       closeModal();
       launchConfetti();
-      showToast('Spel tillagt i eventet! 🎯', 'success');
+      showToast('Spelet är skapat! 🎯', 'success');
       renderTournamentContent(content, updated, photos, tournamentFlashBets);
     } catch (err) {
       showToast(err.message, 'error');
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Skapa Spel 🎯';
-      }
+      submitBtn.textContent = 'Skapa spel';
+      updateSummary();
     }
   });
 }

@@ -2,30 +2,36 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const tournamentSource = readFileSync(new URL('../src/pages/tournament.js', import.meta.url), 'utf8');
+const src = readFileSync(new URL('../src/pages/tournament.js', import.meta.url), 'utf8');
+const serverSrc = readFileSync(new URL('../server/server.js', import.meta.url), 'utf8');
+const form = src.slice(src.indexOf('function showAddGameModal('));
 
-test('add-game form fetches the friend list fresh every time the picker opens', () => {
-  const start = tournamentSource.indexOf("getElementById('game-pick-friends-btn')");
-  assert.ok(start > 0, 'friend picker button must exist');
-  const handler = tournamentSource.slice(start, tournamentSource.indexOf('function applyGameType', start));
-  assert.match(handler, /friends = await getFriends\(\);/);
-  assert.doesNotMatch(handler, /friendsLoaded/);
+test('new game sheet lists event participants and friends not yet in the event', () => {
+  assert.match(form, /\(t\.participants \|\| \[\]\)\.forEach\(p => addPerson\(\{[^}]*selected: true/);
+  assert.match(form, /getFriends\(\)\.then\(friends =>/);
+  assert.match(form, /inEvent: false, selected: false/);
 });
 
-test('friends picked for a game are invited to the event before the game is created', () => {
-  const invite = tournamentSource.indexOf('await inviteFriendsToTournament(t.id, inviteIds, pin)');
-  const create = tournamentSource.indexOf('const updated = await createSideBet(t.id, {');
+test('picked friends are invited to the event before the game is created', () => {
+  const invite = form.indexOf('await inviteFriendsToTournament(t.id');
+  const create = form.indexOf('const updated = await createSideBet(t.id, {');
   assert.ok(invite > 0 && invite < create);
 });
 
-test('add-game form separates "in the game" from the friend list', () => {
-  assert.match(tournamentSource, /id="game-player-heading"/);
-  assert.match(tournamentSource, /✅ Med i spelet/);
-  assert.match(tournamentSource, /Förifyllt med eventets deltagare/);
-  assert.match(tournamentSource, /👥 Lägg till fler från vänlistan/);
+test('one clean type picker: no numbered titles, no duplicate quick picks', () => {
+  assert.match(form, /Vad ska ni betta på\?/);
+  assert.doesNotMatch(form, /Snabbval/);
+  assert.doesNotMatch(form, /Minsta insats/);
+  assert.doesNotMatch(form, /Spelare 1/);
 });
 
-test('friend picker lists friends not yet in the game first and gets a search box for long lists', () => {
-  assert.match(tournamentSource, /\.sort\(\(a, b\) => \(a\.added - b\.added\) \|\| \(a\.i - b\.i\)\)/);
-  assert.match(tournamentSource, /if \(friends\.length > 10\) friendsSearch\.style\.display = 'block';/);
+test('stake can be fixed or free (min–max), winner-takes-all is always fixed', () => {
+  assert.match(form, /data-mode="fixed">Fast</);
+  assert.match(form, /data-mode="free">Fri</);
+  assert.match(form, /if \(fixedOnly\) state\.stakeMode = 'fixed';/);
+  assert.match(serverSrc, /if \(betMode !== 'self' && req\.body\.minBet !== undefined && req\.body\.maxBet !== undefined\)/);
+});
+
+test('1X2 builds name and options from the two teams', () => {
+  assert.match(form, /players = \[`1 \$\{home\}`, 'X Oavgjort', `2 \$\{away\}`\];/);
 });

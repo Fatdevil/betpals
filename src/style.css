@@ -4149,3 +4149,280 @@ body.betslip-open #page-content {
 body.betslip-open #malta-support-fab {
   display: none;
 }
+
+/* ── "Nytt spel" sheet ─────────────────────────────── */
+.ng-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.ng-title-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #a3a3b2;
+}
+
+.ng-label {
+  margin: 18px 0 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a3a3b2;
+}
+
+.ng-count {
+  margin-left: 6px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--gold);
+}
+
+.ng-types {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ng-type {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: var(--bg-card);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ng-type.on {
+  border-color: var(--gold);
+  background: linear-gradient(180deg, rgba(245, 196, 35, 0.12), rgba(245, 196, 35, 0.02));
+}
+
+.ng-type-icon {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.ng-type b {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.ng-type span:last-child {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: #a3a3b2;
+}
+
+.ng-input {
+  font-size: 1rem;
+}
+
+.ng-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ng-row .ng-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ng-vs {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #a3a3b2;
+}
+
+.ng-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ng-preview {
+  margin-top: 8px;
+}
+
+.ng-chip {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ng-chip.on {
+  background: rgba(245, 196, 35, 0.14);
+  border-color: rgba(245, 196, 35, 0.55);
+  color: #fff;
+}
+
+.ng-chip.gold {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #000;
+  font-weight: 800;
+}
+
+.ng-chip-add {
+  border-style: dashed;
+  color: #a3a3b2;
+}
+
+.ng-chip-static {
+  cursor: default;
+  font-size: 0.78rem;
+}
+
+.ng-suggest {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #a3a3b2;
+}
+
+.ng-suggest-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--text-primary);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.3);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ng-hint {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: #a3a3b2;
+  line-height: 1.4;
+}
+
+.ng-segment {
+  display: inline-flex;
+  margin-bottom: 10px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ng-segment button {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 6px 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #a3a3b2;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ng-segment button.on {
+  background: #fff;
+  color: #000;
+}
+
+.ng-minmax {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #a3a3b2;
+}
+
+.ng-minmax .ng-input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.ng-image-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  font-size: 0.85rem;
+  color: #a3a3b2;
+  cursor: pointer;
+}
+
+.ng-image-row span:first-child {
+  flex: 1;
+}
+
+.ng-image-row img {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.ng-image-arrow {
+  font-size: 1.1rem;
+}
+
+/* The create button stays visible at the bottom of the sheet */
+.ng-footer {
+  position: sticky;
+  /* Reaches into the sheet's bottom padding so nothing shows below the button */
+  bottom: -40px;
+  z-index: 2;
+  margin: 18px -4px -40px;
+  padding: 12px 4px 44px;
+  background: var(--bg-secondary);
+  box-shadow: 0 -14px 16px -6px var(--bg-secondary);
+}
+
+.ng-summary {
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  text-align: center;
+  color: #a3a3b2;
+  min-height: 1.2em;
+}
+
+.ng-summary b {
+  color: #fff;
+}
+
+.ng-summary-todo {
+  color: #a3a3b2;
+}
+
+.ng-submit {
+  padding: 14px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.ng-submit:disabled {
+  opacity: 0.4;
+}
