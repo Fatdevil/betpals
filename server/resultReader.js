@@ -42,13 +42,23 @@ function looseMatch(n, options) {
   return around.length === 1 ? around[0].o : null;
 }
 
+function exactOnly(raw, options) {
+  const want = String(raw).trim().toLowerCase();
+  const hits = options.filter(o => String(o.name).trim().toLowerCase() === want);
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // The names the model gave, matched to the game's own options (never anything else)
 export function matchOptions(names, options) {
   const ids = [];
   for (const raw of Array.isArray(names) ? names : []) {
     const n = norm(raw);
     if (!n) continue;
-    const hit = options.find(o => norm(o.name) === n) || looseMatch(n, options);
+    // André and Andre both read "andre": only the exact spelling tells them apart
+    const same = options.filter(o => norm(o.name) === n);
+    const hit = same.length > 1
+      ? exactOnly(raw, same)
+      : same[0] || looseMatch(n, options);
     if (hit && !ids.includes(hit.id)) ids.push(hit.id);
   }
   return ids;

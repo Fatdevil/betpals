@@ -192,7 +192,7 @@ test('the old photo is never sent as proof while its replacement compresses', ()
 
 test('a changed or removed leaderboard link reaches viewers already on the game page', () => {
   const ev = readFileSync(new URL('../src/pages/event.js', import.meta.url), 'utf8');
-  assert.match(ev, /msg\.type === 'event_updated'[\s\S]{0,300}syncResultLink\(fresh/);
+  assert.match(ev, /msg\.type === 'event_updated'[\s\S]{0,600}syncResultLink\(fresh/);
   assert.match(ev, /function syncResultLink\(event, links\) \{[\s\S]*?\.game-link-live'\)\?\.remove\(\);[\s\S]*?insertAdjacentHTML/);
 });
 
@@ -231,4 +231,18 @@ test('a logged-out viewer of a standalone game gets its live updates too', async
   await new Promise(r => setTimeout(r, 200));
   ws.close();
   assert.ok(got.includes('event_updated'), got.join());
+});
+
+test('names that only differ by accents are told apart by exact spelling, or not guessed', () => {
+  const opts = [{ id: 'a', name: 'André' }, { id: 'b', name: 'Andre' }, { id: 'c', name: 'Cissi' }];
+  assert.deepEqual(matchOptions(['Andre'], opts), ['b']);
+  assert.deepEqual(matchOptions(['André'], opts), ['a']);
+  assert.deepEqual(matchOptions(['ANDRE!'], opts), []); // could be either
+  assert.deepEqual(matchOptions(['cissi'], opts), ['c']);
+});
+
+test('a link changed elsewhere reaches the result dialog and the link editor too', () => {
+  const ev = readFileSync(new URL('../src/pages/event.js', import.meta.url), 'utf8');
+  assert.match(ev, /function renderEventContent\(event, content, code\) \{\s*shownEvent = event;/);
+  assert.match(ev, /if \(shownEvent\?\.id === fresh\.id\) shownEvent\.resultUrl = fresh\.resultUrl;\s*syncResultLink/);
 });

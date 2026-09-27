@@ -12,6 +12,7 @@ let countdownInterval = null;
 let resumeCleanup = null;
 // Set while a game page with bettable options is shown; redraws them on live odds
 let refreshGameOptions = null;
+let shownEvent = null; // the event the page's buttons act on
 // The event's organiser may also settle its games
 let tournamentCreatorById = {};
 
@@ -231,7 +232,10 @@ export async function renderEvent(params = {}) {
       } else if (msg.type === 'event_updated') {
         // Patched in place: a full re-render would close an open bet slip
         getEvent(code).then(fresh => {
-          if (isShowing('event', code)) syncResultLink(fresh, content.querySelector('.game-links'));
+          if (!isShowing('event', code)) return;
+          // The dialogs read the link from the shown event, so it must not stay stale there
+          if (shownEvent?.id === fresh.id) shownEvent.resultUrl = fresh.resultUrl;
+          syncResultLink(fresh, content.querySelector('.game-links'));
         }).catch(() => {});
       } else if (msg.type === 'event_deadline_updated') {
         showToast('⏰ Spelstopp uppdaterat!', 'info');
@@ -375,6 +379,7 @@ function removeBetslip() {
 }
 
 function renderEventContent(event, content, code) {
+  shownEvent = event;
   removeBetslip();
   const dl = event.closesAt ? formatDeadline(event.closesAt) : null;
   const isLockedOrExpired = event.status === 'locked' || (dl && dl.isExpired);
@@ -1158,6 +1163,7 @@ async function openEventShareModal(code, eventName) {
 
 export function cleanupEvent() {
   disconnectWebSocket();
+  shownEvent = null;
   if (resumeCleanup) {
     resumeCleanup();
     resumeCleanup = null;
