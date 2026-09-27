@@ -1,4 +1,4 @@
-import { getEvent, getEventQR, placeBet, setEventPicks, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent } from '../api.js';
+import { getEvent, getEventQR, placeBet, setEventPicks, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent, setEventResultUrl } from '../api.js';
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, safeImageSrc, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
@@ -12,6 +12,7 @@ let countdownInterval = null;
 let resumeCleanup = null;
 // Set while a game page with bettable options is shown; redraws them on live odds
 let refreshGameOptions = null;
+let shownEvent = null; // the event the page's buttons act on
 // The event's organiser may also settle its games
 let tournamentCreatorById = {};
 
@@ -228,6 +229,14 @@ export async function renderEvent(params = {}) {
       } else if (msg.type === 'event_reopened') {
         showToast(t('notifications.eventReopened'), 'info');
         setTimeout(() => renderEvent(params), 500);
+      } else if (msg.type === 'event_updated') {
+        // Patched in place: a full re-render would close an open bet slip
+        getEvent(code).then(fresh => {
+          if (!isShowing('event', code)) return;
+          // The dialogs read the link from the shown event, so it must not stay stale there
+          if (shownEvent?.id === fresh.id) shownEvent.resultUrl = fresh.resultUrl;
+          syncResultLink(fresh, content.querySelector('.game-links'));
+        }).catch(() => {});
       } else if (msg.type === 'event_deadline_updated') {
         showToast('⏰ Spelstopp uppdaterat!', 'info');
         setTimeout(() => renderEvent(params), 500);
@@ -370,6 +379,7 @@ function removeBetslip() {
 }
 
 function renderEventContent(event, content, code) {
+  shownEvent = event;
   removeBetslip();
   const dl = event.closesAt ? formatDeadline(event.closesAt) : null;
   const isLockedOrExpired = event.status === 'locked' || (dl && dl.isExpired);
@@ -473,6 +483,7 @@ function renderEventContent(event, content, code) {
           ` : ''}
         </div>
         <div class="game-links">
+          ${resultLinkHtml(event)}
           <button type="button" class="game-link" id="event-share-modal-btn">📤 Dela</button>
           ${!isFinished && event.status !== 'cancelled' ? '<button type="button" class="game-link" id="calendar-export-btn">📅 Kalender</button>' : ''}
         </div>
@@ -568,6 +579,7 @@ function renderEventContent(event, content, code) {
               <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn">🔓 Öppna bettning</button>
             ` : ''}
             <button type="button" class="btn btn-secondary btn-sm" id="creator-deadline-btn">⏰ Ändra spelstopp</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="creator-result-url-btn">📊 ${event.resultUrl ? 'Ändra topplista-länk' : 'Länk till topplista'}</button>
           </div>
         </details>
       ` : ''}
@@ -855,6 +867,10 @@ function renderEventContent(event, content, code) {
     openDeadlineModal(event, content, code);
   });
 
+  document.getElementById('creator-result-url-btn')?.addEventListener('click', () => {
+    openResultUrlModal(event, content, code);
+  });
+
   // Countdown ticking interval
   // After logging in (or adding a Swish number) from this page, come back to this match
   content.querySelectorAll('a[href="#profile"]').forEach(link => {
@@ -919,6 +935,41 @@ function openCalendarModal(event) {
       </div>
     </div>
   `);
+}
+
+// Where the game is followed live, e.g. the GameBook leaderboard link
+function openResultUrlModal(event, content, code) {
+  showModal('📊 Länk till topplista', `
+    <form id="result-url-form">
+      <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 10px;">Klistra in länken till livetopplistan, t.ex. från GameBook (Dela → Kopiera länk). Alla ser en knapp för att följa spelet live, och du hittar resultatet direkt när spelet ska avgöras.</p>
+      <input type="url" inputmode="url" class="form-input" id="result-url-input" placeholder="https://…" maxlength="500" autocomplete="off" value="${escapeHtml(event.resultUrl || '')}" />
+      <button type="submit" class="btn btn-primary btn-block" style="margin-top: 12px; font-weight: 700;">Spara länk</button>
+      ${event.resultUrl ? '<button type="button" class="btn btn-ghost btn-block btn-sm" id="result-url-remove" style="margin-top: 6px;">Ta bort länken</button>' : ''}
+    </form>
+  `);
+  const save = async (url) => {
+    try {
+      await setEventResultUrl(event.id, url, sessionStorage.getItem('betpals_pin') || '');
+      closeModal();
+      showToast(url ? 'Länken är sparad 📊' : 'Länken är borttagen', 'success');
+      const updated = await getEvent(code);
+      updated.tournamentName = event.tournamentName;
+      updated.tournamentCode = event.tournamentCode;
+      renderEventContent(updated, content, code);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+  document.getElementById('result-url-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const url = document.getElementById('result-url-input').value.trim();
+    if (url && !/^https:\/\/\S+$/i.test(url)) {
+      showToast('Länken måste börja med https://', 'error');
+      return;
+    }
+    save(url);
+  });
+  document.getElementById('result-url-remove')?.addEventListener('click', () => save(''));
 }
 
 function openDeadlineModal(event, content, code) {
@@ -1112,6 +1163,7 @@ async function openEventShareModal(code, eventName) {
 
 export function cleanupEvent() {
   disconnectWebSocket();
+  shownEvent = null;
   if (resumeCleanup) {
     resumeCleanup();
     resumeCleanup = null;
@@ -1128,4 +1180,20 @@ export function cleanupEvent() {
   removeBetslip();
   // The slip is gone: back must work again while the page reloads
   setBackInterceptor(null);
+}
+
+function resultLinkHtml(event) {
+  if (!event.resultUrl) return '';
+  const label = event.status === 'finished' ? 'Topplista' : 'Följ live';
+  return `<a class="game-link game-link-live" href="${escapeHtml(sanitizeUrl(event.resultUrl))}" target="_blank" rel="noopener noreferrer">📊 ${label}</a>`;
+}
+
+// A changed or removed leaderboard link reaches everyone already on the page
+function syncResultLink(event, links) {
+  if (!links) return;
+  links.querySelector('.game-link-live')?.remove();
+  const html = resultLinkHtml(event);
+  if (html) links.insertAdjacentHTML('afterbegin', html);
+  const btn = document.getElementById('creator-result-url-btn');
+  if (btn) btn.textContent = `📊 ${event.resultUrl ? 'Ändra topplista-länk' : 'Länk till topplista'}`;
 }

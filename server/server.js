@@ -12,6 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { readResultFromImage, canReadResults } from './resultReader.js';
 import { generateMaltaSupportReply, getMaltaFallbackReply, getSupportSuggestions, SUPPORT_TOPICS, getSupportMode, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -126,7 +127,15 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-app.use(express.json({ limit: '1mb' }));
+// Photo uploads have their own larger limit on the route; the default 1 MB parser must not
+// reject them first (it runs before any route-level parser)
+const defaultJson = express.json({ limit: '1mb' });
+const LARGE_JSON_ROUTES = [
+  /^\/api\/users\/me\/avatar$/,
+  /^\/api\/tournaments\/[^/]+\/photos$/,
+  /^\/api\/events\/[^/]+\/read-result$/
+];
+app.use((req, res, next) => (LARGE_JSON_ROUTES.some(r => r.test(req.path)) ? next() : defaultJson(req, res, next)));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Serve frontend in production
@@ -489,6 +498,16 @@ wss.on('connection', (ws, req) => {
 
   // Don't join event channel yet – wait until auth confirms tournament access
   let pendingEventCode = eventCode || null;
+  // A standalone game is public by its share link, so its page listens without logging in
+  if (pendingEventCode && !db.getTournamentByCode(pendingEventCode)) {
+    const game = db.getEventByCode(pendingEventCode);
+    if (game && canViewEvent(game, null)) {
+      if (!eventClients.has(pendingEventCode)) eventClients.set(pendingEventCode, new Set());
+      eventClients.get(pendingEventCode).add(ws);
+      boundEventCode = pendingEventCode;
+      pendingEventCode = null;
+    }
+  }
 
   if (duelId) {
     tryJoinDuel(duelId);
@@ -512,7 +531,9 @@ wss.on('connection', (ws, req) => {
           // Join pending event channel after verifying tournament access
           if (pendingEventCode) {
             const tourney = db.getTournamentByCode(pendingEventCode);
-            if (tourney && db.canUserAccessTournament(tourney, boundUserId)) {
+            // A game page listens on the game's own code, with the same access as viewing it
+            const game = tourney ? null : db.getEventByCode(pendingEventCode);
+            if ((tourney && db.canUserAccessTournament(tourney, boundUserId)) || (game && canViewEvent(game, user))) {
               if (!eventClients.has(pendingEventCode)) eventClients.set(pendingEventCode, new Set());
               eventClients.get(pendingEventCode).add(ws);
               boundEventCode = pendingEventCode;
@@ -2400,7 +2421,66 @@ app.get('/api/events/:idOrCode', (req, res) => {
       : res.status(401).json({ error: 'Logga in för att se detta event' });
   }
   hidePicksWhileOpen(event, user);
-  res.json(user ? event : publicEventView(event));
+  // Whether the result dialog can offer "read the result from a photo". Not sensitive, and
+  // organisers who manage a game with the PIN (no login) need it too
+  const out = user ? event : publicEventView(event);
+  out.canReadResultPhoto = canReadResults();
+  res.json(out);
+});
+
+// The organiser's photo of the result (scorecard, GameBook leaderboard): the AI suggests the
+// winner among the game's options. Only a suggestion; settling is still the organiser's tap.
+// Every reading is a paid AI call: a few per organiser, one at a time, and a cap per IP
+const resultReads = new Map(); // key -> timestamps
+const readsInFlight = new Set();
+function allowResultRead(key, max, windowMs) {
+  const now = Date.now();
+  if (resultReads.size > 2000) {
+    for (const [k, times] of resultReads) if (!times.some(t => now - t < 60 * 60 * 1000)) resultReads.delete(k);
+  }
+  const recent = (resultReads.get(key) || []).filter(t => now - t < windowMs);
+  if (recent.length >= max) {
+    resultReads.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  resultReads.set(key, recent);
+  return true;
+}
+
+app.post('/api/events/:id/read-result', express.json({ limit: '8mb' }), async (req, res) => {
+  const event = db.getFullEvent(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  if (event.status === 'finished' || event.status === 'cancelled') return res.status(400).json({ error: 'Spelet är redan avgjort' });
+  if (!canReadResults()) return res.status(503).json({ error: 'AI-avläsning är inte påslagen' });
+  const who = getUserFromToken(req)?.id || 'ip:' + getClientIp(req);
+  if (readsInFlight.has(who)) return res.status(429).json({ error: 'Vänta, bilden läses redan av' });
+  if (!allowResultRead('user:' + who, 6, 10 * 60 * 1000) || !allowResultRead('ip:' + getClientIp(req), 20, 60 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Många avläsningar på kort tid – välj vinnaren själv eller försök igen om en stund' });
+  }
+  readsInFlight.add(who);
+  try {
+    const result = await readResultFromImage(event, req.body?.image);
+    if (!result.ok) return res.status(result.error === 'Bilden kunde inte läsas' ? 400 : 503).json({ error: result.error });
+    res.json({ winnerIds: result.winnerIds, reason: result.reason });
+  } finally {
+    readsInFlight.delete(who);
+  }
+});
+
+// Link to where the game is followed live, e.g. a GameBook leaderboard
+app.put('/api/events/:id/result-url', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  const raw = String(req.body?.url || '').trim();
+  if (raw && !db.cleanResultUrl(raw)) return res.status(400).json({ error: 'Länken måste börja med https://' });
+  db.setEventResultUrl(event.id, raw);
+  broadcastToEvent(event.share_code, { type: 'event_updated', eventCode: event.share_code });
+  const t = event.tournament_id ? db.getTournamentById(event.tournament_id) : null;
+  if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  res.json({ ok: true, resultUrl: db.cleanResultUrl(raw) });
 });
 
 // In a pick game nobody can copy anyone: others' tips show once betting has closed
@@ -3490,6 +3570,9 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   if (validClosesAt && !reminderFits(req.body.remindBeforeMin, validClosesAt)) {
     return res.status(400).json({ error: REMINDER_TOO_LATE });
   }
+  if (req.body.resultUrl && !db.cleanResultUrl(req.body.resultUrl)) {
+    return res.status(400).json({ error: 'Länken till topplistan måste börja med https://' });
+  }
 
   const eventId = generateId();
   const eventData = {
@@ -3515,6 +3598,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   db.createEvent(eventData, playerData);
   if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
   if (validClosesAt && req.body.remindBeforeMin) db.setEventReminder(eventId, req.body.remindBeforeMin);
+  if (req.body.resultUrl) db.setEventResultUrl(eventId, req.body.resultUrl);
 
   // For 'self' mode: auto-create bets — each player bets on themselves
   if (betMode === 'self') {

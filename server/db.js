@@ -181,6 +181,8 @@ try { db.exec('ALTER TABLE events ADD COLUMN pick_result TEXT'); } catch {}
 // Automatic reminder push N minutes before a game's betting closes
 try { db.exec('ALTER TABLE events ADD COLUMN remind_before_min INTEGER'); } catch {}
 try { db.exec('ALTER TABLE events ADD COLUMN reminded_at TEXT'); } catch {}
+// Where the game is played/scored live, e.g. a GameBook leaderboard link
+try { db.exec('ALTER TABLE events ADD COLUMN result_url TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE tournament_participants ADD COLUMN account_deleted INTEGER NOT NULL DEFAULT 0'); } catch {}
@@ -1381,6 +1383,7 @@ export function getFullEvent(idOrCode) {
     winnerImageUrl: event.winner_image_url || null,
     closesAt: event.closes_at || null,
     remindBeforeMin: event.remind_before_min || null,
+    resultUrl: event.result_url || null,
     lastBoostedAt: event.last_boosted_at || null,
     players: mappedPlayers,
     ...(event.bet_mode === 'picks' ? pickGameDetails(event) : {}),
@@ -1603,6 +1606,22 @@ export function updateEventClosesAt(eventId, closesAt) {
   stmts.updateEventClosesAt.run(closesAt || null, eventId);
   // A new closing time gets its own reminder
   db.prepare('UPDATE events SET reminded_at = NULL WHERE id = ?').run(eventId);
+}
+
+// Only plain web links (https), so nothing odd ends up behind the button
+export function cleanResultUrl(raw) {
+  const text = String(raw || '').trim();
+  if (!text || text.length > 500) return null;
+  try {
+    const u = new URL(text);
+    return u.protocol === 'https:' ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setEventResultUrl(eventId, url) {
+  db.prepare('UPDATE events SET result_url = ? WHERE id = ?').run(cleanResultUrl(url), eventId);
 }
 
 export function setEventReminder(eventId, minutesBefore) {
@@ -2367,7 +2386,8 @@ export function getFullTournament(idOrCode) {
       maxBet: e.max_bet,
       closesAt: e.closes_at || null,
       lastBoostedAt: e.last_boosted_at || null,
-      imageUrl: e.image_url || null
+      imageUrl: e.image_url || null,
+      resultUrl: e.result_url || null
     };
   };
 
