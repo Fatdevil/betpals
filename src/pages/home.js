@@ -88,6 +88,7 @@ export async function renderHome() {
         // Up to three open games: the ones you have not bet on first, then closing soonest
         const upNext = isActive ? (tr.upNext || []) : [];
         const gamesHtml = upNext.length ? `
+          <div class="home-games-label">${isEn ? 'Open games' : 'Öppna spel'} · ${tr.openGameCount}</div>
           <div class="home-event-games">
             ${upNext.map(g => {
               const dl = g.closesAt ? formatDeadline(g.closesAt) : null;
@@ -106,21 +107,18 @@ export async function renderHome() {
                 </button>`;
             }).join('')}
           </div>` : '';
+        // The yellow "bet" is on the game rows only; below them one plain way to the whole
+        // event, named for where it goes (the card itself opens the event too)
+        const allGames = `<span class="home-event-all">${isEn ? 'All games in the event' : 'Alla spel i eventet'} →</span>`;
         let action;
         if (!isActive) {
           action = `<span class="home-event-note">🏁 ${isEn ? 'Settled – see the results' : 'Avgjort – se resultatet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
-        } else if (upNext.length > 0 && tr.openGameCount > upNext.length) {
-          // The list above shows the first few: say how many more there are
-          const more = tr.openGameCount - upNext.length;
-          action = `<span class="home-event-note${tr.openUnbetCount > 0 ? ' home-event-note-go' : ''}">+${more} ${isEn ? (more === 1 ? 'more open game' : 'more open games') : (more === 1 ? 'öppet spel till' : 'öppna spel till')}</span>${tr.openUnbetCount > 0 ? `<span class="home-event-cta">${isEn ? 'Bet now' : 'Betta nu'} →</span>` : `<span class="home-event-link">${isEn ? 'All games' : 'Alla spel'} →</span>`}`;
-        } else if (tr.openUnbetCount > 0) {
-          action = `<span class="home-event-note home-event-note-go">${tr.openUnbetCount} ${isEn ? (tr.openUnbetCount === 1 ? 'game open for bets' : 'games open for bets') : (tr.openUnbetCount === 1 ? 'spel öppet för bets' : 'spel öppna för bets')}</span><span class="home-event-cta">${isEn ? 'Bet now' : 'Betta nu'} →</span>`;
-        } else if (tr.openGameCount > 0) {
-          action = `<span class="home-event-note">✓ ${isEn ? 'You have bet on everything' : 'Du har bettat på allt'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+        } else if (upNext.length > 0) {
+          action = allGames;
         } else if (games === 0) {
           action = `<span class="home-event-note">${isEn ? 'Waiting for the first game' : 'Väntar på första spelet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
         } else {
-          action = `<span class="home-event-note">${isEn ? 'No open bets right now' : 'Inga öppna bets just nu'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+          action = `<span class="home-event-note">${isEn ? 'No open games right now' : 'Inga öppna spel just nu'}</span><span class="home-event-link">${isEn ? 'All games' : 'Alla spel'} →</span>`;
         }
         return `
           <div class="home-event-card card-clickable animate-in" data-tournament-code="${escapeHtml(tr.shareCode)}"
@@ -132,7 +130,7 @@ export async function renderHome() {
             <span class="game-pill ${isActive ? 'game-pill-open' : 'game-pill-done'}">${isActive ? `<i></i>${isEn ? 'Live' : 'Pågår'}` : `🏁 ${isEn ? 'Settled' : 'Avgjort'}`}</span>
             ${info ? `<div class="home-event-info">${info}</div>` : ''}
             ${gamesHtml}
-            <div class="home-event-action">${action}</div>
+            <div class="home-event-action${upNext.length ? ' is-plain' : ''}">${action}</div>
             ${tr.banners && tr.banners.length > 0 ? `
               <div class="home-event-sponsors">
                 <div class="home-event-sponsors-label">${isEn ? 'Sponsored by' : 'Sponsrat av'}</div>
