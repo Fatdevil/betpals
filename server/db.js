@@ -2892,6 +2892,11 @@ export function getTournamentNetSettlement(tournamentId) {
     }
   }
 
+  // Each player's result from the games alone (before any payment), in whole
+  // kronor that still add up to zero
+  const gameResults = wholeKronorZeroSum(Object.values(players).map(p => p.rawTotal || 0));
+  Object.values(players).forEach((p, i) => { p.result = gameResults[i]; });
+
   // Deterministic whole-kronor balancing (Hamilton's largest-remainder method)
   // Ensures sum(roundedNet) === 0 exactly, avoiding orphaned crowns.
   const playerEntries = Object.values(players).map(p => {
@@ -2996,6 +3001,7 @@ export function getTournamentNetSettlement(tournamentId) {
       name: e.p.name,
       net: e.rounded,
       rawTotal: Math.round(e.p.rawTotal || 0),
+      result: e.p.result,
       totalPaid: Math.round(e.p.totalPaid || 0),
       totalReceived: Math.round(e.p.totalReceived || 0),
       isDebtFree: Math.abs(e.rounded) < 1,
@@ -3019,6 +3025,22 @@ export function getTournamentNetSettlement(tournamentId) {
     finishedRounds: finishedMainRounds + finishedSideBets,
     totalRounds: totalMainRounds + totalSideBets
   };
+}
+
+// Rounds amounts to whole kronor so they still sum to zero (largest remainder)
+function wholeKronorZeroSum(values) {
+  const rounded = values.map(v => Math.round(v));
+  let excess = rounded.reduce((sum, v) => sum + v, 0);
+  const order = values.map((v, i) => i)
+    .sort((a, b) => excess > 0
+      ? (values[a] - rounded[a]) - (values[b] - rounded[b])
+      : (values[b] - rounded[b]) - (values[a] - rounded[a]));
+  for (const i of order) {
+    if (excess === 0) break;
+    rounded[i] -= Math.sign(excess);
+    excess -= Math.sign(excess);
+  }
+  return rounded;
 }
 
 export function createSettlementReceipt(id, tournamentId, fromName, toName, amount, fromUserId = null, toUserId = null) {
@@ -3700,7 +3722,7 @@ export function getUnifiedSettlementOverview(userId) {
     if (!settlement || !Array.isArray(settlement.transfers)) continue;
     // Your result from the games, before any payment made during the event
     const mine = (settlement.balances || []).find(b => b.userId === userId);
-    if (mine) myResultById.set(t.id, mine.rawTotal);
+    if (mine) myResultById.set(t.id, mine.result);
 
     for (const tr of settlement.transfers) {
       if (tr.isPaid) continue;

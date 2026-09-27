@@ -224,7 +224,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   // Your own line in the settlement, shown at the top and marked in the list
   const myBalance = user ? t.settlement.balances.find(b => b.userId === user.id) : null;
   // Your result from the games; a payment made during the event does not change it
-  const myResult = myBalance ? Math.round(myBalance.rawTotal || 0) : 0;
+  const myResult = myBalance ? (myBalance.result ?? Math.round(myBalance.rawTotal || 0)) : 0;
   const showMine = t.settlement.finishedRounds > 0 && myResult !== 0;
 
   // Who is in the event: first names and initials for the hero row

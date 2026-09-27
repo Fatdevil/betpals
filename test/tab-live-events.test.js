@@ -166,6 +166,26 @@ test('"Ditt resultat hittills" is the game result: a payment during the event do
 
 test('the event page shows the game result, not what is left to pay', () => {
   const src = readFileSync(new URL('../src/pages/tournament.js', import.meta.url), 'utf8');
-  assert.match(src, /const myResult = myBalance \? Math\.round\(myBalance\.rawTotal/);
+  assert.match(src, /const myResult = myBalance \? \(myBalance\.result/);
   assert.doesNotMatch(src, /Ditt resultat hittills: <b>\$\{myBalance\.net/);
+});
+
+test('split winnings: the shown results are whole kronor that add up to zero', () => {
+  const a = makeUser('Anna'), b = makeUser('Bosse'), c = makeUser('Cissi');
+  const tId = uid();
+  db.createTournament(tId, 'Delad pott', code(), a.id, 'friends',
+    [a, b, c].map(u => ({ name: u.nickname, userId: u.id })));
+  const ev = uid(), p1 = uid(), p2 = uid();
+  db.createEvent({ id: ev, name: 'Vem vinner', tournamentId: tId, creatorId: a.id }, [{ id: p1, name: 'Ja' }, { id: p2, name: 'Nej' }]);
+  // Anna and Bosse share Cissi's 1 kr: 0.5 kr each is not payable
+  db.addBet(uid(), ev, a.nickname, p1, 1, a.id);
+  db.addBet(uid(), ev, b.nickname, p1, 1, b.id);
+  db.addBet(uid(), ev, c.nickname, p2, 1, c.id);
+  db.finishEvent(ev, p1);
+  const { balances } = db.getTournamentNetSettlement(tId);
+  assert.equal(balances.reduce((sum, x) => sum + x.result, 0), 0);
+  for (const x of balances) assert.equal(x.result, x.net);
+  const shown = [a, b, c].map(u => db.getUnifiedSettlementOverview(u.id).liveEvents.find(e => e.id === tId)?.myResult ?? 0);
+  assert.equal(shown.reduce((sum, v) => sum + v, 0), 0);
+  assert.deepEqual(shown.map(Math.abs).sort(), [0, 1, 1]);
 });
