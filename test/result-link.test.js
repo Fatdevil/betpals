@@ -167,7 +167,7 @@ test('an answer for a photo that is no longer the chosen one is dropped', () => 
   assert.match(fin, /function photoReader\(event, pin, btn, apply\)/);
   assert.match(fin, /if \(image !== current\) \{\s*if \(current\) run\(\);\s*else idle\(\);\s*return;/);
   assert.match(fin, /reader\?\.cancel\(\);\s*clearSuggestion\(\);/);
-  assert.match(fin, /pickReader\.read\(await compressImage\(file, 1000, 0\.8\)\)/);
+  assert.match(fin, /if \(pick === photoPick\) pickReader\.read\(image\);/);
 });
 
 test('a replaced suggestion undoes its tie ticks, and an older photo never overtakes a newer pick', () => {
