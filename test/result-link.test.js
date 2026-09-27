@@ -258,3 +258,13 @@ test('a loose name matches only whole words, never part of another name', () => 
   assert.deepEqual(matchOptions(['Anna & Cissi'], nested), [], 'two different names: no guess');
   assert.deepEqual(matchOptions(['Bosse'], [{ id: 'b', name: 'Bosse Bengtsson' }]), ['b'], 'a first name of exactly one option');
 });
+
+test('options written in other scripts can be suggested too', () => {
+  const opts = [{ id: 'z', name: '张伟' }, { id: 'm', name: 'محمد' }, { id: 'o', name: 'Олег' }, { id: 'a', name: 'Åsa' }];
+  assert.deepEqual(matchOptions(['张伟'], opts), ['z']);
+  assert.deepEqual(matchOptions(['محمد'], opts), ['m']);
+  assert.deepEqual(matchOptions(['олег'], opts), ['o']);
+  assert.deepEqual(matchOptions(['Олег Петров'], opts), ['o']);
+  assert.deepEqual(matchOptions(['Asa'], opts), ['a']);
+  assert.deepEqual(matchOptions(['!!'], opts), []);
+});

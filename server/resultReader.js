@@ -24,7 +24,8 @@ export function parseImageDataUrl(dataUrl) {
   return { mimeType: m[1], data: m[2] };
 }
 
-const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+// Accents go (André ~ Andre); letters of every script stay (Олег, 张伟, محمد)
+const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/\p{M}+/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 // "Anna Andersson" on the card for the option "Anna": the option as whole words inside the
 // name (never inside another word: "Joanne" is not "Ann"). Of overlapping options the one
