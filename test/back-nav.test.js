@@ -91,3 +91,8 @@ test('a slip removed by a refresh never swallows back', () => {
   assert.match(ev, /setBackInterceptor\(\(\) => \{[^}]*?if \(!slip\.isConnected \|\| slip\.hidden\) return false;/);
   assert.match(ev, /removeBetslip\(\);\s*\/\/[^\n]*\n\s*setBackInterceptor\(null\);\s*\}/);
 });
+
+test('a game names its event as parent as soon as the game is loaded', () => {
+  const ev = read('src/pages/event.js');
+  assert.match(ev, /const event = await getEvent\(code\);\s*if \(!isShowing\('event', code\)\) return;\s*\/\/[^\n]*\n\s*if \(event\.tournamentId\) setBackParent\('tournament', \{ code: event\.tournamentId \}\);\s*\n\s*\/\/ Where back leads/);
+});

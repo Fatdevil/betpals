@@ -181,6 +181,8 @@ export async function renderEvent(params = {}) {
   try {
     const event = await getEvent(code);
     if (!isShowing('event', code)) return;
+    // Back works as soon as we know the event, even while its details still load
+    if (event.tournamentId) setBackParent('tournament', { code: event.tournamentId });
 
     // Where back leads: the game's event
     if (event.tournamentId) {
