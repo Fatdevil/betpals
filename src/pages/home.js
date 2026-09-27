@@ -160,7 +160,8 @@ export async function renderHome() {
       });
       tList.querySelectorAll('.home-event-card').forEach(card => {
         card.addEventListener('keydown', e => {
-          if (e.key === 'Enter') navigate('tournament', { code: card.dataset.tournamentCode });
+          // Enter on a button inside (a game row, a sponsor) is that button's, not the card's
+          if (e.key === 'Enter' && e.target === card) navigate('tournament', { code: card.dataset.tournamentCode });
         });
       });
 

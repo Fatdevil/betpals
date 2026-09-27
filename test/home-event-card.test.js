@@ -73,3 +73,8 @@ test('the card\'s pools come from one grouped query per event, not one per game'
   assert.match(fn, /poolsByTournament\.all\(t\.id\)/);
   assert.doesNotMatch(fn, /getTotalPool/, 'no per-game pool query left');
 });
+
+test('Enter on a game row opens only the game, not the event first', () => {
+  const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
+  assert.match(home, /if \(e\.key === 'Enter' && e\.target === card\) navigate\('tournament'/);
+});
