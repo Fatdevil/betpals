@@ -10,6 +10,8 @@ test('offline answers find the right topic for everyday questions', () => {
     'Hur avgör jag en match?': 'decide',
     'Hur tar jag bort ett spel?': 'remove',
     'Hur skapar jag ett Välj flera-spel där flest rätt vinner?': 'picks',
+    'Hur gör jag en tipsrad med flera matcher?': 'coupon',
+    'Kan vi köra stryktips på matchspelen?': 'coupon',
     'Varför står det att jag ska swisha fast eventet pågår?': 'running',
     'Hur funkar Blind 10?': 'blind10',
     'Var ser jag mina notiser?': 'bell',

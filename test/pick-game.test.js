@@ -165,3 +165,11 @@ test('anonymous viewers never get account ids of those who tipped', async () => 
   assert.ok(res.body.entries.every(e => !('userId' in e)));
   assert.equal(res.body.entries[0].picks, null, 'hidden while open');
 });
+
+test('the event\'s game card shows what the viewer picked, not "?"', async () => {
+  const { friends, ev, id, tId } = await pickGame();
+  await tip(ev, friends[0], [id('Brolle'), id('Adde')]);
+  const t = (await call('GET', `/api/tournaments/${db.getTournamentById(tId).share_code}`, null, friends[0].token)).body;
+  const label = t.sideBets.find(g => g.id === ev.id).myBets[0].playerName;
+  assert.deepEqual(label.split(', ').sort(), ['Adde', 'Brolle']);
+});

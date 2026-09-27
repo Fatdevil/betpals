@@ -9,8 +9,8 @@ const serverSrc = readFileSync(new URL('../server/server.js', import.meta.url), 
 
 test('game cards have a clear call to action and show the viewer\'s own bets', () => {
   assert.match(tourSrc, /const renderGameCard = \(g, nested = false\) =>/);
-  assert.match(tourSrc, /<span class="game-card-cta">Betta →<\/span>/);
-  assert.match(tourSrc, /✓ Du bettade:/);
+  assert.match(tourSrc, /<span class="game-card-cta">\$\{g\.pickCount \? 'Tippa' : 'Betta'\} →<\/span>/);
+  assert.match(tourSrc, /✓ \$\{g\.coupon \? 'Din rad' : g\.pickCount \? 'Ditt tips' : 'Du bettade'\}:/);
   assert.match(tourSrc, /👥 Alla med/);
   assert.match(tourSrc, /class="game-card-menu"/);
   assert.match(serverSrc, /g\.myBets = mine/);

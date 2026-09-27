@@ -157,8 +157,10 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     const isSelf = g.betMode === 'self';
     const mine = g.myBets || [];
     const stake = g.minBet === g.maxBet ? formatCurrency(g.minBet) : `${formatCurrency(g.minBet)}–${formatCurrency(g.maxBet)}`;
-    const shown = (g.players || []).slice(0, 4);
-    const more = (g.players || []).length - shown.length;
+    // A coupon shows its matches, not its 1 / X / 2 options one by one
+    const chipNames = g.coupon ? g.coupon.matches.map(m => `${m.home} – ${m.away}`) : (g.players || []).map(p => p.name);
+    const shown = chipNames.slice(0, g.coupon ? 2 : 4);
+    const more = chipNames.length - shown.length;
 
     let meta;
     let cta;
@@ -172,15 +174,18 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
       meta = `👥 Alla med · ${formatCurrency(g.minBet)}/st · pott ${formatCurrency(g.totalPool)}`;
       cta = '<span class="game-card-wait">⏳ Väntar på resultat</span>';
     } else if (isOpen) {
-      meta = `${dl ? `<span class="game-card-time">⏱ ${escapeHtml(dl.shortText)}</span> · ` : ''}${g.pickCount ? `🎯 Välj ${g.pickCount} · ` : ''}${stake} · ${g.betCount} ${g.pickCount ? (g.betCount === 1 ? 'tips' : 'tips') : g.betCount === 1 ? 'bet' : 'bets'}`;
-      cta = mine.length > 0 ? '<span class="game-card-link">Se spel →</span>' : '<span class="game-card-cta">Betta →</span>';
+      meta = `${dl ? `<span class="game-card-time">⏱ ${escapeHtml(dl.shortText)}</span> · ` : ''}${g.coupon ? `📋 ${g.coupon.matchCount} matcher · ` : g.pickCount ? `🎯 Välj ${g.pickCount} · ` : ''}${stake} · ${g.betCount} ${g.pickCount ? (g.betCount === 1 ? 'tips' : 'tips') : g.betCount === 1 ? 'bet' : 'bets'}`;
+      cta = mine.length > 0 ? '<span class="game-card-link">Se spel →</span>' : `<span class="game-card-cta">${g.pickCount ? 'Tippa' : 'Betta'} →</span>`;
+    } else if (g.coupon && g.coupon.decided > 0) {
+      meta = `<span class="game-card-time">✏️ ${g.coupon.decided}/${g.coupon.matchCount} rättade</span> · pott ${formatCurrency(g.totalPool)}`;
+      cta = '<span class="game-card-link">Se ställningen →</span>';
     } else {
       meta = `🔒 Stängt för bets · pott ${formatCurrency(g.totalPool)}`;
       cta = '<span class="game-card-link">Se spel →</span>';
     }
 
     const mineLine = !isSelf && mine.length > 0
-      ? `<div class="game-card-mine">✓ Du bettade: ${mine.map(b => `${escapeHtml(b.playerName)} · ${formatCurrency(b.amount)}`).join(', ')}</div>`
+      ? `<div class="game-card-mine">✓ ${g.coupon ? 'Din rad' : g.pickCount ? 'Ditt tips' : 'Du bettade'}: ${mine.map(b => `${escapeHtml(b.playerName)} · ${formatCurrency(b.amount)}`).join(', ')}</div>`
       : '';
 
     return `
@@ -191,7 +196,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           ${isCreator && g.status !== 'finished' ? `<button type="button" class="game-card-menu" data-id="${g.id}" data-name="${escapeHtml(g.name)}" data-open="${isOpen ? '1' : ''}" data-reopenable="${!isOpen && g.status !== 'cancelled' ? '1' : ''}" data-has-bets="${g.status !== 'cancelled' && (g.betCount > 0 || g.totalPool > 0) ? '1' : ''}" aria-label="Spelledarval">⋯</button>` : ''}
         </div>
         <div class="game-card-chips">
-          ${shown.map(p => `<span class="game-chip">${escapeHtml(p.name)}</span>`).join('')}
+          ${shown.map(name => `<span class="game-chip">${escapeHtml(name)}</span>`).join('')}
           ${more > 0 ? `<span class="game-chip game-chip-more">+${more}</span>` : ''}
         </div>
         ${mineLine}
@@ -1260,13 +1265,16 @@ const NEW_GAME_TYPES = [
   { id: 'winner_takes_all', icon: '👥', title: 'Vinnare tar allt', desc: 'Alla lägger lika – vinnaren tar potten' },
   { id: '1x2', icon: '⚽', title: 'Match 1 X 2', desc: 'Hemma, oavgjort eller borta' },
   { id: 'yes_no', icon: '👍', title: 'Ja eller nej', desc: 'En snabb fråga' },
-  { id: 'picks', icon: '🎯', title: 'Välj flera', desc: 'Alla väljer lika många – flest rätt tar potten' }
+  { id: 'picks', icon: '🎯', title: 'Välj flera', desc: 'Alla väljer lika många – flest rätt tar potten' },
+  { id: 'coupon', icon: '📋', title: 'Tipsrad', desc: 'Flera matcher 1 X 2 – flest rätt tar potten' }
 ];
 const NAME_SUGGESTIONS = {
   winner: ['Vinnare av rundan', 'Längsta drive', 'Närmast hål'],
   winner_takes_all: ['Flest birdies', 'Bästa score', 'Ölhävning'],
-  picks: ['Vilka 4 kommer sist?', 'Vilka 3 går till final?', 'Topp 4 i loppet']
+  picks: ['Vilka 4 kommer sist?', 'Vilka 3 går till final?', 'Topp 4 i loppet'],
+  coupon: ['Lördagens matcher', 'Singlarna', 'Fyrbollarna']
 };
+const COUPON_MAX_MATCHES = 13;
 const FIXED_STAKES = [20, 50, 100, 200];
 const DEADLINES = [
   { key: 'none', label: 'Inget', minutes: 0 },
@@ -1294,7 +1302,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     if (!exists) people.push(person);
   };
   (t.participants || []).forEach(p => addPerson({ name: String(p.name || '').trim(), userId: p.userId || null, inEvent: true, selected: true }));
-  [...(t.rounds || []), ...(t.sideBets || [])].forEach(g => (g.players || []).forEach(pl => {
+  [...(t.rounds || []), ...(t.sideBets || [])].filter(g => !g.coupon).forEach(g => (g.players || []).forEach(pl => {
     const name = String(typeof pl === 'string' ? pl : pl.name || '').trim();
     if (name && !/^[1X2] |^👍|^👎/.test(name)) addPerson({ name, userId: null, inEvent: true, selected: false });
   }));
@@ -1302,6 +1310,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const state = {
     type: 'winner',
     pickCount: 4,
+    matches: [{ home: '', away: '', draw: true }, { home: '', away: '', draw: true }, { home: '', away: '', draw: true }],
     remind: 15,
     name: '',
     home: '',
@@ -1375,6 +1384,11 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
   const submitBtn = document.getElementById('ng-submit');
   const isPeopleGame = () => state.type === 'winner' || state.type === 'winner_takes_all' || state.type === 'picks';
   const isPicks = () => state.type === 'picks';
+  const isCoupon = () => state.type === 'coupon';
+  // Filled-in matches only: a row left fully empty is simply not used
+  const couponRows = () => state.matches
+    .map(m => ({ home: m.home.trim(), away: m.away.trim(), draw: m.draw }))
+    .filter(m => m.home || m.away);
 
   // ── Type specific fields ──
   function renderFields() {
@@ -1397,6 +1411,32 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       document.getElementById('ng-home').addEventListener('input', e => { state.home = e.target.value; update1x2(); updateSummary(); });
       document.getElementById('ng-away').addEventListener('input', e => { state.away = e.target.value; update1x2(); updateSummary(); });
       update1x2();
+    } else if (isCoupon()) {
+      const suggestions = NAME_SUGGESTIONS.coupon;
+      fieldsEl.innerHTML = `
+        <div class="ng-label">Vad heter raden?</div>
+        <input type="text" class="form-input ng-input" id="ng-name" placeholder="Lördagens matcher" maxlength="120" value="${escapeHtml(state.name)}" />
+        <div class="ng-suggest">Förslag: ${suggestions.map(sg => `<button type="button" class="ng-suggest-btn" data-suggest="${escapeHtml(sg)}">${escapeHtml(sg)}</button>`).join(' · ')}</div>
+        <div class="ng-label">Matcherna <span class="ng-count" id="ng-match-count"></span></div>
+        <div class="ng-matches" id="ng-matches"></div>
+        <button type="button" class="ng-chip ng-chip-add ng-add-match" id="ng-add-match">＋ Lägg till match</button>
+        <datalist id="ng-people-list">${people.map(p => `<option value="${escapeHtml(p.name)}"></option>`).join('')}</datalist>
+        <p class="ng-hint">Alla tippar 1, X eller 2 i varje match. Tryck på <b>X</b> för att ta bort oavgjort i en match som alltid får en vinnare (t.ex. tennis).</p>
+      `;
+      document.getElementById('ng-name').addEventListener('input', e => { state.name = e.target.value; updateSummary(); });
+      fieldsEl.querySelectorAll('.ng-suggest-btn').forEach(btn => btn.addEventListener('click', () => {
+        state.name = btn.dataset.suggest;
+        document.getElementById('ng-name').value = state.name;
+        updateSummary();
+      }));
+      document.getElementById('ng-add-match').addEventListener('click', () => {
+        if (state.matches.length >= COUPON_MAX_MATCHES) return;
+        state.matches.push({ home: '', away: '', draw: state.matches[state.matches.length - 1]?.draw ?? true });
+        renderMatches();
+        updateSummary();
+        document.querySelector(`#ng-matches [data-home="${state.matches.length - 1}"]`)?.focus();
+      });
+      renderMatches();
     } else if (state.type === 'yes_no') {
       fieldsEl.innerHTML = `
         <div class="ng-label">Frågan</div>
@@ -1446,6 +1486,34 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     }
   }
 
+  function renderMatches() {
+    const el = document.getElementById('ng-matches');
+    if (!el) return;
+    el.innerHTML = state.matches.map((m, i) => `
+      <div class="ng-match">
+        <span class="ng-match-no">${i + 1}</span>
+        <input type="text" class="form-input ng-input" data-home="${i}" placeholder="1 · Hemma" maxlength="40" list="ng-people-list" value="${escapeHtml(m.home)}" aria-label="Match ${i + 1}, sida 1" />
+        <input type="text" class="form-input ng-input" data-away="${i}" placeholder="2 · Borta" maxlength="40" list="ng-people-list" value="${escapeHtml(m.away)}" aria-label="Match ${i + 1}, sida 2" />
+        <button type="button" class="ng-match-x${m.draw ? ' on' : ''}" data-draw="${i}" aria-pressed="${m.draw}" title="${m.draw ? 'Oavgjort möjligt – tryck för att ta bort' : 'Ingen oavgjort – tryck för att tillåta'}">X</button>
+        <button type="button" class="ng-match-del" data-del="${i}" aria-label="Ta bort match ${i + 1}" ${state.matches.length <= 2 ? 'disabled' : ''}>✕</button>
+      </div>
+    `).join('');
+    el.querySelectorAll('[data-home]').forEach(inp => inp.addEventListener('input', () => { state.matches[Number(inp.dataset.home)].home = inp.value; updateSummary(); }));
+    el.querySelectorAll('[data-away]').forEach(inp => inp.addEventListener('input', () => { state.matches[Number(inp.dataset.away)].away = inp.value; updateSummary(); }));
+    el.querySelectorAll('[data-draw]').forEach(btn => btn.addEventListener('click', () => {
+      const m = state.matches[Number(btn.dataset.draw)];
+      m.draw = !m.draw;
+      renderMatches();
+    }));
+    el.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => {
+      state.matches.splice(Number(btn.dataset.del), 1);
+      renderMatches();
+      updateSummary();
+    }));
+    const addBtn = document.getElementById('ng-add-match');
+    if (addBtn) addBtn.hidden = state.matches.length >= COUPON_MAX_MATCHES;
+  }
+
   function renderPeople() {
     const el = document.getElementById('ng-people');
     if (!el) return;
@@ -1480,7 +1548,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
 
   // ── Stake: fixed amount, or free between min and max (not for winner-takes-all) ──
   function renderStake() {
-    const fixedOnly = state.type === 'winner_takes_all' || state.type === 'picks';
+    const fixedOnly = state.type === 'winner_takes_all' || state.type === 'picks' || isCoupon();
     if (fixedOnly) state.stakeMode = 'fixed';
     document.getElementById('ng-stake-label').textContent = fixedOnly ? 'Insats per person' : 'Insats';
     stakeEl.innerHTML = `
@@ -1496,7 +1564,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
           <button type="button" class="ng-chip ng-chip-add${state.customStake ? ' gold' : ''}" data-stake="custom">Annat</button>
         </div>
         ${state.customStake ? `<input type="number" inputmode="numeric" class="form-input ng-input" id="ng-fixed-custom" min="1" max="10000" value="${state.fixedStake}" style="margin-top: 8px;" />` : ''}
-        <p class="ng-hint">${isPicks() ? 'Alla lägger samma summa – flest rätt tar hela potten (delas vid lika). Har ingen rätt går insatserna tillbaka.' : fixedOnly ? 'Alla lägger samma summa – vinnaren tar hela potten.' : 'Alla bettar med samma summa.'}</p>
+        <p class="ng-hint">${isPicks() || isCoupon() ? 'Alla lägger samma summa – flest rätt tar hela potten (delas vid lika). Har ingen rätt går insatserna tillbaka.' : fixedOnly ? 'Alla lägger samma summa – vinnaren tar hela potten.' : 'Alla bettar med samma summa.'}</p>
       ` : `
         <div class="ng-row">
           <label class="ng-minmax">Min <input type="number" inputmode="numeric" class="form-input ng-input" id="ng-min" min="1" max="10000" value="${state.minBet}" /> kr</label>
@@ -1538,6 +1606,15 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       name = home && away ? `⚽ ${home} – ${away}` : '';
       players = [`1 ${home}`, 'X Oavgjort', `2 ${away}`];
       if (!home || !away) problem = 'Fyll i båda lagen';
+    } else if (isCoupon()) {
+      name = state.name.trim();
+      const rows = couponRows();
+      const half = rows.findIndex(m => !m.home || !m.away);
+      const same = rows.findIndex(m => m.home && m.home.toLowerCase() === m.away.toLowerCase());
+      if (name.length < 2) problem = 'Skriv vad raden heter';
+      else if (half >= 0) problem = `Fyll i båda sidorna i match ${state.matches.findIndex(m => (m.home.trim() || m.away.trim()) && !(m.home.trim() && m.away.trim())) + 1}`;
+      else if (same >= 0) problem = 'Samma namn på båda sidor i en match';
+      else if (rows.length < 2) problem = 'Lägg till minst 2 matcher';
     } else if (state.type === 'yes_no') {
       name = state.question.trim();
       players = ['👍 Ja', '👎 Nej'];
@@ -1573,6 +1650,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     const parts = [];
     if (g.name) parts.push(`<b>${escapeHtml(g.name.startsWith('⚽') ? g.name : `${g.type.icon} ${g.name}`)}</b>`);
     if (isPicks() && g.players.length) parts.push(`välj ${state.pickCount} av ${g.players.length}`);
+    else if (isCoupon() && couponRows().length) parts.push(`${couponRows().length} matcher`);
     else if (isPeopleGame() && g.players.length) parts.push(`${g.players.length} med`);
     parts.push(escapeHtml(g.stake.text));
     if (g.closesAt) parts.push(`stänger ${new Date(g.closesAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
@@ -1592,6 +1670,8 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       });
       if (state.remind > 0) parts.push(`påminner ${state.remind} min före`);
     }
+    const matchCount = document.getElementById('ng-match-count');
+    if (matchCount) matchCount.textContent = couponRows().length ? `${couponRows().length} av max ${COUPON_MAX_MATCHES}` : '';
     document.getElementById('ng-summary').innerHTML = g.problem
       ? `<span class="ng-summary-todo">${escapeHtml(g.problem)}</span>`
       : parts.join(' · ');
@@ -1605,6 +1685,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
     if (state.type === 'winner_takes_all') state.fixedStake = 100;
     // What you pick (runners, teams) is usually not the group itself: start from an empty list
     if (state.type === 'picks') { state.fixedStake = 50; people.forEach(p => { p.selected = false; }); }
+    if (state.type === 'coupon') state.fixedStake = 50;
     renderFields();
     renderStake();
     updateSummary();
@@ -1697,8 +1778,9 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       const updated = await createSideBet(t.id, {
         name: g.name,
         players,
-        betMode: state.type === 'winner_takes_all' ? 'self' : isPicks() ? 'picks' : 'open',
+        betMode: state.type === 'winner_takes_all' ? 'self' : isPicks() ? 'picks' : isCoupon() ? 'coupon' : 'open',
         ...(isPicks() ? { pickCount: state.pickCount } : {}),
+        ...(isCoupon() ? { matches: couponRows() } : {}),
         betAmount: g.stake.betAmount,
         ...(g.stake.minBet !== undefined ? { minBet: g.stake.minBet, maxBet: g.stake.maxBet } : {}),
         closesAt: g.closesAt,
