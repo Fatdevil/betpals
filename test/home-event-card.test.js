@@ -78,3 +78,11 @@ test('Enter on a game row opens only the game, not the event first', () => {
   const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
   assert.match(home, /if \(e\.key === 'Enter' && e\.target === card\) navigate\('tournament'/);
 });
+
+test('yellow "bet" lives on the game rows only; below them one plain way to the whole event', () => {
+  const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
+  assert.match(home, /class="home-games-label">\$\{isEn \? 'Open games' : 'Öppna spel'\} · \$\{tr\.openGameCount\}/);
+  assert.match(home, /\} else if \(upNext\.length > 0\) \{\s*action = allGames;/);
+  assert.match(home, /'All games in the event' : 'Alla spel i eventet'/);
+  assert.doesNotMatch(home, /Bet now|Betta nu/, 'no big "bet now" that only opens the event');
+});
