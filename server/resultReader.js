@@ -26,18 +26,21 @@ export function parseImageDataUrl(dataUrl) {
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
-// "Anna Andersson" on the card for the option "Anna": the longest option inside the name
-// wins (Jonas, not Jon). A short name inside several options ("Jon" in Jonas and Jonathan)
-// is ambiguous and matches nothing. Never for short options like 1/X/2.
+// "Anna Andersson" on the card for the option "Anna": the option as whole words inside the
+// name (never inside another word: "Joanne" is not "Ann"). Of overlapping options the one
+// holding the others wins ("Anna Berg" over "Anna"); different names in one answer, or a
+// short name that several options start with, are ambiguous and match nothing.
+// Never for short options like 1/X/2.
+const hasWords = (text, words) => ` ${text} `.includes(` ${words} `);
 function looseMatch(n, options) {
   if (n.length < 3) return null;
   const named = options.map(o => ({ o, on: norm(o.name) })).filter(x => x.on.length >= 3);
-  const inside = named.filter(x => n.includes(x.on)).sort((a, b) => b.on.length - a.on.length);
-  const around = named.filter(x => x.on.includes(n) && x.on !== n);
+  const inside = named.filter(x => hasWords(n, x.on)).sort((a, b) => b.on.length - a.on.length);
+  const around = named.filter(x => x.on !== n && hasWords(x.on, n));
   if (inside.length) {
-    // "Jona" holds Jon but is also the start of Jonas: could be either, so no guess
     if (around.length) return null;
-    return inside.length > 1 && inside[0].on.length === inside[1].on.length ? null : inside[0].o;
+    const [best, ...rest] = inside;
+    return rest.every(x => hasWords(best.on, x.on)) ? best.o : null;
   }
   return around.length === 1 ? around[0].o : null;
 }

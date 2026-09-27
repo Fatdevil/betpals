@@ -246,3 +246,15 @@ test('a link changed elsewhere reaches the result dialog and the link editor too
   assert.match(ev, /function renderEventContent\(event, content, code\) \{\s*shownEvent = event;/);
   assert.match(ev, /if \(shownEvent\?\.id === fresh\.id\) shownEvent\.resultUrl = fresh\.resultUrl;\s*syncResultLink/);
 });
+
+test('a loose name matches only whole words, never part of another name', () => {
+  const opts = [{ id: 'ann', name: 'Ann' }, { id: 'bob', name: 'Bob' }];
+  assert.deepEqual(matchOptions(['Joanne Smith'], opts), [], 'Ann is not inside Joanne');
+  assert.deepEqual(matchOptions(['Bobby Jones'], opts), []);
+  assert.deepEqual(matchOptions(['Ann Svensson'], opts), ['ann']);
+  assert.deepEqual(matchOptions(['Svensson, Bob'], opts), ['bob']);
+  const nested = [{ id: 'a', name: 'Anna' }, { id: 'ab', name: 'Anna Berg' }, { id: 'c', name: 'Cissi' }];
+  assert.deepEqual(matchOptions(['Anna Berg (hcp 12)'], nested), ['ab'], 'the option holding the other wins');
+  assert.deepEqual(matchOptions(['Anna & Cissi'], nested), [], 'two different names: no guess');
+  assert.deepEqual(matchOptions(['Bosse'], [{ id: 'b', name: 'Bosse Bengtsson' }]), ['b'], 'a first name of exactly one option');
+});
