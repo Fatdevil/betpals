@@ -42,7 +42,7 @@ test('back steps through in-app history, else goes to the parent, and never leav
 test('a game goes back to its event and closes the bet slip first', () => {
   const ev = read('src/pages/event.js');
   assert.match(ev, /if \(event\.tournamentId\) setBackParent\('tournament', \{ code: event\.tournamentCode \|\| event\.tournamentId \}\);/);
-  assert.match(ev, /setBackInterceptor\(\(\) => \{\s*if \(slip\.hidden\) return false;\s*closeSlip\(\);\s*return true;/);
+  assert.match(ev, /setBackInterceptor\(\(\) => \{\s*\/\/[^\n]*\n\s*if \(!slip\.isConnected \|\| slip\.hidden\) return false;\s*closeSlip\(\);\s*return true;/);
   assert.doesNotMatch(ev, /game-crumb|game-back-btn/);
 });
 
@@ -84,4 +84,10 @@ test('only going back closes the slip; forward still goes forward', () => {
   const main = read('src/main.js');
   assert.match(main, /const goingBack = historyDepth\(\) < shownDepth;\s*if \(goingBack && interceptBack\(\)\) \{/);
   assert.match(main, /window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', url\);\s*\}\s*shownDepth = historyDepth\(\);/);
+});
+
+test('a slip removed by a refresh never swallows back', () => {
+  const ev = read('src/pages/event.js');
+  assert.match(ev, /setBackInterceptor\(\(\) => \{[^}]*?if \(!slip\.isConnected \|\| slip\.hidden\) return false;/);
+  assert.match(ev, /removeBetslip\(\);\s*\/\/[^\n]*\n\s*setBackInterceptor\(null\);\s*\}/);
 });

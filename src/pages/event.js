@@ -719,7 +719,8 @@ function renderEventContent(event, content, code) {
     document.getElementById('betslip-close')?.addEventListener('click', closeSlip);
     // Back closes an open slip first, like a sportsbook, instead of leaving the game
     setBackInterceptor(() => {
-      if (slip.hidden) return false;
+      // A slip removed by a refresh must never swallow back
+      if (!slip.isConnected || slip.hidden) return false;
       closeSlip();
       return true;
     });
@@ -1123,4 +1124,6 @@ export function cleanupEvent() {
   }
   refreshGameOptions = null;
   removeBetslip();
+  // The slip is gone: back must work again while the page reloads
+  setBackInterceptor(null);
 }
