@@ -221,6 +221,9 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   const renderGroup = ([main, ...nested]) => renderGameCard(main) + nested.map(sb => renderGameCard(sb, true)).join('');
 
   const top3 = [...t.settlement.balances].sort((a, b) => b.net - a.net).slice(0, 3);
+  // Your own line in the settlement, shown at the top and marked in the list
+  const myBalance = user ? t.settlement.balances.find(b => b.userId === user.id) : null;
+  const showMine = t.settlement.finishedRounds > 0 && myBalance && Math.round(myBalance.net) !== 0;
 
   // Who is in the event: first names and initials for the hero row
   const people = (t.participants || []).map(p => String(p.name || '').trim()).filter(Boolean);
@@ -246,6 +249,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           ` : '<span>👥</span>'}
           <span>${escapeHtml(peopleText)}</span>
         </button>
+        ${showMine ? `
+          <button type="button" class="event-my-standing ${myBalance.net < 0 ? 'is-neg' : 'is-pos'}" id="event-my-standing-btn">
+            Ditt läge: <b>${myBalance.net > 0 ? '+' : '−'}${formatCurrency(Math.abs(myBalance.net))}</b> <span aria-hidden="true">›</span>
+          </button>
+        ` : ''}
         <div class="event-hero-actions">
           <button class="btn btn-secondary btn-sm" id="share-tournament-btn">
             📱 Dela event
@@ -387,14 +395,16 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
 
       <!-- Net Settlement -->
       ${t.settlement.finishedRounds > 0 ? `
-        <div class="section-header mt-lg">
+        <div class="section-header mt-lg" id="net-settlement">
           <h2 class="section-title">💰 Nettavräkning</h2>
         </div>
         <div class="card">
           <div class="text-center mb-md">
             <div style="font-size: 2rem; margin-bottom: var(--space-xs);">📊</div>
             <p class="text-muted" style="font-size: 0.85rem;">
-              Resultat efter ${t.settlement.finishedMainRounds ?? t.settlement.finishedRounds} av ${t.settlement.totalMainRounds ?? t.settlement.totalRounds} ronder${(t.settlement.totalSideBets > 0) ? ` · ${t.settlement.finishedSideBets} av ${t.settlement.totalSideBets} sido-spel` : ''}
+              ${(t.settlement.totalMainRounds ?? t.settlement.totalRounds) > 0
+                ? `Resultat efter ${t.settlement.finishedMainRounds ?? t.settlement.finishedRounds} av ${t.settlement.totalMainRounds ?? t.settlement.totalRounds} ronder${(t.settlement.totalSideBets > 0) ? ` · ${t.settlement.finishedSideBets} av ${t.settlement.totalSideBets} sido-spel` : ''}`
+                : `Resultat efter ${t.settlement.finishedSideBets ?? t.settlement.finishedRounds} av ${t.settlement.totalSideBets ?? t.settlement.totalRounds} spel`}
             </p>
           </div>
 
@@ -404,8 +414,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
             ${t.settlement.balances
               .sort((a, b) => b.net - a.net)
               .map(b => `
-                <div class="swish-row">
-                  <div class="swish-name">${escapeHtml(b.name)}</div>
+                <div class="swish-row${myBalance && b === myBalance ? ' is-me' : ''}">
+                  <div class="swish-name">${escapeHtml(b.name)}${myBalance && b === myBalance ? ' <span class="swish-me">(du)</span>' : ''}</div>
                   <span class="${b.net >= 0 ? 'text-green' : 'text-red'}" style="font-weight: 700;">
                     ${b.net >= 0 ? '+' : ''}${formatCurrency(b.net)}
                   </span>
@@ -953,6 +963,11 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     openFlashBetModal(null, t.id);
   });
 
+
+  // "Ditt läge" at the top goes to the full settlement further down
+  document.getElementById('event-my-standing-btn')?.addEventListener('click', () => {
+    document.getElementById('net-settlement')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   // Toggle settlement receipt
   content.querySelectorAll('.toggle-receipt-btn').forEach(btn => {
