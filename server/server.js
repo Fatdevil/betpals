@@ -127,7 +127,15 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-app.use(express.json({ limit: '1mb' }));
+// Photo uploads have their own larger limit on the route; the default 1 MB parser must not
+// reject them first (it runs before any route-level parser)
+const defaultJson = express.json({ limit: '1mb' });
+const LARGE_JSON_ROUTES = [
+  /^\/api\/users\/me\/avatar$/,
+  /^\/api\/tournaments\/[^/]+\/photos$/,
+  /^\/api\/events\/[^/]+\/read-result$/
+];
+app.use((req, res, next) => (LARGE_JSON_ROUTES.some(r => r.test(req.path)) ? next() : defaultJson(req, res, next)));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Serve frontend in production
@@ -2408,14 +2416,43 @@ app.get('/api/events/:idOrCode', (req, res) => {
 
 // The organiser's photo of the result (scorecard, GameBook leaderboard): the AI suggests the
 // winner among the game's options. Only a suggestion; settling is still the organiser's tap.
+// Every reading is a paid AI call: a few per organiser, one at a time, and a cap per IP
+const resultReads = new Map(); // key -> timestamps
+const readsInFlight = new Set();
+function allowResultRead(key, max, windowMs) {
+  const now = Date.now();
+  if (resultReads.size > 2000) {
+    for (const [k, times] of resultReads) if (!times.some(t => now - t < 60 * 60 * 1000)) resultReads.delete(k);
+  }
+  const recent = (resultReads.get(key) || []).filter(t => now - t < windowMs);
+  if (recent.length >= max) {
+    resultReads.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  resultReads.set(key, recent);
+  return true;
+}
+
 app.post('/api/events/:id/read-result', express.json({ limit: '8mb' }), async (req, res) => {
   const event = db.getFullEvent(req.params.id);
   if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
   if (event.status === 'finished' || event.status === 'cancelled') return res.status(400).json({ error: 'Spelet är redan avgjort' });
-  const result = await readResultFromImage(event, req.body?.image);
-  if (!result.ok) return res.status(result.error === 'Bilden kunde inte läsas' ? 400 : 503).json({ error: result.error });
-  res.json({ winnerIds: result.winnerIds, reason: result.reason });
+  if (!canReadResults()) return res.status(503).json({ error: 'AI-avläsning är inte påslagen' });
+  const who = getUserFromToken(req)?.id || 'ip:' + getClientIp(req);
+  if (readsInFlight.has(who)) return res.status(429).json({ error: 'Vänta, bilden läses redan av' });
+  if (!allowResultRead('user:' + who, 6, 10 * 60 * 1000) || !allowResultRead('ip:' + getClientIp(req), 20, 60 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Många avläsningar på kort tid – välj vinnaren själv eller försök igen om en stund' });
+  }
+  readsInFlight.add(who);
+  try {
+    const result = await readResultFromImage(event, req.body?.image);
+    if (!result.ok) return res.status(result.error === 'Bilden kunde inte läsas' ? 400 : 503).json({ error: result.error });
+    res.json({ winnerIds: result.winnerIds, reason: result.reason });
+  } finally {
+    readsInFlight.delete(who);
+  }
 });
 
 // Link to where the game is followed live, e.g. a GameBook leaderboard

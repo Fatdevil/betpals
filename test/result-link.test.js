@@ -116,3 +116,31 @@ test('the game page, the new-game form and the result dialog offer the link and 
   assert.match(fin, /id="finish-read-btn"/);
   assert.match(fin, /id="pick-photo-input"/);
 });
+
+test('a result photo over 1 MB reaches the reader, and readings are rate-limited', async () => {
+  const { host, tId } = await golfEvent();
+  const res = await call('POST', `/api/tournaments/${tId}/sidebets`, { name: 'Runda 2', players: ['Anna', 'Bosse'], betAmount: 20 }, host.token);
+  const game = res.body.sideBets.find(g => g.name === 'Runda 2');
+  const big = 'data:image/jpeg;base64,' + 'A'.repeat(1.6 * 1024 * 1024);
+
+  // Past the 1 MB default parser: the AI is off, so the route itself answers
+  const off = await call('POST', `/api/events/${game.id}/read-result`, { image: big }, host.token);
+  assert.equal(off.status, 503, 'not 413 from the global parser');
+
+  process.env.GEMINI_API_KEY = 'test-key';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => String(url).includes('generativelanguage.googleapis.com')
+    ? { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"winners":["Anna"],"reason":"lägst slag"}' }] } }] }) }
+    : realFetch(url, opts);
+  try {
+    const ok = await call('POST', `/api/events/${game.id}/read-result`, { image: big }, host.token);
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.winnerIds.length, 1);
+    let status = 200;
+    for (let i = 0; i < 6 && status === 200; i++) status = (await call('POST', `/api/events/${game.id}/read-result`, { image: PNG }, host.token)).status;
+    assert.equal(status, 429, 'at most 6 readings per 10 minutes per organiser');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.GEMINI_API_KEY;
+  }
+});
