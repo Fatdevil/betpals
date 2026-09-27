@@ -11,25 +11,47 @@ const leaderboardLink = (event) => event.resultUrl ? `
   <a class="finish-leaderboard-link" href="${escapeHtml(sanitizeUrl(event.resultUrl))}" target="_blank" rel="noopener noreferrer">📊 Öppna topplistan <span>›</span></a>
 ` : '';
 
-// The AI's suggestion from the result photo; the organiser still confirms
-async function suggestFromPhoto(event, image, pin, btn) {
+// The AI's suggestion from the result photo; the organiser still confirms.
+// One reading at a time (the server allows no more). A newer photo replaces an older one:
+// the older answer is dropped and the newer photo is read next.
+function photoReader(event, pin, btn, apply) {
   const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '🤖 Läser av bilden...';
-  try {
-    const res = await readEventResult(event.id, image, pin);
-    if (!res.winnerIds?.length) {
-      showToast(res.reason ? `Hittade ingen vinnare: ${res.reason}` : 'Kunde inte se någon vinnare på bilden – välj själv', 'info');
-      return null;
-    }
-    return res;
-  } catch (err) {
-    showToast(err.message, 'error');
-    return null;
-  } finally {
+  let current = null; // the photo whose answer we want
+  let running = false;
+  const idle = () => {
     btn.disabled = false;
     btn.textContent = label;
+  };
+  async function run() {
+    if (running || !current) return;
+    running = true;
+    btn.disabled = true;
+    btn.textContent = '🤖 Läser av bilden...';
+    const image = current;
+    let res = null;
+    let error = null;
+    try {
+      res = await readEventResult(event.id, image, pin);
+    } catch (err) {
+      error = err;
+    }
+    running = false;
+    if (image !== current) {
+      if (current) run();
+      else idle();
+      return;
+    }
+    idle();
+    if (error) return showToast(error.message, 'error');
+    if (!res.winnerIds?.length) {
+      return showToast(res.reason ? `Hittade ingen vinnare: ${res.reason}` : 'Kunde inte se någon vinnare på bilden – välj själv', 'info');
+    }
+    apply(res);
   }
+  return {
+    read(image) { current = image; run(); },
+    cancel() { current = null; if (!running) idle(); }
+  };
 }
 
 export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
@@ -107,9 +129,10 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
       proofPreview.src = selectedWinnerProof;
       proofPreviewWrapper.style.display = 'inline-block';
       proofPlaceholder.style.display = 'none';
-      if (readBtn) {
+      clearSuggestion();
+      if (reader) {
         readBtn.style.display = 'block';
-        readBtn.click(); // read it at once; the organiser still picks the winner
+        reader.read(selectedWinnerProof); // at once; the organiser still picks the winner
       }
     } catch (err) {
       showToast(err.message, 'error');
@@ -124,6 +147,7 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     proofPreviewWrapper.style.display = 'none';
     proofPlaceholder.style.display = 'block';
     if (readBtn) readBtn.style.display = 'none';
+    reader?.cancel();
     clearSuggestion();
   });
 
@@ -134,11 +158,12 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     document.querySelectorAll('.winner-row.suggested').forEach(r => r.classList.remove('suggested'));
     if (aiNote) aiNote.style.display = 'none';
   }
-  readBtn?.addEventListener('click', async () => {
-    if (!selectedWinnerProof) return;
-    const res = await suggestFromPhoto(event, selectedWinnerProof, pin, readBtn);
+  const reader = readBtn ? photoReader(event, pin, readBtn, showSuggestion) : null;
+  readBtn?.addEventListener('click', () => {
+    if (selectedWinnerProof) reader.read(selectedWinnerProof);
+  });
+  function showSuggestion(res) {
     clearSuggestion();
-    if (!res) return;
     const rows = res.winnerIds.map(id => document.querySelector(`.winner-row[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
     rows.forEach(r => r.classList.add('suggested'));
     // A shared win: tick them all, so "Dela pott" is one tap away
@@ -150,7 +175,7 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     aiNote.innerHTML = `🤖 Förslag: <b>${escapeHtml(names)}</b>${res.reason ? ` – ${escapeHtml(res.reason)}` : ''}<br><span>Kontrollera och tryck på vinnaren för att avgöra.</span>`;
     aiNote.style.display = 'block';
     rows[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
+  }
 
   const tiedBtn = document.getElementById('confirm-tied-winners-btn');
   const tiedCountSpan = document.getElementById('tied-count');
@@ -231,27 +256,26 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
   }));
 
   // A screenshot of the result: the AI ticks its suggestion, the organiser checks and saves
-  document.getElementById('pick-photo-input')?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    const readBtn = document.getElementById('pick-read-btn');
-    const note = document.getElementById('pick-ai-note');
-    let image;
-    try {
-      image = await compressImage(file, 1000, 0.8);
-    } catch (err) {
-      showToast(err.message, 'error');
-      return;
-    }
-    const res = await suggestFromPhoto(event, image, pin, readBtn);
-    if (!res) return;
+  const pickReadBtn = document.getElementById('pick-read-btn');
+  const note = document.getElementById('pick-ai-note');
+  const pickReader = pickReadBtn ? photoReader(event, pin, pickReadBtn, (res) => {
     const ids = res.winnerIds.slice(0, n);
     boxes.forEach(b => { b.checked = ids.includes(b.value); });
     refreshSave();
     const names = ids.map(id => event.players.find(p => p.id === id)?.name).filter(Boolean).join(', ');
     note.innerHTML = `🤖 Förslag: <b>${escapeHtml(names)}</b>${ids.length < n ? ` (${ids.length} av ${n} – kryssa i resten)` : ''}${res.reason ? ` – ${escapeHtml(res.reason)}` : ''}<br><span>Kontrollera innan du sparar.</span>`;
     note.style.display = 'block';
+  }) : null;
+  document.getElementById('pick-photo-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !pickReader) return;
+    note.style.display = 'none';
+    try {
+      pickReader.read(await compressImage(file, 1000, 0.8)); // a newer photo replaces the older one
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   });
 
   let busy = false;

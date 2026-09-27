@@ -161,3 +161,11 @@ test('overlapping option names pick the right one, and PIN-only organisers are t
   const src = readFileSync(new URL('../server/server.js', import.meta.url), 'utf8');
   assert.match(src, /const out = user \? event : publicEventView\(event\);\s*out\.canReadResultPhoto = canReadResults\(\);/);
 });
+
+test('an answer for a photo that is no longer the chosen one is dropped', () => {
+  const fin = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
+  assert.match(fin, /function photoReader\(event, pin, btn, apply\)/);
+  assert.match(fin, /if \(image !== current\) \{\s*if \(current\) run\(\);\s*else idle\(\);\s*return;/);
+  assert.match(fin, /reader\?\.cancel\(\);\s*clearSuggestion\(\);/);
+  assert.match(fin, /pickReader\.read\(await compressImage\(file, 1000, 0\.8\)\)/);
+});
