@@ -498,6 +498,16 @@ wss.on('connection', (ws, req) => {
 
   // Don't join event channel yet – wait until auth confirms tournament access
   let pendingEventCode = eventCode || null;
+  // A standalone game is public by its share link, so its page listens without logging in
+  if (pendingEventCode && !db.getTournamentByCode(pendingEventCode)) {
+    const game = db.getEventByCode(pendingEventCode);
+    if (game && canViewEvent(game, null)) {
+      if (!eventClients.has(pendingEventCode)) eventClients.set(pendingEventCode, new Set());
+      eventClients.get(pendingEventCode).add(ws);
+      boundEventCode = pendingEventCode;
+      pendingEventCode = null;
+    }
+  }
 
   if (duelId) {
     tryJoinDuel(duelId);

@@ -215,3 +215,20 @@ test('a game page joins live updates by the game code, only with access to the g
   assert.ok(inside.got.includes('event_updated'), inside.got.join());
   assert.ok(!outside.got.includes('event_updated'), outside.got.join());
 });
+
+test('a logged-out viewer of a standalone game gets its live updates too', async () => {
+  const { WebSocket } = await import('ws');
+  const host = await registerUser('sh');
+  const res = await call('POST', '/api/events', { name: 'Fristående', players: ['Anna', 'Bosse'], betAmount: 20 }, host.token);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const game = db.getFullEvent(res.body.id || res.body.event?.id || res.body.shareCode);
+  const got = [];
+  const ws = new WebSocket(`${base.replace('http', 'ws')}/?event=${game.shareCode}`);
+  ws.on('message', m => got.push(JSON.parse(m).type));
+  await new Promise(r => ws.on('open', r));
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal((await call('PUT', `/api/events/${game.id}/result-url`, { url: 'https://www.golfgamebook.com/y' }, host.token)).status, 200);
+  await new Promise(r => setTimeout(r, 200));
+  ws.close();
+  assert.ok(got.includes('event_updated'), got.join());
+});
