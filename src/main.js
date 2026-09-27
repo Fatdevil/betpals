@@ -9,6 +9,7 @@ import { openBlind10Modal, openMafiaModal, openSpaceInvadersModal, openAllArcade
 import { initMaltaSupportWidget } from './components/maltaSupport.js';
 import { setDeferredPrompt, isAppStandalone, shouldShowAutoPrompt, showPwaInstallModal } from './components/pwaInstallModal.js';
 import { isPushSupported, subscribeToPush, syncPushSubscription } from './push.js';
+import { resetBack, interceptBack, getBackParent } from './backNav.js';
 
 // ── Global Client Error Reporting ─────────────────────
 let reportedErrorsCount = 0;
@@ -50,14 +51,18 @@ let currentPage = 'home';
 let currentParams = {};
 let activeCleanup = null;
 
+// How many in-app steps can be undone with history.back()
+const historyDepth = () => Number(window.history.state?.depth) || 0;
+
 function cleanupActivePage() {
+  resetBack();
   if (activeCleanup) {
     try { activeCleanup(); } catch {}
     activeCleanup = null;
   }
 }
 
-export function navigate(page, params = {}) {
+export function navigate(page, params = {}, { replace = false } = {}) {
   // Cleanup previous page
   cleanupActivePage();
 
@@ -65,15 +70,53 @@ export function navigate(page, params = {}) {
   currentParams = params;
 
   // Update URL
+  const url = pageUrl(page, params);
+  if (replace) {
+    window.history.replaceState({ depth: historyDepth() }, '', url);
+    guardSubPage();
+  } else {
+    window.history.pushState({ depth: historyDepth() + 1 }, '', url);
+  }
+  shownDepth = historyDepth();
+
+  renderApp();
+}
+
+const SUB_PAGES = new Set(['event', 'tournament']);
+
+// Depth of the entry on screen: popstate says neither back nor forward, this does
+let shownDepth = 0;
+
+// A sub page opened with nothing of the app underneath (a shared link, a notification):
+// the phone's back would leave the app before any code runs. Put a guard entry below it,
+// so back lands here and shows the parent instead (or first closes an open bet slip)
+function guardSubPage() {
+  if (!SUB_PAGES.has(currentPage) || historyDepth() > 0) return;
+  const url = pageUrl(currentPage, currentParams);
+  window.history.replaceState({ depth: 0, guard: true }, '', url);
+  window.history.pushState({ depth: 1 }, '', url);
+}
+
+function pageUrl(page, params = {}) {
   const url = new URL(window.location);
   url.searchParams.delete('code');
   url.searchParams.delete('tab');
   url.searchParams.set('page', page);
   if (params.code) url.searchParams.set('code', params.code);
   if (params.tab) url.searchParams.set('tab', params.tab);
-  window.history.pushState({}, '', url);
+  return url;
+}
 
-  renderApp();
+// "‹" in the header: close what the page has open, else step back inside the app,
+// else go to the page's parent (the event for a game, Betting for the rest)
+function goBack() {
+  if (interceptBack()) return;
+  if (historyDepth() > 0) {
+    window.history.back();
+    return;
+  }
+  const parent = getBackParent() || { page: 'home', params: {} };
+  navigate(parent.page, parent.params, { replace: true });
 }
 
 // After a new deploy, a phone that kept the old app open in the background asks for page
@@ -284,8 +327,27 @@ function init() {
   currentPage = page;
   currentParams = { ...(code ? { code } : {}), ...(tab ? { tab } : {}) };
 
+  // Every entry carries its depth, so "‹" knows whether history.back() stays in the app
+  if (!('depth' in (window.history.state || {}))) window.history.replaceState({ ...(window.history.state || {}), depth: 0 }, '');
+  window.addEventListener('app-back', goBack);
+
   // Handle browser back/forward
   window.addEventListener('popstate', () => {
+    // The phone's back closes an open bet slip first and stays on the page.
+    // Only going back: forward must still go forward
+    const goingBack = historyDepth() < shownDepth;
+    if (goingBack && interceptBack()) {
+      window.history.pushState({ depth: historyDepth() + 1 }, '', pageUrl(currentPage, currentParams));
+      shownDepth = historyDepth();
+      return;
+    }
+    shownDepth = historyDepth();
+    // Back onto the guard below a directly opened page: go to its parent, stay in the app
+    if (window.history.state?.guard) {
+      const parent = getBackParent() || { page: 'home', params: {} };
+      navigate(parent.page, parent.params, { replace: true });
+      return;
+    }
     cleanupActivePage();
     const url = new URL(window.location);
     currentPage = url.searchParams.get('page') || 'home';
@@ -296,14 +358,15 @@ function init() {
   });
 
   // Handle legacy hash navigation fallback (e.g. #admin, #home, #profile, #tournament/CODE, #leaderboard)
-  function handleHashRoute() {
+  function handleHashRoute(initial = false) {
+    const opts = { replace: initial === true };
     const hash = (window.location.hash || '').replace(/^#\/?/, '');
     if (!hash) return;
     // A notification link replaces whatever dialog was open (e.g. the games list),
     // but never a game in progress: that would throw both players out of the round
     const gameRunning = isGameInProgress();
     if (!gameRunning) closeModal();
-    const clearHash = () => window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+    const clearHash = () => window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
     // Game notifications open the right game on top of the betting page
     const openOnHome = (open) => {
       clearHash();
@@ -335,19 +398,19 @@ function init() {
       openOnHome(() => openLovenGameModal());
     } else if (hash.startsWith('tournament/')) {
       const tCode = hash.split('/')[1];
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
-      navigate('tournament', { code: tCode });
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+      navigate('tournament', { code: tCode }, opts);
     } else if (hash.startsWith('event/')) {
       const eCode = hash.split('/')[1];
-      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
-      navigate('event', { code: eCode });
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+      navigate('event', { code: eCode }, opts);
     } else if (hash === 'arcade' || hash === 'duels') {
       // Used by duel and game notifications: open the games from the betting page
       openOnHome(() => openAllArcadeGamesModal());
     }
   }
 
-  window.addEventListener('hashchange', handleHashRoute);
+  window.addEventListener('hashchange', () => handleHashRoute());
 
   // A tapped notification while the app is already open: the service worker asks the
   // page to go to the notification's link (party rooms, hash routes, other pages)
@@ -377,9 +440,9 @@ function init() {
   // Older notifications linked to paths such as /duels or /leaderboard that do not exist
   const legacyPaths = { '/duels': '#arcade', '/leaderboard': '#swishlist', '/the-tab': '#swishlist' };
   if (legacyPaths[window.location.pathname]) {
-    window.history.replaceState({}, '', `/${window.location.search}${legacyPaths[window.location.pathname]}`);
+    window.history.replaceState(window.history.state, '', `/${window.location.search}${legacyPaths[window.location.pathname]}`);
   }
-  if (window.location.hash) handleHashRoute();
+  if (window.location.hash) handleHashRoute(true);
 
   // Intercept clicks on hash links in SPA
   document.addEventListener('click', (e) => {
@@ -423,6 +486,8 @@ function init() {
 
   initAds();
   initMaltaSupportWidget();
+  guardSubPage();
+  shownDepth = historyDepth();
   renderApp();
 
   // Handle friend invite link ?addFriend=nickname&ft=token
@@ -441,7 +506,7 @@ function init() {
     }
     url.searchParams.delete('addFriend');
     url.searchParams.delete('ft');
-    window.history.replaceState({}, '', url);
+    window.history.replaceState(window.history.state, '', url);
   }
 
   // Handle party/room QR link ?party=CODE or ?room=CODE
@@ -449,7 +514,7 @@ function init() {
   if (partyParam) {
     url.searchParams.delete('party');
     url.searchParams.delete('room');
-    window.history.replaceState({}, '', url);
+    window.history.replaceState(window.history.state, '', url);
 
     handlePartyRoomDeepLink(partyParam);
   }
@@ -465,7 +530,7 @@ function init() {
   if (liveParam) {
     url.searchParams.delete('live');
     url.searchParams.delete('liveId');
-    window.history.replaceState({}, '', url);
+    window.history.replaceState(window.history.state, '', url);
 
     import('./components/livestream.js').then(({ openLiveStreamModal }) => {
       import('./api.js').then(({ getFlashLive }) => {

@@ -155,6 +155,10 @@ export function initBellListeners() {
     });
   }
 
+  // A header drawn twice in a row reaches here twice with the same bell: a second
+  // listener would open and at once close the list
+  if (bell.dataset.bound) return;
+  bell.dataset.bound = '1';
   bell.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleDropdown();

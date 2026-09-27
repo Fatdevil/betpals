@@ -4,6 +4,7 @@ import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
 import { handleWebSocketNotification } from '../components/notifications.js';
 import { t } from '../i18n.js';
+import { setBackParent, setBackInterceptor, isShowing } from '../backNav.js';
 import { openFinishEventModal } from '../components/finish-event-modal.js';
 
 let wsUnsubscribe = null;
@@ -155,9 +156,11 @@ function renderSettlementSection(event, payoutInfo) {
 }
 
 export async function renderEvent(params = {}) {
+  const code = params.code;
+  // A delayed refresh after the user already left: do nothing
+  if (code && !isShowing('event', code)) return;
   cleanupEvent();
   const content = document.getElementById('page-content');
-  const code = params.code;
 
   if (!code) {
     content.innerHTML = `
@@ -177,8 +180,11 @@ export async function renderEvent(params = {}) {
 
   try {
     const event = await getEvent(code);
+    if (!isShowing('event', code)) return;
+    // Back works as soon as we know the event, even while its details still load
+    if (event.tournamentId) setBackParent('tournament', { code: event.tournamentId });
 
-    // The back link shows the event's name
+    // Where back leads: the game's event
     if (event.tournamentId) {
       try {
         const tour = await getTournament(event.tournamentId);
@@ -186,6 +192,7 @@ export async function renderEvent(params = {}) {
         event.tournamentCode = tour?.shareCode || null;
         if (tour?.creatorId) tournamentCreatorById[event.tournamentId] = tour.creatorId;
       } catch (_) {}
+      if (!isShowing('event', code)) return;
     }
 
     renderEventContent(event, content, code);
@@ -227,6 +234,7 @@ export async function renderEvent(params = {}) {
       }
     });
   } catch (err) {
+    if (!isShowing('event', code)) return;
     if (err?.authRequired) {
       showLoginPrompt();
       return;
@@ -457,9 +465,6 @@ function renderEventContent(event, content, code) {
 
       <!-- Header: back to the event, title, status and small links -->
       <div class="game-head">
-        ${event.tournamentId ? `
-          <button type="button" class="game-crumb" id="game-back-btn">← ${escapeHtml(event.tournamentName || 'Tillbaka till eventet')}</button>
-        ` : ''}
         <h1 class="game-title">${escapeHtml(event.name)}</h1>
         <div class="game-meta">
           ${statusPill}
@@ -653,9 +658,9 @@ function renderEventContent(event, content, code) {
     openEventShareModal(code, event.name);
   });
 
-  document.getElementById('game-back-btn')?.addEventListener('click', () => {
-    window.dispatchEvent(new CustomEvent('navigate', { detail: { page: 'tournament', code: event.tournamentCode || event.tournamentId } }));
-  });
+  // Back (header "‹" or the phone's) leads to the game's event; with no event, to Betting
+  if (event.tournamentId) setBackParent('tournament', { code: event.tournamentCode || event.tournamentId });
+  setBackInterceptor(null);
 
   if (canBet) {
     const optionsEl = document.getElementById('odds-board-container');
@@ -714,6 +719,13 @@ function renderEventContent(event, content, code) {
     };
 
     document.getElementById('betslip-close')?.addEventListener('click', closeSlip);
+    // Back closes an open slip first, like a sportsbook, instead of leaving the game
+    setBackInterceptor(() => {
+      // A slip removed by a refresh must never swallow back
+      if (!slip.isConnected || slip.hidden) return false;
+      closeSlip();
+      return true;
+    });
 
     slip.querySelectorAll('.betslip-stake').forEach(chip => {
       chip.addEventListener('click', () => {
@@ -1114,4 +1126,6 @@ export function cleanupEvent() {
   }
   refreshGameOptions = null;
   removeBetslip();
+  // The slip is gone: back must work again while the page reloads
+  setBackInterceptor(null);
 }
