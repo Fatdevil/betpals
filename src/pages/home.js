@@ -78,12 +78,11 @@ export async function renderHome() {
       const renderEventCard = (tr, i) => {
         const isActive = tr.status === 'active';
         const games = tr.roundCount || 0;
-        // A running event shows what can still be won (not all money ever bet, which only
-        // grows and includes settled and cancelled games); a settled one how big it was
+        // Who is in (and, added below, your result so far). No total of all pots: each game
+        // row shows its own pot, and a total next to your result read as "your share of it"
         const info = [
           games === 0 ? (isEn ? 'No games yet' : 'Inga spel än') : isActive ? '' : `<b>${games} ${isEn ? (games === 1 ? 'game' : 'games') : 'spel'}</b>`,
-          tr.participantCount ? `👥 ${tr.participantCount} ${isEn ? 'in' : 'med'}` : '',
-          isActive && tr.livePool > 0 ? `💰 <b>${formatCurrency(tr.livePool)}</b> ${isEn ? 'in play now' : 'i spel just nu'}` : ''
+          tr.participantCount ? `👥 ${tr.participantCount} ${isEn ? 'in' : 'med'}` : ''
         ].filter(Boolean).join(' · ');
         // Up to three open games (the ones you have not bet on first, then closing soonest),
         // then up to two closed games you are in that wait for a result
@@ -455,7 +454,7 @@ function showLiveStandings(settlements, isEn) {
     if (!net) continue;
     const card = [...document.querySelectorAll('.home-event-card')].find(c => c.dataset.tournamentCode === ev.shareCode);
     if (!card || card.querySelector('.home-event-me')) continue;
-    const me = `<span class="home-event-me ${net < 0 ? 'is-neg' : 'is-pos'}" title="${isEn ? 'Settled when the event ends' : 'Görs upp när eventet är slut'}">${isEn ? 'You' : 'Du'}: <b>${net > 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}</b></span>`;
+    const me = `<span class="home-event-me ${net < 0 ? 'is-neg' : 'is-pos'}" title="${isEn ? 'From the games decided so far; settled when the event ends' : 'Från de spel som är avgjorda; görs upp när eventet är slut'}">${isEn ? 'Your result so far' : 'Ditt resultat hittills'}: <b>${net > 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}</b></span>`;
     const info = card.querySelector('.home-event-info');
     if (info) {
       info.insertAdjacentHTML('beforeend', `${info.textContent.trim() ? ' · ' : ''}${me}`);

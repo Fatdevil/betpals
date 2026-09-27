@@ -2456,10 +2456,6 @@ function summarizeTournaments(tournaments, userId) {
     const pools = new Map(poolsByTournament.all(t.id).map(p => [p.event_id, p.total]));
     const poolOf = (r) => pools.get(r.id) || 0;
     const totalPool = rounds.reduce((sum, r) => sum + poolOf(r), 0);
-    // Money still to be won: games not yet settled or cancelled (settled money is in "Ditt läge")
-    const livePool = rounds
-      .filter(r => r.status !== 'finished' && r.status !== 'cancelled')
-      .reduce((sum, r) => sum + poolOf(r), 0);
     // The home card's short list: games you have not bet on first, then the ones closing soonest
     const closesAt = (r) => (r.closes_at ? new Date(r.closes_at).getTime() : Infinity);
     const upNext = [...openGames]
@@ -2501,7 +2497,6 @@ function summarizeTournaments(tournaments, userId) {
         return parts.length + (t.creator_id && !parts.some(pt => pt.user_id === t.creator_id) ? 1 : 0);
       })(),
       totalPool,
-      livePool,
       upNext,
       waiting,
       waitingCount: waitingGames.length,

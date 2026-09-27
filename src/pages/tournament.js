@@ -251,7 +251,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
         </button>
         ${showMine ? `
           <button type="button" class="event-my-standing ${myBalance.net < 0 ? 'is-neg' : 'is-pos'}" id="event-my-standing-btn">
-            Ditt läge: <b>${myBalance.net > 0 ? '+' : '−'}${formatCurrency(Math.abs(myBalance.net))}</b> <span aria-hidden="true">›</span>
+            Ditt resultat hittills: <b>${myBalance.net > 0 ? '+' : '−'}${formatCurrency(Math.abs(myBalance.net))}</b> <span aria-hidden="true">›</span>
           </button>
         ` : ''}
         <div class="event-hero-actions">
@@ -964,7 +964,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   });
 
 
-  // "Ditt läge" at the top goes to the full settlement further down
+  // "Ditt resultat hittills" at the top goes to the full settlement further down
   document.getElementById('event-my-standing-btn')?.addEventListener('click', () => {
     document.getElementById('net-settlement')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
