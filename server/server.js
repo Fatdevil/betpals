@@ -2409,9 +2409,11 @@ app.get('/api/events/:idOrCode', (req, res) => {
       : res.status(401).json({ error: 'Logga in för att se detta event' });
   }
   hidePicksWhileOpen(event, user);
-  // Tells the organiser's result dialog whether it can offer "read the result from a photo"
-  if (user) event.canReadResultPhoto = canReadResults();
-  res.json(user ? event : publicEventView(event));
+  // Whether the result dialog can offer "read the result from a photo". Not sensitive, and
+  // organisers who manage a game with the PIN (no login) need it too
+  const out = user ? event : publicEventView(event);
+  out.canReadResultPhoto = canReadResults();
+  res.json(out);
 });
 
 // The organiser's photo of the result (scorecard, GameBook leaderboard): the AI suggests the

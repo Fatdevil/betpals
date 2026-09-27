@@ -144,3 +144,20 @@ test('a result photo over 1 MB reaches the reader, and readings are rate-limited
     delete process.env.GEMINI_API_KEY;
   }
 });
+
+test('overlapping option names pick the right one, and PIN-only organisers are told about the reader', async () => {
+  const opts = [{ id: 'jon', name: 'Jon' }, { id: 'jonas', name: 'Jonas' }, { id: 'jonathan', name: 'Jonathan' }];
+  assert.deepEqual(matchOptions(['Jonas Andersson'], opts), ['jonas'], 'longest option inside the name');
+  assert.deepEqual(matchOptions(['Jonathan L'], opts), ['jonathan']);
+  assert.deepEqual(matchOptions(['Jon'], opts), ['jon'], 'exact first');
+  assert.deepEqual(matchOptions(['Jona'], opts), [], 'ambiguous: no guess');
+  assert.deepEqual(matchOptions(['Anna A'], [{ id: 'a', name: 'Anna' }, { id: 'b', name: 'Anni' }]), ['a']);
+
+  const { host, tId } = await golfEvent();
+  const res = await call('POST', `/api/tournaments/${tId}/sidebets`, { name: 'Runda 3', players: ['Anna', 'Bosse'], betAmount: 20 }, host.token);
+  const game = res.body.sideBets.find(g => g.name === 'Runda 3');
+  const anon = await call('GET', `/api/events/${game.id}`);
+  if (anon.status === 200) assert.equal(anon.body.canReadResultPhoto, false);
+  const src = readFileSync(new URL('../server/server.js', import.meta.url), 'utf8');
+  assert.match(src, /const out = user \? event : publicEventView\(event\);\s*out\.canReadResultPhoto = canReadResults\(\);/);
+});

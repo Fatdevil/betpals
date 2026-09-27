@@ -26,15 +26,29 @@ export function parseImageDataUrl(dataUrl) {
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
+// "Anna Andersson" on the card for the option "Anna": the longest option inside the name
+// wins (Jonas, not Jon). A short name inside several options ("Jon" in Jonas and Jonathan)
+// is ambiguous and matches nothing. Never for short options like 1/X/2.
+function looseMatch(n, options) {
+  if (n.length < 3) return null;
+  const named = options.map(o => ({ o, on: norm(o.name) })).filter(x => x.on.length >= 3);
+  const inside = named.filter(x => n.includes(x.on)).sort((a, b) => b.on.length - a.on.length);
+  const around = named.filter(x => x.on.includes(n) && x.on !== n);
+  if (inside.length) {
+    // "Jona" holds Jon but is also the start of Jonas: could be either, so no guess
+    if (around.length) return null;
+    return inside.length > 1 && inside[0].on.length === inside[1].on.length ? null : inside[0].o;
+  }
+  return around.length === 1 ? around[0].o : null;
+}
+
 // The names the model gave, matched to the game's own options (never anything else)
 export function matchOptions(names, options) {
   const ids = [];
   for (const raw of Array.isArray(names) ? names : []) {
     const n = norm(raw);
     if (!n) continue;
-    const hit = options.find(o => norm(o.name) === n)
-      // "Anna Andersson" on the card for the option "Anna"; never for short options like 1/X/2
-      || options.find(o => { const on = norm(o.name); return on.length >= 3 && n.length >= 3 && (n.includes(on) || on.includes(n)); });
+    const hit = options.find(o => norm(o.name) === n) || looseMatch(n, options);
     if (hit && !ids.includes(hit.id)) ids.push(hit.id);
   }
   return ids;
