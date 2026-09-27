@@ -228,6 +228,11 @@ export async function renderEvent(params = {}) {
       } else if (msg.type === 'event_reopened') {
         showToast(t('notifications.eventReopened'), 'info');
         setTimeout(() => renderEvent(params), 500);
+      } else if (msg.type === 'event_updated') {
+        // Patched in place: a full re-render would close an open bet slip
+        getEvent(code).then(fresh => {
+          if (isShowing('event', code)) syncResultLink(fresh, content.querySelector('.game-links'));
+        }).catch(() => {});
       } else if (msg.type === 'event_deadline_updated') {
         showToast('⏰ Spelstopp uppdaterat!', 'info');
         setTimeout(() => renderEvent(params), 500);
@@ -473,7 +478,7 @@ function renderEventContent(event, content, code) {
           ` : ''}
         </div>
         <div class="game-links">
-          ${event.resultUrl ? `<a class="game-link game-link-live" href="${escapeHtml(sanitizeUrl(event.resultUrl))}" target="_blank" rel="noopener noreferrer">📊 ${isFinished ? 'Topplista' : 'Följ live'}</a>` : ''}
+          ${resultLinkHtml(event)}
           <button type="button" class="game-link" id="event-share-modal-btn">📤 Dela</button>
           ${!isFinished && event.status !== 'cancelled' ? '<button type="button" class="game-link" id="calendar-export-btn">📅 Kalender</button>' : ''}
         </div>
@@ -1169,4 +1174,20 @@ export function cleanupEvent() {
   removeBetslip();
   // The slip is gone: back must work again while the page reloads
   setBackInterceptor(null);
+}
+
+function resultLinkHtml(event) {
+  if (!event.resultUrl) return '';
+  const label = event.status === 'finished' ? 'Topplista' : 'Följ live';
+  return `<a class="game-link game-link-live" href="${escapeHtml(sanitizeUrl(event.resultUrl))}" target="_blank" rel="noopener noreferrer">📊 ${label}</a>`;
+}
+
+// A changed or removed leaderboard link reaches everyone already on the page
+function syncResultLink(event, links) {
+  if (!links) return;
+  links.querySelector('.game-link-live')?.remove();
+  const html = resultLinkHtml(event);
+  if (html) links.insertAdjacentHTML('afterbegin', html);
+  const btn = document.getElementById('creator-result-url-btn');
+  if (btn) btn.textContent = `📊 ${event.resultUrl ? 'Ändra topplista-länk' : 'Länk till topplista'}`;
 }

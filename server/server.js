@@ -521,7 +521,9 @@ wss.on('connection', (ws, req) => {
           // Join pending event channel after verifying tournament access
           if (pendingEventCode) {
             const tourney = db.getTournamentByCode(pendingEventCode);
-            if (tourney && db.canUserAccessTournament(tourney, boundUserId)) {
+            // A game page listens on the game's own code, with the same access as viewing it
+            const game = tourney ? null : db.getEventByCode(pendingEventCode);
+            if ((tourney && db.canUserAccessTournament(tourney, boundUserId)) || (game && canViewEvent(game, user))) {
               if (!eventClients.has(pendingEventCode)) eventClients.set(pendingEventCode, new Set());
               eventClients.get(pendingEventCode).add(ws);
               boundEventCode = pendingEventCode;

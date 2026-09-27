@@ -179,6 +179,39 @@ test('a replaced suggestion undoes its tie ticks, and an older photo never overt
 
 test('choosing another photo takes the old suggestion away at once (nothing stale to save)', () => {
   const fin = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
-  assert.match(fin, /const pick = \+\+photoPick;\s*\/\/[^\n]*\n\s*reader\?\.cancel\(\);\s*clearSuggestion\(\);\s*try \{/);
+  assert.match(fin, /const pick = \+\+photoPick;\s*\/\/[^\n]*\n\s*reader\?\.cancel\(\);\s*clearSuggestion\(\);/);
   assert.match(fin, /pickReader\.cancel\(\);\s*note\.style\.display = 'none';\s*if \(pickAiTicked\.length\) \{\s*boxes\.forEach\(b => \{ if \(pickAiTicked\.includes\(b\.value\)\) b\.checked = false; \}\);\s*pickAiTicked = \[\];\s*refreshSave\(\);/);
+});
+
+test('the old photo is never sent as proof while its replacement compresses', () => {
+  const fin = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
+  const handler = fin.slice(fin.indexOf("proofInput?.addEventListener('change'"), fin.indexOf('const compressed = await compressImage'));
+  assert.match(handler, /selectedWinnerProof = null;/);
+  assert.match(handler, /proofPreviewWrapper\.style\.display = 'none';/);
+});
+
+test('a changed or removed leaderboard link reaches viewers already on the game page', () => {
+  const ev = readFileSync(new URL('../src/pages/event.js', import.meta.url), 'utf8');
+  assert.match(ev, /msg\.type === 'event_updated'[\s\S]{0,300}syncResultLink\(fresh/);
+  assert.match(ev, /function syncResultLink\(event, links\) \{[\s\S]*?\.game-link-live'\)\?\.remove\(\);[\s\S]*?insertAdjacentHTML/);
+});
+
+test('a game page joins live updates by the game code, only with access to the game', async () => {
+  const { WebSocket } = await import('ws');
+  const { host, guest, tId } = await golfEvent();
+  const outsider = await registerUser('go');
+  const res = await call('POST', `/api/tournaments/${tId}/sidebets`, { name: 'Live-länk', players: ['Anna', 'Bosse'], betAmount: 20 }, host.token);
+  const game = res.body.sideBets.find(g => g.name === 'Live-länk');
+  const listen = (token) => new Promise(resolve => {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/?event=${game.shareCode}`);
+    const got = [];
+    ws.on('message', m => got.push(JSON.parse(m).type));
+    ws.on('open', () => { ws.send(JSON.stringify({ type: 'auth', token })); setTimeout(() => resolve({ ws, got }), 150); });
+  });
+  const [inside, outside] = await Promise.all([listen(guest.token), listen(outsider.token)]);
+  assert.equal((await call('PUT', `/api/events/${game.id}/result-url`, { url: 'https://www.golfgamebook.com/x' }, host.token)).status, 200);
+  await new Promise(r => setTimeout(r, 200));
+  inside.ws.close(); outside.ws.close();
+  assert.ok(inside.got.includes('event_updated'), inside.got.join());
+  assert.ok(!outside.got.includes('event_updated'), outside.got.join());
 });

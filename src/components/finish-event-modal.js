@@ -129,6 +129,12 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     // The old photo's suggestion goes at once, not after the new one is ready
     reader?.cancel();
     clearSuggestion();
+    // Nor may the old photo be sent as proof while the new one compresses
+    selectedWinnerProof = null;
+    proofPreview.src = '';
+    proofPreviewWrapper.style.display = 'none';
+    proofPlaceholder.style.display = 'block';
+    if (readBtn) readBtn.style.display = 'none';
     try {
       const compressed = await compressImage(file, 1000, 0.8);
       if (pick !== photoPick) return;
