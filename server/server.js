@@ -12,6 +12,7 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import { TOURNAMENT_TEMPLATES } from './templates.js';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { readResultFromImage, canReadResults } from './resultReader.js';
 import { generateMaltaSupportReply, getMaltaFallbackReply, getSupportSuggestions, SUPPORT_TOPICS, getSupportMode, generateMaltaSupportPush, getMaltaPushFallback, isGeminiLive, getSearchQuotaInfo, getLastApiDiagnostic } from './support.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2400,7 +2401,35 @@ app.get('/api/events/:idOrCode', (req, res) => {
       : res.status(401).json({ error: 'Logga in för att se detta event' });
   }
   hidePicksWhileOpen(event, user);
+  // Tells the organiser's result dialog whether it can offer "read the result from a photo"
+  if (user) event.canReadResultPhoto = canReadResults();
   res.json(user ? event : publicEventView(event));
+});
+
+// The organiser's photo of the result (scorecard, GameBook leaderboard): the AI suggests the
+// winner among the game's options. Only a suggestion; settling is still the organiser's tap.
+app.post('/api/events/:id/read-result', express.json({ limit: '8mb' }), async (req, res) => {
+  const event = db.getFullEvent(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  if (event.status === 'finished' || event.status === 'cancelled') return res.status(400).json({ error: 'Spelet är redan avgjort' });
+  const result = await readResultFromImage(event, req.body?.image);
+  if (!result.ok) return res.status(result.error === 'Bilden kunde inte läsas' ? 400 : 503).json({ error: result.error });
+  res.json({ winnerIds: result.winnerIds, reason: result.reason });
+});
+
+// Link to where the game is followed live, e.g. a GameBook leaderboard
+app.put('/api/events/:id/result-url', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  const raw = String(req.body?.url || '').trim();
+  if (raw && !db.cleanResultUrl(raw)) return res.status(400).json({ error: 'Länken måste börja med https://' });
+  db.setEventResultUrl(event.id, raw);
+  broadcastToEvent(event.share_code, { type: 'event_updated', eventCode: event.share_code });
+  const t = event.tournament_id ? db.getTournamentById(event.tournament_id) : null;
+  if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+  res.json({ ok: true, resultUrl: db.cleanResultUrl(raw) });
 });
 
 // In a pick game nobody can copy anyone: others' tips show once betting has closed
@@ -3490,6 +3519,9 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   if (validClosesAt && !reminderFits(req.body.remindBeforeMin, validClosesAt)) {
     return res.status(400).json({ error: REMINDER_TOO_LATE });
   }
+  if (req.body.resultUrl && !db.cleanResultUrl(req.body.resultUrl)) {
+    return res.status(400).json({ error: 'Länken till topplistan måste börja med https://' });
+  }
 
   const eventId = generateId();
   const eventData = {
@@ -3515,6 +3547,7 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   db.createEvent(eventData, playerData);
   if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
   if (validClosesAt && req.body.remindBeforeMin) db.setEventReminder(eventId, req.body.remindBeforeMin);
+  if (req.body.resultUrl) db.setEventResultUrl(eventId, req.body.resultUrl);
 
   // For 'self' mode: auto-create bets — each player bets on themselves
   if (betMode === 'self') {

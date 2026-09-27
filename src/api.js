@@ -272,6 +272,12 @@ export const boostEvent = (id) =>
   request(`/events/${id}/boost`, { method: 'POST' });
 export const updateEventDeadline = (id, closesAt, remindBeforeMin) =>
   request(`/events/${id}/deadline`, { method: 'PUT', body: remindBeforeMin === undefined ? { closesAt } : { closesAt, remindBeforeMin } });
+// The organiser's photo of the result: the AI suggests the winner (the organiser confirms)
+export const readEventResult = (id, image, pin) =>
+  request(`/events/${id}/read-result`, { method: 'POST', body: { image, pin } });
+// Link to where the game is followed live, e.g. a GameBook leaderboard ('' removes it)
+export const setEventResultUrl = (id, url, pin) =>
+  request(`/events/${id}/result-url`, { method: 'PUT', body: { url, pin } });
 export const updateEventImage = (id, data) =>
   request(`/events/${id}/image`, { method: 'PUT', body: data });
 

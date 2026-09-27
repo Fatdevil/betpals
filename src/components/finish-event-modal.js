@@ -1,10 +1,36 @@
 // ── Settle a game: pick the winner (or several for a shared win) ─
 // Used from the game page's organiser panel and from the admin list.
-import { finishEvent, finishPickGame } from '../api.js';
-import { showToast, launchConfetti, escapeHtml, safeImageSrc } from '../utils.js';
+import { finishEvent, finishPickGame, readEventResult } from '../api.js';
+import { showToast, launchConfetti, escapeHtml, safeImageSrc, sanitizeUrl } from '../utils.js';
 import { showModal, closeModal } from './modal.js';
 import { t } from '../i18n.js';
 import { compressImage } from '../imageUtils.js';
+
+// Straight to the live leaderboard (e.g. GameBook) to see who won
+const leaderboardLink = (event) => event.resultUrl ? `
+  <a class="finish-leaderboard-link" href="${escapeHtml(sanitizeUrl(event.resultUrl))}" target="_blank" rel="noopener noreferrer">📊 Öppna topplistan <span>›</span></a>
+` : '';
+
+// The AI's suggestion from the result photo; the organiser still confirms
+async function suggestFromPhoto(event, image, pin, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🤖 Läser av bilden...';
+  try {
+    const res = await readEventResult(event.id, image, pin);
+    if (!res.winnerIds?.length) {
+      showToast(res.reason ? `Hittade ingen vinnare: ${res.reason}` : 'Kunde inte se någon vinnare på bilden – välj själv', 'info');
+      return null;
+    }
+    return res;
+  } catch (err) {
+    showToast(err.message, 'error');
+    return null;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
 
 export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
   if (event.betMode === 'picks') return openPickResultModal(event, { pin, onDone });
@@ -12,6 +38,7 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
 
   showModal(t('admin.finishTitle'), `
     <p class="text-secondary mb-sm">${t('admin.whoWonPrompt')} <strong>${escapeHtml(event.name)}</strong>?</p>
+    ${leaderboardLink(event)}
     ${stillOpen ? `
       <p class="text-muted mb-md" style="font-size: 0.8rem;">🔒 Bettningen stängs när du väljer vinnare.</p>
     ` : ''}
@@ -47,10 +74,14 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
         </div>
         <div id="finish-proof-placeholder">
           <div style="font-size: 1.8rem; margin-bottom: 2px;">📷</div>
-          <div style="font-size: 0.8rem; color: var(--text-secondary);">Fota slutresultat / scorekort / målgång</div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary);">Fota slutresultat / scorekort / målgång${event.canReadResultPhoto ? ' – AI:n föreslår vinnaren' : ''}</div>
         </div>
         <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="finish-proof-input" style="display:none;" />
       </div>
+      ${event.canReadResultPhoto ? `
+        <button type="button" class="btn btn-secondary btn-block btn-sm" id="finish-read-btn" style="display: none; margin-top: 8px; font-weight: 700;">🤖 Läs av vinnaren från bilden</button>
+        <p class="finish-ai-note" id="finish-ai-note" style="display: none;"></p>
+      ` : ''}
     </div>
   `);
 
@@ -76,6 +107,10 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
       proofPreview.src = selectedWinnerProof;
       proofPreviewWrapper.style.display = 'inline-block';
       proofPlaceholder.style.display = 'none';
+      if (readBtn) {
+        readBtn.style.display = 'block';
+        readBtn.click(); // read it at once; the organiser still picks the winner
+      }
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -88,6 +123,33 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     proofPreview.src = '';
     proofPreviewWrapper.style.display = 'none';
     proofPlaceholder.style.display = 'block';
+    if (readBtn) readBtn.style.display = 'none';
+    clearSuggestion();
+  });
+
+  // ── AI suggestion from the result photo ──
+  const readBtn = document.getElementById('finish-read-btn');
+  const aiNote = document.getElementById('finish-ai-note');
+  function clearSuggestion() {
+    document.querySelectorAll('.winner-row.suggested').forEach(r => r.classList.remove('suggested'));
+    if (aiNote) aiNote.style.display = 'none';
+  }
+  readBtn?.addEventListener('click', async () => {
+    if (!selectedWinnerProof) return;
+    const res = await suggestFromPhoto(event, selectedWinnerProof, pin, readBtn);
+    clearSuggestion();
+    if (!res) return;
+    const rows = res.winnerIds.map(id => document.querySelector(`.winner-row[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
+    rows.forEach(r => r.classList.add('suggested'));
+    // A shared win: tick them all, so "Dela pott" is one tap away
+    if (rows.length > 1) {
+      checkboxes.forEach(cb => { cb.checked = res.winnerIds.includes(cb.dataset.id); });
+      checkboxes[0]?.dispatchEvent(new Event('change'));
+    }
+    const names = rows.map(r => r.querySelector('.bet-item-name')?.textContent).filter(Boolean).join(' & ');
+    aiNote.innerHTML = `🤖 Förslag: <b>${escapeHtml(names)}</b>${res.reason ? ` – ${escapeHtml(res.reason)}` : ''}<br><span>Kontrollera och tryck på vinnaren för att avgöra.</span>`;
+    aiNote.style.display = 'block';
+    rows[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
   const tiedBtn = document.getElementById('confirm-tied-winners-btn');
@@ -136,6 +198,12 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
   const entries = event.entries || [];
   showModal('🎯 Rätt svar', `
     <p class="text-secondary mb-sm">Vilka ${n} blev det i <strong>${escapeHtml(event.name)}</strong>?</p>
+    ${leaderboardLink(event)}
+    ${event.canReadResultPhoto ? `
+      <label class="btn btn-secondary btn-block btn-sm" for="pick-photo-input" id="pick-read-btn" role="button" style="font-weight: 700; margin-bottom: 8px;">📸 Läs av från skärmdump</label>
+      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="pick-photo-input" class="file-input-hidden" />
+      <p class="finish-ai-note" id="pick-ai-note" style="display: none;"></p>
+    ` : ''}
     ${event.status === 'open' ? '<p class="text-muted mb-sm" style="font-size: 0.8rem;">🔒 Tipsen stängs när du sparar resultatet.</p>' : ''}
     <div class="bet-list mb-md" id="pick-result-list">
       ${event.players.map(p => `
@@ -152,12 +220,39 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
   const boxes = [...document.querySelectorAll('.pick-result-cb')];
   const save = document.getElementById('pick-result-save');
   const selected = () => boxes.filter(b => b.checked).map(b => b.value);
-  boxes.forEach(b => b.addEventListener('change', () => {
-    if (selected().length > n) { b.checked = false; showToast(`Välj exakt ${n}`, 'info'); }
+  const refreshSave = () => {
     const count = selected().length;
     save.disabled = count !== n;
     save.textContent = count === n ? '🏆 Spara resultatet' : `Välj ${n} (${count}/${n})`;
+  };
+  boxes.forEach(b => b.addEventListener('change', () => {
+    if (selected().length > n) { b.checked = false; showToast(`Välj exakt ${n}`, 'info'); }
+    refreshSave();
   }));
+
+  // A screenshot of the result: the AI ticks its suggestion, the organiser checks and saves
+  document.getElementById('pick-photo-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const readBtn = document.getElementById('pick-read-btn');
+    const note = document.getElementById('pick-ai-note');
+    let image;
+    try {
+      image = await compressImage(file, 1000, 0.8);
+    } catch (err) {
+      showToast(err.message, 'error');
+      return;
+    }
+    const res = await suggestFromPhoto(event, image, pin, readBtn);
+    if (!res) return;
+    const ids = res.winnerIds.slice(0, n);
+    boxes.forEach(b => { b.checked = ids.includes(b.value); });
+    refreshSave();
+    const names = ids.map(id => event.players.find(p => p.id === id)?.name).filter(Boolean).join(', ');
+    note.innerHTML = `🤖 Förslag: <b>${escapeHtml(names)}</b>${ids.length < n ? ` (${ids.length} av ${n} – kryssa i resten)` : ''}${res.reason ? ` – ${escapeHtml(res.reason)}` : ''}<br><span>Kontrollera innan du sparar.</span>`;
+    note.style.display = 'block';
+  });
 
   let busy = false;
   save.addEventListener('click', async () => {

@@ -1356,6 +1356,12 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       </label>
       <input type="file" id="ng-image-input" accept="image/jpeg,image/png,image/webp,image/gif,image/*" class="file-input-hidden" />
 
+      <details class="ng-link-row" id="ng-link-row">
+        <summary><span>📊 Länk till livetopplista (valfritt)</span><span class="ng-image-arrow">›</span></summary>
+        <input type="url" inputmode="url" class="form-input ng-input" id="ng-result-url" placeholder="https://… t.ex. GameBook-länken" maxlength="500" autocomplete="off" />
+        <p class="ng-hint">Alla kan då följa rundan live, och du hittar resultatet direkt när spelet ska avgöras.</p>
+      </details>
+
       <div class="ng-footer">
         <div class="ng-summary" id="ng-summary"></div>
         <button type="submit" class="btn btn-primary btn-block ng-submit" id="ng-submit" disabled>Skapa spel</button>
@@ -1664,6 +1670,12 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
       showToast(g.problem, 'error');
       return;
     }
+    const resultUrl = (document.getElementById('ng-result-url')?.value || '').trim();
+    if (resultUrl && !/^https:\/\/\S+$/i.test(resultUrl)) {
+      showToast('Länken till topplistan måste börja med https://', 'error');
+      document.getElementById('ng-link-row').open = true;
+      return;
+    }
     submitBtn.disabled = true;
     submitBtn.textContent = 'Skapar...';
     try {
@@ -1692,6 +1704,7 @@ function showAddGameModal(t, content, photos = [], tournamentFlashBets = []) {
         closesAt: g.closesAt,
         ...(g.closesAt && state.remind > 0 ? { remindBeforeMin: state.remind } : {}),
         imageUrl: state.imageData || undefined,
+        ...(resultUrl ? { resultUrl } : {}),
         pin
       });
       closeModal();

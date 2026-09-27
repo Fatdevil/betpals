@@ -5013,3 +5013,86 @@ button.notif-item {
   font-weight: 800;
   line-height: 1;
 }
+
+/* Optional link to the live leaderboard (e.g. GameBook) in the new-game form */
+.ng-link-row {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  font-size: 0.85rem;
+  color: #a3a3b2;
+}
+
+.ng-link-row summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ng-link-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.ng-link-row summary span:first-child {
+  flex: 1;
+}
+
+.ng-link-row[open] .ng-image-arrow {
+  transform: rotate(90deg);
+}
+
+.ng-link-row .ng-input {
+  margin-top: 10px;
+}
+
+.game-link-live {
+  color: var(--gold);
+  text-decoration: none;
+}
+
+/* Settling a game: straight to the live leaderboard, and the AI's suggestion */
+.finish-leaderboard-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  background: rgba(255, 215, 0, 0.08);
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+
+.finish-ai-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.finish-ai-note span {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.winner-row.suggested {
+  border-color: var(--gold) !important;
+  box-shadow: 0 0 0 1px var(--gold), 0 0 14px rgba(255, 215, 0, 0.25);
+}
+
+.winner-row.suggested .bet-item-name::after {
+  content: '  🤖 Förslag';
+  font-size: 0.7rem;
+  color: var(--gold);
+  font-weight: 700;
+}
