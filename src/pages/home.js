@@ -1,6 +1,6 @@
 // ── Page: Home / Dashboard ────────────────────────────
 import { getEvents, getTournaments, getActiveFlashLives, getInbox, getSettlementsOverview } from '../api.js';
-import { formatCurrency, formatDate, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
+import { formatCurrency, formatDate, formatDeadline, parseDateSafe, statusLabel, statusBadgeClass, escapeHtml, showToast, renderLoginPrompt, attachLoginPrompt } from '../utils.js';
 import { navigate } from '../main.js';
 import { t, getLang } from '../i18n.js';
 import { renderMinigamesRoller, attachMinigamesListeners } from '../components/minigames.js';
@@ -78,14 +78,41 @@ export async function renderHome() {
       const renderEventCard = (tr, i) => {
         const isActive = tr.status === 'active';
         const games = tr.roundCount || 0;
+        // A running event shows what can still be won (not all money ever bet, which only
+        // grows and includes settled and cancelled games); a settled one how big it was
         const info = [
-          games === 0 ? (isEn ? 'No games yet' : 'Inga spel än') : `<b>${games} ${isEn ? (games === 1 ? 'game' : 'games') : 'spel'}</b>`,
+          games === 0 ? (isEn ? 'No games yet' : 'Inga spel än') : isActive ? '' : `<b>${games} ${isEn ? (games === 1 ? 'game' : 'games') : 'spel'}</b>`,
           tr.participantCount ? `👥 ${tr.participantCount} ${isEn ? 'in' : 'med'}` : '',
-          tr.totalPool > 0 ? `${isEn ? 'pot' : 'pott'} ${formatCurrency(tr.totalPool)}` : ''
+          isActive && tr.livePool > 0 ? `💰 <b>${formatCurrency(tr.livePool)}</b> ${isEn ? 'in play now' : 'i spel just nu'}` : ''
         ].filter(Boolean).join(' · ');
+        // Up to three open games: the ones you have not bet on first, then closing soonest
+        const upNext = isActive ? (tr.upNext || []) : [];
+        const gamesHtml = upNext.length ? `
+          <div class="home-event-games">
+            ${upNext.map(g => {
+              const dl = g.closesAt ? formatDeadline(g.closesAt) : null;
+              const left = dl && !dl.isExpired ? dl.shortText.replace(/\s*kvar.*$/, '') : '';
+              const soon = Boolean(left && dl.remainingMs < 3600000);
+              const pot = g.pool > 0 ? `${isEn ? 'pot' : 'pott'} ${formatCurrency(g.pool)}` : (isEn ? 'no bets yet' : 'inga bets än');
+              return `
+                <button type="button" class="home-game-row" data-game-code="${escapeHtml(g.shareCode)}">
+                  <span class="home-game-main">
+                    <span class="home-game-name">${escapeHtml(g.name)}</span>
+                    <span class="home-game-meta">${left ? `<span class="home-game-time${soon ? ' is-soon' : ''}">⏱ ${escapeHtml(left)}</span> · ` : ''}${pot}</span>
+                  </span>
+                  ${g.hasBet
+                    ? `<span class="home-game-done">✓ ${isEn ? 'In' : 'Med'}</span>`
+                    : `<span class="home-game-go">${g.isPick ? (isEn ? 'Tip' : 'Tippa') : (isEn ? 'Bet' : 'Betta')} →</span>`}
+                </button>`;
+            }).join('')}
+          </div>` : '';
         let action;
         if (!isActive) {
           action = `<span class="home-event-note">🏁 ${isEn ? 'Settled – see the results' : 'Avgjort – se resultatet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
+        } else if (upNext.length > 0 && tr.openGameCount > upNext.length) {
+          // The list above shows the first few: say how many more there are
+          const more = tr.openGameCount - upNext.length;
+          action = `<span class="home-event-note${tr.openUnbetCount > 0 ? ' home-event-note-go' : ''}">+${more} ${isEn ? (more === 1 ? 'more open game' : 'more open games') : (more === 1 ? 'öppet spel till' : 'öppna spel till')}</span>${tr.openUnbetCount > 0 ? `<span class="home-event-cta">${isEn ? 'Bet now' : 'Betta nu'} →</span>` : `<span class="home-event-link">${isEn ? 'All games' : 'Alla spel'} →</span>`}`;
         } else if (tr.openUnbetCount > 0) {
           action = `<span class="home-event-note home-event-note-go">${tr.openUnbetCount} ${isEn ? (tr.openUnbetCount === 1 ? 'game open for bets' : 'games open for bets') : (tr.openUnbetCount === 1 ? 'spel öppet för bets' : 'spel öppna för bets')}</span><span class="home-event-cta">${isEn ? 'Bet now' : 'Betta nu'} →</span>`;
         } else if (tr.openGameCount > 0) {
@@ -103,7 +130,8 @@ export async function renderHome() {
               <span class="home-event-chevron" aria-hidden="true">›</span>
             </div>
             <span class="game-pill ${isActive ? 'game-pill-open' : 'game-pill-done'}">${isActive ? `<i></i>${isEn ? 'Live' : 'Pågår'}` : `🏁 ${isEn ? 'Settled' : 'Avgjort'}`}</span>
-            <div class="home-event-info">${info}</div>
+            ${info ? `<div class="home-event-info">${info}</div>` : ''}
+            ${gamesHtml}
             <div class="home-event-action">${action}</div>
             ${tr.banners && tr.banners.length > 0 ? `
               <div class="home-event-sponsors">
@@ -132,7 +160,16 @@ export async function renderHome() {
       });
       tList.querySelectorAll('.home-event-card').forEach(card => {
         card.addEventListener('keydown', e => {
-          if (e.key === 'Enter') navigate('tournament', { code: card.dataset.tournamentCode });
+          // Enter on a button inside (a game row, a sponsor) is that button's, not the card's
+          if (e.key === 'Enter' && e.target === card) navigate('tournament', { code: card.dataset.tournamentCode });
+        });
+      });
+
+      // A game row goes straight to that game
+      tList.querySelectorAll('.home-game-row').forEach(row => {
+        row.addEventListener('click', e => {
+          e.stopPropagation();
+          navigate('event', { code: row.dataset.gameCode });
         });
       });
 
@@ -186,7 +223,7 @@ export async function renderHome() {
           <div class="section-header-title">
             <span>${t('home.events')}</span>
           </div>
-          <span class="section-header-status">${events.length} ${events.length === 1 ? 'MATCH' : 'MATCHES'}</span>
+          <span class="section-header-status">${events.length} ${isEn ? (events.length === 1 ? 'MATCH' : 'MATCHES') : 'SPEL'}</span>
         </div>
       `;
       document.getElementById('events-list').innerHTML = evHeader + events.map((ev, i) => `
@@ -388,9 +425,12 @@ function showLiveStandings(settlements, isEn) {
     const net = Math.round(ev.myNet || 0);
     if (!net) continue;
     const card = [...document.querySelectorAll('.home-event-card')].find(c => c.dataset.tournamentCode === ev.shareCode);
-    const info = card?.querySelector('.home-event-info');
-    if (!info || card.querySelector('.home-event-standing')) continue;
-    info.insertAdjacentHTML('afterend', `
+    if (!card || card.querySelector('.home-event-standing')) continue;
+    // Under the info line; above the open games when there is no info line
+    const info = card.querySelector('.home-event-info');
+    const below = card.querySelector('.home-event-games, .home-event-action');
+    if (!info && !below) continue;
+    (info || below).insertAdjacentHTML(info ? 'afterend' : 'beforebegin', `
       <div class="home-event-standing ${net < 0 ? 'is-neg' : 'is-pos'}">
         <span>${isEn ? 'Right now' : 'Ditt läge just nu'}: <b>${net > 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}</b></span>
         <small>${isEn ? 'settled when the event ends' : 'görs upp när eventet är slut'}</small>
