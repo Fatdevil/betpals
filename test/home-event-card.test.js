@@ -79,10 +79,50 @@ test('Enter on a game row opens only the game, not the event first', () => {
   assert.match(home, /if \(e\.key === 'Enter' && e\.target === card\) navigate\('tournament'/);
 });
 
-test('yellow "bet" lives on the game rows only; below them one plain way to the whole event', () => {
+test('yellow "bet" lives on the game rows only; "Visa alla ›" in the heading, no big button', () => {
   const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
-  assert.match(home, /class="home-games-label">\$\{isEn \? 'Open games' : 'Öppna spel'\} · \$\{tr\.openGameCount\}/);
-  assert.match(home, /\} else if \(upNext\.length > 0\) \{\s*action = allGames;/);
-  assert.match(home, /'All games in the event' : 'Alla spel i eventet'/);
-  assert.doesNotMatch(home, /Bet now|Betta nu/, 'no big "bet now" that only opens the event');
+  assert.match(home, /sectionHead\(isEn \? 'Open games' : 'Öppna spel', tr\.openGameCount, true\)/);
+  assert.match(home, /'See all' : 'Visa alla'\} ›/);
+  assert.doesNotMatch(home, /Bet now|Betta nu|Alla spel i eventet/, 'no big button that only opens the event');
+  assert.match(home, /\} else if \(gamesHtml\) \{\s*action = '';/, 'no footer row under the game rows');
+});
+
+test('closed games you are in wait for their result with what you bet; your standing sits in the info line', () => {
+  const host = user('wh');
+  const me = user('wm');
+  const tId = 'tour_' + r();
+  db.createTournament(tId, 'Golfhelg', 'HW' + r().slice(0, 6).toUpperCase(), host, 'friends', [{ name: 'Me', userId: me }]);
+  const locked = game(tId, host, 'Vem vinner rundan?');
+  const expired = game(tId, host, 'Längsta drive', { closesAt: new Date(Date.now() - 60000).toISOString() });
+  const notMine = game(tId, host, 'Inte min');
+  const done = game(tId, host, 'Klart');
+  db.addBet('b_' + r(), locked.id, 'Me', locked.players[1].id, 30, me);
+  db.addBet('b_' + r(), locked.id, 'Me', locked.players[1].id, 20, me);
+  bet(expired, me, 10);
+  bet(notMine, host, 40);
+  bet(done, me, 50);
+  db.lockEvent(locked.id);
+  db.lockEvent(notMine.id);
+  db.finishEvent(done.id, done.players[0].id);
+
+  const card = db.getAllTournaments(me).find(t => t.id === tId);
+  assert.equal(card.waitingCount, 2, 'only closed, unsettled games you are in');
+  const byName = Object.fromEntries(card.waiting.map(w => [w.name, w]));
+  assert.deepEqual(Object.keys(byName).sort(), ['Längsta drive', 'Vem vinner rundan?']);
+  assert.deepEqual([byName['Vem vinner rundan?'].label, byName['Vem vinner rundan?'].stake], ['Bosse', 50], 'two bets on one option, one line');
+  assert.equal(byName['Längsta drive'].label, 'Anna');
+
+  const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
+  assert.match(home, /class="home-game-row is-waiting"/);
+  assert.match(home, /'Your bet' : 'Ditt bet'\}: \$\{escapeHtml\(g\.label\)\}/);
+  assert.match(home, /class="home-event-me /, '"Du: +50 kr" in the info line, not a box');
+  assert.doesNotMatch(home, /home-event-standing/);
+});
+
+test('the event page shows your standing at the top and marks your row in the settlement', () => {
+  const t = readFileSync(new URL('../src/pages/tournament.js', import.meta.url), 'utf8');
+  assert.match(t, /id="event-my-standing-btn"/);
+  assert.match(t, /getElementById\('net-settlement'\)\?\.scrollIntoView/);
+  assert.match(t, /<span class="swish-me">\(du\)<\/span>/);
+  assert.match(t, /av \$\{t\.settlement\.totalSideBets \?\? t\.settlement\.totalRounds\} spel/, 'no "0 av 0 ronder"');
 });

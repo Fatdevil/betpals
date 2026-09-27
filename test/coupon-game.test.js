@@ -211,3 +211,11 @@ test('the event\'s game card shows the viewer\'s own row, not "?"', async () => 
   const other = (await call('GET', `/api/tournaments/${db.getTournamentById(tId).share_code}`, null, friends[1].token)).body;
   assert.deepEqual(other.sideBets.find(g => g.id === ev.id).myBets, []);
 });
+
+test('the home card counts 0 right when every corrected match so far is struck', async () => {
+  const { host, friends, ev, sign, tId } = await couponGame();
+  await tip(ev, friends[0], [sign(1, '1'), sign(2, 'X'), sign(3, '2')]);
+  await setResult(ev, host, 1, 'void');
+  const w = db.getAllTournaments(friends[0].id).find(t => t.id === tId).waiting.find(g => g.name === 'Lördagens matcher');
+  assert.deepEqual(w.progress, { decided: 1, matchCount: 3, correct: 0 });
+});

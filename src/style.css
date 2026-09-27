@@ -4534,24 +4534,9 @@ body.betslip-open #malta-support-fab {
   color: #b4b4c4;
 }
 
-.home-event-standing {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 2px 10px;
-  margin-top: 8px;
-  padding: 7px 10px;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-}
-.home-event-standing b { font-size: 0.9rem; }
-.home-event-standing.is-neg b { color: #f87171; }
-.home-event-standing.is-pos b { color: #34d399; }
-.home-event-standing small { font-size: 0.72rem; color: var(--text-muted); }
+.home-event-me { white-space: nowrap; }
+.home-event-me.is-neg b { color: #f87171; }
+.home-event-me.is-pos b { color: #34d399; }
 
 .home-event-info b {
   color: #fff;
@@ -4622,30 +4607,22 @@ body.betslip-open #malta-support-fab {
   color: var(--text-primary);
 }
 
+/* Section heading above the game rows, with "Visa alla ›" to the whole event */
+.home-games-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 14px; }
 .home-games-label {
-  margin-top: 14px;
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.home-games-label + .home-event-games { margin-top: 6px; }
-/* Under the game rows: no divider, one quiet full-width way to the whole event */
-.home-event-action.is-plain { border-top: 0; padding-top: 0; margin-top: 10px; }
-.home-event-all {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--border-glass);
-  background: transparent;
-  font-weight: 700;
-  font-size: 0.88rem;
-  color: var(--text-primary);
-}
+.home-see-all { font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); white-space: nowrap; }
+.home-games-head + .home-event-games { margin-top: 6px; }
+/* Closed games you are in: no call to action, just what you bet */
+.home-game-row.is-waiting { background: transparent; border-style: dashed; }
+.home-game-row.is-waiting .home-game-name { color: var(--text-secondary); }
+.home-game-row.is-waiting .home-game-meta { color: var(--text-secondary); }
+.home-game-chev { font-size: 1.1rem; color: var(--text-muted); }
 
 .home-event-sponsors {
   margin-top: 14px;
@@ -5261,3 +5238,23 @@ button.notif-item {
   color: var(--gold);
   font-weight: 700;
 }
+
+/* The event page: your own standing at the top, and your row marked in the settlement */
+.event-my-standing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.event-my-standing.is-pos b { color: var(--green); }
+.event-my-standing.is-neg b { color: var(--red); }
+.swish-row.is-me { background: rgba(255, 215, 0, 0.07); border-radius: 8px; }
+.swish-me { color: var(--text-muted); font-weight: 600; font-size: 0.8em; }

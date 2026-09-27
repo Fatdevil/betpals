@@ -85,10 +85,15 @@ export async function renderHome() {
           tr.participantCount ? `👥 ${tr.participantCount} ${isEn ? 'in' : 'med'}` : '',
           isActive && tr.livePool > 0 ? `💰 <b>${formatCurrency(tr.livePool)}</b> ${isEn ? 'in play now' : 'i spel just nu'}` : ''
         ].filter(Boolean).join(' · ');
-        // Up to three open games: the ones you have not bet on first, then closing soonest
+        // Up to three open games (the ones you have not bet on first, then closing soonest),
+        // then up to two closed games you are in that wait for a result
         const upNext = isActive ? (tr.upNext || []) : [];
-        const gamesHtml = upNext.length ? `
-          <div class="home-games-label">${isEn ? 'Open games' : 'Öppna spel'} · ${tr.openGameCount}</div>
+        const waiting = isActive ? (tr.waiting || []) : [];
+        const seeAll = `<span class="home-see-all">${isEn ? 'See all' : 'Visa alla'} ›</span>`;
+        const sectionHead = (label, count, withLink) =>
+          `<div class="home-games-head"><span class="home-games-label">${label} · ${count}</span>${withLink ? seeAll : ''}</div>`;
+        const openHtml = upNext.length ? `
+          ${sectionHead(isEn ? 'Open games' : 'Öppna spel', tr.openGameCount, true)}
           <div class="home-event-games">
             ${upNext.map(g => {
               const dl = g.closesAt ? formatDeadline(g.closesAt) : null;
@@ -107,14 +112,40 @@ export async function renderHome() {
                 </button>`;
             }).join('')}
           </div>` : '';
-        // The yellow "bet" is on the game rows only; below them one plain way to the whole
-        // event, named for where it goes (the card itself opens the event too)
-        const allGames = `<span class="home-event-all">${isEn ? 'All games in the event' : 'Alla spel i eventet'} →</span>`;
-        let action;
+        // What you bet, so a glance answers "what did I play?" without opening the game
+        const yourBet = (g) => {
+          if (g.kind === 'coupon') {
+            const p = g.progress || {};
+            return [
+              `${isEn ? 'Your row' : 'Din rad'}: ${escapeHtml(g.label)}`,
+              p.decided ? `✏️ ${p.decided}/${p.matchCount} ${isEn ? 'corrected' : 'rättade'}` : '',
+              p.decided && p.correct !== null ? `${p.correct} ${isEn ? 'right' : 'rätt'}` : ''
+            ].filter(Boolean).join(' · ');
+          }
+          if (g.kind === 'picks') return `${isEn ? 'Your tip' : 'Ditt tips'}: ${escapeHtml(g.label)}`;
+          if (g.kind === 'self') return `${isEn ? "You're in" : 'Du är med'} · ${formatCurrency(g.stake)}`;
+          return `${isEn ? 'Your bet' : 'Ditt bet'}: ${escapeHtml(g.label)} · ${formatCurrency(g.stake)}`;
+        };
+        const waitingHtml = waiting.length ? `
+          ${sectionHead(isEn ? 'Waiting for result' : 'Väntar på resultat', tr.waitingCount, !upNext.length)}
+          <div class="home-event-games">
+            ${waiting.map(g => `
+              <button type="button" class="home-game-row is-waiting" data-game-code="${escapeHtml(g.shareCode)}">
+                <span class="home-game-main">
+                  <span class="home-game-name">🔒 ${escapeHtml(g.name)}</span>
+                  <span class="home-game-meta">${yourBet(g)}${g.kind !== 'coupon' && g.pool > 0 ? ` · ${isEn ? 'pot' : 'pott'} ${formatCurrency(g.pool)}` : ''}</span>
+                </span>
+                <span class="home-game-chev" aria-hidden="true">›</span>
+              </button>`).join('')}
+          </div>` : '';
+        const gamesHtml = openHtml + waitingHtml;
+        // A note row only when there are no game rows; "Visa alla ›" in a section heading and
+        // the card itself (with its ›) open the event
+        let action = '';
         if (!isActive) {
           action = `<span class="home-event-note">🏁 ${isEn ? 'Settled – see the results' : 'Avgjort – se resultatet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
-        } else if (upNext.length > 0) {
-          action = allGames;
+        } else if (gamesHtml) {
+          action = '';
         } else if (games === 0) {
           action = `<span class="home-event-note">${isEn ? 'Waiting for the first game' : 'Väntar på första spelet'}</span><span class="home-event-link">${isEn ? 'Open' : 'Öppna'} →</span>`;
         } else {
@@ -130,7 +161,7 @@ export async function renderHome() {
             <span class="game-pill ${isActive ? 'game-pill-open' : 'game-pill-done'}">${isActive ? `<i></i>${isEn ? 'Live' : 'Pågår'}` : `🏁 ${isEn ? 'Settled' : 'Avgjort'}`}</span>
             ${info ? `<div class="home-event-info">${info}</div>` : ''}
             ${gamesHtml}
-            <div class="home-event-action${upNext.length ? ' is-plain' : ''}">${action}</div>
+            ${action ? `<div class="home-event-action">${action}</div>` : ''}
             ${tr.banners && tr.banners.length > 0 ? `
               <div class="home-event-sponsors">
                 <div class="home-event-sponsors-label">${isEn ? 'Sponsored by' : 'Sponsrat av'}</div>
@@ -417,22 +448,21 @@ function initHomePushBanner(isEn) {
   });
 }
 
-// A running event shows where you stand right now, without asking you to swish yet
+// A running event shows where you stand right now, as part of the card's info line
 function showLiveStandings(settlements, isEn) {
   for (const ev of settlements?.liveEvents || []) {
     const net = Math.round(ev.myNet || 0);
     if (!net) continue;
     const card = [...document.querySelectorAll('.home-event-card')].find(c => c.dataset.tournamentCode === ev.shareCode);
-    if (!card || card.querySelector('.home-event-standing')) continue;
-    // Under the info line; above the open games when there is no info line
+    if (!card || card.querySelector('.home-event-me')) continue;
+    const me = `<span class="home-event-me ${net < 0 ? 'is-neg' : 'is-pos'}" title="${isEn ? 'Settled when the event ends' : 'Görs upp när eventet är slut'}">${isEn ? 'You' : 'Du'}: <b>${net > 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}</b></span>`;
     const info = card.querySelector('.home-event-info');
-    const below = card.querySelector('.home-event-games, .home-event-action');
-    if (!info && !below) continue;
-    (info || below).insertAdjacentHTML(info ? 'afterend' : 'beforebegin', `
-      <div class="home-event-standing ${net < 0 ? 'is-neg' : 'is-pos'}">
-        <span>${isEn ? 'Right now' : 'Ditt läge just nu'}: <b>${net > 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}</b></span>
-        <small>${isEn ? 'settled when the event ends' : 'görs upp när eventet är slut'}</small>
-      </div>`);
+    if (info) {
+      info.insertAdjacentHTML('beforeend', `${info.textContent.trim() ? ' · ' : ''}${me}`);
+    } else {
+      const pill = card.querySelector('.game-pill');
+      pill?.insertAdjacentHTML('afterend', `<div class="home-event-info">${me}</div>`);
+    }
   }
 }
 

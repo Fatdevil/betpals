@@ -2399,6 +2399,38 @@ export function getAllTournamentsForAdmin() {
   });
 }
 
+const myStakesInGame = db.prepare(`
+  SELECT b.amount, p.name FROM bets b JOIN players p ON p.id = b.player_id
+  WHERE b.event_id = ? AND b.user_id = ?
+`);
+
+// A waiting game as the home card shows it: what you bet (a coupon's signs, a pick game's
+// picks, or the option(s) and stake) and, for a coupon being corrected, how you stand
+function waitingGameSummary(r, userId, pool) {
+  const stakes = myStakesInGame.all(r.id, userId);
+  const staked = stakes.reduce((sum, b) => sum + b.amount, 0);
+  const out = { name: r.name, shareCode: r.share_code, pool, stake: staked, kind: 'bet', label: '' };
+  if (r.bet_mode === 'picks') {
+    const matches = couponMatches(r);
+    out.kind = matches ? 'coupon' : 'picks';
+    out.label = pickEntryLabel(r.id, userId) || '';
+    if (matches) {
+      const decided = matches.filter(m => m.result).length;
+      const mine = decided ? getEventPicks(r.id).find(e => e.userId === userId) : null;
+      // Only struck matches so far: no right answer yet, which is 0 right (as the coupon page says)
+      out.progress = { decided, matchCount: matches.length, correct: mine ? (mine.correct ?? 0) : null };
+    }
+  } else if (r.bet_mode === 'self') {
+    out.kind = 'self';
+  } else {
+    // Several bets on one option are one line; different options are listed
+    const byOption = new Map();
+    for (const b of stakes) byOption.set(b.name, (byOption.get(b.name) || 0) + b.amount);
+    out.label = [...byOption.keys()].join(', ');
+  }
+  return out;
+}
+
 const poolsByTournament = db.prepare(`
   SELECT b.event_id, COALESCE(SUM(b.amount), 0) AS total
   FROM bets b JOIN events e ON e.id = b.event_id
@@ -2441,6 +2473,14 @@ function summarizeTournaments(tournaments, userId) {
         isPick: r.bet_mode === 'picks',
         hasBet: myBetEventIds.has(r.id)
       }));
+    // Closed for bets but not yet settled, with your stake in it: what you bet, for a quick look
+    const isOpenGame = new Set(openGames.map(r => r.id));
+    const waitingGames = rounds.filter(r => r.status !== 'finished' && r.status !== 'cancelled'
+      && !isOpenGame.has(r.id) && myBetEventIds.has(r.id));
+    const waiting = waitingGames
+      .sort((a, b) => closesAt(b) - closesAt(a))
+      .slice(0, 2)
+      .map(r => waitingGameSummary(r, userId, poolOf(r)));
     return {
       id: t.id,
       name: t.name,
@@ -2463,6 +2503,8 @@ function summarizeTournaments(tournaments, userId) {
       totalPool,
       livePool,
       upNext,
+      waiting,
+      waitingCount: waitingGames.length,
       bannerCount: banners.length,
       banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label }))
     };
