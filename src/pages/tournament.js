@@ -223,7 +223,9 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
   const top3 = [...t.settlement.balances].sort((a, b) => b.net - a.net).slice(0, 3);
   // Your own line in the settlement, shown at the top and marked in the list
   const myBalance = user ? t.settlement.balances.find(b => b.userId === user.id) : null;
-  const showMine = t.settlement.finishedRounds > 0 && myBalance && Math.round(myBalance.net) !== 0;
+  // Your result from the games; a payment made during the event does not change it
+  const myResult = myBalance ? Math.round(myBalance.rawTotal || 0) : 0;
+  const showMine = t.settlement.finishedRounds > 0 && myResult !== 0;
 
   // Who is in the event: first names and initials for the hero row
   const people = (t.participants || []).map(p => String(p.name || '').trim()).filter(Boolean);
@@ -250,8 +252,8 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
           <span>${escapeHtml(peopleText)}</span>
         </button>
         ${showMine ? `
-          <button type="button" class="event-my-standing ${myBalance.net < 0 ? 'is-neg' : 'is-pos'}" id="event-my-standing-btn">
-            Ditt resultat hittills: <b>${myBalance.net > 0 ? '+' : '−'}${formatCurrency(Math.abs(myBalance.net))}</b> <span aria-hidden="true">›</span>
+          <button type="button" class="event-my-standing ${myResult < 0 ? 'is-neg' : 'is-pos'}" id="event-my-standing-btn">
+            Ditt resultat hittills: <b>${myResult > 0 ? '+' : '−'}${formatCurrency(Math.abs(myResult))}</b> <span aria-hidden="true">›</span>
           </button>
         ` : ''}
         <div class="event-hero-actions">

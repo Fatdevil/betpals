@@ -3688,6 +3688,7 @@ export function getUnifiedSettlementOverview(userId) {
   const currentUser = getUserById(userId);
   const myNick = currentUser ? currentUser.nickname : null;
   const myName = currentUser ? currentUser.real_name : null;
+  const myResultById = new Map();
 
   for (const t of userTournaments) {
     let settlement;
@@ -3697,6 +3698,9 @@ export function getUnifiedSettlementOverview(userId) {
       continue;
     }
     if (!settlement || !Array.isArray(settlement.transfers)) continue;
+    // Your result from the games, before any payment made during the event
+    const mine = (settlement.balances || []).find(b => b.userId === userId);
+    if (mine) myResultById.set(t.id, mine.rawTotal);
 
     for (const tr of settlement.transfers) {
       if (tr.isPaid) continue;
@@ -3783,14 +3787,13 @@ export function getUnifiedSettlementOverview(userId) {
     else if (f.totalNet > 0) readyDue += f.totalNet;
   }
 
-  // My running result per live event (from that event's own transfers)
+  // My result so far per live event: what the decided games gave, so a payment
+  // made during the event does not change it
   const liveByEvent = liveEvents.map(t => ({
     id: t.id,
     name: t.name,
     shareCode: t.shareCode,
-    myNet: friends.reduce((sum, f) => sum + f.details
-      .filter(d => d.type === 'tournament' && d.tournamentId === t.id)
-      .reduce((s, d) => s + d.amount, 0), 0)
+    myResult: myResultById.get(t.id) ?? 0
   }));
 
   return { friends, totalNet, totalOwed, totalDue, readyOwed, readyDue, liveNet, liveEvents: liveByEvent };

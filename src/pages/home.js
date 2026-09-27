@@ -450,7 +450,7 @@ function initHomePushBanner(isEn) {
 // A running event shows where you stand right now, as part of the card's info line
 function showLiveStandings(settlements, isEn) {
   for (const ev of settlements?.liveEvents || []) {
-    const net = Math.round(ev.myNet || 0);
+    const net = Math.round(ev.myResult || 0);
     if (!net) continue;
     const card = [...document.querySelectorAll('.home-event-card')].find(c => c.dataset.tournamentCode === ev.shareCode);
     if (!card || card.querySelector('.home-event-me')) continue;
