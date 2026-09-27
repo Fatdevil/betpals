@@ -34,7 +34,7 @@ test('back steps through in-app history, else goes to the parent, and never leav
   assert.match(main, /const parent = getBackParent\(\) \|\| \{ page: 'home', params: \{\} \};\s*navigate\(parent\.page, parent\.params, \{ replace: true \}\);/);
   assert.match(main, /\} else \{\s*window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', url\);/);
   // The phone's back closes an open slip and stays on the game
-  assert.match(main, /if \(interceptBack\(\)\) \{\s*window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', pageUrl\(currentPage, currentParams\)\);\s*return;/);
+  assert.match(main, /if \(goingBack && interceptBack\(\)\) \{\s*window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', pageUrl\(currentPage, currentParams\)\);\s*shownDepth = historyDepth\(\);\s*return;/);
   // Opening a notification link straight into a game: nothing underneath, back goes to the parent
   assert.match(main, /if \(window\.location\.hash\) handleHashRoute\(true\);/);
 });
@@ -59,7 +59,7 @@ test('a page opened directly gets a guard entry, so the phone\'s back stays in t
   const main = read('src/main.js');
   assert.match(main, /function guardSubPage\(\) \{\s*if \(!SUB_PAGES\.has\(currentPage\) \|\| historyDepth\(\) > 0\) return;[\s\S]*?replaceState\(\{ depth: 0, guard: true \}, '', url\);\s*window\.history\.pushState\(\{ depth: 1 \}, '', url\);/);
   assert.match(main, /if \(window\.history\.state\?\.guard\) \{\s*const parent = getBackParent\(\) \|\| \{ page: 'home', params: \{\} \};\s*navigate\(parent\.page, parent\.params, \{ replace: true \}\);/);
-  assert.match(main, /guardSubPage\(\);\s*renderApp\(\);/);
+  assert.match(main, /guardSubPage\(\);\s*shownDepth = historyDepth\(\);\s*renderApp\(\);/);
 });
 
 test('a page that was still loading never draws over the page shown now', async () => {
@@ -78,4 +78,10 @@ test('a page that was still loading never draws over the page shown now', async 
   const tour = read('src/pages/tournament.js');
   assert.match(tour, /getActiveFlashBets\(t\.id\)\.catch\(\(\) => \[\]\)\s*\]\);\s*if \(!isShowing\('tournament', code\)\) return;/);
   assert.doesNotMatch(tour, /renderTournament\(\{ code: t\.shareCode \}\)/);
+});
+
+test('only going back closes the slip; forward still goes forward', () => {
+  const main = read('src/main.js');
+  assert.match(main, /const goingBack = historyDepth\(\) < shownDepth;\s*if \(goingBack && interceptBack\(\)\) \{/);
+  assert.match(main, /window\.history\.pushState\(\{ depth: historyDepth\(\) \+ 1 \}, '', url\);\s*\}\s*shownDepth = historyDepth\(\);/);
 });

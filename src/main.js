@@ -77,11 +77,15 @@ export function navigate(page, params = {}, { replace = false } = {}) {
   } else {
     window.history.pushState({ depth: historyDepth() + 1 }, '', url);
   }
+  shownDepth = historyDepth();
 
   renderApp();
 }
 
 const SUB_PAGES = new Set(['event', 'tournament']);
+
+// Depth of the entry on screen: popstate says neither back nor forward, this does
+let shownDepth = 0;
 
 // A sub page opened with nothing of the app underneath (a shared link, a notification):
 // the phone's back would leave the app before any code runs. Put a guard entry below it,
@@ -329,11 +333,15 @@ function init() {
 
   // Handle browser back/forward
   window.addEventListener('popstate', () => {
-    // The phone's back closes an open bet slip first and stays on the page
-    if (interceptBack()) {
+    // The phone's back closes an open bet slip first and stays on the page.
+    // Only going back: forward must still go forward
+    const goingBack = historyDepth() < shownDepth;
+    if (goingBack && interceptBack()) {
       window.history.pushState({ depth: historyDepth() + 1 }, '', pageUrl(currentPage, currentParams));
+      shownDepth = historyDepth();
       return;
     }
+    shownDepth = historyDepth();
     // Back onto the guard below a directly opened page: go to its parent, stay in the app
     if (window.history.state?.guard) {
       const parent = getBackParent() || { page: 'home', params: {} };
@@ -479,6 +487,7 @@ function init() {
   initAds();
   initMaltaSupportWidget();
   guardSubPage();
+  shownDepth = historyDepth();
   renderApp();
 
   // Handle friend invite link ?addFriend=nickname&ft=token
