@@ -19,7 +19,7 @@ function game(tId, creatorId, name, { closesAt = null, betMode = 'open' } = {}) 
 }
 const bet = (ev, uid, amount) => db.addBet('b_' + r(), ev.id, 'X', ev.players[0].id, amount, uid);
 
-test('the home card counts only money still in play, and lists up to three open games', () => {
+test('the home card lists up to three open games', () => {
   const host = user('hh');
   const me = user('hm');
   const tId = 'tour_' + r();
@@ -45,7 +45,6 @@ test('the home card counts only money still in play, and lists up to three open 
 
   const card = db.getAllTournaments(me).find(t => t.id === tId);
   assert.equal(card.totalPool, 910, 'everything ever bet, as before');
-  assert.equal(card.livePool, 110, 'finished and cancelled games are not "in play"');
   assert.deepEqual(card.upNext.map(g => g.name), ['Stänger snart', 'Stänger sent', 'Utan spelstopp'],
     'games you have not bet on first, closing soonest first');
   assert.equal(card.upNext[1].pool, 20);
@@ -59,7 +58,7 @@ test('the home card counts only money still in play, and lists up to three open 
 
 test('the card shows the open games and "in play now" instead of the lifetime pot', () => {
   const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
-  assert.match(home, /isActive && tr\.livePool > 0 \? `💰/);
+  assert.doesNotMatch(home, /in play now|i spel just nu/, 'no total of all pots next to your result');
   assert.doesNotMatch(home, /tr\.totalPool > 0/, 'the lifetime pot is gone from the card');
   assert.match(home, /class="home-game-row" data-game-code=/);
   assert.match(home, /navigate\('event', \{ code: row\.dataset\.gameCode \}\)/);
@@ -125,4 +124,11 @@ test('the event page shows your standing at the top and marks your row in the se
   assert.match(t, /getElementById\('net-settlement'\)\?\.scrollIntoView/);
   assert.match(t, /<span class="swish-me">\(du\)<\/span>/);
   assert.match(t, /av \$\{t\.settlement\.totalSideBets \?\? t\.settlement\.totalRounds\} spel/, 'no "0 av 0 ronder"');
+});
+
+test('your result reads "Ditt resultat hittills" on the card and on the event page', () => {
+  const home = readFileSync(new URL('../src/pages/home.js', import.meta.url), 'utf8');
+  const t = readFileSync(new URL('../src/pages/tournament.js', import.meta.url), 'utf8');
+  assert.match(home, /'Your result so far' : 'Ditt resultat hittills'/);
+  assert.match(t, /Ditt resultat hittills: <b>/);
 });

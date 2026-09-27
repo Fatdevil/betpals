@@ -2456,10 +2456,6 @@ function summarizeTournaments(tournaments, userId) {
     const pools = new Map(poolsByTournament.all(t.id).map(p => [p.event_id, p.total]));
     const poolOf = (r) => pools.get(r.id) || 0;
     const totalPool = rounds.reduce((sum, r) => sum + poolOf(r), 0);
-    // Money still to be won: games not yet settled or cancelled (settled money is in "Ditt läge")
-    const livePool = rounds
-      .filter(r => r.status !== 'finished' && r.status !== 'cancelled')
-      .reduce((sum, r) => sum + poolOf(r), 0);
     // The home card's short list: games you have not bet on first, then the ones closing soonest
     const closesAt = (r) => (r.closes_at ? new Date(r.closes_at).getTime() : Infinity);
     const upNext = [...openGames]
@@ -2501,7 +2497,6 @@ function summarizeTournaments(tournaments, userId) {
         return parts.length + (t.creator_id && !parts.some(pt => pt.user_id === t.creator_id) ? 1 : 0);
       })(),
       totalPool,
-      livePool,
       upNext,
       waiting,
       waitingCount: waitingGames.length,
@@ -2897,6 +2892,11 @@ export function getTournamentNetSettlement(tournamentId) {
     }
   }
 
+  // Each player's result from the games alone (before any payment), in whole
+  // kronor that still add up to zero
+  const gameResults = wholeKronorZeroSum(Object.values(players).map(p => p.rawTotal || 0));
+  Object.values(players).forEach((p, i) => { p.result = gameResults[i]; });
+
   // Deterministic whole-kronor balancing (Hamilton's largest-remainder method)
   // Ensures sum(roundedNet) === 0 exactly, avoiding orphaned crowns.
   const playerEntries = Object.values(players).map(p => {
@@ -3001,6 +3001,7 @@ export function getTournamentNetSettlement(tournamentId) {
       name: e.p.name,
       net: e.rounded,
       rawTotal: Math.round(e.p.rawTotal || 0),
+      result: e.p.result,
       totalPaid: Math.round(e.p.totalPaid || 0),
       totalReceived: Math.round(e.p.totalReceived || 0),
       isDebtFree: Math.abs(e.rounded) < 1,
@@ -3024,6 +3025,22 @@ export function getTournamentNetSettlement(tournamentId) {
     finishedRounds: finishedMainRounds + finishedSideBets,
     totalRounds: totalMainRounds + totalSideBets
   };
+}
+
+// Rounds amounts to whole kronor so they still sum to zero (largest remainder)
+function wholeKronorZeroSum(values) {
+  const rounded = values.map(v => Math.round(v));
+  let excess = rounded.reduce((sum, v) => sum + v, 0);
+  const order = values.map((v, i) => i)
+    .sort((a, b) => excess > 0
+      ? (values[a] - rounded[a]) - (values[b] - rounded[b])
+      : (values[b] - rounded[b]) - (values[a] - rounded[a]));
+  for (const i of order) {
+    if (excess === 0) break;
+    rounded[i] -= Math.sign(excess);
+    excess -= Math.sign(excess);
+  }
+  return rounded;
 }
 
 export function createSettlementReceipt(id, tournamentId, fromName, toName, amount, fromUserId = null, toUserId = null) {
@@ -3693,6 +3710,7 @@ export function getUnifiedSettlementOverview(userId) {
   const currentUser = getUserById(userId);
   const myNick = currentUser ? currentUser.nickname : null;
   const myName = currentUser ? currentUser.real_name : null;
+  const myResultById = new Map();
 
   for (const t of userTournaments) {
     let settlement;
@@ -3702,6 +3720,9 @@ export function getUnifiedSettlementOverview(userId) {
       continue;
     }
     if (!settlement || !Array.isArray(settlement.transfers)) continue;
+    // Your result from the games, before any payment made during the event
+    const mine = (settlement.balances || []).find(b => b.userId === userId);
+    if (mine) myResultById.set(t.id, mine.result);
 
     for (const tr of settlement.transfers) {
       if (tr.isPaid) continue;
@@ -3788,14 +3809,13 @@ export function getUnifiedSettlementOverview(userId) {
     else if (f.totalNet > 0) readyDue += f.totalNet;
   }
 
-  // My running result per live event (from that event's own transfers)
+  // My result so far per live event: what the decided games gave, so a payment
+  // made during the event does not change it
   const liveByEvent = liveEvents.map(t => ({
     id: t.id,
     name: t.name,
     shareCode: t.shareCode,
-    myNet: friends.reduce((sum, f) => sum + f.details
-      .filter(d => d.type === 'tournament' && d.tournamentId === t.id)
-      .reduce((s, d) => s + d.amount, 0), 0)
+    myResult: myResultById.get(t.id) ?? 0
   }));
 
   return { friends, totalNet, totalOwed, totalDue, readyOwed, readyDue, liveNet, liveEvents: liveByEvent };

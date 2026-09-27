@@ -37,7 +37,7 @@ test('money in a running event is "live": it is not asked for yet', () => {
   const withAnna = bo.friends.find(f => f.friendId === a.id);
   assert.equal(withAnna.isLive, true);
   assert.deepEqual(withAnna.liveEvents.map(e => e.id), [tId]);
-  assert.deepEqual(bo.liveEvents.map(e => [e.id, e.myNet]), [[tId, -50]]);
+  assert.deepEqual(bo.liveEvents.map(e => [e.id, e.myResult]), [[tId, -50]]);
 });
 
 test('once the event ends, the same money is ready to swish', () => {
@@ -145,4 +145,47 @@ test('a declined or unfinished event challenge does not make you part of the eve
   assert.equal(db.getTournamentMemberIds(tId).includes(invited.id), false);
   assert.equal(db.getAllTournaments(invited.id).some(t => t.id === tId), false);
   assert.equal(db.canUserAccessTournament(db.getTournamentById(tId), invited.id), false);
+});
+
+test('"Ditt resultat hittills" is the game result: a payment during the event does not change it', () => {
+  const { a, b, tId } = eventWithResult();
+  // Bosse swishes the 50 kr he lost before the event ends
+  db.createSettlementReceipt(uid(), tId, b.nickname, a.nickname, 50, b.id, a.id);
+  const result = () => db.getUnifiedSettlementOverview(b.id).liveEvents.find(e => e.id === tId).myResult;
+  assert.equal(result(), -50);
+
+  // Then he wins 30 kr back in the next game: the result is −20, not +30
+  const ev = uid(), p1 = uid(), p2 = uid();
+  db.createEvent({ id: ev, name: 'Game 2', tournamentId: tId, creatorId: a.id }, [{ id: p1, name: 'Ja' }, { id: p2, name: 'Nej' }]);
+  db.addBet(uid(), ev, a.nickname, p1, 30, a.id);
+  db.addBet(uid(), ev, b.nickname, p2, 30, b.id);
+  db.finishEvent(ev, p2);
+  assert.equal(result(), -20);
+  assert.equal(db.getUnifiedSettlementOverview(a.id).liveEvents.find(e => e.id === tId).myResult, 20);
+});
+
+test('the event page shows the game result, not what is left to pay', () => {
+  const src = readFileSync(new URL('../src/pages/tournament.js', import.meta.url), 'utf8');
+  assert.match(src, /const myResult = myBalance \? \(myBalance\.result/);
+  assert.doesNotMatch(src, /Ditt resultat hittills: <b>\$\{myBalance\.net/);
+});
+
+test('split winnings: the shown results are whole kronor that add up to zero', () => {
+  const a = makeUser('Anna'), b = makeUser('Bosse'), c = makeUser('Cissi');
+  const tId = uid();
+  db.createTournament(tId, 'Delad pott', code(), a.id, 'friends',
+    [a, b, c].map(u => ({ name: u.nickname, userId: u.id })));
+  const ev = uid(), p1 = uid(), p2 = uid();
+  db.createEvent({ id: ev, name: 'Vem vinner', tournamentId: tId, creatorId: a.id }, [{ id: p1, name: 'Ja' }, { id: p2, name: 'Nej' }]);
+  // Anna and Bosse share Cissi's 1 kr: 0.5 kr each is not payable
+  db.addBet(uid(), ev, a.nickname, p1, 1, a.id);
+  db.addBet(uid(), ev, b.nickname, p1, 1, b.id);
+  db.addBet(uid(), ev, c.nickname, p2, 1, c.id);
+  db.finishEvent(ev, p1);
+  const { balances } = db.getTournamentNetSettlement(tId);
+  assert.equal(balances.reduce((sum, x) => sum + x.result, 0), 0);
+  for (const x of balances) assert.equal(x.result, x.net);
+  const shown = [a, b, c].map(u => db.getUnifiedSettlementOverview(u.id).liveEvents.find(e => e.id === tId)?.myResult ?? 0);
+  assert.equal(shown.reduce((sum, v) => sum + v, 0), 0);
+  assert.deepEqual(shown.map(Math.abs).sort(), [0, 1, 1]);
 });

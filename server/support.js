@@ -114,7 +114,7 @@ Sätt insats och gärna ett spelstopp, så stänger bettningen av sig själv. �
     id: 'running', label: '⏳ Löpande skulder',
     keywords: ['löpande', 'pågå*', 'fast eventet', 'swisha nu', 'redan swisha*', 'mitt i', 'vänta*'],
     answer: (n) => `Smart fråga, ${n}! ⏳ Pengar i ett **pågående event** är *löpande* – de räknas ihop när eventet avslutas, så att ni bara swishar **en gång per person**.
-- Startsidan visar "Ditt läge just nu" på eventkortet, men ber dig inte swisha än.
+- Eventkortet på startsidan och toppen av eventsidan visar "Ditt resultat hittills", men ber dig inte swisha än.
 - När värden trycker **🏆 Avsluta event & kora vinnare** får alla en push med exakt belopp.
 - Vill du ändå betala direkt: THE TAB → **Swisha ändå**, och mottagaren trycker **Markera som betalt ✓**. Senare resultat räknas bara på det som är kvar. 💸`
   },

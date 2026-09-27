@@ -68,3 +68,9 @@ test('review fixes: removal intent wins, same-phone games are not on The Tab, Bl
   assert.equal(getSupportMode(), 'offline');
   if (before !== undefined) process.env.GEMINI_API_KEY = before;
 });
+
+test('the running-debts answer names the result label the app shows', () => {
+  const answer = reply('Varför står det att jag ska swisha fast eventet pågår?', 'A');
+  assert.match(answer, /Ditt resultat hittills/);
+  assert.doesNotMatch(answer, /Ditt läge/);
+});
