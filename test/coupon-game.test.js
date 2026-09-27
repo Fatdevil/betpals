@@ -201,3 +201,13 @@ test('the new-game sheet, the game page and the result dialog offer the coupon',
   assert.match(m, /if \(event\.betMode === 'picks' && event\.coupon\) return openCouponFinishModal/);
   assert.match(read('api.js'), /\/coupon-result`, \{ method: 'PUT'/);
 });
+
+test('the event\'s game card shows the viewer\'s own row, not "?"', async () => {
+  const { friends, ev, sign, tId } = await couponGame();
+  await tip(ev, friends[0], [sign(3, '2'), sign(1, '1'), sign(2, 'X')]);
+  const t = (await call('GET', `/api/tournaments/${db.getTournamentById(tId).share_code}`, null, friends[0].token)).body;
+  const card = t.sideBets.find(g => g.id === ev.id);
+  assert.deepEqual(card.myBets, [{ playerName: '1 X 2', amount: 50 }], 'signs in match order');
+  const other = (await call('GET', `/api/tournaments/${db.getTournamentById(tId).share_code}`, null, friends[1].token)).body;
+  assert.deepEqual(other.sideBets.find(g => g.id === ev.id).myBets, []);
+});

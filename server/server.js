@@ -3445,9 +3445,11 @@ app.get('/api/tournaments/:code', (req, res) => {
   if (user && full) {
     const mine = db.getUserBetsInTournament(user.id, tournament.id);
     for (const g of [...(full.rounds || []), ...(full.sideBets || [])]) {
+      // A pick game's stake sits on a hidden entry: show what the person tipped instead
+      const tipped = g.pickCount ? db.pickEntryLabel(g.id, user.id) : null;
       g.myBets = mine
         .filter(b => b.eventId === g.id)
-        .map(b => ({ playerName: (g.players.find(p => p.id === b.playerId) || {}).name || '?', amount: b.amount }));
+        .map(b => ({ playerName: tipped || (g.players.find(p => p.id === b.playerId) || {}).name || '?', amount: b.amount }));
     }
   }
   res.json(full);

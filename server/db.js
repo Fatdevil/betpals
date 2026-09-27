@@ -1572,6 +1572,20 @@ function couponMatches(event, players = stmts.getPlayersByEvent.all(event.id)) {
   });
 }
 
+// What a person tipped in a pick game, for their game card: a coupon's signs in match
+// order ("1 X 2 1"), or the options picked ("Adde, Brolle"); null if they have not tipped
+export function pickEntryLabel(eventId, userId) {
+  const players = stmts.getPlayersByEvent.all(eventId);
+  const entry = players.find(p => p.is_entry && p.entry_user_id === userId);
+  if (!entry) return null;
+  const byId = new Map(players.filter(p => !p.is_entry).map(p => [p.id, p]));
+  const picked = parseIds(entry.entry_picks).map(id => byId.get(id)).filter(Boolean);
+  if (picked.some(p => p.match_no)) {
+    return picked.sort((a, b) => a.match_no - b.match_no).map(p => p.match_sign).join(' ');
+  }
+  return picked.map(p => p.name).join(', ');
+}
+
 export function isCouponEvent(eventId) {
   return Boolean(db.prepare('SELECT 1 FROM players WHERE event_id = ? AND match_no IS NOT NULL LIMIT 1').get(eventId));
 }

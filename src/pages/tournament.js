@@ -185,7 +185,7 @@ function renderTournamentContent(content, t, photos = [], tournamentFlashBets = 
     }
 
     const mineLine = !isSelf && mine.length > 0
-      ? `<div class="game-card-mine">✓ Du bettade: ${mine.map(b => `${escapeHtml(b.playerName)} · ${formatCurrency(b.amount)}`).join(', ')}</div>`
+      ? `<div class="game-card-mine">✓ ${g.coupon ? 'Din rad' : g.pickCount ? 'Ditt tips' : 'Du bettade'}: ${mine.map(b => `${escapeHtml(b.playerName)} · ${formatCurrency(b.amount)}`).join(', ')}</div>`
       : '';
 
     return `
