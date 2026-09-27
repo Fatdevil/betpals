@@ -121,11 +121,15 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     proofInput.click();
   });
 
+  let photoPick = 0; // a newer pick wins, even if an older photo finishes compressing later
   proofInput?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const pick = ++photoPick;
     try {
-      selectedWinnerProof = await compressImage(file, 1000, 0.8);
+      const compressed = await compressImage(file, 1000, 0.8);
+      if (pick !== photoPick) return;
+      selectedWinnerProof = compressed;
       proofPreview.src = selectedWinnerProof;
       proofPreviewWrapper.style.display = 'inline-block';
       proofPlaceholder.style.display = 'none';
@@ -141,6 +145,7 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
 
   proofRemove?.addEventListener('click', (e) => {
     e.stopPropagation();
+    photoPick++;
     selectedWinnerProof = null;
     proofInput.value = '';
     proofPreview.src = '';
@@ -154,9 +159,15 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
   // ── AI suggestion from the result photo ──
   const readBtn = document.getElementById('finish-read-btn');
   const aiNote = document.getElementById('finish-ai-note');
+  let aiTicked = []; // boxes the AI ticked for a shared win; undone with the suggestion
   function clearSuggestion() {
     document.querySelectorAll('.winner-row.suggested').forEach(r => r.classList.remove('suggested'));
     if (aiNote) aiNote.style.display = 'none';
+    if (aiTicked.length) {
+      checkboxes.forEach(cb => { if (aiTicked.includes(cb.dataset.id)) cb.checked = false; });
+      aiTicked = [];
+      checkboxes[0]?.dispatchEvent(new Event('change'));
+    }
   }
   const reader = readBtn ? photoReader(event, pin, readBtn, showSuggestion) : null;
   readBtn?.addEventListener('click', () => {
@@ -169,6 +180,7 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     // A shared win: tick them all, so "Dela pott" is one tap away
     if (rows.length > 1) {
       checkboxes.forEach(cb => { cb.checked = res.winnerIds.includes(cb.dataset.id); });
+      aiTicked = rows.map(r => r.dataset.id);
       checkboxes[0]?.dispatchEvent(new Event('change'));
     }
     const names = rows.map(r => r.querySelector('.bet-item-name')?.textContent).filter(Boolean).join(' & ');
@@ -266,13 +278,16 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
     note.innerHTML = `🤖 Förslag: <b>${escapeHtml(names)}</b>${ids.length < n ? ` (${ids.length} av ${n} – kryssa i resten)` : ''}${res.reason ? ` – ${escapeHtml(res.reason)}` : ''}<br><span>Kontrollera innan du sparar.</span>`;
     note.style.display = 'block';
   }) : null;
+  let photoPick = 0; // a newer pick wins, even if an older photo finishes compressing later
   document.getElementById('pick-photo-input')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file || !pickReader) return;
     note.style.display = 'none';
+    const pick = ++photoPick;
     try {
-      pickReader.read(await compressImage(file, 1000, 0.8)); // a newer photo replaces the older one
+      const image = await compressImage(file, 1000, 0.8);
+      if (pick === photoPick) pickReader.read(image); // a newer photo replaces the older one
     } catch (err) {
       showToast(err.message, 'error');
     }

@@ -169,3 +169,10 @@ test('an answer for a photo that is no longer the chosen one is dropped', () => 
   assert.match(fin, /reader\?\.cancel\(\);\s*clearSuggestion\(\);/);
   assert.match(fin, /pickReader\.read\(await compressImage\(file, 1000, 0\.8\)\)/);
 });
+
+test('a replaced suggestion undoes its tie ticks, and an older photo never overtakes a newer pick', () => {
+  const fin = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
+  assert.match(fin, /if \(aiTicked\.length\) \{\s*checkboxes\.forEach\(cb => \{ if \(aiTicked\.includes\(cb\.dataset\.id\)\) cb\.checked = false; \}\);/);
+  assert.match(fin, /const pick = \+\+photoPick;\s*try \{\s*const compressed = await compressImage\(file, 1000, 0\.8\);\s*if \(pick !== photoPick\) return;/);
+  assert.match(fin, /const image = await compressImage\(file, 1000, 0\.8\);\s*if \(pick === photoPick\) pickReader\.read\(image\);/);
+});
