@@ -173,6 +173,12 @@ test('an answer for a photo that is no longer the chosen one is dropped', () => 
 test('a replaced suggestion undoes its tie ticks, and an older photo never overtakes a newer pick', () => {
   const fin = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
   assert.match(fin, /if \(aiTicked\.length\) \{\s*checkboxes\.forEach\(cb => \{ if \(aiTicked\.includes\(cb\.dataset\.id\)\) cb\.checked = false; \}\);/);
-  assert.match(fin, /const pick = \+\+photoPick;\s*try \{\s*const compressed = await compressImage\(file, 1000, 0\.8\);\s*if \(pick !== photoPick\) return;/);
+  assert.match(fin, /const compressed = await compressImage\(file, 1000, 0\.8\);\s*if \(pick !== photoPick\) return;/);
   assert.match(fin, /const image = await compressImage\(file, 1000, 0\.8\);\s*if \(pick === photoPick\) pickReader\.read\(image\);/);
+});
+
+test('choosing another photo takes the old suggestion away at once (nothing stale to save)', () => {
+  const fin = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
+  assert.match(fin, /const pick = \+\+photoPick;\s*\/\/[^\n]*\n\s*reader\?\.cancel\(\);\s*clearSuggestion\(\);\s*try \{/);
+  assert.match(fin, /pickReader\.cancel\(\);\s*note\.style\.display = 'none';\s*if \(pickAiTicked\.length\) \{\s*boxes\.forEach\(b => \{ if \(pickAiTicked\.includes\(b\.value\)\) b\.checked = false; \}\);\s*pickAiTicked = \[\];\s*refreshSave\(\);/);
 });

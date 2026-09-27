@@ -126,6 +126,9 @@ export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
     const file = e.target.files[0];
     if (!file) return;
     const pick = ++photoPick;
+    // The old photo's suggestion goes at once, not after the new one is ready
+    reader?.cancel();
+    clearSuggestion();
     try {
       const compressed = await compressImage(file, 1000, 0.8);
       if (pick !== photoPick) return;
@@ -270,9 +273,11 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
   // A screenshot of the result: the AI ticks its suggestion, the organiser checks and saves
   const pickReadBtn = document.getElementById('pick-read-btn');
   const note = document.getElementById('pick-ai-note');
+  let pickAiTicked = []; // what the AI ticked; undone as soon as another photo is chosen
   const pickReader = pickReadBtn ? photoReader(event, pin, pickReadBtn, (res) => {
     const ids = res.winnerIds.slice(0, n);
     boxes.forEach(b => { b.checked = ids.includes(b.value); });
+    pickAiTicked = ids;
     refreshSave();
     const names = ids.map(id => event.players.find(p => p.id === id)?.name).filter(Boolean).join(', ');
     note.innerHTML = `🤖 Förslag: <b>${escapeHtml(names)}</b>${ids.length < n ? ` (${ids.length} av ${n} – kryssa i resten)` : ''}${res.reason ? ` – ${escapeHtml(res.reason)}` : ''}<br><span>Kontrollera innan du sparar.</span>`;
@@ -283,8 +288,15 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file || !pickReader) return;
-    note.style.display = 'none';
     const pick = ++photoPick;
+    // The old photo's answer must not stay saveable while the new one is read
+    pickReader.cancel();
+    note.style.display = 'none';
+    if (pickAiTicked.length) {
+      boxes.forEach(b => { if (pickAiTicked.includes(b.value)) b.checked = false; });
+      pickAiTicked = [];
+      refreshSave();
+    }
     try {
       const image = await compressImage(file, 1000, 0.8);
       if (pick === photoPick) pickReader.read(image); // a newer photo replaces the older one
