@@ -66,3 +66,10 @@ test('the card shows the open games and "in play now" instead of the lifetime po
   assert.match(home, /e\.stopPropagation\(\);\s*navigate\('event'/, 'a row opens the game, not the event');
   assert.match(home, /isEn \? \(events\.length === 1 \? 'MATCH' : 'MATCHES'\) : 'SPEL'/);
 });
+
+test('the card\'s pools come from one grouped query per event, not one per game', () => {
+  const src = readFileSync(new URL('../server/db.js', import.meta.url), 'utf8');
+  const fn = src.slice(src.indexOf('function summarizeTournaments'), src.indexOf('export function', src.indexOf('function summarizeTournaments')));
+  assert.match(fn, /poolsByTournament\.all\(t\.id\)/);
+  assert.doesNotMatch(fn, /getTotalPool/, 'no per-game pool query left');
+});

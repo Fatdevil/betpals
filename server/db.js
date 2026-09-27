@@ -2399,6 +2399,13 @@ export function getAllTournamentsForAdmin() {
   });
 }
 
+const poolsByTournament = db.prepare(`
+  SELECT b.event_id, COALESCE(SUM(b.amount), 0) AS total
+  FROM bets b JOIN events e ON e.id = b.event_id
+  WHERE e.tournament_id = ?
+  GROUP BY b.event_id
+`);
+
 function summarizeTournaments(tournaments, userId) {
   const myBetEventIds = new Set(
     userId ? db.prepare('SELECT DISTINCT event_id FROM bets WHERE user_id = ?').all(userId).map(r => r.event_id) : []
@@ -2413,7 +2420,9 @@ function summarizeTournaments(tournaments, userId) {
     const openGames = rounds.filter(r => r.status === 'open'
       && (r.bet_mode || 'open') !== 'self'
       && (!r.closes_at || new Date(r.closes_at).getTime() > now));
-    const poolOf = (r) => stmts.getTotalPool.get(r.id).total || 0;
+    // Every game's pool in one query, reused below
+    const pools = new Map(poolsByTournament.all(t.id).map(p => [p.event_id, p.total]));
+    const poolOf = (r) => pools.get(r.id) || 0;
     const totalPool = rounds.reduce((sum, r) => sum + poolOf(r), 0);
     // Money still to be won: games not yet settled or cancelled (settled money is in "Ditt läge")
     const livePool = rounds
