@@ -184,6 +184,10 @@ try { db.exec('ALTER TABLE events ADD COLUMN reminded_at TEXT'); } catch {}
 // Where the game is played/scored live, e.g. a GameBook leaderboard link
 try { db.exec('ALTER TABLE events ADD COLUMN result_url TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN is_entry INTEGER NOT NULL DEFAULT 0'); } catch {}
+// A "Tipsrad" (coupon) is a pick game whose options are grouped into matches: 1 / X / 2
+try { db.exec('ALTER TABLE players ADD COLUMN match_no INTEGER'); } catch {}
+try { db.exec('ALTER TABLE players ADD COLUMN match_sign TEXT'); } catch {}
+try { db.exec('ALTER TABLE events ADD COLUMN void_matches TEXT'); } catch {}
 try { db.exec('ALTER TABLE players ADD COLUMN entry_user_id TEXT'); } catch {}
 try { db.exec('ALTER TABLE tournament_participants ADD COLUMN account_deleted INTEGER NOT NULL DEFAULT 0'); } catch {}
 // People taken out of (or who left) an event are not added back just by opening it again;
@@ -1386,7 +1390,7 @@ export function getFullEvent(idOrCode) {
     resultUrl: event.result_url || null,
     lastBoostedAt: event.last_boosted_at || null,
     players: mappedPlayers,
-    ...(event.bet_mode === 'picks' ? pickGameDetails(event) : {}),
+    ...(event.bet_mode === 'picks' ? pickGameDetails(event, players) : {}),
     bets: bets.map(b => ({
       id: b.id,
       bettorName: b.bettor_name,
@@ -1529,12 +1533,99 @@ export function getEventPicks(eventId) {
   });
 }
 
-function pickGameDetails(event) {
+function pickGameDetails(event, players = stmts.getPlayersByEvent.all(event.id)) {
+  const coupon = couponMatches(event, players);
   return {
     pickCount: event.pick_count || 0,
     pickResult: parseIds(event.pick_result),
-    entries: getEventPicks(event.id)
+    entries: getEventPicks(event.id),
+    ...(coupon ? { coupon: { matches: coupon, decided: coupon.filter(m => m.result).length } } : {})
   };
+}
+
+// ── Tipsrad (coupon): one sign per match, most correct takes the pot ──
+const SIGNS = ['1', 'X', '2'];
+
+// The matches of a coupon, each with its options by sign and its result so far
+// ('1' / 'X' / '2', 'void' when struck, null until the organiser sets it); null if not a coupon
+function couponMatches(event, players = stmts.getPlayersByEvent.all(event.id)) {
+  const options = players.filter(p => !p.is_entry && p.match_no);
+  if (!options.length) return null;
+  const result = new Set(parseIds(event.pick_result));
+  const voided = new Set(parseIds(event.void_matches).map(Number));
+  const byNo = new Map();
+  for (const o of options) {
+    if (!byNo.has(o.match_no)) byNo.set(o.match_no, { no: o.match_no, options: {}, result: null });
+    byNo.get(o.match_no).options[o.match_sign] = o.id;
+  }
+  return [...byNo.values()].sort((a, b) => a.no - b.no).map(m => {
+    const names = Object.fromEntries(options.filter(o => o.match_no === m.no).map(o => [o.match_sign, o.name]));
+    const hit = SIGNS.find(sign => m.options[sign] && result.has(m.options[sign]));
+    return {
+      no: m.no,
+      home: names['1'] || '',
+      away: names['2'] || '',
+      draw: Boolean(m.options.X),
+      options: m.options,
+      result: voided.has(m.no) ? 'void' : hit || null
+    };
+  });
+}
+
+export function isCouponEvent(eventId) {
+  return Boolean(db.prepare('SELECT 1 FROM players WHERE event_id = ? AND match_no IS NOT NULL LIMIT 1').get(eventId));
+}
+
+// The matches as typed: 2–13, two different sides each; a draw (X) unless turned off
+export function cleanCouponMatches(raw) {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 13) return null;
+  const matches = raw.map(m => ({
+    home: String(m?.home || '').trim().slice(0, 40),
+    away: String(m?.away || '').trim().slice(0, 40),
+    draw: m?.draw !== false
+  }));
+  if (matches.some(m => !m.home || !m.away || m.home.toLowerCase() === m.away.toLowerCase())) return null;
+  return matches;
+}
+
+export function addCouponOptions(eventId, matches) {
+  const insert = db.prepare('INSERT INTO players (id, event_id, name, image_url, match_no, match_sign) VALUES (?, ?, ?, NULL, ?, ?)');
+  db.transaction(() => {
+    matches.forEach((m, i) => {
+      insert.run(crypto.randomUUID(), eventId, m.home, i + 1, '1');
+      if (m.draw) insert.run(crypto.randomUUID(), eventId, 'Oavgjort', i + 1, 'X');
+      insert.run(crypto.randomUUID(), eventId, m.away, i + 1, '2');
+    });
+    db.prepare('UPDATE events SET pick_count = ? WHERE id = ?').run(matches.length, eventId);
+  })();
+}
+
+// The organiser sets one match's result as it finishes ('1' / 'X' / '2', 'void' to strike
+// it, null to clear). The first result closes the tips: nobody may tip a known result.
+export function setCouponResult(eventId, matchNo, sign) {
+  const event = stmts.getEventById.get(eventId);
+  const matches = event && event.bet_mode === 'picks' ? couponMatches(event) : null;
+  if (!matches) throw Object.assign(new Error('Spelet är ingen tipsrad'), { statusCode: 404 });
+  if (event.status === 'finished') throw Object.assign(new Error('Spelet är avgjort – öppna det igen för att rätta om'), { statusCode: 400 });
+  if (event.status === 'cancelled') throw Object.assign(new Error('Spelet är avbrutet'), { statusCode: 400 });
+  const match = matches.find(m => m.no === Number(matchNo));
+  if (!match) throw Object.assign(new Error('Matchen finns inte'), { statusCode: 400 });
+  const value = sign === null || sign === '' ? null : String(sign).toUpperCase();
+  if (value !== null && value !== 'VOID' && !match.options[value]) {
+    throw Object.assign(new Error(value === 'X' ? 'Den här matchen kan inte sluta oavgjort' : 'Välj 1, X, 2 eller struken'), { statusCode: 400 });
+  }
+  const own = new Set(Object.values(match.options));
+  const result = parseIds(event.pick_result).filter(id => !own.has(id));
+  if (value && value !== 'VOID') result.push(match.options[value]);
+  const voided = parseIds(event.void_matches).map(Number).filter(n => n !== match.no);
+  if (value === 'VOID') voided.push(match.no);
+  const locks = event.status === 'open' && value !== null;
+  db.transaction(() => {
+    db.prepare('UPDATE events SET pick_result = ?, void_matches = ? WHERE id = ?')
+      .run(JSON.stringify(result), JSON.stringify(voided), eventId);
+    if (locks) stmts.updateEventStatus.run('locked', eventId);
+  })();
+  return { locked: locks, matches: couponMatches(stmts.getEventById.get(eventId)) };
 }
 
 // Place or change a tip: the first tip enters the person with the fixed stake
@@ -1548,6 +1639,11 @@ export function setEventPicks(eventId, user, picks) {
   const chosen = [...new Set((Array.isArray(picks) ? picks : []).map(String))];
   if (chosen.length !== event.pick_count || chosen.some(id => !options.has(id))) {
     throw Object.assign(new Error(`Välj exakt ${event.pick_count}`), { statusCode: 400 });
+  }
+  // A coupon: exactly one sign in every match
+  const matchOf = new Map(stmts.getPlayersByEvent.all(eventId).filter(p => p.match_no).map(p => [p.id, p.match_no]));
+  if (matchOf.size && new Set(chosen.map(id => matchOf.get(id))).size !== event.pick_count) {
+    throw Object.assign(new Error('Välj ett tecken i varje match'), { statusCode: 400 });
   }
   const existing = db.prepare('SELECT id FROM players WHERE event_id = ? AND is_entry = 1 AND entry_user_id = ?').get(eventId, user.id);
   const tx = db.transaction(() => {
@@ -1573,22 +1669,42 @@ export function scorePickGame(eventId, resultIds) {
   if (!event || result.length !== event.pick_count || result.some(id => !options.has(id))) {
     throw Object.assign(new Error(`Välj exakt ${event?.pick_count || ''} som blev rätt`.trim()), { statusCode: 400 });
   }
+  const scores = pickWinners(eventId, result);
+  db.prepare('UPDATE events SET pick_result = ? WHERE id = ?').run(JSON.stringify(result), eventId);
+  return scores;
+}
+
+// Most correct takes the pot (shared on a tie); nobody right means everyone gets their stake back
+function pickWinners(eventId, result) {
   const entries = getEventPicks(eventId).map(e => ({ ...e, correct: e.picks.filter(id => result.includes(id)).length }));
   if (entries.length === 0) {
     throw Object.assign(new Error('Ingen har tippat – avbryt spelet i stället'), { statusCode: 400 });
   }
   const best = Math.max(...entries.map(e => e.correct));
   const winners = best === 0 ? entries : entries.filter(e => e.correct === best);
-  db.prepare('UPDATE events SET pick_result = ? WHERE id = ?').run(JSON.stringify(result), eventId);
   return { winnerIds: winners.map(e => e.playerId), entries, best, refund: best === 0 };
+}
+
+// A coupon is scored from the results set match by match; every match needs one first
+export function scoreCouponGame(eventId) {
+  const event = stmts.getEventById.get(eventId);
+  const matches = event ? couponMatches(event) : null;
+  if (!matches) throw Object.assign(new Error('Spelet är ingen tipsrad'), { statusCode: 404 });
+  const open = matches.filter(m => !m.result).length;
+  if (open) throw Object.assign(new Error(`Rätta alla matcher först – ${open} kvar`), { statusCode: 400 });
+  return pickWinners(eventId, parseIds(event.pick_result));
 }
 
 export function reopenEvent(eventId) {
   const event = stmts.getEventById.get(eventId);
-  const newStatus = event && (event.was_finished || event.status === 'finished') ? 'locked' : 'open';
+  // A coupon keeps the results set match by match (they are corrected one by one), and
+  // with any result known its tips stay closed
+  const coupon = event ? couponMatches(event) : null;
+  const known = coupon ? coupon.some(m => m.result) : false;
+  const newStatus = event && (event.was_finished || event.status === 'finished' || known) ? 'locked' : 'open';
   stmts.resetEvent.run(newStatus, eventId);
   if (newStatus === 'open') stmts.updateEventClosesAt.run(null, eventId);
-  db.prepare('UPDATE events SET pick_result = NULL WHERE id = ?').run(eventId);
+  if (!coupon) db.prepare('UPDATE events SET pick_result = NULL WHERE id = ?').run(eventId);
   return newStatus;
 }
 
@@ -2377,6 +2493,10 @@ export function getFullTournament(idOrCode) {
       winnerName,
       players: players.filter(p => !p.is_entry).map(p => ({ id: p.id, name: p.name })),
       pickCount: e.bet_mode === 'picks' ? e.pick_count : undefined,
+      ...(e.bet_mode === 'picks' && players.some(p => p.match_no) ? (() => {
+        const matches = couponMatches(e, players);
+        return { coupon: { matchCount: matches.length, decided: matches.filter(m => m.result).length, matches: matches.map(m => ({ home: m.home, away: m.away })) } };
+      })() : {}),
       totalPool,
       betCount,
       isSideBet: !!e.is_side_bet,

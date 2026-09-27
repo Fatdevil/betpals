@@ -1,4 +1,4 @@
-import { getEvent, getEventQR, placeBet, setEventPicks, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent, setEventResultUrl } from '../api.js';
+import { getEvent, getEventQR, placeBet, setEventPicks, markBetPaid, connectWebSocket, disconnectWebSocket, onWebSocketMessage, getTournament, boostEvent, updateEventDeadline, lockEvent, reopenEvent, setEventResultUrl, setCouponResult } from '../api.js';
 import { formatCurrency, formatDate, formatTime, formatOdds, statusLabel, statusBadgeClass, showToast, launchConfetti, escapeHtml, sanitizeUrl, safeImageSrc, formatDeadline, parseDateSafe, generateIcsDataUrl, generateGoogleCalendarUrl, getAppBaseUrl, renderLoginPrompt, attachLoginPrompt, rememberReturnTo } from '../utils.js';
 import { showModal, closeModal } from '../components/modal.js';
 import { getStoredUser, isLoggedIn } from '../auth.js';
@@ -236,6 +236,9 @@ export async function renderEvent(params = {}) {
           // The dialogs read the link from the shown event, so it must not stay stale there
           if (shownEvent?.id === fresh.id) shownEvent.resultUrl = fresh.resultUrl;
           syncResultLink(fresh, content.querySelector('.game-links'));
+          // A coupon being corrected: everyone's standings follow live (a coupon being
+          // filled in is left alone, so nobody loses the signs they have not saved)
+          if (fresh.coupon && !content.querySelector('[data-coupon]')) refreshCoupon(fresh, content, code);
         }).catch(() => {});
       } else if (msg.type === 'event_deadline_updated') {
         showToast('⏰ Spelstopp uppdaterat!', 'info');
@@ -315,6 +318,218 @@ function renderPicksSection(event, { canPick, currentUser, isOpen, isFinished })
       </div>
     `}
   `;
+}
+
+// The organiser (or someone with the admin PIN) runs the game
+function hostsEvent(event, currentUser = getStoredUser()) {
+  return Boolean((currentUser && (event.creatorId === currentUser.id
+    || (event.tournamentId && tournamentCreatorById[event.tournamentId] === currentUser.id)))
+    || sessionStorage.getItem('betpals_pin'));
+}
+
+function couponView(event) {
+  const currentUser = getStoredUser();
+  const dl = event.closesAt ? formatDeadline(event.closesAt) : null;
+  const isOpen = event.status === 'open' && (!dl || !dl.isExpired);
+  return {
+    currentUser,
+    isOpen,
+    isFinished: event.status === 'finished',
+    canPick: isOpen && isLoggedIn() && Boolean(currentUser?.swishNumber),
+    // Results are set until the game is settled; a settled one is reopened first
+    canCorrect: hostsEvent(event, currentUser) && event.status !== 'finished' && event.status !== 'cancelled'
+  };
+}
+
+const COUPON_SIGNS = ['1', 'X', '2'];
+
+// Tipsrad: a coupon to fill in while open; once closed, the results match by match
+// (set here by the organiser) and everyone's row, scored live
+function renderCouponSection(event, { canPick, currentUser, isOpen, isFinished, canCorrect }) {
+  const matches = event.coupon.matches;
+  const n = matches.length;
+  const decided = event.coupon.decided;
+  const entries = event.entries || [];
+  const mine = currentUser ? entries.find(e => e.userId === currentUser.id) : null;
+  const signOf = new Map();
+  matches.forEach(m => Object.entries(m.options).forEach(([sign, id]) => signOf.set(id, { no: m.no, sign })));
+  const teams = (m) => `
+    <div class="coupon-teams">
+      <span class="coupon-no">${m.no}</span>
+      <span class="coupon-names">${escapeHtml(m.home)} <span class="coupon-dash">–</span> ${escapeHtml(m.away)}</span>
+    </div>`;
+
+  const intro = `
+    <div class="game-info-card">
+      📋 Tippa <b>1, X eller 2</b> i alla ${n} matcher. <b>Flest rätt</b> tar potten (${formatCurrency(event.totalPool || 0)}), och den delas vid lika.
+      ${isOpen ? 'Andras rader visas när tippningen har stängt.' : ''}
+    </div>`;
+
+  if (canPick) {
+    const chosen = new Set(mine?.picks || []);
+    const filled = matches.filter(m => Object.values(m.options).some(id => chosen.has(id))).length;
+    return `${intro}
+      <div class="game-section-label">${mine ? 'Din rad – du kan ändra fram till spelstopp' : 'Fyll i din rad'}</div>
+      <div class="coupon" data-coupon="${n}">
+        ${matches.map(m => `
+          <div class="coupon-match">
+            ${teams(m)}
+            <div class="coupon-signs" role="group" aria-label="Match ${m.no}">
+              ${COUPON_SIGNS.map(sign => m.options[sign]
+                ? `<button type="button" class="coupon-sign${chosen.has(m.options[sign]) ? ' on' : ''}" data-match="${m.no}" data-pick="${escapeHtml(m.options[sign])}" aria-pressed="${chosen.has(m.options[sign])}">${sign}</button>`
+                : '<span class="coupon-sign is-off" aria-hidden="true"></span>').join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="pick-bar">
+        <span id="coupon-counter">${filled}/${n} tippade</span>
+        <button type="button" class="btn btn-primary" id="coupon-submit" ${filled === n ? '' : 'disabled'}>${mine ? 'Spara ändringen' : `Lägg min rad · ${formatCurrency(event.minBet)}`}</button>
+      </div>
+      ${entries.length > 0 ? `<p class="pick-who">👥 ${entries.length} har tippat: ${entries.map(e => escapeHtml(e.nickname)).join(', ')}</p>` : ''}
+      ${canCorrect ? '<button type="button" class="btn btn-secondary btn-block btn-sm" id="coupon-start-correct">✏️ Stäng tippningen och börja rätta</button>' : ''}
+    `;
+  }
+
+  const resultCell = (m) => {
+    if (canCorrect) {
+      // A match without a draw keeps its X slot, so the columns line up
+      return [...COUPON_SIGNS, 'void'].map(v => v !== 'void' && !m.options[v] ? '<span class="coupon-sign is-off" aria-hidden="true"></span>' : `
+        <button type="button" class="coupon-sign${m.result === v ? ' on' : ''}${v === 'void' ? ' is-void' : ''}" data-match="${m.no}" data-result="${v}" aria-pressed="${m.result === v}" ${v === 'void' ? 'aria-label="Struken"' : ''}>${v === 'void' ? '✕' : v}</button>
+      `).join('');
+    }
+    return `<span class="coupon-result${!m.result ? ' is-pending' : m.result === 'void' ? ' is-void' : ''}">${m.result === 'void' ? 'Struken' : m.result || 'Pågår'}</span>`;
+  };
+
+  const winners = new Set(event.winnerIds || []);
+  const best = decided > 0 ? Math.max(0, ...entries.map(e => e.correct || 0)) : 0;
+  const rows = [...entries].sort((a, b) => (b.correct ?? -1) - (a.correct ?? -1) || a.nickname.localeCompare(b.nickname));
+  const mini = (e, m) => {
+    const id = (e.picks || []).find(pid => signOf.get(pid)?.no === m.no);
+    const sign = id ? signOf.get(id).sign : '·';
+    const state = m.result === 'void' ? ' is-void' : !m.result ? '' : m.options[m.result] === id ? ' hit' : ' miss';
+    return `<span class="coupon-mini${state}">${sign}</span>`;
+  };
+
+  return `${intro}
+    <div class="game-section-label">${canCorrect ? `✏️ Rätta matcherna · ${decided}/${n}` : `Resultat · ${decided}/${n} klara`}</div>
+    ${canCorrect ? `<p class="coupon-hint">${isOpen && decided === 0
+      ? '🔒 Första rättningen stänger tippningen för alla.'
+      : 'Tryck på rätt tecken när en match är klar – ✕ om den stryks. Tryck igen för att ångra.'}</p>` : ''}
+    <div class="coupon${canCorrect ? ' is-correcting' : ''}">
+      ${matches.map(m => `
+        <div class="coupon-match${m.result === 'void' ? ' is-void' : ''}">
+          ${teams(m)}
+          <div class="coupon-signs">${resultCell(m)}</div>
+        </div>
+      `).join('')}
+    </div>
+    ${canCorrect && decided === n ? '<button type="button" class="btn btn-success btn-block" id="coupon-finish-btn" style="margin-top: 10px;">🏆 Avgör tipsraden</button>' : ''}
+
+    <div class="game-section-label">${isFinished ? 'Slutställning' : decided > 0 ? 'Ställning just nu' : `Rader (${entries.length})`}</div>
+    ${rows.length === 0 ? '<p class="pick-who">Ingen har tippat.</p>' : `
+      <div class="coupon-table">
+        <div class="coupon-trow is-key">
+          <b>Rätt rad</b>
+          <div class="coupon-minis">${matches.map(m => `<span class="coupon-mini is-key${m.result === 'void' ? ' is-void' : ''}">${m.result === 'void' ? '✕' : m.result || '·'}</span>`).join('')}</div>
+        </div>
+        ${rows.map(e => {
+          const won = isFinished && winners.has(e.playerId);
+          const leads = !isFinished && best > 0 && (e.correct || 0) === best;
+          return `
+            <div class="coupon-trow${won ? ' is-winner' : ''}${leads ? ' is-leader' : ''}${mine && e.userId === mine.userId ? ' is-me' : ''}">
+              <b>${won ? '🏆 ' : leads ? '🔥 ' : ''}${escapeHtml(e.nickname)}</b>
+              ${decided > 0 ? `<span class="coupon-score">${e.correct ?? 0} rätt</span>` : ''}
+              <div class="coupon-minis">${e.picks ? matches.map(m => mini(e, m)).join('') : '<span class="pick-mini">🔒 dold till spelstopp</span>'}</div>
+            </div>`;
+        }).join('')}
+      </div>
+    `}
+  `;
+}
+
+function refreshCoupon(event, content, code) {
+  const box = content.querySelector('#picks-container');
+  if (!box) return;
+  box.innerHTML = renderCouponSection(event, couponView(event));
+  bindCoupon(event, content, code);
+}
+
+function bindCoupon(event, content, code) {
+  const box = content.querySelector('#picks-container');
+  if (!box) return;
+  const reload = async () => {
+    const updated = await getEvent(code);
+    if (isShowing('event', code)) renderEventContent(updated, content, code);
+  };
+
+  // Filling in: one sign per match
+  const coupon = box.querySelector('[data-coupon]');
+  if (coupon) {
+    const n = Number(coupon.dataset.coupon);
+    const submit = box.querySelector('#coupon-submit');
+    const counter = box.querySelector('#coupon-counter');
+    const chosen = () => [...coupon.querySelectorAll('.coupon-sign.on')].map(b => b.dataset.pick);
+    coupon.querySelectorAll('.coupon-sign[data-pick]').forEach(btn => btn.addEventListener('click', () => {
+      const on = !btn.classList.contains('on');
+      coupon.querySelectorAll(`.coupon-sign[data-match="${btn.dataset.match}"]`).forEach(b => {
+        b.classList.toggle('on', on && b === btn);
+        b.setAttribute('aria-pressed', String(on && b === btn));
+      });
+      const count = chosen().length;
+      counter.textContent = `${count}/${n} tippade`;
+      submit.disabled = count !== n;
+    }));
+    submit?.addEventListener('click', async () => {
+      submit.disabled = true;
+      try {
+        await setEventPicks(event.id, chosen());
+        showToast('Din rad är lagd! 📋', 'success');
+        await reload();
+      } catch (err) {
+        showToast(err.message, 'error');
+        submit.disabled = false;
+      }
+    });
+    const start = box.querySelector('#coupon-start-correct');
+    start?.addEventListener('click', async () => {
+      if (!confirm('Stänga tippningen för alla och börja rätta matcherna?')) return;
+      start.disabled = true;
+      try {
+        await lockEvent(event.id, sessionStorage.getItem('betpals_pin') || '');
+        await reload();
+      } catch (err) {
+        showToast(err.message, 'error');
+        start.disabled = false;
+      }
+    });
+    return;
+  }
+
+  // Correcting: the organiser sets each match's result as it finishes
+  const buttons = [...box.querySelectorAll('.coupon-sign[data-result]')];
+  buttons.forEach(btn => btn.addEventListener('click', async () => {
+    const value = btn.classList.contains('on') ? null : btn.dataset.result;
+    // Past the deadline the tips are closed already: no need to ask
+    const stillOpen = couponView(event).isOpen && !event.coupon.decided;
+    if (value && stillOpen && !confirm('Första rättningen stänger tippningen för alla. Fortsätta?')) return;
+    buttons.forEach(b => { b.disabled = true; });
+    try {
+      const res = await setCouponResult(event.id, Number(btn.dataset.match), value, sessionStorage.getItem('betpals_pin') || '');
+      if (res.locked) {
+        await reload();
+      } else {
+        const updated = await getEvent(code);
+        if (isShowing('event', code)) refreshCoupon(updated, content, code);
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+      buttons.forEach(b => { b.disabled = false; });
+    }
+  }));
+  box.querySelector('#coupon-finish-btn')?.addEventListener('click', () => {
+    openFinishEventModal(event, { pin: sessionStorage.getItem('betpals_pin') || '', onDone: reload });
+  });
 }
 
 function bindPicks(event, content, code) {
@@ -438,9 +653,7 @@ function renderEventContent(event, content, code) {
   const hasPlayerImages = event.players.some(p => p.imageUrl);
   const loggedIn = isLoggedIn();
   const currentUser = getStoredUser();
-  const hasPinSession = !!sessionStorage.getItem('betpals_pin');
-  const isCreatorOrAdmin = (currentUser && (event.creatorId === currentUser.id
-    || (event.tournamentId && tournamentCreatorById[event.tournamentId] === currentUser.id))) || hasPinSession;
+  const isCreatorOrAdmin = hostsEvent(event, currentUser);
 
   const isSelf = event.betMode === 'self';
   const isPicks = event.betMode === 'picks';
@@ -519,7 +732,9 @@ function renderEventContent(event, content, code) {
       ` : ''}
 
       ${isPicks ? `
-        <div id="picks-container">${renderPicksSection(event, { canPick, currentUser, isOpen, isFinished })}</div>
+        <div id="picks-container">${event.coupon
+          ? renderCouponSection(event, couponView(event))
+          : renderPicksSection(event, { canPick, currentUser, isOpen, isFinished })}</div>
       ` : `
       <!-- Options: tap one to open the bet slip -->
       <div class="game-section-label">${canBet ? (myBets.length > 0 ? 'Lägg ett bet till' : 'Välj ditt tips') : isSelf ? 'Deltagare' : 'Tips & odds'}</div>
@@ -570,12 +785,12 @@ function renderEventContent(event, content, code) {
             <span class="game-host-hint">${isLockedOrExpired ? 'Avgör matchen' : 'Avgör · Boosta · Stäng'} ›</span>
           </summary>
           <div class="game-host-actions">
-            <button type="button" class="btn btn-success btn-sm" id="creator-finish-btn">🏆 Avgör matchen</button>
+            <button type="button" class="btn btn-success btn-sm" id="creator-finish-btn">🏆 ${event.coupon ? 'Avgör tipsraden' : 'Avgör matchen'}</button>
             ${isOpen ? `
               <button type="button" class="btn btn-primary btn-sm" id="creator-boost-btn">🚀 Boosta spelet</button>
               <button type="button" class="btn btn-secondary btn-sm" id="creator-lock-btn">🔒 Stäng bettning nu</button>
             ` : ''}
-            ${isLockedOrExpired ? `
+            ${isLockedOrExpired && !(event.coupon?.decided > 0) ? `
               <button type="button" class="btn btn-secondary btn-sm" id="creator-reopen-btn">🔓 Öppna bettning</button>
             ` : ''}
             <button type="button" class="btn btn-secondary btn-sm" id="creator-deadline-btn">⏰ Ändra spelstopp</button>
@@ -851,7 +1066,8 @@ function renderEventContent(event, content, code) {
     }
   });
 
-  bindPicks(event, content, code);
+  if (event.coupon) bindCoupon(event, content, code);
+  else bindPicks(event, content, code);
 
   document.getElementById('creator-finish-btn')?.addEventListener('click', () => {
     openFinishEventModal(event, {

@@ -2507,6 +2507,23 @@ app.post('/api/events/:id/picks', requireAuth, (req, res) => {
   }
 });
 
+// A coupon is corrected match by match as the matches finish; everyone sees the standings live
+app.put('/api/events/:id/coupon-result', (req, res) => {
+  const event = db.getEventById(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Spelet hittades inte' });
+  if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  try {
+    const out = db.setCouponResult(event.id, req.body?.match, req.body?.result ?? null);
+    if (out.locked) broadcastToEvent(event.share_code, { type: 'event_locked', eventCode: event.share_code });
+    broadcastToEvent(event.share_code, { type: 'event_updated', eventCode: event.share_code });
+    const t = event.tournament_id ? db.getTournamentById(event.tournament_id) : null;
+    if (t) broadcastToEvent(t.share_code, { type: 'tournament_updated', tournamentCode: t.share_code });
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
 // ── Helper for public HTTPS base URL ────────────────
 function getPublicBaseUrl(req) {
   let base = req.query?.baseUrl;
@@ -2569,6 +2586,7 @@ app.post('/api/events/:id/players', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  if (db.isCouponEvent(event.id)) return res.status(400).json({ error: 'En tipsrads matcher kan inte ändras – skapa en ny tipsrad' });
 
   const cleanName = (name || '').trim();
   if (!cleanName) return res.status(400).json({ error: 'Spelarnamn krävs' });
@@ -2613,6 +2631,7 @@ app.delete('/api/events/:id/players/:playerId', (req, res) => {
   const event = db.getEventById(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event hittades inte' });
   if (!verifyEventAdmin(req, event)) return res.status(403).json({ error: 'Ingen behörighet' });
+  if (db.isCouponEvent(event.id)) return res.status(400).json({ error: 'En tipsrads matcher kan inte ändras – skapa en ny tipsrad' });
 
   const player = db.getPlayerById(req.params.playerId);
   if (!player || player.event_id !== event.id) {
@@ -2986,7 +3005,7 @@ app.post('/api/events/:id/finish', (req, res) => {
   let pickScores = null;
   if (event.bet_mode === 'picks') {
     try {
-      pickScores = db.scorePickGame(event.id, req.body.resultIds);
+      pickScores = db.isCouponEvent(event.id) ? db.scoreCouponGame(event.id) : db.scorePickGame(event.id, req.body.resultIds);
     } catch (err) {
       return res.status(err.statusCode || 400).json({ error: err.message });
     }
@@ -3527,7 +3546,13 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
   }
 
   const { name, players, linkedRoundId, betAmount, imageUrl, closesAt } = req.body;
-  const betMode = ['open', 'self', 'picks'].includes(req.body.betMode) ? req.body.betMode : 'open';
+  // A "Tipsrad" is a pick game over matches: one sign per match, most correct takes the pot
+  const isCoupon = req.body.betMode === 'coupon';
+  const betMode = isCoupon ? 'picks' : ['open', 'self', 'picks'].includes(req.body.betMode) ? req.body.betMode : 'open';
+  const couponMatches = isCoupon ? db.cleanCouponMatches(req.body.matches) : null;
+  if (isCoupon && !couponMatches) {
+    return res.status(400).json({ error: 'En tipsrad har 2–13 matcher med två olika namn i varje' });
+  }
   const finalName = (name || '').trim().slice(0, 120);
   if (!finalName || finalName.length < 2) {
     return res.status(400).json({ error: 'Ett namn krävs (minst 2 tecken)' });
@@ -3541,12 +3566,12 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     .map(p => (typeof p === 'string' ? p : (p?.name || '')).trim())
     .filter(Boolean))];
 
-  if (cleanPlayers.length < 2) {
+  if (cleanPlayers.length < 2 && !isCoupon) {
     return res.status(400).json({ error: 'Minst 2 deltagare krävs för ett sido-spel' });
   }
   // Pick N: choose fewer than there are options, or everyone would be right
   const pickCount = Math.round(Number(req.body.pickCount) || 0);
-  if (betMode === 'picks' && !(pickCount >= 1 && pickCount < cleanPlayers.length)) {
+  if (betMode === 'picks' && !isCoupon && !(pickCount >= 1 && pickCount < cleanPlayers.length)) {
     return res.status(400).json({ error: `Antal att välja måste vara 1–${cleanPlayers.length - 1}` });
   }
 
@@ -3594,9 +3619,10 @@ app.post('/api/tournaments/:id/sidebets', (req, res) => {
     closesAt: validClosesAt
   };
 
-  const playerData = cleanPlayers.map(p => ({ id: generateId(), name: p }));
+  const playerData = isCoupon ? [] : cleanPlayers.map(p => ({ id: generateId(), name: p }));
   db.createEvent(eventData, playerData);
-  if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
+  if (isCoupon) db.addCouponOptions(eventId, couponMatches);
+  else if (betMode === 'picks') db.setEventPickCount(eventId, pickCount);
   if (validClosesAt && req.body.remindBeforeMin) db.setEventReminder(eventId, req.body.remindBeforeMin);
   if (req.body.resultUrl) db.setEventResultUrl(eventId, req.body.resultUrl);
 

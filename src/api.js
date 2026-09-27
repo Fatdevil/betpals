@@ -264,6 +264,9 @@ export const getActiveEvent = () =>
   request('/events/active');
 export const setEventPicks = (id, picks) =>
   request(`/events/${id}/picks`, { method: 'POST', body: { picks } });
+// A coupon's result for one match: '1' / 'X' / '2', 'void' when struck, null to clear
+export const setCouponResult = (id, match, result, pin) =>
+  request(`/events/${id}/coupon-result`, { method: 'PUT', body: { match, result, pin } });
 export const finishPickGame = (id, resultIds, pin, winnerImageUrl = null) =>
   request(`/events/${id}/finish`, { method: 'POST', body: { resultIds, pin, winnerImageUrl } });
 export const cancelEvent = (id, pin) =>

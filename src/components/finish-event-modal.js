@@ -1,6 +1,6 @@
 // ── Settle a game: pick the winner (or several for a shared win) ─
 // Used from the game page's organiser panel and from the admin list.
-import { finishEvent, finishPickGame, readEventResult } from '../api.js';
+import { finishEvent, finishPickGame, readEventResult, getEvent } from '../api.js';
 import { showToast, launchConfetti, escapeHtml, safeImageSrc, sanitizeUrl } from '../utils.js';
 import { showModal, closeModal } from './modal.js';
 import { t } from '../i18n.js';
@@ -55,6 +55,7 @@ function photoReader(event, pin, btn, apply) {
 }
 
 export function openFinishEventModal(event, { pin = '', onDone = null } = {}) {
+  if (event.betMode === 'picks' && event.coupon) return openCouponFinishModal(event, { pin, onDone });
   if (event.betMode === 'picks') return openPickResultModal(event, { pin, onDone });
   const stillOpen = event.status === 'open';
 
@@ -325,6 +326,54 @@ function openPickResultModal(event, { pin = '', onDone = null } = {}) {
       onDone?.(result);
     } catch (err) {
       busy = false;
+      save.disabled = false;
+      showToast(err.message, 'error');
+    }
+  });
+}
+
+// Tipsrad: the results are set match by match on the game page; this pays out the pot.
+// Read fresh, since results may have been set from another phone.
+async function openCouponFinishModal(stale, { pin = '', onDone = null } = {}) {
+  let event;
+  try {
+    event = await getEvent(stale.shareCode || stale.id);
+  } catch (err) {
+    return showToast(err.message, 'error');
+  }
+  const matches = event.coupon?.matches || [];
+  const left = matches.filter(m => !m.result).length;
+  if (left > 0) {
+    return showToast(`Rätta alla matcher först – ${left} kvar`, 'info');
+  }
+  const entries = event.entries || [];
+  if (entries.length === 0) {
+    return showToast('Ingen har tippat – avbryt spelet i stället', 'info');
+  }
+  const best = Math.max(...entries.map(e => e.correct || 0));
+  const leaders = best > 0 ? entries.filter(e => (e.correct || 0) === best) : [];
+  const pot = event.totalPool || 0;
+  showModal('📋 Avgör tipsraden', `
+    <p class="text-secondary mb-sm">Alla ${matches.length} matcher i <strong>${escapeHtml(event.name)}</strong> är rättade.</p>
+    <div class="coupon-finish-result">
+      ${leaders.length === 0
+        ? '<b>Ingen hade något rätt</b><span>Alla får tillbaka sin insats.</span>'
+        : `<b>🏆 ${leaders.map(e => escapeHtml(e.nickname)).join(' & ')}</b>
+           <span>${best} rätt · ${leaders.length > 1 ? `delar ${pot} kr` : `tar ${pot} kr`}</span>`}
+    </div>
+    <button type="button" class="btn btn-primary btn-block" id="coupon-finish-save">🏆 Avgör och dela ut potten</button>
+    <p class="text-muted" style="font-size: 0.75rem; margin-top: 8px;">Potten delas ut direkt och skulderna hamnar på THE TAB.</p>
+  `);
+  const save = document.getElementById('coupon-finish-save');
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      const result = await finishPickGame(event.id, [], pin);
+      closeModal();
+      launchConfetti();
+      showToast(leaders.length === 0 ? 'Ingen hade rätt – insatserna går tillbaka' : result.isTie ? `🤝 Delad seger: ${result.winner}` : `🏆 ${result.winner} vann!`, 'success');
+      onDone?.(result);
+    } catch (err) {
       save.disabled = false;
       showToast(err.message, 'error');
     }

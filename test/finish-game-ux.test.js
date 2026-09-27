@@ -7,7 +7,7 @@ const admin = readFileSync(new URL('../src/pages/admin.js', import.meta.url), 'u
 const modal = readFileSync(new URL('../src/components/finish-event-modal.js', import.meta.url), 'utf8');
 
 test('the organiser can settle a game straight from the game page', () => {
-  assert.match(eventPage, /id="creator-finish-btn">🏆 Avgör matchen<\/button>/);
+  assert.match(eventPage, /id="creator-finish-btn">🏆 \$\{event\.coupon \? 'Avgör tipsraden' : 'Avgör matchen'\}<\/button>/);
   assert.match(eventPage, /getElementById\('creator-finish-btn'\)\?\.addEventListener\('click', \(\) => \{\s+openFinishEventModal\(event,/);
 });
 

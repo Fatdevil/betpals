@@ -4991,6 +4991,121 @@ button.notif-item {
 .pick-row-picks { display: flex; flex-wrap: wrap; gap: 5px; }
 .pick-mini { font-size: 0.74rem; padding: 3px 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); color: var(--text-secondary); }
 .pick-mini.hit { background: rgba(52, 211, 153, 0.18); color: #34d399; font-weight: 700; }
+/* Tipsrad (coupon): one sign per match */
+.coupon { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.coupon-match {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+.coupon-match.is-void .coupon-teams { opacity: 0.5; text-decoration: line-through; }
+/* The names get at least 160px; with less room the signs move below them */
+.coupon-teams { flex: 1 1 160px; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 0.86rem; font-weight: 700; }
+.coupon-no {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+/* Long names wrap rather than being cut to "Max…" */
+.coupon-names { min-width: 0; line-height: 1.25; overflow-wrap: break-word; }
+.coupon-dash { color: var(--text-muted); }
+.coupon-signs { flex-shrink: 0; display: flex; gap: 5px; margin-left: auto; }
+.coupon-sign {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #fff);
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.coupon-sign.on { background: var(--gold); border-color: var(--gold); color: #111; }
+.coupon-sign.is-off { visibility: hidden; cursor: default; }
+.coupon-sign:disabled { opacity: 0.5; }
+.coupon.is-correcting .coupon-sign { width: 36px; height: 36px; font-size: 0.92rem; }
+.coupon.is-correcting .coupon-sign.on { background: var(--green); border-color: var(--green); }
+.coupon-sign.is-void { color: var(--text-muted); }
+.coupon.is-correcting .coupon-sign.is-void.on { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.3); color: var(--text-primary, #fff); }
+.coupon-result { min-width: 40px; padding: 6px 10px; border-radius: 10px; text-align: center; font-weight: 800; background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.coupon-result.is-void { background: rgba(255, 255, 255, 0.06); color: var(--text-secondary); font-size: 0.78rem; }
+.coupon-result.is-pending { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); font-weight: 600; font-size: 0.78rem; }
+.coupon-hint { font-size: 0.78rem; color: var(--text-secondary); margin: -2px 0 8px; line-height: 1.35; }
+.coupon-table { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.coupon-trow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 6px 8px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+.coupon-trow b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.88rem; }
+.coupon-trow.is-key { background: transparent; border-style: dashed; }
+.coupon-trow.is-key b { color: var(--text-secondary); font-size: 0.78rem; }
+.coupon-trow.is-leader { border-color: rgba(52, 211, 153, 0.5); }
+.coupon-trow.is-winner { border-color: var(--gold); background: rgba(255, 215, 0, 0.08); }
+.coupon-trow.is-me > b::after { content: ' (du)'; color: var(--text-muted); font-weight: 600; }
+.coupon-score { font-weight: 800; color: var(--gold); font-size: 0.85rem; }
+.coupon-minis { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px; }
+.coupon-mini {
+  width: 23px;
+  height: 23px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.74rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+.coupon-mini.hit { background: rgba(52, 211, 153, 0.22); color: var(--green); }
+.coupon-mini.miss { background: rgba(248, 113, 113, 0.12); color: var(--red); opacity: 0.8; }
+.coupon-mini.is-void { opacity: 0.35; text-decoration: line-through; }
+.coupon-mini.is-key { background: transparent; border: 1px dashed var(--border-glass); color: var(--text-primary, #fff); }
+.coupon-finish-result { display: flex; flex-direction: column; gap: 2px; padding: 12px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--gold); background: rgba(255, 215, 0, 0.08); }
+.coupon-finish-result b { font-size: 1.05rem; }
+.coupon-finish-result span { font-size: 0.82rem; color: var(--text-secondary); }
+.ng-matches { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.ng-match { display: flex; align-items: center; gap: 5px; }
+.ng-match .ng-input { flex: 1; min-width: 0; padding-left: 10px; padding-right: 8px; }
+.ng-match-no { flex-shrink: 0; width: 16px; text-align: center; font-size: 0.75rem; font-weight: 800; color: var(--text-muted); }
+.ng-match-x, .ng-match-del {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-weight: 800;
+  cursor: pointer;
+}
+.ng-match-x { text-decoration: line-through; }
+.ng-match-x.on { text-decoration: none; border-color: var(--gold); color: var(--gold); }
+.ng-match-del { border-color: transparent; background: transparent; }
+.ng-match-del:disabled { visibility: hidden; }
+.ng-add-match[hidden] { display: none; }
 .ng-stepper { display: inline-flex; align-items: center; gap: 14px; padding: 4px; border-radius: 99px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.04); }
 .ng-stepper b { min-width: 22px; text-align: center; font-size: 1.1rem; }
 .ng-step { width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.08); color: var(--text-primary, #fff); font-size: 1.2rem; font-weight: 800; cursor: pointer; }

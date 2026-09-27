@@ -14,6 +14,7 @@ Så fungerar Malta Betting (använd exakt dessa knappnamn):
    - ⚽ Match 1 X 2 – hemma, oavgjort eller borta.
    - 👍 Ja eller nej – en snabb fråga.
    - 🎯 Välj flera – alla väljer lika många (t.ex. "Vilka 4 kommer sist?"). Flest rätt tar potten, den delas vid lika, har ingen rätt går insatserna tillbaka. Andras tips syns först efter spelstopp.
+   - 📋 Tipsrad – flera matcher (2–13), alla tippar 1, X eller 2 i varje (X kan tas bort per match, t.ex. tennis). Spelledaren rättar match för match (✕ = struken, räknas inte); första rättningen stänger tippningen och alla ser ställningen live. När alla är rättade: Avgör tipsraden. Flest rätt tar potten, delas vid lika, har ingen rätt går insatserna tillbaka.
 3. AVGÖRA: Öppna spelet → "👑 Spelledare" → "🏆 Avgör matchen" → "Välj vinnare 🏆" (kryssa flera = delad seger). Går även från Admin → "🏆 Avgör". Potten delas ut direkt.
 4. TA BORT / AVBRYTA: Ett spel utan bets kan tas bort ("🗑️ Ta bort spelet"). Har någon bettat: "🛑 Avbryt spelet" – alla insatser går tillbaka. Ett avgjort spel kan inte tas bort; det flyttas automatiskt till "✅ Avgjorda spel" längst ner på eventsidan.
 5. AVSLUTA EVENTET: När alla spel är avgjorda trycker värden "🏆 Avsluta event & kora vinnare". Då räknas allt ihop och alla får en push med vad de ska swisha eller få.
@@ -80,6 +81,15 @@ Appen frågar innan något händer. Potten delas ut direkt och skulderna hamnar 
 4. Spelledaren kryssar i vad som faktiskt hände. **Flest rätt tar potten** (delas vid lika). Har ingen rätt går insatserna tillbaka. 🏁`
   },
   {
+    id: 'coupon', label: '📋 Tipsrad',
+    keywords: ['tipsrad*', 'stryktips*', 'kupong*', 'rad!', 'matchspel', 'flera matcher', 'rätta*'],
+    answer: (n) => `📋 **Tipsrad** är som en tipskupong, ${n}: flera matcher, ett tecken per match.
+1. Eventet → **➕ Lägg till spel** → **📋 Tipsrad**. Lägg till matcherna (2–13). Tryck på **X** i en match som alltid får en vinnare, t.ex. tennis.
+2. Alla tippar **1, X eller 2** i varje match och lägger sin rad. Andras rader syns när tippningen har stängt.
+3. Spelledaren **rättar match för match** när de blir klara (✕ = struken). Första rättningen stänger tippningen, och alla ser ställningen live.
+4. När alla matcher är rättade: **🏆 Avgör tipsraden**. Flest rätt tar potten (delas vid lika). Har ingen rätt går insatserna tillbaka. 🏁`
+  },
+  {
     id: 'games', label: '➕ Lägga till spel',
     keywords: ['lägg* till spel', 'nytt spel', 'skapa spel', 'speltyp*', '1x2', 'ja eller nej', 'match', 'matchen', 'odds'],
     answer: (n) => `Nytt spel i eventet, ${n}? ⚽ Eventsidan → **➕ Lägg till spel** och välj typ:
@@ -88,6 +98,7 @@ Appen frågar innan något händer. Potten delas ut direkt och skulderna hamnar 
 - ⚽ **Match 1 X 2** – hemma, oavgjort eller borta
 - 👍 **Ja eller nej** – en snabb fråga
 - 🎯 **Välj flera** – flest rätt tar potten
+- 📋 **Tipsrad** – flera matcher 1 X 2, flest rätt tar potten
 Sätt insats och gärna ett spelstopp, så stänger bettningen av sig själv. ⏱️`
   },
   {
