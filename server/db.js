@@ -2417,7 +2417,8 @@ function waitingGameSummary(r, userId, pool) {
     if (matches) {
       const decided = matches.filter(m => m.result).length;
       const mine = decided ? getEventPicks(r.id).find(e => e.userId === userId) : null;
-      out.progress = { decided, matchCount: matches.length, correct: mine ? mine.correct : null };
+      // Only struck matches so far: no right answer yet, which is 0 right (as the coupon page says)
+      out.progress = { decided, matchCount: matches.length, correct: mine ? (mine.correct ?? 0) : null };
     }
   } else if (r.bet_mode === 'self') {
     out.kind = 'self';
