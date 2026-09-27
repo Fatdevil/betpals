@@ -2413,7 +2413,25 @@ function summarizeTournaments(tournaments, userId) {
     const openGames = rounds.filter(r => r.status === 'open'
       && (r.bet_mode || 'open') !== 'self'
       && (!r.closes_at || new Date(r.closes_at).getTime() > now));
-    const totalPool = rounds.reduce((sum, r) => sum + (stmts.getTotalPool.get(r.id).total || 0), 0);
+    const poolOf = (r) => stmts.getTotalPool.get(r.id).total || 0;
+    const totalPool = rounds.reduce((sum, r) => sum + poolOf(r), 0);
+    // Money still to be won: games not yet settled or cancelled (settled money is in "Ditt läge")
+    const livePool = rounds
+      .filter(r => r.status !== 'finished' && r.status !== 'cancelled')
+      .reduce((sum, r) => sum + poolOf(r), 0);
+    // The home card's short list: games you have not bet on first, then the ones closing soonest
+    const closesAt = (r) => (r.closes_at ? new Date(r.closes_at).getTime() : Infinity);
+    const upNext = [...openGames]
+      .sort((a, b) => Number(myBetEventIds.has(a.id)) - Number(myBetEventIds.has(b.id)) || closesAt(a) - closesAt(b))
+      .slice(0, 3)
+      .map(r => ({
+        name: r.name,
+        shareCode: r.share_code,
+        pool: poolOf(r),
+        closesAt: r.closes_at || null,
+        isPick: r.bet_mode === 'picks',
+        hasBet: myBetEventIds.has(r.id)
+      }));
     return {
       id: t.id,
       name: t.name,
@@ -2434,6 +2452,8 @@ function summarizeTournaments(tournaments, userId) {
         return parts.length + (t.creator_id && !parts.some(pt => pt.user_id === t.creator_id) ? 1 : 0);
       })(),
       totalPool,
+      livePool,
+      upNext,
       bannerCount: banners.length,
       banners: banners.map(b => ({ id: b.id, imageData: b.image_data, linkUrl: b.link_url, label: b.label }))
     };

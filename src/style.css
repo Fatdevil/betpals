@@ -4557,6 +4557,31 @@ body.betslip-open #malta-support-fab {
   color: #fff;
 }
 
+/* The event card's open games: at most three, tap one to go straight to it */
+.home-event-games { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 2px; }
+.home-game-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary, #fff);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.home-game-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.home-game-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.88rem; font-weight: 700; }
+.home-game-meta { font-size: 0.74rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-game-time { font-weight: 700; }
+.home-game-time.is-soon { color: #f59e0b; }
+.home-game-go { font-size: 0.78rem; font-weight: 800; color: var(--gold); white-space: nowrap; }
+.home-game-done { font-size: 0.74rem; font-weight: 700; color: var(--green); white-space: nowrap; }
 .home-event-action {
   display: flex;
   align-items: center;
